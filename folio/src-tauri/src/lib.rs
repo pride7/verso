@@ -1,5 +1,6 @@
 mod error;
 mod recent;
+mod terminal;
 mod vault;
 
 use std::path::PathBuf;
@@ -8,7 +9,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, State};
 
 use error::{Error, Result};
-use vault::{note::NoteContent, tree::TreeNode, NoteMeta, Vault, VaultInfo};
+use vault::{note::NoteContent, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultInfo};
 
 #[derive(Default)]
 struct AppState {
@@ -30,19 +31,33 @@ impl AppState {
 #[tauri::command]
 fn vault_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<VaultInfo> {
     let (v, info) = Vault::open(PathBuf::from(path))?;
-    recent::save(&app, &info.root);
+    recent::save_vault(&app, &info.root);
     *state.vault.lock().unwrap() = Some(v);
     Ok(info)
 }
 
-/// 启动时自动重开上次的 vault。目录被删或被移走就静默返回 None，
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Reopened {
+    vault: VaultInfo,
+    /// 上次打开的笔记，仍然存在才返回
+    last_note: Option<String>,
+}
+
+/// 启动时自动重开上次的 vault 和笔记。目录被删或被移走就静默返回 None，
 /// 让前端回到欢迎页 —— 不该拿一个「上次的路径没了」的报错拦住用户。
 #[tauri::command]
-fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<VaultInfo> {
-    let last = recent::load(&app).last_vault?;
-    let (v, info) = Vault::open(PathBuf::from(last)).ok()?;
+fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reopened> {
+    let saved = recent::load(&app);
+    let (v, vault) = Vault::open(PathBuf::from(saved.last_vault?)).ok()?;
+
+    // 笔记可能已被删除或改名，存在才恢复
+    let last_note = saved
+        .last_note
+        .filter(|rel| v.resolve(rel).map(|p| p.is_file()).unwrap_or(false));
+
     *state.vault.lock().unwrap() = Some(v);
-    Some(info)
+    Some(Reopened { vault, last_note })
 }
 
 #[tauri::command]
@@ -51,8 +66,10 @@ fn tree_list(state: State<'_, AppState>) -> Result<Vec<TreeNode>> {
 }
 
 #[tauri::command]
-fn note_read(state: State<'_, AppState>, path: String) -> Result<NoteContent> {
-    state.with_vault(|v| v.read_note(&path))
+fn note_read(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<NoteContent> {
+    let content = state.with_vault(|v| v.read_note(&path))?;
+    recent::save_note(&app, &path);
+    Ok(content)
 }
 
 #[tauri::command]
@@ -76,6 +93,47 @@ fn note_stat(state: State<'_, AppState>, path: String) -> Result<i64> {
     state.with_vault(|v| v.stat(&path))
 }
 
+/// 全量笔记清单。快速切换器在前端本地做模糊匹配 —— 每敲一个字符走一次
+/// IPC 会毁掉「三个字母直达」的手感（§2.2）。
+#[tauri::command]
+fn note_list(state: State<'_, AppState>) -> Result<Vec<NoteRef>> {
+    state.with_vault(|v| v.note_list())
+}
+
+#[tauri::command]
+fn note_rename(state: State<'_, AppState>, path: String, title: String) -> Result<String> {
+    state.with_vault(|v| v.rename_note(&path, &title))
+}
+
+#[tauri::command]
+fn note_move(
+    state: State<'_, AppState>,
+    path: String,
+    new_parent_doc: Option<String>,
+) -> Result<String> {
+    state.with_vault(|v| v.move_note(&path, new_parent_doc.as_deref()))
+}
+
+#[tauri::command]
+fn note_delete(state: State<'_, AppState>, path: String, with_children: bool) -> Result<()> {
+    state.with_vault(|v| v.delete_note(&path, with_children))
+}
+
+/// 在系统终端中打开。`path` 为空则用 vault 根目录。
+///
+/// §10.7 待定：默认该用当前笔记所在目录还是 vault 根？AI 工具通常需要看到
+/// 整个 vault 才能做跨笔记操作，所以这里默认根目录，等实际用下来再定。
+#[tauri::command]
+fn open_terminal(state: State<'_, AppState>, path: Option<String>) -> Result<()> {
+    state.with_vault(|v| {
+        let dir = match path.as_deref() {
+            Some(p) if !p.is_empty() => v.resolve(p)?,
+            _ => v.root.clone(),
+        };
+        terminal::open_at(&dir)
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -90,6 +148,11 @@ pub fn run() {
             note_write,
             note_create,
             note_stat,
+            note_list,
+            note_rename,
+            note_move,
+            note_delete,
+            open_terminal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

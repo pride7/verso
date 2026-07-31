@@ -420,6 +420,15 @@ publish_site(): { generated: number; url: string }
 
 **性能红线**：只处理 `view.visibleRanges`，绝不遍历整个文档。KaTeX 渲染结果按「公式源码字符串」做 LRU 缓存（1000 条），滚动来回时不重复渲染。
 
+**M1 实测补充 —— CM6 的一条硬约束逼出了两层架构**：
+
+跨行的 replace decoration 与块级 decoration **都不能由 ViewPlugin 产出**，只能来自 StateField（报错 `Decorations that replace line breaks may not be specified via plugins`）；而「只扫 `visibleRanges`」又只有 ViewPlugin 能做到。两者不可兼得，最终按是否跨行分工：
+
+| 层 | 负责 | 理由 |
+|---|---|---|
+| StateField | 跨行的块级公式 | CM6 唯一允许的方式。这类节点数量少，全文扫描代价可接受 |
+| ViewPlugin | 行内的一切 | 只扫可视区，长文档里每次按键都不卡 |
+
 ### 4.3 需要写的 CM6 扩展清单
 
 | 扩展 | 说明 | 里程碑 |
@@ -639,7 +648,7 @@ UI 上要把这层关系呈现出来：终端面板旁常驻一个「未提交�
 | 里程碑 | 内容 | 验收标准 |
 |---|---|---|
 | **M0 地基** ✅ | Tauri 桌面壳、`VaultFs` 抽象、vault 打开、同名文件夹文档树、`.md` 原子读写、`git init` + `.gitignore`、路径越界拒绝、记住上次 vault、聚焦时 mtime 比对 | ✅ 已达成。代码在 [folio/](folio/)，20 个单测通过 |
-| **M1 编辑器** | CM6 集成、`markdownExtended` 解析器、live preview、frontmatter 折叠、**快速切换器**、面包屑、**「在系统终端中打开」快捷键**、**窗口聚焦时 mtime 比对重载** | 公式/链接/加粗在光标移开时渲染；`Ctrl+P` 三字母跳转；用 AI 改完文件回到编辑器不会覆盖掉它的修改 |
+| **M1 编辑器** ✅ | CM6 集成、`markdownExtended` 解析器、live preview、KaTeX 渲染、frontmatter 属性条、快速切换器、可点击面包屑、`[[链接]]` 跳转、树节点重命名/移动/删除、「在系统终端中打开」 | ✅ 已达成。38 前端测试 + 28 Rust 测试通过 |
 | **M2 公式** ⭐ | KaTeX 渲染、snippet 引擎、数学模式检测、tabout、默认 snippet 库、符号面板 | **盲测：抄一页教材公式，比在 Obsidian 里快** |
 | **M3 索引与 database** | SQLite 索引、文件监听、全文搜索、反向链接、`[[` 补全、`/` 命令、**database 表格/看板视图（可写）** | 5000 篇冷启动索引 < 10s，搜索 < 50ms；能用表格管理论文清单并直接改属性 |
 | **M4 打磨** | 视觉规范落地、深浅主题、命令面板、设置界面、macOS 适配 | 能作为日常主力笔记工具使用 |

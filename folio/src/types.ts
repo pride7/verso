@@ -34,3 +34,9 @@ export interface NoteMeta {
   id: string;
   title: string;
 }
+
+/** 快速切换器用的轻量条目 */
+export interface NoteRef {
+  path: string;
+  name: string;
+}

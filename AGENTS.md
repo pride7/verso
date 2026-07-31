@@ -25,7 +25,7 @@
 | 里程碑 | 版本 |
 |---|---|
 | M0 地基 | `v0.1.0` ✅ |
-| M1 编辑器 | `v0.2.0` |
+| M1 编辑器 | `v0.2.0` ✅ |
 | M2 公式 | `v0.3.0` |
 | M3 索引与 database | `v0.4.0` |
 | M4 打磨 | `v0.5.0` |
@@ -59,11 +59,27 @@ cd folio
 pnpm install
 pnpm tauri dev                 # 跑起来
 
-cd src-tauri && cargo test     # Rust 单测：树合并、frontmatter、路径越界
+cd src-tauri && cargo test     # Rust：树合并、frontmatter、重命名事务、路径越界
 pnpm exec tsc --noEmit         # 前端类型检查
+pnpm exec vitest run           # 前端：Markdown 解析器、模糊匹配
 ```
 
-**提交前这两条都要过。**
+**提交前这三条都要过。**
+
+### ⚠️ 不要用 `cargo check`
+
+这台机器开着 **Smart App Control**（`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy`
+的 `VerifiedAndReputablePolicyState = 1`），它会拦截新编译出的、没有信誉记录的
+未签名可执行文件。
+
+`cargo check` 与 `cargo build` 的 fingerprint 不同，会为 `libgit2-sys` 生成一个
+**全新的** `build-script-build.exe`，随即被拦，报
+「应用程序控制策略已阻止此文件 (os error 4551)」。
+
+`cargo test` / `cargo build` 复用已经成功执行过的构建脚本产物，不受影响 ——
+**用它们代替 `cargo check`**。若 `cargo clean` 之后连 build 也被拦，那才需要
+跟作者讨论（关闭 Smart App Control 是不可逆的，关掉后不重装 Windows 就开不回来，
+这个决定不该由 agent 做）。
 
 ### Windows 工具链的坑
 
@@ -114,10 +130,25 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 - 只在作者要求时提交或推送
 - 不要跳过 hook（`--no-verify`）
 
+## CodeMirror 6 的两条硬约束
+
+写 live preview 时会撞上，先知道能省很多时间（`src/editor/livePreview.ts` 里有详解）：
+
+1. **跨行的 replace decoration 和块级 decoration 都不能由 ViewPlugin 产出**，
+   只能来自 StateField。报错是 `Decorations that replace line breaks may not be
+   specified via plugins`。
+2. 而「只扫 `view.visibleRanges`」的性能优化**只有 ViewPlugin 能做到**。
+
+两者不可兼得，所以按是否跨行分工：跨行块级公式走 StateField（数量少，全文扫描
+可接受），行内的一切走 ViewPlugin（只扫可视区）。
+
 ## 当前状态
 
-**v0.1.0 — M0 地基已完成。** 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
+**v0.2.0 — M1 编辑器已完成。** 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
 
-下一步是 M1 编辑器（CodeMirror 6 + live preview + 快速切换器）。但要记住
-**M2 才是这个项目的成败点** —— 「抄一页教材公式比 Obsidian 快」的盲测过不了，
-前面做得再精致也没有意义。M1 不要在细节上恋战。
+下一步是 **M2 公式输入**，也是**整个项目的成败点**：snippet 引擎、数学模式检测、
+tabout、默认 snippet 库、符号面板。验收是盲测 ——「抄一页教材公式，比在 Obsidian
+里快」。过不了就该停下来重新想，而不是继续往后做。
+
+M1 已经把地基铺好了：`mathContextAt()`（`src/editor/index.ts`）走语法树判断光标
+是否在公式内，正是 §5.2 要求的实现，M2 的 snippet 引擎直接用。

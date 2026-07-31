@@ -12,6 +12,10 @@ use tauri::{AppHandle, Manager};
 #[serde(rename_all = "camelCase")]
 pub struct Recent {
     pub last_vault: Option<String>,
+    /// 上次打开的笔记（vault 相对路径）。重启后回到原处，
+    /// 否则每次启动都要重新找回自己在写的那篇。
+    #[serde(default)]
+    pub last_note: Option<String>,
 }
 
 fn recent_path(app: &AppHandle) -> Option<PathBuf> {
@@ -26,16 +30,29 @@ pub fn load(app: &AppHandle) -> Recent {
         .unwrap_or_default()
 }
 
-/// 尽力而为：写不进去不该让打开 vault 这件事失败。
-pub fn save(app: &AppHandle, vault_root: &str) {
+/// 尽力而为：写不进去不该让打开 vault / 打开笔记这些事失败。
+fn store(app: &AppHandle, data: &Recent) {
     let Some(path) = recent_path(app) else { return };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let data = Recent {
-        last_vault: Some(vault_root.to_string()),
-    };
-    if let Ok(json) = serde_json::to_string_pretty(&data) {
+    if let Ok(json) = serde_json::to_string_pretty(data) {
         let _ = std::fs::write(path, json);
     }
+}
+
+pub fn save_vault(app: &AppHandle, vault_root: &str) {
+    let mut cur = load(app);
+    // 换了 vault，上一个 vault 里的笔记路径就没有意义了
+    if cur.last_vault.as_deref() != Some(vault_root) {
+        cur.last_note = None;
+    }
+    cur.last_vault = Some(vault_root.to_string());
+    store(app, &cur);
+}
+
+pub fn save_note(app: &AppHandle, note_rel: &str) {
+    let mut cur = load(app);
+    cur.last_note = Some(note_rel.to_string());
+    store(app, &cur);
 }

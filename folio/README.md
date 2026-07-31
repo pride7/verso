@@ -2,7 +2,7 @@
 
 本地优先、排版考究、公式输入极快的笔记软件。设计文档见 [../DESIGN.md](../DESIGN.md)。
 
-当前进度：**M0 地基**。
+当前进度：**M1 编辑器**（v0.2.0）。
 
 ## 跑起来
 
@@ -34,11 +34,27 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 ## 测试
 
 ```bash
-cd src-tauri && cargo test    # vault 逻辑：同名文件夹合并、frontmatter、路径越界
+cd src-tauri && cargo test    # vault 逻辑：树合并、frontmatter、重命名事务、路径越界
 pnpm exec tsc --noEmit        # 前端类型检查
+pnpm exec vitest run          # Markdown 解析器、模糊匹配
 ```
 
-## M0 做了什么
+**不要用 `cargo check`** —— Smart App Control 会拦它新生成的构建脚本二进制。
+原因见 [../AGENTS.md](../AGENTS.md)。
+
+## 快捷键
+
+| | |
+|---|---|
+| `Ctrl+P` | 快速跳转到笔记 |
+| `Ctrl+S` | 立即保存（平时会自动保存） |
+| ``Ctrl+` `` | 在系统终端中打开 vault（用来跑 AI CLI） |
+| 右键文档树节点 | 新建子文档 / 重命名 / 移到顶层 / 删除 |
+| 拖拽文档树节点 | 移动到另一个文档之下 |
+
+## 已完成
+
+**M0 地基**（v0.1.0）
 
 | | 对应设计 |
 |---|---|
@@ -50,12 +66,25 @@ pnpm exec tsc --noEmit        # 前端类型检查
 | 路径越界拒绝（`resolve` 拒 `..`） | 前端传来的路径不可信 |
 | 窗口聚焦时比对 mtime，检测外部修改 | §7.4 —— 用 AI 改完文件回来不能覆盖掉它 |
 
-## M0 没做（有意的）
+**M1 编辑器**（v0.2.0）
 
-- 编辑器就是个 `<textarea>`。CodeMirror 6 + live preview 是 **M1**（§4）
-- 没有搜索、没有索引、没有反向链接 —— **M3**
-- 没有公式渲染 —— **M2**，也是整个项目的成败点
-- 重命名、移动、删除节点还没做 —— §2.1 那张表列了全部边界情况，M1 补
+| | 对应设计 |
+|---|---|
+| `markdownExtended` 解析器（公式/链接/嵌入/标签/高亮/callout） | §2.4、§5.2 |
+| Live preview：光标移开渲染、移进露源码 | §4.2 |
+| KaTeX 渲染 + LRU 缓存 | §4.2、§5.3 |
+| frontmatter 属性条 | §2.3 |
+| 快速切换器 `Ctrl+P`（本地模糊匹配） | §2.2 |
+| 可点击面包屑、`[[链接]]` 跳转 | §2.2 |
+| 重命名/移动/删除（含事务与边界情况） | §2.1 |
+| `Ctrl+\`` 在系统终端打开 | §7.3 |
+
+## 还没做
+
+- **公式快速输入** —— snippet 引擎、tabout、符号面板。这是 **M2**，也是整个项目的成败点
+- 搜索、索引、反向链接、database 视图 —— **M3**
+- callout 外观、代码块语言高亮、图片嵌入 —— **M4**
+- git 同步、内嵌终端 —— **M5**；移动端 —— **M6**；发布 —— **M7**
 
 ## 目录
 
@@ -63,19 +92,32 @@ pnpm exec tsc --noEmit        # 前端类型检查
 src-tauri/src/
 ├── error.rs          错误类型 + 序列化给前端
 ├── lib.rs            Tauri command 注册
+├── recent.rs         记住上次的 vault 与笔记
+├── terminal.rs       在系统终端中打开（§7.3 方案 A）
 └── vault/
     ├── fs.rs         VaultFs trait + DesktopFs
     ├── tree.rs       同名文件夹合并（含 FakeFs 单测）
     ├── note.rs       frontmatter 解析与序列化
+    ├── ops.rs        重命名/移动/删除，§2.1 的边界情况
     ├── git.rs        git init + .gitignore
     └── mod.rs        Vault：resolve / read / write / create
 
 src/
 ├── api.ts            IPC 封装
 ├── types.ts          与 Rust 结构对应（改一边记得改另一边）
-├── App.tsx           状态、自动保存、外部修改检测
+├── App.tsx           状态、自动保存、快捷键、外部修改检测
 ├── styles.css        §6 排版与配色的基础部分
+├── editor/
+│   ├── index.ts            CM6 组装 + mathContextAt（M2 的地基）
+│   ├── markdownExtended.ts Markdown 方言解析器
+│   ├── livePreview.ts      两层 decoration 引擎
+│   ├── widgets.ts          KaTeX widget
+│   └── theme.ts            §6 排版落到编辑器
+├── lib/fuzzy.ts      快速切换器的模糊匹配
 └── components/
-    ├── Tree.tsx
-    └── Editor.tsx
+    ├── Tree.tsx      文档树（右键菜单、拖拽）
+    ├── Editor.tsx    CM6 的 React 宿主
+    ├── Properties.tsx frontmatter 属性条
+    ├── QuickSwitcher.tsx
+    └── ErrorBoundary.tsx
 ```

@@ -1,6 +1,7 @@
 pub mod fs;
 pub mod git;
 pub mod note;
+pub mod ops;
 pub mod tree;
 
 use std::path::{Component, Path, PathBuf};
@@ -34,6 +35,15 @@ pub struct NoteMeta {
     pub path: String,
     pub id: String,
     pub title: String,
+}
+
+/// 快速切换器用的轻量条目。不含 id/时间戳 —— 那些数据量在大 vault 里
+/// 会让一次性全量传输变得昂贵，而模糊匹配只需要名字和路径。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRef {
+    pub path: String,
+    pub name: String,
 }
 
 impl Vault {
@@ -141,13 +151,7 @@ impl Vault {
     ///
     /// 有父文档时会按 §2.1 建出同名文件夹：父文档 `X.md` 的子文档放进 `X/`。
     pub fn create_note(&self, parent_doc: Option<&str>, title: &str) -> Result<NoteMeta> {
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(Error::Vault("标题不能为空".into()));
-        }
-        if let Some(bad) = title.chars().find(|c| r#"\/:*?"<>|"#.contains(*c)) {
-            return Err(Error::Vault(format!("标题不能包含字符 {bad:?}")));
-        }
+        let title = ops::validate_title(title)?;
 
         let dir_rel = match parent_doc {
             None => String::new(),

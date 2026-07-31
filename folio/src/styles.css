@@ -236,6 +236,20 @@ button {
   padding-top: 25vh;
   color: var(--muted);
 }
+.empty kbd {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 0 1px;
+}
+
+/* 拖拽移动时高亮目标节点 —— 没有这个反馈，用户不知道会掉到哪里 */
+.tree-row.is-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 
 .banner {
   display: flex;
@@ -271,24 +285,179 @@ button {
   margin: 0 6px;
   opacity: 0.5;
 }
+.breadcrumb-link {
+  color: inherit;
+  font: inherit;
+  padding: 1px 2px;
+  border-radius: 3px;
+}
+.breadcrumb-link:hover {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
 
-.editor-area {
+/* CodeMirror 的宿主。字号、行高、留白由 editor/theme.ts 里的
+   EditorView.theme 负责 —— 排版尺度集中在一处，不要两边都写。 */
+.editor-host {
   flex: 1;
+  min-height: 0;
+}
+
+/* ---------- frontmatter 属性条（§2.3） ---------- */
+
+.props {
+  margin: 0 0 14px;
+  font-size: 12px;
+}
+.props-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
+  padding: 4px 2px;
+  color: var(--muted);
+  border-radius: 5px;
+}
+.props-toggle:hover {
+  background: color-mix(in oklch, var(--muted) 10%, transparent);
+}
+.props-caret {
+  font-size: 9px;
+  opacity: 0.7;
+}
+.props-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.props-tag {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.props-count {
+  opacity: 0.65;
+}
+.props-list {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--border);
+}
+.props-row {
+  display: flex;
+  gap: 12px;
+  padding: 2px 0;
+}
+.props-row dt {
+  min-width: 5.5em;
+  color: var(--muted);
+}
+.props-row dd {
+  margin: 0;
+}
+
+/* ---------- 快速切换器（§2.2） ---------- */
+
+.qs-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, black 28%, transparent);
+  display: flex;
+  justify-content: center;
+  /* 不垂直居中：靠上放，输入时列表向下展开，视线不用来回跳 */
+  padding-top: 14vh;
+  z-index: 100;
+}
+.qs {
+  width: min(560px, 90vw);
+  max-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px color-mix(in oklch, black 22%, transparent);
+  overflow: hidden;
+}
+.qs-input {
   border: none;
   outline: none;
-  resize: none;
   background: transparent;
   color: var(--text);
-  font-family: var(--font-body);
-  /* §6.1 中文比英文需要更大字号；1.5 的行高对中文过于拥挤 */
-  font-size: 16.5px;
-  line-height: 1.75;
-  padding: 0 0 40vh; /* 底部留白：写到最后一行时不用贴着窗口底 */
-  tab-size: 2;
+  font: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
 }
-.editor-area::placeholder {
+.qs-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.qs-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.qs-item.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+.qs-name {
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+.qs-hit {
+  color: var(--accent);
+  font-weight: 650;
+}
+.qs-path {
+  margin-left: auto;
+  font-size: 11px;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qs-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- 右键菜单 ---------- */
+
+.ctx {
+  position: fixed;
+  z-index: 200;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  min-width: 148px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px color-mix(in oklch, black 20%, transparent);
+}
+.ctx button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+.ctx button:hover {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+.ctx-danger {
+  color: var(--danger);
 }
 
 /* ---------- 状态栏 ---------- */
@@ -331,4 +500,37 @@ button {
 
 .error {
   color: var(--danger);
+}
+
+/* ---------- 崩溃页 ---------- */
+
+.crash {
+  padding: 32px;
+  max-width: 900px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100vh;
+}
+.crash h1 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.crash-msg {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.crash-stack {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  margin: 0 0 12px;
 }
