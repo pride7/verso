@@ -1,4 +1,5 @@
 mod error;
+mod index;
 mod pty;
 mod recent;
 mod terminal;

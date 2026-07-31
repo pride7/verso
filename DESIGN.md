@@ -231,6 +231,17 @@ CREATE VIRTUAL TABLE notes_fts USING fts5(title, body, content='', tokenize='tri
 
 **关于中文分词**：FTS5 内置的 `unicode61` / `porter` 不切分中文，整段中文会被当成一个 token，搜索基本失效 —— 这是很多人做到一半才发现的坑。`trigram` tokenizer 做三字符切分，天然支持中文子串检索且无需词典，是不引入外部分词器时的正确选择。代价是索引体积约为原文 3 倍、不支持前缀查询。万级笔记完全可接受；真到需要词典分词的量级再换 `jieba-rs` + 自定义 tokenizer。
 
+**M3 实测补充 —— trigram 有个对中文很致命的硬限制：查询短于 3 个字符时永远匹配不到。** 而「矩阵」「线性」「函数」这些两字词恰恰是中文里最常见的搜索词。所以 `Index::search` 分两条路：
+
+| 查询长度 | 路径 | 说明 |
+|---|---|---|
+| ≥ 3 字符 | FTS5 `MATCH` + `bm25` 排序 | 走索引，快 |
+| < 3 字符 | `LIKE '%q%'` 全表扫描 | 慢一个数量级，但万级笔记的正文总量也就几 MB，实测仍在 50ms 验收线内 |
+
+LIKE 路径没有 `snippet()`，自己截取上下文并补上同样的 `<mark>` 标记，前端只需处理一种格式。用户输入里的 `%` `_` 必须转义，否则 `%` 会匹配一切。
+
+**另一处与本节原文的偏离**：schema 里写的是 `content=''`（contentless 表）。实现时改成了普通 FTS5 表 —— contentless 不支持 `snippet()`（搜索结果需要命中上下文），删除也得改用 `INSERT INTO t(t, rowid, …) VALUES('delete', …)` 的特殊语法。让 FTS 自己存一份正文，多占的空间相对 trigram 索引本身微不足道，而索引整体本就是可随时重建的派生数据。
+
 ### 2.6 database 视图 —— 核心功能，非附加功能
 
 不引入新的存储形态，全部建立在 frontmatter 之上。

@@ -30,6 +30,14 @@ thiserror = "2"
 # 避免在 Windows 上引入 openssl。M5 做同步时再打开网络特性。
 git2 = { version = "0.20", default-features = false }
 
+# 索引（§2.5）。bundled 把 SQLite 一起编进来，不依赖系统库；
+# FTS5 是全文搜索必需的。
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+# 文件监听（§2.7）。外部程序（AI CLI、git、别的编辑器）改了文件要能发现。
+notify = "8"
+# 内容哈希：mtime 不可信时的兜底（同步工具会破坏 mtime）
+blake3 = "1"
+
 # 内嵌终端（§7.3 方案 B）。WezTerm 出品，Windows 走 ConPTY。
 portable-pty = "0.9"
 # PTY 输出是原始字节，一个多字节 UTF-8 字符可能被读取边界切开。
