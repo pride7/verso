@@ -6,6 +6,11 @@ import { createExtensions } from "../editor";
 import type { NoteContent } from "../types";
 import { Properties } from "./Properties";
 
+/** 让 App 能往编辑器里塞内容（符号面板要用） */
+export interface EditorHandle {
+  insert: (text: string) => void;
+}
+
 interface Props {
   note: NoteContent;
   onChange: (body: string) => void;
@@ -13,6 +18,7 @@ interface Props {
   onFollowLink: (target: string) => void;
   breadcrumb: { name: string; path: string | null }[];
   onNavigate: (path: string) => void;
+  handleRef?: React.MutableRefObject<EditorHandle | null>;
 }
 
 export function Editor({
@@ -22,9 +28,33 @@ export function Editor({
   onFollowLink,
   breadcrumb,
   onNavigate,
+  handleRef,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+
+  // 暴露命令式入口。用 ref 而不是 props 传内容：插入是「一次动作」，
+  // 做成状态的话得额外处理「同一个符号连插两次」的去重
+  useEffect(() => {
+    if (!handleRef) return;
+    handleRef.current = {
+      insert: (text: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const sel = view.state.selection.main;
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          selection: { anchor: sel.from + text.length },
+          userEvent: "input.symbol",
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
+    };
+    return () => {
+      handleRef.current = null;
+    };
+  }, [handleRef]);
 
   // 回调放 ref：它们每次渲染都是新函数，直接进 CM6 扩展会导致
   // 每次渲染都重建整个编辑器，光标和撤销历史全没了。

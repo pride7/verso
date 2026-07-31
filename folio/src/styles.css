@@ -438,6 +438,48 @@ button {
   font-size: 13px;
 }
 
+/* ---------- 符号面板（§5.3） ---------- */
+
+.sym-list {
+  padding: 6px;
+}
+.sym-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sym-item.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+.sym-latex {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+  min-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sym-desc {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sym-trigger {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex: none;
+}
+
 /* ---------- 右键菜单 ---------- */
 
 .ctx {

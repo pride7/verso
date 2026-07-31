@@ -478,25 +478,38 @@ publish_site(): { generated: number; url: string }
 | `r` | trigger 按正则解析，`[[n]]` 引用捕获组 |
 | `w` | 要求词边界（避免 `sr` 在 `users` 中误触） |
 
+**`w` 比预想的重要得多。** M2 开发中真的踩到：在公式里写变量名 `point`，末尾的 `oint` 命中了环路积分，变成 `p\oint`；`print` 变成 `pr\int`。凡是英文词形的触发词都必须带 `w`，只有那些**故意设计成紧贴前一个 token** 的缩写例外 —— `xsr` → `x^{2}`、`Ainv` → `A^{-1}` 正是它们的用法，加了词边界反而废掉。仓库里有一条回归测试钉住了一串常见标识符（`point` `print` `cost` `variance` …），新增 snippet 忘了加 `w` 会立刻失败。
+
 **tabstop 语义**：`$0` `$1` … 为跳转点，`$0` 是展开后光标落点。Tab 依次前进；不在任何 tabstop 时，Tab 执行 **tabout** —— 跳到最近的右括号 / `$` 之外。这个小功能对手感的贡献被严重低估：写完 `\frac{a}{b}` 不需要按四次方向键。
+
+**Tab 的完整优先级**（M2 实现时定的）：
+
+1. 光标前匹配到**非自动**（无 `A`）的 snippet → 展开它
+2. 有未走完的跳转点 → 去下一个
+3. 在数学模式里 → tabout
+4. 其余 → 交回默认行为（缩进、列表）
+
+第 1 条不是可有可无的。`pmat` 与 `pmat3x3` 是前缀关系：两个都自动展开的话，打到第 5 个字符 `pmat` 就先炸了，带尺寸的那条永远轮不到。把 `pmat` 改成 Tab 触发，两者才能共存。**凡是「短触发词是长触发词前缀」的组合，短的那个都必须放弃 `A`。**
 
 ### 5.2 数学模式检测
 
-不用正则数 `$` 的个数（会被 `\$`、代码块、行内代码骗到）。正确做法：**查 syntax tree**。
+**M2 实现时修正了这一节。** 原本写的是「不要数 `$` 的个数，查语法树就对了」。前半句的理由成立，后半句不够 —— 语法树有个它自己解决不了的问题。
 
-```ts
-function inMathMode(state: EditorState, pos: number): MathContext | null {
-  const node = syntaxTree(state).resolveInner(pos, -1)
-  for (let n: SyntaxNode | null = node; n; n = n.parent) {
-    if (n.name === "InlineMath") return { kind: "inline", from: n.from, to: n.to }
-    if (n.name === "BlockMath")  return { kind: "block",  from: n.from, to: n.to }
-    if (n.name === "CodeText" || n.name === "FencedCode") return null   // 代码里不触发
-  }
-  return null
-}
-```
+**正在输入中的公式是未闭合的。** 敲下 `$` 之后、敲下配对的 `$` 之前，文档里只有一个孤零零的 `$`，解析器不会（也不该）为它建出 `InlineMath` 节点。而 snippet 恰恰要在这个时刻工作 —— 打 `$` 然后 `//`，此刻正是最需要判断「我在公式里」的时候。纯语法树方案在这里返回 null，snippet 一条都不会触发。
 
-这要求 §4.3 的 `markdownExtended` 先把 Math 节点解析出来 —— 它是整条链路的地基，第一个写。
+最终是**混合方案**：
+
+| 步骤 | 判据 | 作用 |
+|---|---|---|
+| 1 | 语法树命中 `InlineMath` / `BlockMath` | 已闭合的公式，最可靠 |
+| 2 | 语法树命中 `InlineCode` / `FencedCode` | **一定不是公式，直接否决** |
+| 3 | 本行内数未转义、且不在代码里的 `$`，奇数即在公式中 | 覆盖「正在输入」的未闭合状态 |
+
+**第 2 步是关键**：它让第 3 步的「数 `$`」变得安全。原先反对数 `$` 的理由 —— 代码里的 `$PATH`、代码块里的 `$x`、转义的 `\$` —— 前两者已被上一步挡掉，第三者在计数时按反斜杠奇偶显式处理。
+
+残留的取舍：`$5 起，精装 $20` 这类货币写法，在两个金额之间的光标处会被判成「在公式里」。这**只影响 snippet 要不要触发，不影响渲染** —— live preview 仍按语法树走，不会把那段文字渲染成公式。Obsidian 也是这个行为。
+
+这仍然要求 §4.3 的 `markdownExtended` 先把 Math 与 Code 节点解析出来 —— 它是整条链路的地基。
 
 ### 5.3 其他公式能力
 
@@ -666,7 +679,7 @@ UI 上要把这层关系呈现出来：终端面板旁常驻一个「未提交�
 |---|---|---|
 | **M0 地基** ✅ | Tauri 桌面壳、`VaultFs` 抽象、vault 打开、同名文件夹文档树、`.md` 原子读写、`git init` + `.gitignore`、路径越界拒绝、记住上次 vault、聚焦时 mtime 比对 | ✅ 已达成。代码在 [folio/](folio/)，20 个单测通过 |
 | **M1 编辑器** ✅ | CM6 集成、`markdownExtended` 解析器、live preview、KaTeX 渲染、frontmatter 属性条、快速切换器、可点击面包屑、`[[链接]]` 跳转、树节点重命名/移动/删除、「在系统终端中打开」 | ✅ 已达成。38 前端测试 + 28 Rust 测试通过 |
-| **M2 公式** ⭐ | KaTeX 渲染、snippet 引擎、数学模式检测、tabout、默认 snippet 库、符号面板 | **盲测：抄一页教材公式，比在 Obsidian 里快** |
+| **M2 公式** ⭐ | snippet 引擎（Latex Suite 兼容格式）、数学模式检测、tabstop 与 tabout、135 条默认 snippet 库、矩阵按尺寸生成、中文可搜的符号面板 | **盲测：抄一页教材公式，比在 Obsidian 里快** ← 只有人能判定，代码侧已就绪（43 个引擎测试） |
 | **M3 索引与 database** | SQLite 索引、文件监听、全文搜索、反向链接、`[[` 补全、`/` 命令、**database 表格/看板视图（可写）** | 5000 篇冷启动索引 < 10s，搜索 < 50ms；能用表格管理论文清单并直接改属性 |
 | **M4 打磨** | 视觉规范落地、深浅主题、命令面板、设置界面、macOS 适配 | 能作为日常主力笔记工具使用 |
 | **M5 同步** | `git2-rs` 集成、同步按钮与状态、自动 commit 聚合、冲突解决 UI、凭据钥匙串、版本历史、未提交改动 diff 入口<br>（~~内嵌终端~~ 已提前到 v0.2.1） | 两台桌面设备改同一个 vault 不丢数据；用 AI 改完能一眼 diff、一键回退 |

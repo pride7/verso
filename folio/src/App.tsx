@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, pickVaultFolder } from "./api";
-import { Editor } from "./components/Editor";
+import { Editor, type EditorHandle } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
+import { SymbolPanel } from "./components/SymbolPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -29,7 +30,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [symbolOpen, setSymbolOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const editorRef = useRef<EditorHandle | null>(null);
   const [termOpen, setTermOpenRaw] = useState(
     () => localStorage.getItem("folio.termOpen") === "1",
   );
@@ -269,6 +272,10 @@ export default function App() {
         // 沿用 VS Code 的肌肉记忆（§7.3）
         e.preventDefault();
         setTermOpen((v) => !v);
+      } else if (mod && e.key === "/") {
+        // §5.3 符号面板：覆盖 snippet 记不住的长尾
+        e.preventDefault();
+        setSymbolOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -395,6 +402,7 @@ export default function App() {
             onFollowLink={followLink}
             breadcrumb={breadcrumb}
             onNavigate={openPath}
+            handleRef={editorRef}
           />
         ) : (
           <div className="empty">
@@ -420,6 +428,16 @@ export default function App() {
         {note?.id && <span className="status-id">id {note.id}</span>}
         {error && <span className="error">{error}</span>}
       </footer>
+
+      {symbolOpen && (
+        <SymbolPanel
+          onInsert={(latex) => {
+            setSymbolOpen(false);
+            editorRef.current?.insert(latex);
+          }}
+          onClose={() => setSymbolOpen(false)}
+        />
+      )}
 
       {switcherOpen && (
         <QuickSwitcher

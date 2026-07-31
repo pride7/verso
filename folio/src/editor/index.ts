@@ -7,46 +7,23 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import { EditorState, type Extension } from "@codemirror/state";
+import type { Extension } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
+import { snippetEngine } from "./snippets";
 import { folioHighlighting, folioTheme } from "./theme";
+
+export { mathContextAt, type MathContext } from "./mathContext";
 
 export interface EditorCallbacks {
   onChange: (body: string) => void;
   onSaveNow: () => void;
   /** 点击 `[[链接]]` 时触发，参数是链接目标文本 */
   onFollowLink: (target: string) => void;
-}
-
-/** 光标处的数学模式上下文。M2 的 snippet 引擎靠它决定要不要触发。 */
-export interface MathContext {
-  kind: "inline" | "block";
-  from: number;
-  to: number;
-}
-
-/**
- * 判断光标是否在公式内 —— DESIGN.md §5.2。
- *
- * 走语法树而不是数 `$` 的个数：后者会被行内代码、代码块、转义 `\$` 骗到。
- * M1 先把这个函数建立起来，M2 的 snippet 引擎直接用。
- */
-export function mathContextAt(state: EditorState, pos: number): MathContext | null {
-  let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1);
-  for (; node; node = node.parent) {
-    if (node.name === "InlineMath") return { kind: "inline", from: node.from, to: node.to };
-    if (node.name === "BlockMath") return { kind: "block", from: node.from, to: node.to };
-    // 代码里不算数学模式
-    if (node.name === "CodeText" || node.name === "FencedCode" || node.name === "InlineCode") {
-      return null;
-    }
-  }
-  return null;
 }
 
 /** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
@@ -93,6 +70,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     folioHighlighting,
     livePreview,
     linkClickHandler(cb.onFollowLink),
+
+    // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
+    // 处理要先于「插入缩进」拿到这个键
+    snippetEngine(),
 
     keymap.of([
       {

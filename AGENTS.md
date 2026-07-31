@@ -28,7 +28,8 @@
 | M0 地基 | `v0.1.0` ✅ |
 | M1 编辑器 | `v0.2.0` ✅ |
 | ↳ 内嵌终端（原属 M5，提前） | `v0.2.1` ✅ |
-| M2 公式 | `v0.3.0` |
+| ↳ vault git 分支改 main | `v0.2.2` ✅ |
+| M2 公式 | `v0.3.0` ✅ |
 | M3 索引与 database | `v0.4.0` |
 | M4 打磨 | `v0.5.0` |
 | M5 同步与终端 | `v0.6.0` |
@@ -157,13 +158,29 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 `cargo test` 里的 `pty::tests::shell_starts_and_echoes_back` 会覆盖第 1 点 ——
 它自己扮演终端去应答 DSR。这个测试当初就是这么把 bug 抓出来的。
 
+## 改 snippet 时必须知道的三件事
+
+`src/editor/snippets/` 里的东西是这个项目的核心竞争力，改动前先读这三条：
+
+1. **英文词形的触发词一定要带 `w`（词边界）。** 否则在公式里写 `point`
+   会变成 `p\oint`、`print` 变成 `pr\int`。例外只有 `sr` `cb` `inv` `trn`
+   这类**故意紧贴前一个 token** 的缩写（`xsr` → `x^{2}` 正是它们的用法）。
+   `match.test.ts` 里有一条钉住 23 个常见标识符的回归测试。
+2. **短触发词是长触发词的前缀时，短的必须放弃 `A`。** `pmat` 和 `pmat3x3`
+   都自动展开的话，打到第 5 个字符就先炸了。改成 Tab 触发即可共存。
+3. **数学模式检测是混合方案，不是纯语法树。** 正在输入中的公式没有闭合的
+   `$`，语法树里根本没有 InlineMath 节点。见 `src/editor/mathContext.ts`
+   的注释和 DESIGN.md §5.2。
+
 ## 当前状态
 
-**v0.2.1 — M1 编辑器 + 内嵌终端已完成。** 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
+**v0.3.0 — M2 公式快速输入已完成（代码侧）。** 详见 [CHANGELOG.md](CHANGELOG.md)
+与 [folio/README.md](folio/README.md)。
 
-下一步是 **M2 公式输入**，也是**整个项目的成败点**：snippet 引擎、数学模式检测、
-tabout、默认 snippet 库、符号面板。验收是盲测 ——「抄一页教材公式，比在 Obsidian
-里快」。过不了就该停下来重新想，而不是继续往后做。
+⚠️ **M2 的验收标准是人来做的盲测**：「抄一页教材公式，比在 Obsidian 里快」。
+43 个引擎测试保证功能正确，但快不快只有真人敲键盘才知道。
+`test-vault/数学/公式手感盲测.md` 是为此准备的测试单。
+**在作者确认盲测通过之前，不要把 M2 当成已验收。**
 
-M1 已经把地基铺好了：`mathContextAt()`（`src/editor/index.ts`）走语法树判断光标
-是否在公式内，正是 §5.2 要求的实现，M2 的 snippet 引擎直接用。
+下一步是 **M3 索引与 database**：SQLite 索引、文件监听、全文搜索、反向链接、
+`[[` 补全、`/` 命令、可写的 database 表格与看板视图。

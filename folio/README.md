@@ -47,6 +47,9 @@ pnpm exec vitest run          # Markdown 解析器、模糊匹配
 | | |
 |---|---|
 | `Ctrl+P` | 快速跳转到笔记 |
+| `Ctrl+/` | 符号面板（中文可搜：「积分」「叉乘」「属于」） |
+| `Tab` | 公式里：下一个跳转点 → tabout 跳出括号；非自动 snippet 展开 |
+| `Shift+Tab` | 退回 snippet 起点 |
 | `Ctrl+S` | 立即保存（平时会自动保存） |
 | ``Ctrl+` `` | 开关底部终端面板（用来跑 AI CLI）。侧栏终端按钮**右键** = 调起独立的系统终端窗口 |
 | 右键文档树节点 | 新建子文档 / 重命名 / 移到顶层 / 删除 |
@@ -79,9 +82,21 @@ pnpm exec vitest run          # Markdown 解析器、模糊匹配
 | 重命名/移动/删除（含事务与边界情况） | §2.1 |
 | `Ctrl+\`` 在系统终端打开 | §7.3 |
 
+**M2 公式快速输入**（v0.3.0）
+
+| | 对应设计 |
+|---|---|
+| snippet 引擎（Latex Suite 兼容格式） | §5.1 |
+| 数学模式检测（语法树 + 计数的混合方案） | §5.2 |
+| 跳转点、tabout、Tab 触发的非自动 snippet | §5.1 |
+| 135 条默认库、矩阵按尺寸生成 | §5.4、§5.3 |
+| 符号面板 `Ctrl+/`，中文可搜 | §5.3 |
+
+⚠️ M2 的验收是**人来做的盲测**：抄一页教材公式，比在 Obsidian 里快。
+测试单见 `test-vault/数学/公式手感盲测.md`。
+
 ## 还没做
 
-- **公式快速输入** —— snippet 引擎、tabout、符号面板。这是 **M2**，也是整个项目的成败点
 - 搜索、索引、反向链接、database 视图 —— **M3**
 - callout 外观、代码块语言高亮、图片嵌入 —— **M4**
 - git 同步、内嵌终端 —— **M5**；移动端 —— **M6**；发布 —— **M7**
@@ -108,11 +123,18 @@ src/
 ├── App.tsx           状态、自动保存、快捷键、外部修改检测
 ├── styles.css        §6 排版与配色的基础部分
 ├── editor/
-│   ├── index.ts            CM6 组装 + mathContextAt（M2 的地基）
+│   ├── index.ts            CM6 组装
+│   ├── mathContext.ts      数学模式检测（§5.2 的混合方案）
 │   ├── markdownExtended.ts Markdown 方言解析器
 │   ├── livePreview.ts      两层 decoration 引擎
 │   ├── widgets.ts          KaTeX widget
-│   └── theme.ts            §6 排版落到编辑器
+│   ├── theme.ts            §6 排版落到编辑器
+│   └── snippets/           ← 项目的核心竞争力，改前先读 AGENTS.md
+│       ├── types.ts        Snippet 模型与选项标志
+│       ├── match.ts        触发词匹配、展开、tabout（纯函数）
+│       ├── defaults.ts     135 条默认库
+│       ├── tabstops.ts     跳转点状态
+│       └── index.ts        CM6 接线（transactionFilter + Tab 键）
 ├── lib/fuzzy.ts      快速切换器的模糊匹配
 └── components/
     ├── Tree.tsx      文档树（右键菜单、拖拽）
