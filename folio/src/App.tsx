@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, pickVaultFolder } from "./api";
+import { api, onVaultChanged, pickVaultFolder } from "./api";
+import { SearchPanel } from "./components/SearchPanel";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SymbolPanel } from "./components/SymbolPanel";
@@ -31,8 +32,11 @@ export default function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [symbolOpen, setSymbolOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const editorRef = useRef<EditorHandle | null>(null);
+  /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
+  const [revision, setRevision] = useState(0);
   const [termOpen, setTermOpenRaw] = useState(
     () => localStorage.getItem("folio.termOpen") === "1",
   );
@@ -252,6 +256,21 @@ export default function App() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
+  // §2.7 文件监听推来的外部修改。比「窗口聚焦时比对 mtime」更及时 ——
+  // AI 在终端里改文件时，窗口一直是聚焦的，那条路径根本不会触发。
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onVaultChanged((paths) => {
+      void refresh();
+      setRevision((v) => v + 1);
+      const cur = noteRef.current;
+      if (cur && paths.includes(cur.path)) setExternalChange(true);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, [refresh]);
+
   // 失焦立即保存（§2.7）
   useEffect(() => {
     const onBlur = () => {
@@ -276,6 +295,10 @@ export default function App() {
         // §5.3 符号面板：覆盖 snippet 记不住的长尾
         e.preventDefault();
         setSymbolOpen(true);
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
+        // §2.2 全文搜索。沿用 VS Code 的 Ctrl+Shift+F
+        e.preventDefault();
+        setSearchOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -348,6 +371,9 @@ export default function App() {
             <button onClick={() => setSwitcherOpen(true)} title="快速跳转 (Ctrl+P)">
               ⌕
             </button>
+            <button onClick={() => setSearchOpen(true)} title="全文搜索 (Ctrl+Shift+F)">
+              ⌗
+            </button>
             <button
               className={termOpen ? "is-on" : undefined}
               onClick={() => setTermOpen((v) => !v)}
@@ -403,6 +429,7 @@ export default function App() {
             breadcrumb={breadcrumb}
             onNavigate={openPath}
             handleRef={editorRef}
+            revision={revision}
           />
         ) : (
           <div className="empty">
@@ -428,6 +455,16 @@ export default function App() {
         {note?.id && <span className="status-id">id {note.id}</span>}
         {error && <span className="error">{error}</span>}
       </footer>
+
+      {searchOpen && (
+        <SearchPanel
+          onPick={(p) => {
+            setSearchOpen(false);
+            void openPath(p);
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
 
       {symbolOpen && (
         <SymbolPanel

@@ -49,6 +49,17 @@ pub struct NoteRef {
 }
 
 impl Vault {
+    /// 用共享的「自己写入」登记表打开 —— 文件监听靠它区分「我改的」和
+    /// 「外部程序改的」（§2.7）
+    pub fn open_watched(
+        root: PathBuf,
+        self_writes: std::sync::Arc<crate::watcher::SelfWrites>,
+    ) -> Result<(Self, VaultInfo)> {
+        let (mut v, info) = Self::open(root)?;
+        v.fs = Arc::new(DesktopFs::with_self_writes(self_writes));
+        Ok((v, info))
+    }
+
     pub fn open(root: PathBuf) -> Result<(Self, VaultInfo)> {
         if !root.is_dir() {
             return Err(Error::Vault(format!("不是一个目录: {}", root.display())));
@@ -71,7 +82,7 @@ impl Vault {
         Ok((
             Vault {
                 root,
-                fs: Arc::new(DesktopFs),
+                fs: Arc::new(DesktopFs::new()),
             },
             info,
         ))
@@ -217,7 +228,7 @@ mod tests {
     fn vault_at(root: &Path) -> Vault {
         Vault {
             root: root.to_path_buf(),
-            fs: Arc::new(DesktopFs),
+            fs: Arc::new(DesktopFs::new()),
         }
     }
 

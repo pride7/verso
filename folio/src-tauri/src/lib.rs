@@ -4,11 +4,12 @@ mod pty;
 mod recent;
 mod terminal;
 mod vault;
+mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use error::{Error, Result};
 use vault::{note::NoteContent, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultInfo};
@@ -16,7 +17,12 @@ use vault::{note::NoteContent, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultIn
 #[derive(Default)]
 struct AppState {
     vault: Mutex<Option<Vault>>,
+    index: Mutex<Option<index::Index>>,
     pty: pty::PtyManager,
+    /// 自己写入的路径登记表，与文件监听共享（§2.7）
+    self_writes: std::sync::Arc<watcher::SelfWrites>,
+    /// 持有它就是在监听；换 vault 时替换掉，旧的 Drop 里会停线程
+    watcher: Mutex<Option<watcher::VaultWatcher>>,
 }
 
 impl AppState {
@@ -29,13 +35,67 @@ impl AppState {
             .ok_or_else(|| Error::Vault("尚未打开任何 vault".into()))?;
         f(v)
     }
+
+    fn with_index<T>(&self, f: impl FnOnce(&index::Index) -> Result<T>) -> Result<T> {
+        let guard = self.index.lock().unwrap();
+        let i = guard
+            .as_ref()
+            .ok_or_else(|| Error::Vault("索引尚未就绪".into()))?;
+        f(i)
+    }
+
+    /// 保存 / 新建 / 删除之后同步索引。失败不该让主操作失败 ——
+    /// 索引是派生数据，最坏情况是下次打开时重建。
+    fn reindex(&self, rel: &str) {
+        let vault = self.vault.lock().unwrap();
+        let Some(v) = vault.as_ref() else { return };
+        let mut index = self.index.lock().unwrap();
+        if let Some(i) = index.as_mut() {
+            let _ = i.update_note(v, rel);
+        }
+    }
+}
+
+/// 打开 vault 之后统一做的三件事：建索引、起监听、存进 state。
+///
+/// 索引失败不阻断打开 —— 它是派生数据，没有它编辑器照样能用，
+/// 只是搜索和反向链接暂时缺席。
+fn activate(app: &AppHandle, state: &AppState, v: Vault) {
+    let root = v.root.clone();
+
+    match index::Index::open(&root).and_then(|mut i| i.rebuild(&v).map(|_| i)) {
+        Ok(i) => *state.index.lock().unwrap() = Some(i),
+        Err(e) => {
+            let _ = app.emit("index:error", e.to_string());
+            *state.index.lock().unwrap() = None;
+        }
+    }
+
+    let handle = app.clone();
+    let w = watcher::watch(&root, state.self_writes.clone(), move |paths| {
+        let st = handle.state::<AppState>();
+        {
+            let vault = st.vault.lock().unwrap();
+            let Some(v) = vault.as_ref() else { return };
+            let mut index = st.index.lock().unwrap();
+            if let Some(i) = index.as_mut() {
+                for p in &paths {
+                    let _ = i.update_note(v, p);
+                }
+            }
+        }
+        let _ = handle.emit("vault:changed", watcher::VaultChanged { paths });
+    });
+
+    *state.watcher.lock().unwrap() = w.ok();
+    *state.vault.lock().unwrap() = Some(v);
 }
 
 #[tauri::command]
 fn vault_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<VaultInfo> {
-    let (v, info) = Vault::open(PathBuf::from(path))?;
+    let (v, info) = Vault::open_watched(PathBuf::from(path), state.self_writes.clone())?;
     recent::save_vault(&app, &info.root);
-    *state.vault.lock().unwrap() = Some(v);
+    activate(&app, &state, v);
     Ok(info)
 }
 
@@ -52,14 +112,15 @@ struct Reopened {
 #[tauri::command]
 fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reopened> {
     let saved = recent::load(&app);
-    let (v, vault) = Vault::open(PathBuf::from(saved.last_vault?)).ok()?;
+    let (v, vault) =
+        Vault::open_watched(PathBuf::from(saved.last_vault?), state.self_writes.clone()).ok()?;
 
     // 笔记可能已被删除或改名，存在才恢复
     let last_note = saved
         .last_note
         .filter(|rel| v.resolve(rel).map(|p| p.is_file()).unwrap_or(false));
 
-    *state.vault.lock().unwrap() = Some(v);
+    activate(&app, &state, v);
     Some(Reopened { vault, last_note })
 }
 
@@ -77,7 +138,9 @@ fn note_read(app: AppHandle, state: State<'_, AppState>, path: String) -> Result
 
 #[tauri::command]
 fn note_write(state: State<'_, AppState>, path: String, body: String) -> Result<i64> {
-    state.with_vault(|v| v.write_note(&path, &body))
+    let mtime = state.with_vault(|v| v.write_note(&path, &body))?;
+    state.reindex(&path);
+    Ok(mtime)
 }
 
 #[tauri::command]
@@ -86,7 +149,9 @@ fn note_create(
     parent_doc: Option<String>,
     title: String,
 ) -> Result<NoteMeta> {
-    state.with_vault(|v| v.create_note(parent_doc.as_deref(), &title))
+    let meta = state.with_vault(|v| v.create_note(parent_doc.as_deref(), &title))?;
+    state.reindex(&meta.path);
+    Ok(meta)
 }
 
 /// 窗口重新获得焦点时，前端拿它比对已打开文件的 mtime。
@@ -103,9 +168,77 @@ fn note_list(state: State<'_, AppState>) -> Result<Vec<NoteRef>> {
     state.with_vault(|v| v.note_list())
 }
 
+// ------------------------------------------------------------------ 索引
+// §2.5。全文搜索、反向链接、标签。
+
+#[tauri::command]
+fn search(state: State<'_, AppState>, query: String, limit: Option<usize>) -> Result<Vec<index::SearchHit>> {
+    state.with_index(|i| i.search(&query, limit.unwrap_or(50)))
+}
+
+/// 反向链接。索引里不存正文（省空间），出处那一行的原文在这里现读。
+#[tauri::command]
+fn backlinks(state: State<'_, AppState>, path: String) -> Result<Vec<index::Backlink>> {
+    let mut links = state.with_index(|i| i.backlinks(&path))?;
+    state.with_vault(|v| {
+        for l in &mut links {
+            if let Ok(c) = v.read_note(&l.path) {
+                // frontmatter 已被剥掉，行号是相对正文的
+                l.context = c
+                    .body
+                    .lines()
+                    .nth((l.line as usize).saturating_sub(1))
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+            }
+        }
+        Ok(())
+    })?;
+    Ok(links)
+}
+
+/// 悬空链接：指向不存在的笔记。写作时用来发现打错的名字。
+#[tauri::command]
+fn dangling_links(state: State<'_, AppState>) -> Result<Vec<(String, String)>> {
+    state.with_index(|i| i.dangling_links())
+}
+
+#[tauri::command]
+fn all_tags(state: State<'_, AppState>) -> Result<Vec<(String, i64)>> {
+    state.with_index(|i| i.all_tags())
+}
+
+/// 手动重建索引。索引出问题时的兜底 —— 它是派生数据，重建总能修好。
+#[tauri::command]
+fn index_rebuild(state: State<'_, AppState>) -> Result<index::IndexStats> {
+    let vault = state.vault.lock().unwrap();
+    let v = vault
+        .as_ref()
+        .ok_or_else(|| Error::Vault("尚未打开任何 vault".into()))?;
+    let mut index = state.index.lock().unwrap();
+    let i = index
+        .as_mut()
+        .ok_or_else(|| Error::Vault("索引尚未就绪".into()))?;
+    i.rebuild(v)
+}
+
+/// 重命名/移动/删除都会改变一批文件，逐个同步索引不划算也容易漏
+/// （同名文件夹里的子文档全都换了路径）—— 直接整库重建，5000 篇也就几秒。
+fn rebuild_index(state: &AppState) {
+    let vault = state.vault.lock().unwrap();
+    let Some(v) = vault.as_ref() else { return };
+    let mut index = state.index.lock().unwrap();
+    if let Some(i) = index.as_mut() {
+        let _ = i.rebuild(v);
+    }
+}
+
 #[tauri::command]
 fn note_rename(state: State<'_, AppState>, path: String, title: String) -> Result<String> {
-    state.with_vault(|v| v.rename_note(&path, &title))
+    let new_path = state.with_vault(|v| v.rename_note(&path, &title))?;
+    rebuild_index(&state);
+    Ok(new_path)
 }
 
 #[tauri::command]
@@ -114,12 +247,16 @@ fn note_move(
     path: String,
     new_parent_doc: Option<String>,
 ) -> Result<String> {
-    state.with_vault(|v| v.move_note(&path, new_parent_doc.as_deref()))
+    let new_path = state.with_vault(|v| v.move_note(&path, new_parent_doc.as_deref()))?;
+    rebuild_index(&state);
+    Ok(new_path)
 }
 
 #[tauri::command]
 fn note_delete(state: State<'_, AppState>, path: String, with_children: bool) -> Result<()> {
-    state.with_vault(|v| v.delete_note(&path, with_children))
+    state.with_vault(|v| v.delete_note(&path, with_children))?;
+    rebuild_index(&state);
+    Ok(())
 }
 
 // ---------------------------------------------------------------- 内嵌终端
@@ -202,6 +339,11 @@ pub fn run() {
             pty_resize,
             pty_close,
             pty_active_count,
+            search,
+            backlinks,
+            dangling_links,
+            all_tags,
+            index_rebuild,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -24,7 +24,7 @@ fn setup(files: &[(&str, &str)]) -> (Tmp, Vault, Index) {
 
     let vault = Vault {
         root: dir.clone(),
-        fs: Arc::new(DesktopFs),
+        fs: Arc::new(DesktopFs::new()),
     };
     let mut index = Index::open_memory().unwrap();
     index.rebuild(&vault).unwrap();
@@ -303,7 +303,7 @@ fn indexing_is_fast_enough() {
 
     let vault = Vault {
         root: dir.clone(),
-        fs: Arc::new(DesktopFs),
+        fs: Arc::new(DesktopFs::new()),
     };
     let mut idx = Index::open_memory().unwrap();
     let stats = idx.rebuild(&vault).unwrap();

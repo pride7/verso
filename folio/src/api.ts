@@ -2,7 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import type { NoteContent, NoteMeta, NoteRef, TreeNode, VaultInfo } from "./types";
+import type {
+  Backlink,
+  IndexStats,
+  NoteContent,
+  NoteMeta,
+  NoteRef,
+  SearchHit,
+  TreeNode,
+  VaultInfo,
+} from "./types";
 
 /** Rust 侧把所有错误序列化成字符串，这里统一转成 Error 对象。 */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -54,7 +63,20 @@ export const api = {
     call<void>("pty_resize", { id, cols, rows }),
   ptyClose: (id: string) => call<void>("pty_close", { id }),
   ptyActiveCount: () => call<number>("pty_active_count"),
+
+  // —— §2.5 索引 ——
+  /** 全文搜索。≥3 字符走 FTS，更短的在 Rust 侧退回 LIKE */
+  search: (query: string, limit?: number) => call<SearchHit[]>("search", { query, limit }),
+  backlinks: (path: string) => call<Backlink[]>("backlinks", { path }),
+  /** 指向不存在笔记的链接，用来发现打错的名字 */
+  danglingLinks: () => call<[string, string][]>("dangling_links"),
+  allTags: () => call<[string, number][]>("all_tags"),
+  rebuildIndex: () => call<IndexStats>("index_rebuild"),
 };
+
+/** 外部程序（AI CLI、git、别的编辑器）改了 vault 里的文件（§2.7） */
+export const onVaultChanged = (cb: (paths: string[]) => void): Promise<UnlistenFn> =>
+  listen<{ paths: string[] }>("vault:changed", (ev) => cb(ev.payload.paths));
 
 /** PTY 输出。`data` 是 base64 的原始字节，交给 xterm 自己解 UTF-8。 */
 export const onPtyData = (cb: (e: { id: string; data: string }) => void): Promise<UnlistenFn> =>

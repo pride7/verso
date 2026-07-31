@@ -42,3 +42,26 @@ export interface NoteRef {
   path: string;
   name: string;
 }
+
+export interface SearchHit {
+  path: string;
+  title: string;
+  /** 命中上下文，已用 <mark> 标出。两条搜索路径产出的格式一致 */
+  snippet: string;
+}
+
+export interface Backlink {
+  path: string;
+  title: string;
+  /** 相对正文的行号，1 起算 */
+  line: number;
+  /** 出处那一行的原文 */
+  context: string;
+}
+
+export interface IndexStats {
+  notes: number;
+  links: number;
+  tags: number;
+  elapsedMs: number;
+}

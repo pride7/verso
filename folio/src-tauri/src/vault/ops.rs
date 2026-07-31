@@ -218,7 +218,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let v = Vault {
             root: dir.clone(),
-            fs: Arc::new(DesktopFs),
+            fs: Arc::new(DesktopFs::new()),
         };
         (Tmp(dir), v)
     }

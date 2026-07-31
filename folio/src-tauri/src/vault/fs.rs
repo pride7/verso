@@ -8,7 +8,10 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use crate::error::{Error, Result};
+use crate::watcher::SelfWrites;
 
 #[derive(Debug, Clone)]
 pub struct DirEntry {
@@ -42,7 +45,24 @@ pub trait VaultFs: Send + Sync {
     fn metadata(&self, path: &Path) -> Result<FileMeta>;
 }
 
-pub struct DesktopFs;
+#[derive(Default)]
+pub struct DesktopFs {
+    /// 写入前在这里登记，文件监听看到同一个路径就知道是自己干的（§2.7）。
+    /// 少了它，每次保存都会触发一轮「外部修改」：索引白重建，界面还闪提示。
+    pub self_writes: Option<Arc<SelfWrites>>,
+}
+
+impl DesktopFs {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_self_writes(self_writes: Arc<SelfWrites>) -> Self {
+        DesktopFs {
+            self_writes: Some(self_writes),
+        }
+    }
+}
 
 impl VaultFs for DesktopFs {
     fn read_to_string(&self, path: &Path) -> Result<String> {
@@ -50,6 +70,9 @@ impl VaultFs for DesktopFs {
     }
 
     fn write_atomic(&self, path: &Path, contents: &str) -> Result<()> {
+        if let Some(sw) = &self.self_writes {
+            sw.mark(path);
+        }
         let parent = path
             .parent()
             .ok_or_else(|| Error::Vault(format!("没有父目录: {}", path.display())))?;

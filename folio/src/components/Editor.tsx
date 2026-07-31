@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { createExtensions } from "../editor";
 import type { NoteContent } from "../types";
+import { Backlinks } from "./Backlinks";
 import { Properties } from "./Properties";
 
 /** 让 App 能往编辑器里塞内容（符号面板要用） */
@@ -19,6 +20,8 @@ interface Props {
   breadcrumb: { name: string; path: string | null }[];
   onNavigate: (path: string) => void;
   handleRef?: React.MutableRefObject<EditorHandle | null>;
+  /** vault 变化时递增，反向链接靠它重查 */
+  revision: number;
 }
 
 export function Editor({
@@ -29,6 +32,7 @@ export function Editor({
   breadcrumb,
   onNavigate,
   handleRef,
+  revision,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -118,6 +122,8 @@ export function Editor({
       <Properties frontmatter={note.frontmatter} />
 
       <div className="editor-host" ref={host} />
+
+      <Backlinks path={note.path} onOpen={onNavigate} revision={revision} />
     </div>
   );
 }
