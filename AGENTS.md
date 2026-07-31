@@ -174,13 +174,14 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 
 ## 当前状态
 
-**v0.3.0 — M2 公式快速输入已完成（代码侧）。** 详见 [CHANGELOG.md](CHANGELOG.md)
-与 [folio/README.md](folio/README.md)。
+**v0.3.0 — M2 公式快速输入已完成，盲测已通过**（作者手测）。
+详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
 
-⚠️ **M2 的验收标准是人来做的盲测**：「抄一页教材公式，比在 Obsidian 里快」。
-43 个引擎测试保证功能正确，但快不快只有真人敲键盘才知道。
-`test-vault/数学/公式手感盲测.md` 是为此准备的测试单。
-**在作者确认盲测通过之前，不要把 M2 当成已验收。**
+项目最大的风险点已经过去 —— 公式手感这一关立住了，后面都是工程量问题。
+
+默认 snippet 库仍在长期迭代中，待办记在 DESIGN.md §5.4 的表里。
+作者说「以后可以继续调」，所以**用到不顺手的地方随时可以动那份库**，
+但动之前先读上面「改 snippet 时必须知道的三件事」。
 
 下一步是 **M3 索引与 database**：SQLite 索引、文件监听、全文搜索、反向链接、
 `[[` 补全、`/` 命令、可写的 database 表格与看板视图。
