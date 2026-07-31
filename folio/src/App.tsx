@@ -359,7 +359,10 @@ export default function App() {
           </div>
         </header>
 
-        {vault.createdRepo && <p className="hint">已初始化为 git 仓库，并写入 .gitignore</p>}
+        {vault.createdRepo && (
+          <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
+        )}
+        {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
 
         <Tree
           nodes={tree}

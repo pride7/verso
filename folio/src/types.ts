@@ -18,6 +18,8 @@ export interface VaultInfo {
   name: string;
   createdRepo: boolean;
   createdGitignore: boolean;
+  /** 把早期版本建出来的空仓库从 master 迁到了 main */
+  renamedBranch: boolean;
 }
 
 export interface NoteContent {

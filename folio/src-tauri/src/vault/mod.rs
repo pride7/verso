@@ -27,6 +27,8 @@ pub struct VaultInfo {
     pub name: String,
     pub created_repo: bool,
     pub created_gitignore: bool,
+    /// 把早期版本建出来的空仓库从 master 迁到了 main
+    pub renamed_branch: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,6 +65,7 @@ impl Vault {
                 .unwrap_or_else(|| "vault".into()),
             created_repo: g.created_repo,
             created_gitignore: g.created_gitignore,
+            renamed_branch: g.renamed_branch,
         };
 
         Ok((
