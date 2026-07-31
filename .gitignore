@@ -1,0 +1,16 @@
+# 依赖与构建产物
+node_modules/
+dist/
+target/
+
+# 测试用的临时 vault（自身是 git 仓库，不能嵌进来）
+test-vault/
+
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# 系统
+.DS_Store
+Thumbs.db

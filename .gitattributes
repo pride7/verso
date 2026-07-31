@@ -1,0 +1,10 @@
+# 仓库内统一存 LF。项目以后要上 macOS / iOS / Android，
+# 行尾不统一会在跨平台协作时制造整文件 diff。
+* text=auto eol=lf
+
+# 二进制文件不要做行尾转换
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.woff2 binary

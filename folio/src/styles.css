@@ -1,0 +1,334 @@
+/* DESIGN.md §6：排版尺度与色彩。
+   M0 只落地基础部分 —— 正文字号/行高/内容限宽/单一强调色。
+   完整的视觉规范（含 Tailwind v4 的 @theme）是 M4。 */
+
+:root {
+  /* §6.2 不用纯黑纯白。深色主题用同一套色相、翻转明度，保证两套观感统一。 */
+  --bg: oklch(99% 0.004 85);
+  --surface: oklch(97% 0.005 85);
+  --text: oklch(25% 0.01 260);
+  --muted: oklch(55% 0.015 260);
+  --border: oklch(90% 0.006 260);
+  --accent: oklch(58% 0.14 250);
+  --warn: oklch(70% 0.13 70);
+  --danger: oklch(58% 0.16 25);
+
+  --font-ui: "Inter", system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "PingFang SC", "Source Han Sans SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(20% 0.008 260);
+    --surface: oklch(24% 0.009 260);
+    --text: oklch(92% 0.006 85);
+    --muted: oklch(65% 0.012 260);
+    --border: oklch(32% 0.01 260);
+    --accent: oklch(72% 0.13 250);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* ---------- 欢迎页 ---------- */
+
+.welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.welcome h1 {
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.welcome-sub {
+  color: var(--muted);
+  margin: 0 0 24px;
+}
+.btn-primary {
+  background: var(--accent);
+  color: white;
+  padding: 9px 20px;
+  border-radius: 7px;
+  font-weight: 500;
+  transition: filter 150ms ease-out; /* §6.3 动效 120-180ms */
+}
+.btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+/* ---------- 布局：§6.3 三栏，M0 先做两栏 ---------- */
+
+.app {
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  /* `1fr` 实际是 `minmax(auto, 1fr)`，那个 auto 最小值 = 内容的 min-content，
+     会被编辑区的 max-width:42rem 撑破容器 —— 横向把内容顶出窗口，
+     纵向把状态栏挤到屏幕外。`minmax(0, 1fr)` 显式取消这个最小值。 */
+  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "sidebar main"
+    "status status";
+}
+
+.sidebar {
+  grid-area: sidebar;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding-bottom: 16px;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 10px 8px 14px;
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+.vault-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-actions {
+  display: flex;
+  gap: 2px;
+}
+.sidebar-actions button {
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 5px;
+  line-height: 1;
+}
+.sidebar-actions button:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.hint {
+  margin: 0 14px 8px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ---------- 文档树（§2.1：X.md 与 X/ 是同一个节点） ---------- */
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-radius: 5px;
+  margin: 0 6px 1px;
+}
+.tree-row:hover {
+  background: var(--border);
+}
+.tree-row.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.tree-twisty {
+  width: 15px;
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 0;
+  line-height: 1;
+}
+.tree-twisty.is-empty {
+  cursor: default;
+}
+
+.tree-label {
+  flex: 1;
+  text-align: left;
+  padding: 4px 2px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-row.is-folder .tree-label {
+  color: var(--muted);
+  cursor: default;
+}
+.tree-row.is-active .tree-label {
+  font-weight: 500;
+}
+
+.tree-add {
+  flex: none;
+  color: var(--muted);
+  opacity: 0;
+  padding: 0 3px;
+  line-height: 1;
+}
+.tree-row:hover .tree-add {
+  opacity: 1;
+}
+.tree-add:hover {
+  color: var(--accent);
+}
+
+/* ---------- 编辑区 ---------- */
+
+/* .main 保持**块级**容器，不要用 flex —— 编辑区靠经典的
+   `display:block + margin-inline:auto` 居中，这条路不会出错。
+   之前用「flex 列容器 + 子项 auto margin」绕了一圈，反而把内容顶到了右边。
+   min-width:0 防止子项的 min-content 把 1fr 轨道撑出窗口。 */
+.main {
+  grid-area: main;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.empty {
+  text-align: center;
+  padding-top: 25vh;
+  color: var(--muted);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  background: color-mix(in oklch, var(--warn) 20%, var(--bg));
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.banner button {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* §6.3 内容居中且限宽 —— 窗口拉宽时留白增加，而不是行变长。
+   这是 Obsidian 默认体验最刺眼的问题之一。 */
+.editor {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding: 0 24px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.breadcrumb {
+  padding: 18px 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.breadcrumb-sep {
+  margin: 0 6px;
+  opacity: 0.5;
+}
+
+.editor-area {
+  flex: 1;
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-body);
+  /* §6.1 中文比英文需要更大字号；1.5 的行高对中文过于拥挤 */
+  font-size: 16.5px;
+  line-height: 1.75;
+  padding: 0 0 40vh; /* 底部留白：写到最后一行时不用贴着窗口底 */
+  tab-size: 2;
+}
+.editor-area::placeholder {
+  color: var(--muted);
+}
+
+/* ---------- 状态栏 ---------- */
+
+.status {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.dot-saved {
+  background: oklch(65% 0.14 150);
+}
+.dot-dirty {
+  background: var(--warn);
+}
+.dot-saving {
+  background: var(--accent);
+}
+.dot-error {
+  background: var(--danger);
+}
+.status-id {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.6;
+}
+
+.error {
+  color: var(--danger);
+}

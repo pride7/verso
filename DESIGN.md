@@ -1,0 +1,685 @@
+# Folio 设计文档
+
+> 一个本地优先、排版考究、公式输入极快的笔记软件。桌面 + 移动端。
+
+**已定决策**：名称 Folio ｜ Tauri 2（桌面 + 移动）｜ 纯 Markdown 文件存储 ｜ CodeMirror 6 编辑器 ｜ 页面级 database ｜ 同名文件夹实现文档嵌套 ｜ Git 作为同步/备份/发布底座 ｜ 附件默认统一放 `attachments/`（可配置）
+
+### 命名与标识
+
+**Folio** —— 书页；对开本；也指书里的页码。「一册对开本」是书最基本的形态，没有多余修饰。中文名 **册**。
+
+M0 就要固定下来的标识符（发布后改动代价很大）：
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| Bundle identifier | `app.folio.desktop` | **发布后不可改** —— 改了系统会当成另一个应用，用户数据与权限授权全部丢失 |
+| 仓库 / 产品名 | `folio` | |
+| Vault 私有目录 | `.folio/` | 纯派生数据，可整个删除，默认进 `.gitignore` |
+| database 视图代码块 | ` ```folio-view ` | 见 §2.6 |
+| macOS App 名 | `Folio.app` | |
+| 图标 | 一张对折的纸 | 单色、几何、16px 下可辨 |
+
+---
+
+## 0. 设计原则
+
+按优先级排序，冲突时上位原则胜出：
+
+1. **用户数据永远可以脱离本软件存在。** 关掉软件，用记事本也能读懂全部内容；直接拖进 Obsidian 也能用。这条否决一切「把内容存进数据库」的方案。
+2. **公式输入速度是第一差异化点。** 目标：写一页手写公式的速度，不慢于在纸上写。
+3. **默认即美观。** 不靠主题市场，不靠用户自己调 CSS。开箱的排版就是最终形态。
+4. **不做插件系统（至少 v1 不做）。** 插件系统会立刻把 UI 一致性和性能拱手让人 —— 这正是 Obsidian 变丑变慢的原因。
+
+---
+
+## 1. 技术栈
+
+| 层 | 选型 | 理由 |
+|---|---|---|
+| 应用壳 | **Tauri 2** | 同一套代码出桌面 + iOS + Android，安装包 ~10MB、内存约为 Electron 一半 |
+| 后端 | Rust：`rusqlite`(bundled + FTS5)、`notify`(文件监听)、`serde_yaml` | 文件 IO / 索引 / 监听 |
+| 前端 | React 19 + TypeScript + Vite | 生态与招人成本 |
+| 样式 | Tailwind v4 + CSS 变量做主题 | v4 的 `@theme` 直接生成 CSS 变量，主题切换零 JS |
+| 编辑器 | **CodeMirror 6** | 见 §4.1 —— 已确定，公式手感优先 |
+| Markdown 解析 | `@lezer/markdown`（前端增量解析）+ `pulldown-cmark`（Rust 侧批量索引） | 两处都要解析，用途不同 |
+| 公式渲染 | KaTeX 0.16+ | 同步渲染、无布局抖动；MathJax 的异步渲染会导致 live preview 闪烁 |
+| 状态 | Zustand | Redux 太重，Context 会导致编辑器重渲染 |
+
+### 1.1 WebView 差异 —— 提前知道的坑
+
+Tauri 用**系统 WebView**：Windows = WebView2（Chromium），macOS/iOS = WKWebView（Safari），Android = Android WebView（Chromium），Linux = WebKitGTK。字体渲染、`backdrop-filter`、CJK 断行行为都有差异。
+
+对策：
+- 视觉设计以 **WebView2 为基准**（开发环境），每个 milestone 结束在 macOS + iOS 上过一遍 —— 这两个是同一个引擎，一起验。
+- 避开 WebKit 支持不稳的特性：`text-autospace`、`::highlight()`。一律做**渐进增强**，不能是布局的必要条件。
+- Linux 的 WebKitGTK 落后最多，v1 只声明支持 Windows / macOS / iOS / Android。
+
+### 1.2 移动端的三个真实代价
+
+**(a) 公式输入必须是独立的一套 UX。** snippet 引擎的全部前提是物理键盘 —— `//` 自动展开、Tab 跳 tabstop、tabout 跳出括号。手机软键盘没有 Tab 键，也不存在"打字快"。移动端方案见 §5.5：软键盘上方的自定义工具条。这是两套输入交互，不是一套的响应式适配。
+
+**(b) iOS 文件访问是最硬的约束。** iOS 沙盒里没有"一个可自由读写的文件夹"。可行路径基本只有 iCloud Drive 的 ubiquity container —— Obsidian iOS 版就是这么做的，也是它被骂最多的地方。Android 用 SAF（Storage Access Framework）宽松得多。
+
+**(c) 同步从可选变成必须。** 桌面端可以说"你自己挂 OneDrive"，加了手机端这话就说不通了。v1 仍不自建同步服务，但要保证：iOS 走 iCloud Drive、Android/桌面走用户自选的同步盘，且**外部修改处理必须绝对可靠**（§2.7）。
+
+**架构上现在就要做的两件事**（避免以后返工）：
+1. 文件系统层抽象成 `VaultFs` 接口，桌面走 `std::fs`，iOS 走 ubiquity container，Android 走 SAF。业务代码只依赖接口。
+2. 编辑器交互不假设有键盘。任何只能用快捷键完成的操作，必须有等价的可点击入口。
+
+---
+
+## 2. 数据格式与 Vault 结构
+
+### 2.1 目录布局与文档嵌套
+
+**文档嵌套用「同名文件夹」实现** —— 一个文档若有子文档，就在旁边建一个同名文件夹装它们：
+
+```
+MyVault/
+├── 数学/
+│   ├── 线性代数.md              ← 父文档本身
+│   ├── 线性代数/                ← 同名文件夹 = 它的子文档
+│   │   ├── 特征值.md
+│   │   ├── 奇异值分解.md
+│   │   └── 奇异值分解/          ← 可继续嵌套
+│   │       └── 计算方法.md
+│   └── 泛函分析.md
+├── attachments/                  # 默认附件目录，可配置
+└── .folio/                    # 本软件私有，可整个删除
+    ├── index.db                  # SQLite 索引缓存，纯派生数据
+    ├── config.json
+    ├── snippets.json             # 用户自定义公式 snippet
+    └── workspace.json            # 标签页、侧栏宽度等 UI 状态
+```
+
+**UI 上把 `X.md` 和 `X/` 合并成树上的同一个节点**：
+
+```
+▼ 数学
+  ▼ 线性代数            ← 点文字打开文档，点箭头展开
+      特征值
+    ▼ 奇异值分解
+        计算方法
+    泛函分析
+```
+
+磁盘上是文件 + 文件夹两个对象，用户看到的是一个「既有内容、又能展开」的节点 —— 这就是 Notion / 思源 的文档树，但底下仍是纯 `.md`。这个 vault 直接拖进 Obsidian 或资源管理器都完全正常，只是显示成两个节点，数据零损失。
+
+**需要正确处理的操作**
+
+| 操作 | 行为 |
+|---|---|
+| 新建子文档 | 若 `X/` 不存在则创建，再在其中建文件 |
+| 重命名 `X` → `Y` | 同时改 `X.md` → `Y.md` 和 `X/` → `Y/`。先改文件夹再改文件，任一步失败则回滚 |
+| 拖拽移动节点 | `.md` 与同名文件夹一起移动 |
+| 删除父文档 | 弹窗询问「仅删除本文档」/「连同 N 个子文档一起删除」。仅删文档时保留文件夹，UI 降级显示为纯文件夹节点 |
+| 纯文件夹（无同名 `.md`） | 正常显示为文件夹，提供「创建为文档」把它升级成文档节点 |
+| 子文档为空时 | 自动删除空的同名文件夹，避免残留 |
+
+**为什么不用 `X/index.md` 那种（Hugo `_index.md`）布局**：那样每个文档都得有一个文件夹，或者要维护「普通文档」和「文件夹文档」两种形态的相互转换，逻辑更绕；而且在 Obsidian 等其他工具里打开会看到一堆同名的 `index.md`，非常难用。
+
+### 2.2 导航 —— 嵌套之外真正解决「找不到」的东西
+
+文档嵌套解决的是**组织**，不完全是**查找**。日常导航主力其实是：
+
+1. **快速切换器**（`Ctrl/Cmd + P`）—— 模糊匹配笔记名 + 路径，两三个字母直达。熟练用户九成的跳转靠它。**优先级高于文件树**，M1 就要有。
+2. **面包屑** —— 文档顶部显示 `数学 / 线性代数 / 奇异值分解`，每级可点击。深层嵌套不迷路的前提。
+3. **全文搜索**（§2.5）
+4. **反向链接面板** —— 从"谁引用了我"反向找回来
+5. **最近打开**
+
+### 2.3 单个笔记的格式
+
+```markdown
+---
+id: 01J8XKQ2M4N7P9R3T5V8W1Y2Z0
+title: 奇异值分解
+created: 2026-07-31T09:12:03+08:00
+updated: 2026-07-31T14:20:11+08:00
+tags: [线性代数, 矩阵分解]
+status: 草稿
+难度: 4
+---
+
+任意矩阵 $A \in \mathbb{R}^{m \times n}$ 都可以分解为
+
+$$
+A = U \Sigma V^{\mathsf{T}}
+$$
+
+其中 $U$ 的列是 [[特征值|左奇异向量]]。
+
+![[fig-svd-1.png]]
+```
+
+**frontmatter 字段约定**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | ULID | **稳定标识**，文件重命名/移动后链接不断。创建时写入，之后永不变 |
+| `title` | string | 缺省时回退到文件名 |
+| `created` / `updated` | RFC3339 带时区 | 不依赖文件系统 mtime（同步工具会破坏它） |
+| `tags` | string[] | 与正文内的 `#标签` 合并 |
+| `publish` | bool | 是否发布到静态站点。**缺省为 false**（安全默认），见 §2.9 |
+| **其他任意键** | 标量 / 数组 | 全部索引进 `props` 表 —— **这就是 database 的数据来源**（§2.6） |
+
+链接解析策略：**链接在文件里写成人类可读形式 `[[线性代数]]`，`id` 只作为消歧和重命名恢复的依据。** 解析顺序为：按路径/标题匹配 → 失败则查 `links` 表记录的历史 `target_id` → 找到就自动修复链接文本。既保持文件好读，又不会因重命名丢链接，且重命名是 O(1) 而非全库改写。
+
+编辑器里 frontmatter **默认折叠成一行属性条**，不占视觉空间；点开是可编辑的属性表单，不需要手写 YAML。
+
+### 2.4 Markdown 方言
+
+坚持 CommonMark + GFM 为基础，只加这几个扩展（都与 Obsidian 兼容，便于双向迁移）：
+
+| 语法 | 含义 |
+|---|---|
+| `$...$` / `$$...$$` | 行内 / 块级公式 |
+| `[[笔记名]]`、`[[笔记名\|显示文本]]`、`[[笔记名#标题]]` | 内部链接 |
+| `![[文件名]]` | 嵌入（图片、其他笔记、笔记片段） |
+| `#标签`、`#嵌套/标签` | 正文标签 |
+| `==高亮==` | 高亮 |
+| `> [!note] 标题` | callout |
+| `^块id`（行尾，**按需生成**） | 块引用锚点 —— 只在真的引用某个块时才写入 |
+| ` ```folio-view ` | database 视图定义（§2.6） |
+
+**明确不加**：自创的表格语法、自创的组件语法、自创的样式语法。每加一条自创语法，就多欠一份可移植性的债。
+
+### 2.5 SQLite 索引 schema
+
+```sql
+-- 全部为派生数据，可从 .md 文件完整重建
+CREATE TABLE notes (
+  id            TEXT PRIMARY KEY,
+  path          TEXT NOT NULL UNIQUE,   -- vault 相对路径，正斜杠
+  parent_id     TEXT,                   -- 同名文件夹推导出的父文档，NULL = 顶层
+  title         TEXT NOT NULL,
+  created       TEXT,
+  updated       TEXT,
+  mtime_ms      INTEGER NOT NULL,       -- 快速判断是否需要重解析
+  size          INTEGER NOT NULL,
+  content_hash  TEXT NOT NULL           -- blake3，mtime 不可信时的兜底
+);
+CREATE INDEX idx_notes_parent ON notes(parent_id);   -- 文档树靠这个
+
+CREATE TABLE links (
+  src_id      TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  target_text TEXT NOT NULL,            -- [[]] 里的原始文本
+  target_id   TEXT,                     -- 解析成功的 note id；NULL = 悬空链接
+  block_id    TEXT,                     -- 块引用时的 ^id
+  kind        TEXT NOT NULL,            -- 'wiki' | 'embed' | 'markdown'
+  line        INTEGER NOT NULL
+);
+CREATE INDEX idx_links_target ON links(target_id);   -- 反向链接面板
+
+CREATE TABLE tags (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  tag     TEXT NOT NULL
+);
+CREATE INDEX idx_tags_tag ON tags(tag);
+
+-- frontmatter 展开成键值对 —— database 视图的查询基础
+CREATE TABLE props (
+  note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  key     TEXT NOT NULL,
+  value   TEXT NOT NULL,
+  type    TEXT NOT NULL   -- 'string' | 'number' | 'bool' | 'date' | 'list-item'
+);
+CREATE INDEX idx_props_key ON props(key, value);
+
+CREATE VIRTUAL TABLE notes_fts USING fts5(title, body, content='', tokenize='trigram');
+```
+
+**关于中文分词**：FTS5 内置的 `unicode61` / `porter` 不切分中文，整段中文会被当成一个 token，搜索基本失效 —— 这是很多人做到一半才发现的坑。`trigram` tokenizer 做三字符切分，天然支持中文子串检索且无需词典，是不引入外部分词器时的正确选择。代价是索引体积约为原文 3 倍、不支持前缀查询。万级笔记完全可接受；真到需要词典分词的量级再换 `jieba-rs` + 自定义 tokenizer。
+
+### 2.6 database 视图 —— 核心功能，非附加功能
+
+不引入新的存储形态，全部建立在 frontmatter 之上。
+
+**数据来源**：`props` 表（即各笔记的 frontmatter 键值对）
+**视图定义**：写成笔记里的一个代码块
+
+~~~markdown
+```folio-view
+from: "论文/**"            # 路径 glob，也可用 tag: / linked-from:
+where: status != "已读" and 难度 >= 3
+sort: created desc
+view: table                # table | board | calendar | gallery | list
+columns: [title, 作者, status, 难度, created]
+group-by: status           # board 视图必需
+```
+~~~
+
+**必须可写** —— 这是它好不好用的分水岭：在表格里改一个单元格 → 直接改对应笔记的 frontmatter → 文件落盘。看板里拖动卡片 → 改 `status` 字段。加一行 → 新建一篇笔记并写入对应属性。
+
+**属性类型**：从 `props.type` 推断，UI 按类型渲染编辑控件（文本框 / 数字 / 日期选择器 / 单选 / 多选标签）。类型定义存在 `.folio/config.json` 里作为 UI 提示，但**不作为真源** —— 删掉它只是退化成文本输入，不丢数据。
+
+这样拿到了 Notion database 的绝大部分实用价值（论文清单、项目跟踪、读书记录、课程笔记），而底层依然只是一堆 `.md` 文件。
+
+**不做块级属性查询**。块引用（`^blockid`）只支持「引用/嵌入某个段落」，按需生成 ID，文件保持干净。「查询所有含属性 X 的块」不做 —— 它要求给每个块都预分配 ID 和属性，那就必须放弃纯 Markdown（思源正是为此改用 `.sy` JSON 块树，代价是它的笔记文件用记事本打开是一堆 JSON）。
+
+### 2.7 文件监听与写入策略
+
+外部修改（git pull、其他编辑器、iCloud/OneDrive 同步）必须被正确处理。**移动端加入后这一节的重要性显著上升** —— 同一份 vault 会被多设备并发修改。
+
+- Rust 侧 `notify` 监听 vault，**去抖 300ms**（同步盘会产生事件风暴）
+- 收到事件 → 比对 `mtime_ms` 和 `content_hash` → 变了才重新解析
+- 若该文件正在编辑器中打开：
+  - 本地无未保存改动 → 静默重载
+  - 有未保存改动 → 顶部条提示「文件已被外部修改」，提供 *保留我的* / *加载外部* / *对比*
+- **自己的写入要打标记**：写文件前把路径塞进 `pending_writes: HashSet<PathBuf>`，监听到自己造成的事件就丢弃，避免回环
+- **移动端补充**：App 从后台恢复时主动做一次全量 mtime 扫描 —— iOS 后台期间收不到文件事件
+
+**保存策略**：停止输入 800ms 后自动保存 + 切换笔记/失焦/App 进入后台时立即保存。写入用 `write to .tmp → fsync → rename` 保证原子性，避免断电产生半个文件。
+
+### 2.8 Git —— 同步 / 备份 / 版本历史 / 发布的统一底座
+
+vault 本身就是一个 git 仓库。这一个机制同时解决四件事：
+
+| | |
+|---|---|
+| **同步** | 全平台一致，不依赖任何厂商网盘 |
+| **备份** | 远端仓库即备份 |
+| **版本历史** | 每篇笔记完整修改史，可回滚到任意时刻 |
+| **发布** | push 即触发 GitHub Pages 构建（§2.9） |
+
+**为什么是 git 而不是 iCloud/OneDrive**：§1.2(c) 提到加了移动端后同步变成必须，而 iCloud Drive 只覆盖苹果生态，Android 和 Windows 都在外面。git 是唯一在 Tauri 支持的四个平台上都能跑的方案 —— Rust 核心直接编译 `libgit2`（`git2-rs`），iOS/Android 同样可用。**Obsidian 的 git 插件在移动端一直不好使，正是因为它是 JS 实现的；我们在 Rust 层做是天然优势。**
+
+网盘同步仍然保留为可选项（vault 放进 OneDrive 目录即可，软件不需要知道），但不是主推路径 —— 网盘对大量小文本文件的同步既慢又容易产生冲突副本。
+
+**对用户隐藏 git**：界面上只有一个「同步」按钮和一个状态点。底下执行 `pull --rebase` → 自动 commit → `push`。只有真冲突时才浮出 UI。不暴露 branch / rebase / stage 这些概念。
+
+**必须处理的现实问题**
+
+| 问题 | 方案 |
+|---|---|
+| 自动 commit 产生噪音历史 | 按时间窗聚合：空闲 5 分钟 / App 进入后台 / 手动点同步时才提交。commit message 自动生成（`更新 3 篇笔记`） |
+| Markdown 合并冲突 | 交给 git 的行级三方合并，多数情况自动解决。真冲突时给对比 UI，**粒度是段落而非整文件** |
+| 附件撑大仓库历史 | 单文件 > 5MB 时警告；提供 git-lfs 可选开关 |
+| 移动端凭据 | PAT / SSH key 存进系统钥匙串（iOS Keychain / Android Keystore），不落盘 |
+| 用户不会 git | 引导式配置：粘贴仓库 URL + token 即可。仓库不存在时可代为创建 |
+
+**默认 `.gitignore`**（`.folio/` 是纯派生数据，本就不该同步）：
+
+```
+.folio/
+.DS_Store
+Thumbs.db
+```
+
+**M0 就要做的一件小事**：新建 vault 时自动 `git init` 并写入 `.gitignore`。成本几乎为零，但避免了以后要求用户手动补救。
+
+### 2.9 发布成网页
+
+**默认不发布。** 只有 frontmatter 里 `publish: true` 的笔记会进入站点 —— 安全默认，避免手滑把日记推上公网。文档树上可对某节点执行「连同子文档一起发布」，批量写入该字段。
+
+**阶段一：零开发，现在就能用**
+
+直接用 [Quartz](https://quartz.jzhao.xyz/) —— 它就是为「把 Obsidian vault 发布成静态站」做的，支持 wikilink、反向链接、KaTeX、图谱，配个 GitHub Action 即可 push 部署。
+
+**这是 §2.4「方言与 Obsidian 兼容」这个决定的直接回报**：因为没造自创语法，整个 Obsidian 工具生态开箱可用。所以内置发布功能可以排到很后面，不占用核心里程碑。
+
+**阶段二：内置发布（M7）**
+
+应用内「发布」按钮 → Rust 侧把 `publish: true` 的笔记转成静态 HTML → 推到 `gh-pages` 分支。自建的价值在于：
+
+- **样式与应用完全一致** —— 复用 §6 的排版规范，网页和软件里看到的是同一个东西。第三方 SSG 做不到这点
+- **公式构建时预渲染** —— KaTeX 在构建步骤跑完，产出纯 HTML + 一个 CSS 文件。访问者不加载任何 JS 就能看到公式，手机上秒开
+- **转换逻辑本来就有** —— `[[链接]]` → 相对 URL、`![[嵌入]]` → 内联、反向链接区块，这些解析器 M3 已经写完了
+
+**仓库结构**：GitHub 免费计划下 Pages 要求公开仓库，付费计划才能从私有仓库发布。若要免费又保私密，用两个仓库 —— private 存整个 vault（同步+备份），public 只放构建产物。软件应当支持这种「双远端」配置。
+
+---
+
+## 3. 架构分层
+
+```
+┌─────────────────── WebView (React) ──────────────────┐
+│  UI 层        文档树 / 标签页 / 快速切换器 / database   │
+│  编辑器层     CodeMirror 6 + 扩展（§4）               │
+│  数据层       Zustand store  ←→  Tauri IPC 客户端      │
+└──────────────────────┬───────────────────────────────┘
+                       │ IPC (JSON) / Event (Rust→前端推送)
+┌──────────────────────┴───────────────────────────────┐
+│  Rust 核心                                            │
+│   VaultFs  ← 抽象接口，桌面/iOS/Android 三套实现        │
+│   vault    扫描 / 文档树推导 / 原子写入 / 重命名事务     │
+│   parser   pulldown-cmark + frontmatter → 结构化      │
+│   index    SQLite 增删改查、FTS、反向链接、props 查询    │
+│   watcher  notify + 去抖 + 回环抑制                    │
+│   sync     git2-rs：pull/commit/push、冲突检测、凭据    │
+│   pty      portable-pty：内嵌终端（desktop only）       │
+│   publish  publish:true → 静态 HTML → gh-pages         │
+└───────────────────────────────────────────────────────┘
+```
+
+**分工原则**：Rust 负责「全库级」操作（扫描、索引、搜索、批量重命名），前端负责「当前文档级」操作（编辑、渲染、增量解析）。当前打开的文档不走 Rust 解析 —— 每次按键都做 IPC 会毁掉输入手感。
+
+**IPC 接口草案**
+
+```ts
+// —— vault 与文档树
+vault_open(path: string): VaultInfo
+tree_list(): TreeNode[]                              // 已合并 X.md + X/ 的节点树
+note_read(id: string): { frontmatter: Record<string, unknown>; body: string }
+note_write(id: string, content: string): void
+note_create(parentId: string | null, title: string): NoteMeta   // 自动建同名文件夹
+note_rename(id: string, newTitle: string): void      // 事务：同时改 .md 与同名文件夹
+note_move(id: string, newParentId: string | null): void
+note_delete(id: string, withChildren: boolean): void
+
+// —— 检索与关系
+quick_switch(query: string, limit: number): NoteMeta[]   // 模糊匹配名称+路径
+search(query: string, limit: number): SearchHit[]        // FTS 全文
+backlinks(id: string): Backlink[]
+breadcrumb(id: string): NoteMeta[]
+
+// —— database
+query_view(spec: ViewSpec): Row[]
+prop_set(noteId: string, key: string, value: unknown): void   // 表格内编辑回写
+
+// —— 同步与发布
+sync_status(): { ahead: number; behind: number; dirty: boolean; lastSync: string }
+sync_now(): SyncResult                                   // pull --rebase → commit → push
+sync_conflicts(): Conflict[]                             // 段落粒度
+sync_resolve(path: string, choice: "ours" | "theirs" | "merged", content?: string): void
+history(noteId: string, limit: number): Revision[]
+publish_site(): { generated: number; url: string }
+
+// —— 事件（Rust 推送）
+"note:changed"   { id, path, source: "external" | "self" }
+"note:deleted"   { id }
+"tree:changed"   {}
+"index:progress" { done, total }
+"sync:state"     { state: "idle" | "syncing" | "conflict" | "error", detail?: string }
+```
+
+---
+
+## 4. 编辑器设计
+
+### 4.1 已确定：CodeMirror 6
+
+一句话理由：**LaTeX 公式最终必须回落到源码编辑，而 WYSIWYG 块编辑器把源码当成外来物。**
+
+在 TipTap/ProseMirror 里做公式，公式是一个 atom node，双击弹出输入框，框里是另一套编辑环境 —— snippet、括号跳转、语法高亮全要在那个小盒子里重新实现，且盒内盒外键位行为不一致。CM6 里公式就是文本的一部分，所有编辑能力天然生效。
+
+**接受的代价**（写下来，别以后当成 bug）：
+- 「所见即所得」要自己用 decoration 实现（§4.2），工作量比 TipTap 大
+- 块拖拽重排、悬停手柄要逆着文本模型硬做，不会有 Notion 那么顺
+- 多列布局做不了 —— 这也符合「不加自创语法」原则
+- 移动端触摸编辑体验弱于块模型，需要额外投入（§5.5）
+
+### 4.2 Live Preview 机制
+
+```
+光标不在该节点范围内  →  Decoration.replace(widget)  渲染成最终形态
+光标进入该节点范围    →  移除 decoration，显示源码
+```
+
+用 `ViewPlugin` 监听 selection + doc 变化，遍历可视区域的 syntax tree，产出 decoration set。适用于：公式、图片、内部链接、粗斜体标记、高亮、callout、标题的 `#`、frontmatter 折叠。
+
+**性能红线**：只处理 `view.visibleRanges`，绝不遍历整个文档。KaTeX 渲染结果按「公式源码字符串」做 LRU 缓存（1000 条），滚动来回时不重复渲染。
+
+### 4.3 需要写的 CM6 扩展清单
+
+| 扩展 | 说明 | 里程碑 |
+|---|---|---|
+| `markdownExtended` | `@lezer/markdown` 上挂自定义解析：`InlineMath` / `BlockMath` / `WikiLink` / `Embed` / `Tag` / `Callout` / `Highlight` | M1（地基，第一个写） |
+| `livePreview` | §4.2 的 decoration 引擎 | M1 |
+| `frontmatterFold` | frontmatter 折叠成属性条 + 表单编辑 | M1 |
+| `mathSnippets` | §5 的核心，单独一个模块 | M2 |
+| `smartPairs` | `$` `(` `{` `[` 自动配对，`$` 仅在合适上下文生效 | M2 |
+| `wikiLinkComplete` | 输入 `[[` 触发笔记名补全，模糊匹配 | M3 |
+| `slashCommand` | 输入 `/` 弹出块插入菜单（标题/表格/callout/公式/database 视图） | M3 |
+| `pasteHandler` | 粘贴图片 → 落盘 attachments → 插入 `![[]]`；粘贴 HTML → 转 Markdown；粘贴 URL + 选中文本 → 变链接 | M3 |
+| `typography` | 中西文混排间距（渐进增强）、连字、标点挤压 | M4 |
+
+`slashCommand` 值得单独说明：它是「Markdown 也能有 Notion 手感」的关键 —— 用户不需要记语法，输入 `/` 选「三级标题」，编辑器插入 `### `。存储仍是纯文本。
+
+---
+
+## 5. 数学公式子系统 —— 差异化重点
+
+### 5.1 Snippet 引擎（桌面）
+
+格式**刻意与 Obsidian Latex Suite 兼容**，让用户能直接粘贴现有配置过来：
+
+```json
+[
+  { "trigger": "//",  "replacement": "\\frac{$0}{$1}$2", "options": "mA" },
+  { "trigger": "sr",  "replacement": "^{2}",              "options": "mA" },
+  { "trigger": "@a",  "replacement": "\\alpha",           "options": "mA" },
+  { "trigger": "([A-Za-z])(\\d)", "replacement": "[[0]]_{[[1]]}", "options": "mAr" },
+  { "trigger": "dint","replacement": "\\int_{$0}^{$1} $2 \\, d$3", "options": "mA" },
+  { "trigger": "mk",  "replacement": "$$0$",              "options": "tA" }
+]
+```
+
+**options 标志位**
+
+| 标志 | 含义 |
+|---|---|
+| `m` | 仅在数学模式内触发 |
+| `t` | 仅在数学模式外（正文）触发 |
+| `A` | 自动展开，无需按 Tab |
+| `r` | trigger 按正则解析，`[[n]]` 引用捕获组 |
+| `w` | 要求词边界（避免 `sr` 在 `users` 中误触） |
+
+**tabstop 语义**：`$0` `$1` … 为跳转点，`$0` 是展开后光标落点。Tab 依次前进；不在任何 tabstop 时，Tab 执行 **tabout** —— 跳到最近的右括号 / `$` 之外。这个小功能对手感的贡献被严重低估：写完 `\frac{a}{b}` 不需要按四次方向键。
+
+### 5.2 数学模式检测
+
+不用正则数 `$` 的个数（会被 `\$`、代码块、行内代码骗到）。正确做法：**查 syntax tree**。
+
+```ts
+function inMathMode(state: EditorState, pos: number): MathContext | null {
+  const node = syntaxTree(state).resolveInner(pos, -1)
+  for (let n: SyntaxNode | null = node; n; n = n.parent) {
+    if (n.name === "InlineMath") return { kind: "inline", from: n.from, to: n.to }
+    if (n.name === "BlockMath")  return { kind: "block",  from: n.from, to: n.to }
+    if (n.name === "CodeText" || n.name === "FencedCode") return null   // 代码里不触发
+  }
+  return null
+}
+```
+
+这要求 §4.3 的 `markdownExtended` 先把 Math 节点解析出来 —— 它是整条链路的地基，第一个写。
+
+### 5.3 其他公式能力
+
+- **块级公式对齐辅助**：`$$` 内识别 `align` 环境，Tab 补齐 `&` 对齐点
+- **矩阵快速输入**：`pmat3x3` → 生成 3×3 `pmatrix` 骨架，Tab 在单元格间跳
+- **符号面板**：`Ctrl+/` 唤起模糊搜索，输入「积分」「叉乘」「属于」列出候选，回车插入 —— 覆盖 snippet 记不住的长尾
+- **错误提示**：KaTeX 解析失败时在公式下方显示错误，而不是让整块变红消失
+- **公式编号与引用**：`$$...$$ \tag{1}` 与 `[[#eq-1]]`，v1 延后
+
+### 5.4 默认 snippet 库
+
+内置约 200 条（希腊字母、常用算符、分式根式、上下标、矩阵、微积分、集合逻辑），用户配置与之合并，同 trigger 时用户覆盖内置。**这份库的质量直接决定第一印象**，值得花整块时间打磨，不要边做边凑。
+
+### 5.5 移动端公式输入（独立设计）
+
+桌面那套在手机上完全不成立，需要另一套交互：
+
+- **软键盘上方常驻工具条**，分页滑动：
+  - 页 1：`$` 切换公式模式、上标、下标、分式、根式、括号
+  - 页 2：希腊字母
+  - 页 3：算符与关系符（`\sum` `\int` `\leq` `\in` `\forall` …）
+  - 页 4：矩阵与环境
+- **tabstop 导航按钮**：工具条最右侧常驻 `◀ ▶`，替代 Tab 键在占位符间跳转
+- **长按出变体**：长按 `\int` 出 `\iint` `\oint` `\int_a^b`
+- **最近使用**：工具条第一格自动填充最近用过的 8 个符号 —— 实际使用中命中率极高
+- **手写识别**：不做（v1）。第三方 API 会违反本地优先原则，本地模型体积不可接受。
+
+---
+
+## 6. 视觉与排版规范
+
+### 6.1 排版尺度（美观的实际来源）
+
+| 项 | 桌面 | 移动 | 说明 |
+|---|---|---|---|
+| 正文字号 | 16.5px | 17px | 中文比英文需要更大字号 |
+| 行高 | 1.75 | 1.7 | 中文密度高，1.5 会显得拥挤 |
+| 内容宽度 | `max-width: 42rem`（约 34 汉字） | 满宽 - 20px 边距 | 超过 40 汉字眼睛回扫会丢行 |
+| 段间距 | `0.9em` | 同 | 段落要能一眼分开，但不断裂 |
+| 标题层级 | 1.0 / 1.25 / 1.5 / 1.85em | 同 | 层级靠字重和留白区分，不靠字号暴涨 |
+| 中文字体 | 思源黑体 / 苹方 / 微软雅黑（按平台回退） | | |
+| 西文字体 | Inter（正文）、JetBrains Mono（代码/公式源码） | | |
+
+### 6.2 色彩
+
+不用纯黑纯白 —— 纯白背景长时间阅读刺眼，纯黑在 OLED 上文字边缘发虚。
+
+```css
+@theme {
+  --color-bg:      oklch(99%  0.004 85);   /* 极淡暖白 */
+  --color-surface: oklch(97%  0.005 85);
+  --color-text:    oklch(25%  0.01  260);  /* 偏冷深灰，不是黑 */
+  --color-muted:   oklch(55%  0.015 260);
+  --color-border:  oklch(90%  0.006 260);
+  --color-accent:  oklch(58%  0.14  250);  /* 唯一强调色 */
+}
+```
+
+**只用一个强调色。** 多彩配色是业余感的最大来源。层次靠明度和留白拉开，不靠颜色。深色主题用同一套 oklch 色相、翻转明度即可 —— 色相一致保证两套主题观感统一。
+
+### 6.3 布局
+
+- **桌面** 三栏：文档树/搜索/标签 ｜ 编辑区 ｜ 大纲/反向链接，左右栏可折叠
+- **移动** 单栏 + 抽屉：编辑区占满，左滑出文档树，底部工具条固定
+- 编辑区**内容居中且限宽**，窗口拉宽时留白增加而不是行变长 —— 这是 Obsidian 默认体验最刺眼的问题之一
+- 动效：只在 120–180ms、`ease-out` 范围内。超过 200ms 会让软件显得慢
+
+---
+
+## 7. 终端与 AI 协作
+
+### 7.1 为什么这件事比听起来重要
+
+vault 是一堆纯 `.md` 文件 —— 这意味着**任何 AI CLI 工具（Claude Code、aider 等）都能直接在上面工作**，Folio 不需要提供任何 AI 接口、插件或 API。
+
+这是 §0 原则 1（数据可脱离本软件存在）一个意料之外的回报，也是对「要不要做 AI 功能」更好的回答：**不是我们做 AI 功能，而是让用户自带 AI。** 好处是我们不需要预判用户想要什么能力、不绑定任何模型、不处理 API key、不承担模型能力变化的维护成本，也不会因为某个内置 AI 功能做得差而拖累产品口碑。
+
+而 AI 在纯 markdown vault 上能做的，恰好是做成内置功能会极其昂贵的那类事：批量整理笔记结构、生成索引页与摘要、修复失效链接、批量改写 frontmatter、把一堆散记合并成一篇、翻译、生成 `folio-view` 查询。
+
+**如果内容存在数据库里（Notion / 思源 的路线），没有任何 AI 工具能碰它。** 这一条应当写进对外宣传。
+
+### 7.2 与 Git 的乘法效应
+
+单独看，放一个 AI 在你的笔记上跑批量修改是件可怕的事 —— 它可能改坏 50 个文件而你毫无察觉。
+
+但 §2.8 已经让 vault 成为 git 仓库，于是：
+
+```
+AI 跑之前   工作区是干净的
+AI 跑之后   git diff 一眼看清它改了什么
+不满意      git restore .  全部回退
+满意        正常同步
+```
+
+**终端和 git 互相放大**：git 让 AI 编辑变得可审阅、可回滚；终端让 git 和 AI 都触手可及。缺任何一个，另一个的价值都要打折。所以这两件事应当在同一个里程碑落地。
+
+UI 上要把这层关系呈现出来：终端面板旁常驻一个「未提交改动 · N 个文件」的入口，点开即 diff。
+
+### 7.3 两种实现，分两步走
+
+**方案 A：调起系统终端**（M1，成本几乎为零）
+
+快捷键把系统默认终端（Windows Terminal / iTerm2 / Terminal.app）拉起来，cwd 设为目标目录。一个 `Command::spawn` 的事。先有再好。
+
+**方案 B：内嵌终端面板**（M5）
+
+底部可折叠面板，`Ctrl + \`` 切换（沿用 VS Code 的肌肉记忆）。
+
+| 层 | 选型 |
+|---|---|
+| 前端 | `@xterm/xterm` + fit / webgl / web-links / search 插件（VS Code 用的同一套） |
+| 后端 | `portable-pty`（WezTerm 出品）—— Windows 走 ConPTY，macOS/Linux 走 openpty |
+| 传输 | PTY 输出经 Tauri event 推给前端 |
+
+**真正的成本在这些细节上，不在 xterm.js 本身**：
+
+| 问题 | 方案 |
+|---|---|
+| 输出洪水（`cat` 大文件、AI 流式输出）淹死 IPC | Rust 侧按 16ms 时间窗聚合再推送，单帧上限 64KB，超限则丢弃并标记 |
+| resize 同步 | 前端 fit 后把 rows/cols 传回 Rust，调 `pty.resize()` |
+| 进程生命周期 | 关闭面板**不杀进程**（AI 任务可能正在跑）；退出应用时提示有活动进程 |
+| Windows ConPTY | 与 Unix PTY 行为差异大，需单独测试；shell 默认取 `pwsh` → `powershell` |
+| 复制粘贴 | `Ctrl+C` 有选区时是复制、无选区时是中断 —— 这个细节做错，终端就废了 |
+
+**cwd 规则**：默认当前笔记所在目录，vault 根目录作为可切换项。但 AI 工具通常需要看到整个 vault 才能做跨笔记操作，**根目录可能反而是更常用的默认值** —— 待实测后定。
+
+**移动端不做终端。** iOS/Android 没有可用的 PTY，移动端直接隐藏入口。
+
+### 7.4 对文件监听的影响 —— 优先级要提前
+
+有了终端，「文件被外部程序修改」从**偶发边界情况**变成了**日常主路径**：AI 每跑一次就是一批外部修改。
+
+因此 §2.7 的外部修改处理必须提前：
+
+- **M1 就要有最简版**：窗口重新获得焦点时比对已打开文件的 mtime，变了就提示或重载。成本很低，但没有它，用完 AI 回到编辑器会直接覆盖掉 AI 的修改 —— 这是会丢数据的 bug。
+- 完整的 `notify` 监听 + 去抖仍在 M3。
+- AI 一次改动几十个文件时，索引要能承受突发批量更新，不能逐文件全量重建。
+
+### 7.5 一条安全边界
+
+内嵌终端拥有完整 shell 权限。这本身没有问题 —— 那是用户自己的机器、自己主动敲的命令。
+
+但必须守住一条：**终端只能由用户主动触发，永远不能由笔记内容触发。**
+
+具体说，**不做「代码块旁边一个运行按钮」这类功能**。因为笔记是可以被分享、被发布、被从别人那里拿来的（§2.9），一个能执行笔记里代码的软件，等于把「打开一篇笔记」变成了「运行一个陌生程序」。
+
+同理：AI 工具由用户自己安装和调用，Folio 不代为下载、不代为执行、不内置任何模型或 API key。
+
+---
+
+## 8. 路线图
+
+| 里程碑 | 内容 | 验收标准 |
+|---|---|---|
+| **M0 地基** ✅ | Tauri 桌面壳、`VaultFs` 抽象、vault 打开、同名文件夹文档树、`.md` 原子读写、`git init` + `.gitignore`、路径越界拒绝、记住上次 vault、聚焦时 mtime 比对 | ✅ 已达成。代码在 [folio/](folio/)，20 个单测通过 |
+| **M1 编辑器** | CM6 集成、`markdownExtended` 解析器、live preview、frontmatter 折叠、**快速切换器**、面包屑、**「在系统终端中打开」快捷键**、**窗口聚焦时 mtime 比对重载** | 公式/链接/加粗在光标移开时渲染；`Ctrl+P` 三字母跳转；用 AI 改完文件回到编辑器不会覆盖掉它的修改 |
+| **M2 公式** ⭐ | KaTeX 渲染、snippet 引擎、数学模式检测、tabout、默认 snippet 库、符号面板 | **盲测：抄一页教材公式，比在 Obsidian 里快** |
+| **M3 索引与 database** | SQLite 索引、文件监听、全文搜索、反向链接、`[[` 补全、`/` 命令、**database 表格/看板视图（可写）** | 5000 篇冷启动索引 < 10s，搜索 < 50ms；能用表格管理论文清单并直接改属性 |
+| **M4 打磨** | 视觉规范落地、深浅主题、命令面板、设置界面、macOS 适配 | 能作为日常主力笔记工具使用 |
+| **M5 同步与终端** | `git2-rs` 集成、同步按钮与状态、自动 commit 聚合、冲突解决 UI、凭据钥匙串、版本历史；**内嵌终端面板（xterm.js + portable-pty）、未提交改动 diff 入口** | 两台桌面设备改同一个 vault 不丢数据；`Ctrl+\`` 开终端跑 AI，改完能一眼 diff、一键回退 |
+| **M6 移动端** | iOS + Android 打包、`VaultFs` 移动实现、移动端公式工具条、触摸交互（同步直接复用 M5） | 手机上能读、能改、能输入公式、能同步 |
+| **M7 发布** | 内置静态站点生成、公式预渲染、gh-pages 部署、双远端配置 | 一键把 `publish: true` 的笔记变成网页 |
+| *M8+* | 块引用、图谱、导出 PDF、日历/画廊视图 | |
+
+**M2 结束是关键决策点**：如果那时公式输入体验没有明显超过 Obsidian，这个项目就没有存在理由，应该停下重新想。把最难、最能证伪的部分放在最前面，而不是先做让人有进展感的 UI。
+
+**移动端排在 M6 但架构从 M0 就要留出口**（`VaultFs` 抽象、无键盘可达性、git init）—— 移动端本身可以晚做，但不能到时候才发现做不了。
+
+**M7 之前想发布网页，直接用 Quartz**（§2.9 阶段一），零开发成本。内置发布是为了样式统一和公式预渲染，不是为了「能发布」。
+
+---
+
+## 9. 明确不做
+
+写下来是为了对抗范围蔓延：
+
+- ❌ **插件系统**（v1）—— 见设计原则 4，也是 Obsidian 不够美观的根因
+- ❌ **块级属性与块级查询** —— 见 §2.6，代价是放弃纯 Markdown
+- ❌ **多列布局 / 任意字号字色** —— 无法用标准 Markdown 表达
+- ❌ **实时协作** —— 与本地优先架构冲突，复杂度是数量级差异
+- ❌ **自建云同步服务器** —— 用 git + 用户自己的 GitHub/GitLab（§2.8）。我们做客户端，不做服务端
+- ❌ **白板 / 手绘** —— 无法用 Markdown 表达，破坏第一原则
+- ❌ **公式手写识别** —— 需要云端 API 或过大的本地模型
+- ❌ **内置 AI 功能** —— 不绑模型、不管 API key、不做「AI 续写」按钮。用户通过终端自带 AI CLI 工具，效果更好且零维护成本（§7.1）
+- ❌ **笔记内容触发的代码执行** —— 不做代码块「运行」按钮。笔记可被分享和发布，能执行笔记内代码 = 打开一篇笔记等于运行一个陌生程序（§7.5）
+
+---
+
+## 10. 待定问题
+
+1. **`id` 是否真的写进 frontmatter？** 折中方案见 §2.3。替代方案是把 id 映射存在 `.folio/` 里、文件保持干净，代价是映射丢失后重命名历史就断了，违反「`.folio/` 可删除」原则。**倾向：写进 frontmatter，编辑器里默认折叠。**
+2. ~~附件路径~~ **已定**：默认统一放 vault 根目录的 `attachments/`，路径可在设置里配置。附件重名时自动加时间戳后缀，不覆盖。
+3. **打包思源黑体子集**：全量约 16MB，会让安装包从 10MB 涨到 26MB，移动端更敏感。评估按常用字集裁剪 vs 直接依赖系统字体。
+4. **iOS vault 位置**：有了 git 同步后，iOS 上可以直接用 App 私有目录 + git 拉取，不再必须依赖 iCloud Drive ubiquity container —— 这大幅简化了 §1.2(b) 那条约束。但用户若想在 iOS「文件」App 里直接看到笔记，仍需 ubiquity container。倾向：**默认 App 私有目录 + git，iCloud 作为可选项**。
+5. **database 视图定义存哪**：目前设计存在笔记的代码块里（可移植、可版本控制）。另一种是存在 `.folio/views.json`（笔记更干净，但视图不随笔记迁移，且 `.folio/` 不进 git）。**倾向前者**。
+6. **自动 commit 的时间窗**：空闲 5 分钟是否合适？太短则历史噪音大，太长则崩溃丢的多。可能需要「自动保存文件」和「自动提交 git」两个独立节奏。
+   - M0 实测补充：frontmatter 的时间戳已改成秒级精度。默认的 `to_rfc3339()` 带 9 位小数，每次保存都会在 git diff 里制造一行纯噪音。
+7. **终端默认 cwd**：当前笔记所在目录 vs vault 根目录。AI 工具通常需要看到整个 vault，根目录可能才是更常用的默认值 —— M1 用方案 A 时就能实测出答案。
+8. **AI 跑动期间是否自动 commit**：若 AI 正在批量改文件，自动 commit 会把半成品提交进去。可能需要检测到终端有活动进程时暂停自动 commit。

@@ -1,0 +1,31 @@
+[package]
+name = "folio"
+version = "0.1.0"
+description = "本地优先、排版考究、公式输入极快的笔记软件"
+authors = ["xsfeng"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "folio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+ulid = "1"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+
+# M0 只用到 Repository::init。default-features = false 关掉 https/ssh，
+# 避免在 Windows 上引入 openssl。M5 做同步时再打开网络特性。
+git2 = { version = "0.20", default-features = false }

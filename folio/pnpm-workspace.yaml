@@ -1,0 +1,4 @@
+# pnpm 10+ 默认拦截依赖的构建脚本。esbuild 需要它的 postinstall 链接
+# 平台原生二进制，否则 vite 起不来。
+allowBuilds:
+  esbuild: true
