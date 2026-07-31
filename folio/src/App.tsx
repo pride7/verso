@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, pickVaultFolder } from "./api";
 import { Editor } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
+import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
 import "katex/dist/katex.min.css";
@@ -29,6 +30,23 @@ export default function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [termOpen, setTermOpenRaw] = useState(
+    () => localStorage.getItem("folio.termOpen") === "1",
+  );
+  /** 面板开关状态跨会话保留 —— 关掉的人不想每次启动又见到它 */
+  const setTermOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setTermOpenRaw((prev) => {
+      const v = typeof next === "function" ? next(prev) : next;
+      localStorage.setItem("folio.termOpen", v ? "1" : "0");
+      return v;
+    });
+  }, []);
+  // 面板高度记在 localStorage —— 调好一次就别再调第二次。
+  // vault 级的 UI 状态（§2.1 workspace.json）等 M3 有配置系统了再搬过去。
+  const [termHeight, setTermHeight] = useState(() => {
+    const saved = Number(localStorage.getItem("folio.termHeight"));
+    return Number.isFinite(saved) && saved >= 120 ? saved : 280;
+  });
 
   // 「磁盘上这份文件最后一次由我们写入时的 mtime」。
   // 放 ref 不放 state：焦点事件的闭包里要读最新值，state 会拿到旧值。
@@ -248,9 +266,9 @@ export default function App() {
         e.preventDefault();
         setSwitcherOpen(true);
       } else if (mod && e.key === "`") {
-        // §7.3 方案 A：调起系统终端跑 AI CLI
+        // 沿用 VS Code 的肌肉记忆（§7.3）
         e.preventDefault();
-        api.openTerminal(null).catch((err) => setError((err as Error).message));
+        setTermOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -324,10 +342,16 @@ export default function App() {
               ⌕
             </button>
             <button
-              onClick={() => api.openTerminal(null).catch((e) => setError((e as Error).message))}
-              title="在系统终端中打开 (Ctrl+`)"
+              className={termOpen ? "is-on" : undefined}
+              onClick={() => setTermOpen((v) => !v)}
+              onContextMenu={(e) => {
+                // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
+                e.preventDefault();
+                api.openTerminal(null).catch((err) => setError((err as Error).message));
+              }}
+              title="终端 (Ctrl+`)　右键：在系统终端中打开"
             >
-              ⌘
+              ▤
             </button>
             <button onClick={openVault} title="切换 vault">
               ⤢
@@ -375,6 +399,17 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {termOpen && (
+        <TerminalPanel
+          height={termHeight}
+          onHeightChange={(h) => {
+            setTermHeight(h);
+            localStorage.setItem("folio.termHeight", String(h));
+          }}
+          onClose={() => setTermOpen(false)}
+        />
+      )}
 
       <footer className="status">
         <span className={`dot dot-${saveState}`} />

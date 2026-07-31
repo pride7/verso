@@ -18,6 +18,7 @@
 |---|---|
 | 完成一个里程碑（M0/M1/M2…） | minor +1 |
 | 里程碑内的修复、小改进 | patch +1 |
+| 从后续里程碑提前拿来的功能 | patch +1，并在表里标注来源。**不要**占用后续里程碑的 minor 号 —— 那个映射关系比严格的语义化版本更有用 |
 | 公开发布 | 由作者决定何时上 `v1.0.0`，agent 不要自作主张 |
 
 里程碑与版本的对应：
@@ -26,6 +27,7 @@
 |---|---|
 | M0 地基 | `v0.1.0` ✅ |
 | M1 编辑器 | `v0.2.0` ✅ |
+| ↳ 内嵌终端（原属 M5，提前） | `v0.2.1` ✅ |
 | M2 公式 | `v0.3.0` |
 | M3 索引与 database | `v0.4.0` |
 | M4 打磨 | `v0.5.0` |
@@ -142,9 +144,22 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 两者不可兼得，所以按是否跨行分工：跨行块级公式走 StateField（数量少，全文扫描
 可接受），行内的一切走 ViewPlugin（只扫可视区）。
 
+## 终端相关的两个坑
+
+改 `src/components/TerminalPanel.tsx` 时会撞上，两者都表现为「面板打开但一片空白」
+且不报任何错：
+
+1. **`term.onData` 必须在 `pty_open` 之前注册。** shell 启动时先发 DSR（`ESC[6n`），
+   收到回答才打印提示符；xterm 的回答从 `onData` 出来，晚注册就丢了。
+2. **不要在 `term.open()` 之后立刻 `fit()`。** 布局还没完成，算出 0 列 0 行。
+   用 `ResizeObserver`，拿到真实尺寸再开 PTY。
+
+`cargo test` 里的 `pty::tests::shell_starts_and_echoes_back` 会覆盖第 1 点 ——
+它自己扮演终端去应答 DSR。这个测试当初就是这么把 bug 抓出来的。
+
 ## 当前状态
 
-**v0.2.0 — M1 编辑器已完成。** 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
+**v0.2.1 — M1 编辑器 + 内嵌终端已完成。** 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
 
 下一步是 **M2 公式输入**，也是**整个项目的成败点**：snippet 引擎、数学模式检测、
 tabout、默认 snippet 库、符号面板。验收是盲测 ——「抄一页教材公式，比在 Obsidian

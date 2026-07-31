@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import type { NoteContent, NoteMeta, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -41,6 +42,23 @@ export const api = {
   deleteNote: (path: string, withChildren: boolean) =>
     call<void>("note_delete", { path, withChildren }),
 
-  /** §7.3 方案 A：调起系统终端，用来跑 AI CLI */
+  /** §7.3 方案 A：调起**系统**终端（独立窗口） */
   openTerminal: (path: string | null) => call<void>("open_terminal", { path }),
+
+  // —— §7.3 方案 B：内嵌终端面板 ——
+  /** 返回 pty id。`path` 为 null 时用 vault 根目录 */
+  ptyOpen: (cols: number, rows: number, path: string | null) =>
+    call<string>("pty_open", { cols, rows, path }),
+  ptyWrite: (id: string, data: string) => call<void>("pty_write", { id, data }),
+  ptyResize: (id: string, cols: number, rows: number) =>
+    call<void>("pty_resize", { id, cols, rows }),
+  ptyClose: (id: string) => call<void>("pty_close", { id }),
+  ptyActiveCount: () => call<number>("pty_active_count"),
 };
+
+/** PTY 输出。`data` 是 base64 的原始字节，交给 xterm 自己解 UTF-8。 */
+export const onPtyData = (cb: (e: { id: string; data: string }) => void): Promise<UnlistenFn> =>
+  listen<{ id: string; data: string }>("pty:data", (ev) => cb(ev.payload));
+
+export const onPtyExit = (cb: (e: { id: string }) => void): Promise<UnlistenFn> =>
+  listen<{ id: string }>("pty:exit", (ev) => cb(ev.payload));

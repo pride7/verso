@@ -1,6 +1,6 @@
 [package]
 name = "folio"
-version = "0.2.0"
+version = "0.2.1"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -29,3 +29,9 @@ thiserror = "2"
 # M0 只用到 Repository::init。default-features = false 关掉 https/ssh，
 # 避免在 Windows 上引入 openssl。M5 做同步时再打开网络特性。
 git2 = { version = "0.20", default-features = false }
+
+# 内嵌终端（§7.3 方案 B）。WezTerm 出品，Windows 走 ConPTY。
+portable-pty = "0.9"
+# PTY 输出是原始字节，一个多字节 UTF-8 字符可能被读取边界切开。
+# 用 base64 原样传给前端、由 xterm 自己解码，中文输出才不会变乱码。
+base64 = "0.22"

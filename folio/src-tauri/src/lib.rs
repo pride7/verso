@@ -1,4 +1,5 @@
 mod error;
+mod pty;
 mod recent;
 mod terminal;
 mod vault;
@@ -14,6 +15,7 @@ use vault::{note::NoteContent, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultIn
 #[derive(Default)]
 struct AppState {
     vault: Mutex<Option<Vault>>,
+    pty: pty::PtyManager,
 }
 
 impl AppState {
@@ -119,7 +121,48 @@ fn note_delete(state: State<'_, AppState>, path: String, with_children: bool) ->
     state.with_vault(|v| v.delete_note(&path, with_children))
 }
 
-/// 在系统终端中打开。`path` 为空则用 vault 根目录。
+// ---------------------------------------------------------------- 内嵌终端
+// §7.3 方案 B。cwd 默认 vault 根 —— AI 工具通常需要看到整个 vault 才能做
+// 跨笔记的操作（§10.7）。
+
+#[tauri::command]
+fn pty_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    cols: u16,
+    rows: u16,
+    path: Option<String>,
+) -> Result<String> {
+    let dir = state.with_vault(|v| match path.as_deref() {
+        Some(p) if !p.is_empty() => v.resolve(p),
+        _ => Ok(v.root.clone()),
+    })?;
+    state.pty.open(&app, &dir, cols.max(2), rows.max(2))
+}
+
+#[tauri::command]
+fn pty_write(state: State<'_, AppState>, id: String, data: String) -> Result<()> {
+    state.pty.write(&id, &data)
+}
+
+#[tauri::command]
+fn pty_resize(state: State<'_, AppState>, id: String, cols: u16, rows: u16) -> Result<()> {
+    state.pty.resize(&id, cols.max(2), rows.max(2))
+}
+
+#[tauri::command]
+fn pty_close(state: State<'_, AppState>, id: String) -> Result<()> {
+    state.pty.close(&id)
+}
+
+/// 退出前问一句还有没有跑着的进程（§7.3「进程生命周期」）。
+#[tauri::command]
+fn pty_active_count(state: State<'_, AppState>) -> usize {
+    state.pty.active_count()
+}
+
+/// 在**系统**终端中打开（§7.3 方案 A）。内嵌面板之外的备用入口 ——
+/// 有时候还是想要一个独立窗口。`path` 为空则用 vault 根目录。
 ///
 /// §10.7 待定：默认该用当前笔记所在目录还是 vault 根？AI 工具通常需要看到
 /// 整个 vault 才能做跨笔记操作，所以这里默认根目录，等实际用下来再定。
@@ -153,6 +196,11 @@ pub fn run() {
             note_move,
             note_delete,
             open_terminal,
+            pty_open,
+            pty_write,
+            pty_resize,
+            pty_close,
+            pty_active_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
