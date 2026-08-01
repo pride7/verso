@@ -83,6 +83,13 @@ export interface ViewResult {
   columns: string[];
   view: string;
   groupBy: string | null;
+  /** 这批笔记身上出现过的全部属性。列头图标、「加一列」的候选都来自它 */
+  properties: PropMeta[];
+}
+
+export interface PropMeta {
+  key: string;
+  type: "string" | "number" | "bool" | "date" | "list";
 }
 
 export interface IndexStats {

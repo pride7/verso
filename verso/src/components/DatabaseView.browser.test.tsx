@@ -27,6 +27,10 @@ vi.mock("../api", () => ({
       ],
       view: "table",
       groupBy: null,
+      properties: [
+        { key: "status", type: "string" },
+        { key: "难度", type: "number" },
+      ],
     })),
   },
 }));
@@ -171,5 +175,84 @@ describe("视图本身能操作（§2.6）", () => {
     // 建完不在表里等于什么都没发生，所以父文档要跟着 `from` 走
     expect(createNote).toHaveBeenCalledWith("论文.md", "丙");
     prompt.mockRestore();
+  });
+});
+
+describe("列与设置（§2.6）", () => {
+  it("列头带属性类型图标，`+` 能加一列", async () => {
+    const view = mount();
+    await settle();
+
+    // 加一列：从这批笔记已有的属性里挑
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
+    await settle(200);
+    const pick = [...view.dom.querySelectorAll<HTMLElement>(".vset-list button")].find((b) =>
+      b.textContent?.includes("难度"),
+    )!;
+    expect(pick).toBeTruthy();
+    await userEvent.click(pick);
+    await settle();
+
+    expect(view.state.doc.toString()).toContain("columns: [title, status, 难度]");
+  });
+
+  it("起个新名字也能加列 —— 属性是填值那一刻才写进笔记的", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
+    await settle(200);
+
+    await userEvent.fill(view.dom.querySelector<HTMLInputElement>(".vset-newcol input")!, "读完日期");
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".vset-newcol button")!);
+    await settle();
+
+    expect(view.state.doc.toString()).toContain("读完日期");
+  });
+
+  it("隐藏一列只改 columns，绝不动任何笔记的 frontmatter", async () => {
+    // 一次误点就抹掉整个 vault 的某个字段，这种事不能藏在下拉菜单里
+    const view = mount();
+    await settle();
+
+    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+      t.textContent?.includes("status"),
+    )!;
+    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await settle(200);
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
+        b.textContent?.includes("隐藏"),
+      )!,
+    );
+    await settle();
+
+    expect(view.state.doc.toString()).toContain("columns: [title]");
+    expect(propSet).not.toHaveBeenCalled();
+  });
+
+  it("设置面板改视图类型和上限，都写回代码块", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".vset-seg button")].find((b) =>
+        b.textContent?.includes("列表"),
+      )!,
+    );
+    await settle();
+    expect(view.state.doc.toString()).toContain("view: list");
+  });
+
+  it("加一个筛选条件", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".vset-add")!);
+    await settle();
+    expect(view.state.doc.toString()).toMatch(/where: \S+ =/);
   });
 });

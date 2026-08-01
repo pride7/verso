@@ -629,10 +629,7 @@ button {
   font-size: 12px;
 }
 .props-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
+  margin-left: auto;
   padding: 4px 2px;
   color: var(--muted);
   border-radius: var(--r-sm);
@@ -923,10 +920,7 @@ button {
 
 .dbview-cell,
 .dbview-link {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
+  margin-left: auto;
   text-align: left;
   padding: 7px 8px;
   font-size: 13px;
@@ -2359,10 +2353,7 @@ textarea:focus-visible {
 /* 「+ 添加条目」做成表格最后一行的样子，不是一个居右的按钮 ——
    它在语义上就是「再来一行」，Notion 和 Obsidian 都是这么放的 */
 .dbview-add {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
+  margin-left: auto;
   padding: 7px 8px;
   border-bottom: 1px solid var(--hairline);
   font-size: 13px;
@@ -2372,4 +2363,297 @@ textarea:focus-visible {
 .dbview-add:hover {
   background: var(--hover-bg);
   color: var(--text);
+}
+
+/* ---------- database 视图的浮层与列头菜单 ---------- */
+
+.dbview-bar {
+  position: relative;
+}
+.dbview-tool {
+  padding: 3px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  line-height: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.dbview-tool:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.dbview-new + .dbview-tool,
+.dbview-tool + .dbview-new {
+  margin-left: 0;
+}
+.dbview-tool {
+  margin-left: auto;
+}
+.dbview-tool + .dbview-new {
+  margin-left: 6px;
+}
+
+/* 列头：名字 + ⋮，⋮ 平时不显示 */
+.dbview-thwrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.dbview-th svg {
+  color: var(--muted);
+  opacity: 0.75;
+}
+.dbview-more {
+  padding: 0 2px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.dbview-table th:hover .dbview-more,
+.dbview-more:focus-visible {
+  opacity: 1;
+}
+/* 最后那一列只放「加一列」，不参与宽度分配 */
+.dbview-plus {
+  width: 1%;
+  padding: 6px 4px !important;
+}
+.dbview-plus button {
+  color: var(--muted);
+  line-height: 0;
+  padding: 2px;
+  border-radius: var(--r-xs);
+}
+.dbview-plus button:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+
+/* 列头菜单 */
+.dbview-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 120px;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  font-weight: 400;
+}
+.dbview-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.dbview-menu button:hover {
+  background: var(--hover-bg);
+}
+
+/* ---- 视图设置 / 加一列的浮层 ---- */
+
+.vset {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  margin-top: 6px;
+  padding: 10px 12px 12px;
+  background: var(--raised);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: default;
+}
+.vset-cols {
+  width: 220px;
+}
+.vset-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.vset-x {
+  margin-left: auto;
+  color: var(--muted);
+  line-height: 0;
+  padding: 2px;
+  border-radius: var(--r-xs);
+}
+.vset-x:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.vset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.vset-label {
+  flex: none;
+  width: 34px;
+  color: var(--muted);
+}
+.vset-filters {
+  align-items: flex-start;
+}
+.vset-label + * {
+  min-width: 0;
+}
+
+/* 分段控件：三种视图类型挤在一条里，比下拉框少一次点击 */
+.vset-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--hover-bg);
+}
+.vset-seg button {
+  padding: 3px 10px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.vset-seg button.is-on {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.vset-input,
+.vset select,
+.vset-cond input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  outline: none;
+}
+.vset-input:focus,
+.vset-cond input:focus {
+  border-color: var(--accent);
+}
+.vset-num {
+  max-width: 90px;
+}
+
+.vset-conds {
+  flex: 1;
+  min-width: 0;
+}
+.vset-cond {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.vset-cond select {
+  flex: 0 1 auto;
+  max-width: 40%;
+}
+.vset-del {
+  flex: none;
+  padding: 3px;
+  color: var(--muted);
+  line-height: 0;
+  border-radius: var(--r-xs);
+}
+.vset-del:hover {
+  color: var(--danger);
+  background: var(--hover-bg);
+}
+.vset-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+.vset-add:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--hover-bg);
+}
+.vset-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* 手写的筛选不接管：显示原文，让人自己去代码块里改 */
+.vset-hand {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.vset-hand code {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.vset-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.vset-list button {
+  margin-left: auto;
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+}
+.vset-list button:hover {
+  background: var(--hover-bg);
+}
+.vset-list svg {
+  color: var(--muted);
+}
+.vset-newcol {
+  display: flex;
+  gap: 6px;
+}
+.vset-newcol input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 7px;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  outline: none;
+}
+.vset-newcol input:focus {
+  border-color: var(--accent);
+}
+.vset-newcol button {
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: white;
+}
+.vset-newcol button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

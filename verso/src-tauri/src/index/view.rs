@@ -46,6 +46,20 @@ pub struct ViewResult {
     pub columns: Vec<String>,
     pub view: String,
     pub group_by: Option<String>,
+    /// 这批笔记身上出现过的**全部**属性（键 + 类型），按键名排序。
+    ///
+    /// 界面靠它做两件事：列头按类型显示图标（§2.6「UI 按类型渲染编辑控件」），
+    /// 以及「加一列」时列出还没显示的那些。类型取该键出现最多的那种 ——
+    /// 同一个键在不同笔记里可能一处写成数字一处写成文本，少数派不该决定图标。
+    pub properties: Vec<PropMeta>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropMeta {
+    pub key: String,
+    /// 'string' | 'number' | 'bool' | 'date' | 'list'
+    pub r#type: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,6 +323,8 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
         }
     }
 
+    let ids: Vec<String> = base.iter().map(|(id, _, _)| id.clone()).collect();
+
     // 一次把所有行的属性取出来，避免 N+1 次查询
     let mut props_by_note: HashMap<String, HashMap<String, String>> = HashMap::new();
     if !base.is_empty() {
@@ -328,6 +344,35 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
                 .or_insert(v);
         }
     }
+
+    // 这批笔记身上都有哪些属性 —— 「加一列」要从这里挑
+    let mut kinds: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    if !ids.is_empty() {
+        let ph = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
+        let mut ts = conn.prepare(&format!(
+            "SELECT key, type FROM props WHERE note_id IN ({ph})"
+        ))?;
+        let rows = ts.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (k, t) = row?;
+            *kinds.entry(k).or_default().entry(t).or_insert(0) += 1;
+        }
+    }
+    let mut properties: Vec<PropMeta> = kinds
+        .into_iter()
+        .map(|(key, ts)| {
+            // 少数派不该决定这一列的图标
+            let r#type = ts
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(t, _)| t)
+                .unwrap_or_else(|| "string".into());
+            PropMeta { key, r#type }
+        })
+        .collect();
+    properties.sort_by(|a, b| a.key.cmp(&b.key));
 
     let rows = base
         .into_iter()
@@ -350,6 +395,7 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
         columns,
         view: spec.view.clone().unwrap_or_else(|| "table".into()),
         group_by: spec.group_by.clone(),
+        properties,
     })
 }
 

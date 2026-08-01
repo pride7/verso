@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
 import { Icon } from "./Icon";
-import { newNoteParent, nextSort, readSort, writeSort } from "../lib/viewSpec";
+import { ColumnPicker, propIcon, ViewSettings } from "./ViewSettings";
+import { newNoteParent, nextSort, readColumns, readSort, writeColumns, writeSort } from "../lib/viewSpec";
 import type { ViewResult, ViewRow } from "../types";
 
 interface Props {
@@ -32,6 +33,8 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ path: string; key: string } | null>(null);
   const [draft, setDraft] = useState("");
+  /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
+  const [panel, setPanel] = useState<null | "settings" | "columns" | { col: string }>(null);
 
   const load = useCallback(() => {
     api
@@ -45,7 +48,29 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
 
   useEffect(load, [load, revision]);
 
+  // 点别处关掉浮层。浮层自己 stopPropagation，所以点里面不会关 ——
+  // 少了这一条，开过设置面板之后它会一直挂在那儿挡住表格
+  useEffect(() => {
+    if (!panel) return;
+    const close = () => setPanel(null);
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [panel]);
+
   const sort = readSort(source);
+
+  /**
+   * 隐藏一列 = 把它从 `columns:` 里去掉，**不动任何笔记的 frontmatter**。
+   *
+   * 这一条要说死：表格里「删除列」在 Notion 里是删属性（会改所有条目），
+   * 在这里只是不显示。真要删属性，去那篇笔记的属性条上删 —— 一次误点就
+   * 抹掉整个 vault 的某个字段，这种事不能藏在一个下拉菜单里。
+   */
+  const hideColumn = (col: string) => {
+    if (!result) return;
+    onPatch?.(writeColumns(source, (readColumns(source) ?? result.columns).filter((c) => c !== col)));
+    setPanel(null);
+  };
 
   /** 点表头：升 → 降 → 恢复默认。改的是代码块，不是一个 React state */
   const toggleSort = (col: string) => onPatch?.(writeSort(source, nextSort(sort, col)));
@@ -90,6 +115,9 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     );
   }
   if (!result) return <div className="dbview dbview-loading">查询中…</div>;
+
+  const typeOf = (key: string) =>
+    result.properties?.find((p) => p.key === key)?.type ?? "string";
 
   const cell = (row: ViewRow, col: string) => {
     const value = row.props[col] ?? "";
@@ -175,9 +203,36 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
           表格
         </span>
         {onPatch && (
-          <button className="dbview-new" onClick={addRow}>
-            新建
-          </button>
+          <>
+            <button
+              className="dbview-tool"
+              onClick={() => setPanel(panel === "settings" ? null : "settings")}
+              title="视图设置"
+              aria-label="视图设置"
+            >
+              <Icon name="settings" size={14} />
+            </button>
+            <button className="dbview-new" onClick={addRow}>
+              新建
+            </button>
+          </>
+        )}
+        {panel === "settings" && onPatch && (
+          <ViewSettings
+            source={source}
+            properties={result.properties ?? []}
+            onPatch={(y) => onPatch(y)}
+            onClose={() => setPanel(null)}
+          />
+        )}
+        {panel === "columns" && onPatch && (
+          <ColumnPicker
+            source={source}
+            shown={result.columns}
+            properties={result.properties ?? []}
+            onPatch={(y) => onPatch(y)}
+            onClose={() => setPanel(null)}
+          />
         )}
       </div>
       <table className="dbview-table">
@@ -186,19 +241,60 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             {result.columns.map((c) => (
               <th key={c} className={sort?.key === c ? "is-sorted" : undefined}>
                 {onPatch ? (
-                  <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
-                    {c}
-                    {/* 箭头只在这一列真的在排序时出现 —— 每列都挂一个灰箭头
-                        会把表头变成一排噪点 */}
-                    {sort?.key === c && (
-                      <span className="dbview-arrow">{sort.dir === "desc" ? "↓" : "↑"}</span>
+                  <span className="dbview-thwrap">
+                    <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
+                      <Icon name={c === "title" ? "doc" : propIcon(typeOf(c))} size={13} />
+                      {c}
+                      {/* 箭头只在这一列真的在排序时出现 —— 每列都挂一个灰箭头
+                          会把表头变成一排噪点 */}
+                      {sort?.key === c && (
+                        <span className="dbview-arrow">{sort.dir === "desc" ? "↓" : "↑"}</span>
+                      )}
+                    </button>
+                    <button
+                      className="dbview-more"
+                      onClick={() =>
+                        setPanel(typeof panel === "object" && panel?.col === c ? null : { col: c })
+                      }
+                      title="这一列"
+                      aria-label={`${c} 这一列`}
+                    >
+                      ⋮
+                    </button>
+                    {typeof panel === "object" && panel?.col === c && (
+                      <ul className="dbview-menu" onMouseDown={(e) => e.stopPropagation()}>
+                        <li>
+                          <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "asc" })); setPanel(null); }}>
+                            升序
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "desc" })); setPanel(null); }}>
+                            降序
+                          </button>
+                        </li>
+                        <li>
+                          <button onClick={() => hideColumn(c)}>隐藏这一列</button>
+                        </li>
+                      </ul>
                     )}
-                  </button>
+                  </span>
                 ) : (
                   c
                 )}
               </th>
             ))}
+            {onPatch && (
+              <th className="dbview-plus">
+                <button
+                  onClick={() => setPanel(panel === "columns" ? null : "columns")}
+                  title="加一列"
+                  aria-label="加一列"
+                >
+                  <Icon name="plus" size={13} />
+                </button>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -207,6 +303,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
               {result.columns.map((c) => (
                 <td key={c}>{cell(r, c)}</td>
               ))}
+              {onPatch && <td />}
             </tr>
           ))}
         </tbody>
