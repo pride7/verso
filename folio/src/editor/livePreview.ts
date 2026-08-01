@@ -35,6 +35,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 
+import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { MathWidget } from "./widgets";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
@@ -99,9 +100,10 @@ const blockMathField = StateField.define<DecorationSet>({
   create: computeBlockMath,
   update(deco, tr) {
     // 选区变化也要重算 —— 光标移进/移出公式正是切换源码与渲染态的时机。
-    // 不要在这里比较 syntaxTree 判断「解析推进了」：StateField 的更新顺序
-    // 不保证语言字段已为新 state 更新完，那时拿到空树会让公式全部消失。
-    if (!tr.docChanged && !tr.selection) return deco.map(tr.changes);
+    // 解析推进由 parseRefresh 这个 ViewPlugin 检测后派发 effect 通知；
+    // 不要在这里自己比较 syntaxTree（详见 parseRefresh.ts）。
+    const parsed = tr.effects.some((e) => e.is(parseAdvanced));
+    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
     return computeBlockMath(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
@@ -228,6 +230,7 @@ const inlinePreviewPlugin = ViewPlugin.fromClass(InlinePreviewPlugin, {
 });
 
 export const livePreview: Extension = [
+  parseRefresh,
   blockMathField,
   inlinePreviewPlugin,
   // 被替换掉的区域视为一个整体，否则方向键会「卡」进看不见的源码里，

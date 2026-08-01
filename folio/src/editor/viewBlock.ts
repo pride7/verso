@@ -14,6 +14,8 @@ import {
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 
+import { parseAdvanced, parseRefresh } from "./parseRefresh";
+
 /** 由 App 注入：把一个 DOM 容器渲染成 React 的 DatabaseView */
 export interface ViewRenderer {
   mount: (el: HTMLElement, source: string) => void;
@@ -86,18 +88,18 @@ function build(state: EditorState): DecorationSet {
 const viewBlockField = StateField.define<DecorationSet>({
   create: build,
   update(deco, tr) {
-    // 不要在这里比较 syntaxTree 来判断「解析推进了」，也不要在 build() 里
-    // 用 ensureSyntaxTree —— StateField 的更新顺序不保证语言字段已为新
-    // state 更新完，那时拿到的是空树，结果是每次都算出空的 decoration 集，
-    // 视图全部消失。实测踩过两次。
-    // 代价：初始视口之外的视图要等一次编辑或光标移动才出现（已知限制）。
-    if (!tr.docChanged && !tr.selection) return deco.map(tr.changes);
+    // 解析推进由 parseRefresh 这个 ViewPlugin 检测后派发 effect 通知 ——
+    // 不要在这里自己比较 syntaxTree，StateField 的更新顺序不保证语言字段
+    // 已就绪，那时读到空树会让所有视图消失（详见 parseRefresh.ts）。
+    const parsed = tr.effects.some((e) => e.is(parseAdvanced));
+    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
     return build(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
 });
 
 export const viewBlocks: Extension = [
+  parseRefresh,
   viewBlockField,
   EditorView.atomicRanges.of((view) => view.state.field(viewBlockField, false) ?? Decoration.none),
 ];

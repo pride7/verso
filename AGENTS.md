@@ -30,7 +30,7 @@
 | ↳ 内嵌终端（原属 M5，提前） | `v0.2.1` ✅ |
 | ↳ vault git 分支改 main | `v0.2.2` ✅ |
 | M2 公式 | `v0.3.0` ✅ |
-| M3 索引与 database | `v0.4.0` |
+| M3 索引与 database | `v0.4.0` ✅ |
 | M4 打磨 | `v0.5.0` |
 | M5 同步与终端 | `v0.6.0` |
 | M6 移动端 | `v0.7.0` |
@@ -172,40 +172,39 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
    `$`，语法树里根本没有 InlineMath 节点。见 `src/editor/mathContext.ts`
    的注释和 DESIGN.md §5.2。
 
-## ⚠️ 未解决：database 视图不渲染
+## 块级 decoration 的一个时序坑（已解决，别再踩）
 
-`src/editor/viewBlock.ts` 把 ` ```folio-view ` 代码块替换成表格。**它曾经工作过**
-（有截图为证：表格正常渲染、`where: status != "已读"` 筛选正确、标题是可点击链接），
-后来在排查「第一屏之外的块不渲染」时被我改坏，回退后没有恢复，原因未查明。
+块级 decoration（跨行公式、database 视图）只能来自 StateField（§4.2 的 CM6
+硬约束）。而 StateField 有个致命时序问题：
 
-已经排除的：
-- 正则没问题 —— 用真实文件内容验证过，三个块全部匹配
-- Rust 侧没问题 —— `view_query` / `prop_set` 有 80 个测试覆盖
-- 不是 HMR 的锅 —— 完全重启 dev server 之后仍然空白
+| 时刻 | 发生什么 |
+|---|---|
+| `EditorState.create` | field 的 `create()` 跑 —— 但 view 还不存在、文档**尚未解析**，拿到空树 |
+| `new EditorView()` | 解析完成 |
+| ViewPlugin 构造 | 树已是最终形态，**此后再也不会「变化」** |
 
-现象是 `ViewBlockWidget.toDOM()` 根本没被调用（widget 里放了占位文字也不显示），
-说明 decoration 压根没生成，问题在 `build()` 或 StateField 的更新时机上。
+症状：打开笔记看到的是源码，**随便点一下就渲染出来**了。
 
-**两条已经证伪的思路，不要重走**：
+解法在 `src/editor/parseRefresh.ts`：ViewPlugin 在**构造时无条件派发一次**
+`parseAdvanced` effect，StateField 收到就重算；之后再靠比较语法树捕捉
+增量解析。只比较不无条件刷新是不够的 —— 那正是当初没修好的原因。
+
+**两条已证伪的思路，不要重走**：
 1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
-   来判断「解析推进了」—— 字段更新顺序不保证语言字段已就绪，那时拿到空树，
-   结果是每次都算出空的 decoration 集，视图全部消失。
-2. 在 `build()` 里用 `ensureSyntaxTree(state, doc.length, 100)` 强制解析整篇 ——
-   同样在 StateField 上下文里不可靠。
+2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析
 
-下次排查建议：在 `build()` 里打日志确认 `syntaxTree(state)` 到底有没有 `FencedCode`
-节点、`touched()` 是不是误判成 true。
+StateField 的更新顺序不保证语言字段已就绪，这两处读到的都是空树，
+结果是每次算出**空的** decoration 集 —— 视图不是晚出现而是彻底消失。
+必须在 ViewPlugin 里读语法树，那里才可靠。
 
 ## 当前状态
 
-**v0.3.0 — M2 公式快速输入已完成，盲测已通过**（作者手测）。
+**v0.4.0 — M3 索引与 database 已完成。**
 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
 
-项目最大的风险点已经过去 —— 公式手感这一关立住了，后面都是工程量问题。
+M2 的公式手感盲测已通过（作者手测），项目最大的风险点在那时就过去了。
+默认 snippet 库仍在长期迭代，待办记在 DESIGN.md §5.4 的表里 —— 用到不顺手
+随时可以动，但动之前先读上面「改 snippet 时必须知道的三件事」。
 
-默认 snippet 库仍在长期迭代中，待办记在 DESIGN.md §5.4 的表里。
-作者说「以后可以继续调」，所以**用到不顺手的地方随时可以动那份库**，
-但动之前先读上面「改 snippet 时必须知道的三件事」。
-
-下一步是 **M3 索引与 database**：SQLite 索引、文件监听、全文搜索、反向链接、
-`[[` 补全、`/` 命令、可写的 database 表格与看板视图。
+下一步是 **M4 打磨**：视觉规范落地、深浅主题、命令面板、设置界面
+（含自定义 snippet 与终端字体）、macOS 适配。验收是「能作为日常主力笔记工具使用」。
