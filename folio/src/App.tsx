@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, onVaultChanged, pickVaultFolder } from "./api";
+import { CommandPalette, type Command } from "./components/CommandPalette";
 import { SearchPanel } from "./components/SearchPanel";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
+import { keyLabel } from "./lib/platform";
+import { useEffectiveTheme, useSettings } from "./settings";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
 import "katex/dist/katex.min.css";
 import "./styles.css";
@@ -19,6 +23,11 @@ interface Menu {
   node: TreeNode;
   x: number;
   y: number;
+}
+
+/** 文档树是嵌套的（§2.1），按路径找节点得先摊平 */
+function flatten(node: TreeNode): TreeNode[] {
+  return [node, ...node.children.flatMap(flatten)];
 }
 
 export default function App() {
@@ -34,7 +43,11 @@ export default function App() {
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
+  const { settings, update: updateSettings, reset: resetSettings } = useSettings();
+  const effectiveTheme = useEffectiveTheme(settings.theme);
   /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
   const [revision, setRevision] = useState(0);
   const [termOpen, setTermOpenRaw] = useState(
@@ -287,9 +300,18 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "p" && !e.shiftKey) {
+      if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
+        // 命令面板要排在快速切换器前面判断 —— 否则 Shift 被忽略，
+        // Ctrl+Shift+P 会先被上一条吃掉
+        e.preventDefault();
+        setPaletteOpen(true);
+      } else if (mod && e.key.toLowerCase() === "p" && !e.shiftKey) {
         e.preventDefault();
         setSwitcherOpen(true);
+      } else if (mod && e.key === ",") {
+        // 沿用几乎所有桌面软件的「设置」快捷键
+        e.preventDefault();
+        setSettingsOpen(true);
       } else if (mod && e.key === "`") {
         // 沿用 VS Code 的肌肉记忆（§7.3）
         e.preventDefault();
@@ -335,6 +357,129 @@ export default function App() {
       setError((e as Error).message);
     }
   }, [refresh]);
+
+  /**
+   * 命令面板的命令表。
+   *
+   * 每条都带着快捷键一起显示 —— 一个不做插件系统的软件，功能全靠内置，
+   * 命令面板是用户唯一能「发现」这些快捷键的地方。
+   *
+   * 依赖数组有意写全：`enabled` 依赖当前有没有打开笔记，漏掉的话面板里
+   * 会显示出一条点了没反应的命令。
+   */
+  const commands: Command[] = useMemo(() => {
+    const hasNote = !!note;
+    const cur = note?.path ?? null;
+    const node = cur ? tree.flatMap(flatten).find((n) => n.path === cur) : undefined;
+    return [
+      {
+        id: "note.new",
+        group: "笔记",
+        label: "新建文档",
+        run: () => createAndOpen(null, "新建文档"),
+      },
+      {
+        id: "note.switch",
+        group: "笔记",
+        label: "快速跳转",
+        keys: keyLabel("Mod+P"),
+        run: () => setSwitcherOpen(true),
+      },
+      {
+        id: "note.search",
+        group: "笔记",
+        label: "全文搜索",
+        keys: keyLabel("Mod+Shift+F"),
+        run: () => setSearchOpen(true),
+      },
+      {
+        id: "note.save",
+        group: "笔记",
+        label: "立即保存",
+        keys: keyLabel("Mod+S"),
+        enabled: hasNote,
+        run: () => void saveNow(),
+      },
+      {
+        id: "note.rename",
+        group: "笔记",
+        label: "重命名当前文档",
+        enabled: !!node,
+        run: () => node && void renameNode(node),
+      },
+      {
+        id: "note.reload",
+        group: "笔记",
+        label: "从磁盘重新加载",
+        enabled: hasNote,
+        run: () => void reloadFromDisk(),
+      },
+      {
+        id: "formula.symbols",
+        group: "公式",
+        label: "符号面板",
+        keys: keyLabel("Mod+/"),
+        run: () => setSymbolOpen(true),
+      },
+      {
+        id: "term.toggle",
+        group: "终端",
+        label: "打开／关闭终端面板",
+        keys: keyLabel("Mod+`"),
+        run: () => setTermOpen((v) => !v),
+      },
+      {
+        id: "term.system",
+        group: "终端",
+        label: "在系统终端中打开",
+        run: () => api.openTerminal(null).catch((e: Error) => setError(e.message)),
+      },
+      {
+        id: "view.theme",
+        group: "外观",
+        label: `主题：切换到${{ system: "浅色", light: "深色", dark: "跟随系统" }[settings.theme]}`,
+        run: () =>
+          updateSettings({
+            // 三态循环，跟系统设置里的行为一致
+            theme: ({ system: "light", light: "dark", dark: "system" } as const)[settings.theme],
+          }),
+      },
+      {
+        id: "view.settings",
+        group: "外观",
+        label: "打开设置",
+        keys: keyLabel("Mod+,"),
+        run: () => setSettingsOpen(true),
+      },
+      {
+        id: "vault.switch",
+        group: "vault",
+        label: "切换 vault",
+        run: () => void openVault(),
+      },
+      {
+        id: "vault.reindex",
+        group: "vault",
+        label: "重建索引",
+        run: () =>
+          api
+            .rebuildIndex()
+            .then(() => setRevision((v) => v + 1))
+            .catch((e: Error) => setError(e.message)),
+      },
+    ];
+  }, [
+    note,
+    tree,
+    settings.theme,
+    createAndOpen,
+    saveNow,
+    renameNode,
+    reloadFromDisk,
+    openVault,
+    setTermOpen,
+    updateSettings,
+  ]);
 
   if (!vault) {
     return (
@@ -389,6 +534,15 @@ export default function App() {
             >
               ▤
             </button>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              title={`命令面板 (${keyLabel("Mod+Shift+P")})`}
+            >
+              ⌘
+            </button>
+            <button onClick={() => setSettingsOpen(true)} title={`设置 (${keyLabel("Mod+,")})`}>
+              ⚙
+            </button>
             <button onClick={openVault} title="切换 vault">
               ⤢
             </button>
@@ -438,6 +592,7 @@ export default function App() {
               void refresh();
               setRevision((v) => v + 1);
             }}
+            customSnippets={settings.customSnippets}
           />
         ) : (
           <div className="empty">
@@ -454,6 +609,8 @@ export default function App() {
             localStorage.setItem("folio.termHeight", String(h));
           }}
           onClose={() => setTermOpen(false)}
+          fontSize={settings.terminalFontSize}
+          theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}
         />
       )}
 
@@ -481,6 +638,19 @@ export default function App() {
             editorRef.current?.insert(latex);
           }}
           onClose={() => setSymbolOpen(false)}
+        />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+      )}
+
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          onChange={updateSettings}
+          onReset={resetSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
 

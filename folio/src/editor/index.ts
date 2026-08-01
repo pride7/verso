@@ -7,7 +7,7 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import type { Extension } from "@codemirror/state";
+import { Compartment, type Extension } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
@@ -18,10 +18,29 @@ import { completion } from "./completion";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
 import { snippetEngine } from "./snippets";
+import { parseCustomSnippets } from "./snippets/custom";
+import type { SnippetSpec } from "./snippets/types";
 import { folioHighlighting, folioTheme } from "./theme";
 import { viewBlocks } from "./viewBlock";
 
 export { mathContextAt, type MathContext } from "./mathContext";
+
+/**
+ * 自定义 snippet 单独放一个 compartment。
+ *
+ * 不这么做的话，在设置里改一条 snippet 就得重建整个 EditorView —— 光标位置、
+ * 撤销历史、滚动位置全丢。compartment 让这次改动只是一次 reconfigure。
+ */
+const snippetCompartment = new Compartment();
+
+/** 设置里的自定义 snippet 变了之后调它。返回解析过程中的错误，供设置界面显示 */
+export function applyCustomSnippets(view: EditorView, text: string): string[] {
+  const { specs, errors } = parseCustomSnippets(text);
+  view.dispatch({
+    effects: snippetCompartment.reconfigure(snippetEngine({ custom: specs })),
+  });
+  return errors;
+}
 
 export interface EditorCallbacks {
   onChange: (body: string) => void;
@@ -35,6 +54,8 @@ export interface EditorCallbacks {
    * 得重建整个编辑器，光标和撤销历史全没了。
    */
   getNotes: () => NoteRef[];
+  /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
+  customSnippets?: SnippetSpec[];
 }
 
 /** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
@@ -87,7 +108,7 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
     // 处理要先于「插入缩进」拿到这个键
-    snippetEngine(),
+    snippetCompartment.of(snippetEngine({ custom: cb.customSnippets })),
 
     // `[[` 内部链接与 `/` 块插入菜单（§4.3）
     completion(cb.getNotes),

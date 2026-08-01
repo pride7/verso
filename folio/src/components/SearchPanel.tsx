@@ -92,11 +92,11 @@ export function SearchPanel({ onPick, onClose }: Props) {
   };
 
   return (
-    <div className="qs-backdrop" onMouseDown={onClose}>
-      <div className="qs search" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="overlay overlay-top" onMouseDown={onClose}>
+      <div className="modal search" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
-          className="qs-input"
+          className="modal-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -105,13 +105,13 @@ export function SearchPanel({ onPick, onClose }: Props) {
         />
 
         {error ? (
-          <div className="qs-empty error">{error}</div>
+          <div className="modal-empty error">{error}</div>
         ) : !query.trim() ? (
-          <div className="qs-empty">输入关键词开始搜索</div>
+          <div className="modal-empty">输入关键词开始搜索</div>
         ) : hits.length === 0 ? (
-          <div className="qs-empty">没有匹配的内容</div>
+          <div className="modal-empty">没有匹配的内容</div>
         ) : (
-          <ul className="qs-list" ref={listRef}>
+          <ul className="modal-list" ref={listRef}>
             {hits.map((h, i) => (
               <li
                 key={h.path}

@@ -3,7 +3,8 @@ import { EditorView } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { createExtensions } from "../editor";
+import { applyCustomSnippets, createExtensions } from "../editor";
+import { parseCustomSnippets } from "../editor/snippets/custom";
 import { setViewRenderer } from "../editor/viewBlock";
 import { DatabaseView } from "./DatabaseView";
 import type { NoteContent, NoteRef } from "../types";
@@ -29,6 +30,8 @@ interface Props {
   revision: number;
   /** database 视图改写了某篇笔记的属性 */
   onNoteChanged: () => void;
+  /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
+  customSnippets: string;
 }
 
 export function Editor({
@@ -42,6 +45,7 @@ export function Editor({
   handleRef,
   revision,
   onNoteChanged,
+  customSnippets,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -138,6 +142,10 @@ export function Editor({
     revision,
   };
 
+  // 自定义 snippet 的初值。放 ref 是因为它只在建 view 的那一刻用一次，
+  // 之后的变化走下面的 compartment reconfigure，不该让编辑器重建
+  const initialSnippets = useRef(customSnippets);
+
   // 只在挂载时建一次 view
   useEffect(() => {
     if (!host.current) return;
@@ -149,6 +157,7 @@ export function Editor({
           onSaveNow: () => cb.current.onSaveNow(),
           onFollowLink: (t) => cb.current.onFollowLink(t),
           getNotes: () => cb.current.getNotes(),
+          customSnippets: parseCustomSnippets(initialSnippets.current).specs,
         }),
       }),
       parent: host.current,
@@ -161,6 +170,14 @@ export function Editor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 设置里改了自定义 snippet：只重配 compartment，光标和撤销历史都留着
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || customSnippets === initialSnippets.current) return;
+    initialSnippets.current = customSnippets;
+    applyCustomSnippets(view, customSnippets);
+  }, [customSnippets]);
 
   // 切换笔记 / 从磁盘重载时，整篇换掉内容
   useEffect(() => {

@@ -13,14 +13,16 @@ export const folioTheme = EditorView.theme({
     color: "var(--text)",
     backgroundColor: "transparent",
     height: "100%",
-    // §6.1 中文比英文需要更大字号；1.5 的行高对中文过于拥挤
-    fontSize: "16.5px",
+    // §6.1 中文比英文需要更大字号；1.5 的行高对中文过于拥挤。
+    // 具体数值走 CSS 变量，设置里能调 —— CM6 的主题是编译期生成的类名，
+    // 改设置要重建整个编辑器才能生效，走变量就只是一次样式重算
+    fontSize: "var(--body-font-size)",
     fontFamily: "var(--font-body)",
   },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
     fontFamily: "inherit",
-    lineHeight: "1.75",
+    lineHeight: "var(--body-line-height)",
     // 底部留白：写到最后一行时不用贴着窗口底
     paddingBottom: "40vh",
   },
@@ -81,6 +83,50 @@ export const folioTheme = EditorView.theme({
     color: "var(--accent)",
     fontWeight: "600",
     fontSize: "0.85em",
+  },
+
+  // ---- 补全面板（`[[` 与 `/`）----
+  //
+  // CM6 自带的样式是浅色硬编码的，深色主题下会变成白底黑字的一块。
+  // 这里整套重写，尺寸用 UI 字号而不是正文字号 —— 它是界面不是内容。
+  ".cm-tooltip.cm-tooltip-autocomplete": {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    boxShadow: "var(--shadow)",
+    overflow: "hidden",
+    fontFamily: "var(--font-ui)",
+    fontSize: "var(--ui-font-size)",
+  },
+  ".cm-tooltip-autocomplete > ul": {
+    fontFamily: "inherit",
+    maxHeight: "16em",
+  },
+  ".cm-tooltip-autocomplete > ul > li": {
+    padding: "5px 10px",
+    display: "flex",
+    alignItems: "baseline",
+    gap: "10px",
+    lineHeight: "1.5",
+  },
+  "&.cm-focused .cm-tooltip-autocomplete > ul > li[aria-selected], .cm-tooltip-autocomplete > ul > li[aria-selected]":
+    {
+      background: "color-mix(in oklch, var(--accent) 16%, transparent)",
+      color: "var(--text)",
+    },
+  ".cm-completionLabel": { flex: "1 1 auto" },
+  // 匹配到的字符高亮。默认是加粗，在中文里几乎看不出来，改成强调色
+  ".cm-completionMatchedText": {
+    textDecoration: "none",
+    color: "var(--accent)",
+    fontWeight: "600",
+  },
+  ".cm-completionDetail": {
+    fontStyle: "normal",
+    color: "var(--muted)",
+    fontSize: "0.85em",
+    fontFamily: "var(--font-mono)",
+    flex: "0 0 auto",
   },
 });
 

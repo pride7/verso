@@ -1,11 +1,15 @@
 /* DESIGN.md §6：排版尺度与色彩。
-   M0 只落地基础部分 —— 正文字号/行高/内容限宽/单一强调色。
-   完整的视觉规范（含 Tailwind v4 的 @theme）是 M4。 */
+   排版相关的变量由 `settings.ts` 在运行时覆写到 <html> 上，
+   这里写的是默认值 —— 设置读不出来时界面也得是对的。 */
 
 :root {
-  /* §6.2 不用纯黑纯白。深色主题用同一套色相、翻转明度，保证两套观感统一。 */
+  /* §6.2 不用纯黑纯白。深色主题用**同一套 oklch 色相**、只翻转明度，
+     色相一致是两套主题观感统一的来源。 */
   --bg: oklch(99% 0.004 85);
   --surface: oklch(97% 0.005 85);
+  /* 比 surface 再重一档，用于浮层与选中态 —— 只靠一个 surface
+     会让「面板」和「面板里被选中的那一行」分不开 */
+  --raised: oklch(94% 0.006 85);
   --text: oklch(25% 0.01 260);
   --muted: oklch(55% 0.015 260);
   --border: oklch(90% 0.006 260);
@@ -13,27 +17,74 @@
   --warn: oklch(70% 0.13 70);
   --danger: oklch(58% 0.16 25);
 
-  --font-ui: "Inter", system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-body: "Inter", system-ui, -apple-system, "PingFang SC", "Source Han Sans SC",
+  /* 浮层阴影。深浅两套不一样：浅色靠投影，深色靠描边 —— 深背景上的
+     黑色投影是看不见的，硬加只会让边缘发脏 */
+  --shadow: 0 8px 28px oklch(25% 0.01 260 / 0.13), 0 1px 3px oklch(25% 0.01 260 / 0.08);
+
+  /* §6.1 排版尺度。这几条会被设置覆写 */
+  --body-font-size: 16.5px;
+  --body-line-height: 1.75;
+  --content-width: 42rem;
+  --ui-font-size: 14px;
+
+  --font-ui: Inter, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: Inter, system-ui, -apple-system, "PingFang SC", "Source Han Sans SC",
     "Microsoft YaHei", sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, "Courier New", monospace;
+  --term-font: var(--font-mono);
+  --term-font-size: 12.5px;
+
+  /* §6.3 动效只在 120–180ms、ease-out 范围内。超过 200ms 会让软件显得慢 */
+  --t-fast: 120ms ease-out;
+  --t-base: 150ms ease-out;
 
   color-scheme: light dark;
 }
 
+/* 深色的色值只写一遍，两个入口共用：
+   `system`（不带 data-theme）走媒体查询，明确选深色走属性选择器。
+   属性选择器排在媒体查询之后，所以在深色系统里选「浅色」也能盖回去。 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg: oklch(20% 0.008 260);
     --surface: oklch(24% 0.009 260);
+    --raised: oklch(28% 0.01 260);
     --text: oklch(92% 0.006 85);
     --muted: oklch(65% 0.012 260);
     --border: oklch(32% 0.01 260);
     --accent: oklch(72% 0.13 250);
+    --shadow: 0 8px 28px oklch(0% 0 0 / 0.45), 0 0 0 1px oklch(40% 0.01 260 / 0.6);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: oklch(20% 0.008 260);
+  --surface: oklch(24% 0.009 260);
+  --raised: oklch(28% 0.01 260);
+  --text: oklch(92% 0.006 85);
+  --muted: oklch(65% 0.012 260);
+  --border: oklch(32% 0.01 260);
+  --accent: oklch(72% 0.13 250);
+  --shadow: 0 8px 28px oklch(0% 0 0 / 0.45), 0 0 0 1px oklch(40% 0.01 260 / 0.6);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* 尊重系统的「减弱动态效果」。动效是锦上添花，不该是使用的前提 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html,
@@ -47,7 +98,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--ui-font-size);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -275,7 +326,7 @@ button {
 /* §6.3 内容居中且限宽 —— 窗口拉宽时留白增加，而不是行变长。
    这是 Obsidian 默认体验最刺眼的问题之一。 */
 .editor {
-  max-width: 42rem;
+  max-width: var(--content-width);
   margin-inline: auto;
   padding: 0 24px;
   min-height: 100%;
@@ -365,19 +416,37 @@ button {
   margin: 0;
 }
 
-/* ---------- 快速切换器（§2.2） ---------- */
+/* ---------- 浮层：快速切换器、搜索、符号面板、命令面板、设置共用 ----------
 
-.qs-backdrop {
+   这套类原本叫 `.qs-*`（quick switcher），但四个面板都在用它。
+   名字撒谎的样式表最容易长出重复实现 —— 下一个人看到 `.qs` 会以为
+   那是切换器专用的，于是再抄一套出来。 */
+
+.overlay {
   position: fixed;
   inset: 0;
   background: color-mix(in oklch, black 28%, transparent);
   display: flex;
   justify-content: center;
-  /* 不垂直居中：靠上放，输入时列表向下展开，视线不用来回跳 */
-  padding-top: 14vh;
+  align-items: center;
   z-index: 100;
+  animation: overlay-in var(--t-fast);
 }
-.qs {
+
+/* 带输入框的面板靠上放：输入时列表向下展开，视线不用来回跳。
+   设置面板没有这个问题，居中反而更稳当，所以做成可选的修饰类。 */
+.overlay-top {
+  align-items: flex-start;
+  padding-top: 14vh;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.modal {
   width: min(560px, 90vw);
   max-height: 62vh;
   display: flex;
@@ -385,10 +454,20 @@ button {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 18px 48px color-mix(in oklch, black 22%, transparent);
+  box-shadow: var(--shadow);
   overflow: hidden;
+  animation: modal-in var(--t-base);
 }
-.qs-input {
+
+/* 只做很小的位移。§6.3 说动效超过 200ms 会让软件显得慢，
+   而位移超过几像素会让浮层显得"飞进来"，同样廉价 */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.modal-input {
   border: none;
   outline: none;
   background: transparent;
@@ -398,7 +477,7 @@ button {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
 }
-.qs-list {
+.modal-list {
   list-style: none;
   margin: 0;
   padding: 6px;
@@ -431,7 +510,7 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.qs-empty {
+.modal-empty {
   padding: 20px;
   text-align: center;
   color: var(--muted);
@@ -862,4 +941,279 @@ button {
   overflow-x: auto;
   white-space: pre-wrap;
   margin: 0 0 12px;
+}
+
+/* ---------- 命令面板（M4） ---------- */
+
+.palette {
+  width: min(620px, 92vw);
+}
+.palette-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.palette-list button {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+.palette-list button.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+/* 分组名定宽右对齐，让所有命令名竖着对齐成一列 —— 扫读快得多 */
+.palette-group {
+  flex: none;
+  width: 4.5em;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.palette-label {
+  flex: 1;
+  font-size: 13.5px;
+}
+.palette-keys {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.palette-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- 设置（M4） ---------- */
+
+.settings {
+  width: min(680px, 94vw);
+  /* 比其他浮层高：设置是"进来待一会儿"的地方，不是选一下就走 */
+  max-height: 78vh;
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+}
+.settings-tabs button {
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  border-radius: 5px 5px 0 0;
+  transition: color var(--t-fast);
+}
+.settings-tabs button:hover {
+  color: var(--text);
+}
+.settings-tabs button.is-on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.modal-close {
+  color: var(--muted);
+  padding: 4px 8px;
+  border-radius: 5px;
+  line-height: 1;
+}
+.modal-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 18px 18px;
+}
+.settings-foot {
+  border-top: 1px solid var(--border);
+  padding: 10px 18px;
+}
+.set-reset-all {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.set-reset-all:hover {
+  color: var(--danger);
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 13px 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+}
+.set-row:last-child {
+  border-bottom: none;
+}
+.set-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.set-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.set-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+.set-control input[type="range"] {
+  width: 150px;
+  accent-color: var(--accent);
+}
+/* 定宽 + 等宽字体：拖滑块时数字不会左右跳动 */
+.set-value {
+  width: 4.2em;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.set-reset {
+  color: var(--muted);
+  padding: 2px 5px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.set-reset:hover:not(:disabled) {
+  background: var(--border);
+  color: var(--text);
+}
+.set-reset:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.set-text {
+  width: 210px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color var(--t-fast);
+}
+.set-text:focus {
+  border-color: var(--accent);
+}
+.set-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.set-snippets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+}
+.set-code {
+  min-height: 260px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+  tab-size: 2;
+}
+.set-code:focus {
+  border-color: var(--accent);
+}
+.set-errors {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklch, var(--danger) 35%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text);
+  max-height: 170px;
+  overflow-y: auto;
+}
+.set-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.set-actions .btn-primary {
+  padding: 6px 16px;
+  font-size: 13px;
+}
+.set-actions .btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  filter: none;
+}
+
+/* 分段控件（主题三选一） */
+.segmented {
+  display: flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 2px;
+  gap: 2px;
+}
+.segmented button {
+  padding: 5px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+  border-radius: 5px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.segmented button:hover {
+  color: var(--text);
+}
+.segmented button.is-on {
+  color: var(--text);
+  background: var(--bg);
+  box-shadow: 0 1px 2px color-mix(in oklch, black 12%, transparent);
 }

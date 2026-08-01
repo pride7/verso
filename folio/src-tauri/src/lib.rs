@@ -2,6 +2,7 @@ mod error;
 mod index;
 mod pty;
 mod recent;
+mod settings;
 mod terminal;
 mod vault;
 mod watcher;
@@ -342,6 +343,22 @@ fn open_terminal(state: State<'_, AppState>, path: Option<String>) -> Result<()>
     })
 }
 
+// —— 用户设置（§6）——
+
+#[tauri::command]
+fn settings_get(app: AppHandle) -> settings::Settings {
+    settings::load(&app)
+}
+
+/// 存之前先过一遍 `sanitized()`：前端的输入框、以及手改过的设置文件，
+/// 都可能送进 0 或者 NaN，那会让界面直接不可用。
+#[tauri::command]
+fn settings_set(app: AppHandle, settings: settings::Settings) -> Result<settings::Settings> {
+    let clean = settings.sanitized();
+    settings::store(&app, &clean)?;
+    Ok(clean)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -373,6 +390,8 @@ pub fn run() {
             index_rebuild,
             view_query,
             prop_set,
+            settings_get,
+            settings_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

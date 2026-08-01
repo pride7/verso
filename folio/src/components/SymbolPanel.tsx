@@ -102,11 +102,11 @@ export function SymbolPanel({ onInsert, onClose }: Props) {
   };
 
   return (
-    <div className="qs-backdrop" onMouseDown={onClose}>
-      <div className="qs sym" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="overlay overlay-top" onMouseDown={onClose}>
+      <div className="modal sym" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
-          className="qs-input"
+          className="modal-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -114,9 +114,9 @@ export function SymbolPanel({ onInsert, onClose }: Props) {
           spellCheck={false}
         />
         {results.length === 0 ? (
-          <div className="qs-empty">没有匹配的符号</div>
+          <div className="modal-empty">没有匹配的符号</div>
         ) : (
-          <ul className="qs-list sym-list" ref={listRef}>
+          <ul className="modal-list sym-list" ref={listRef}>
             {results.map((e, i) => (
               <li
                 key={e.trigger}

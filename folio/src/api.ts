@@ -13,6 +13,7 @@ import type {
   VaultInfo,
   ViewResult,
 } from "./types";
+import type { Settings } from "./settings";
 
 /** Rust 侧把所有错误序列化成字符串，这里统一转成 Error 对象。 */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -80,6 +81,11 @@ export const api = {
   /** 改写 frontmatter 属性。`value` 为 null 表示删除 */
   propSet: (path: string, key: string, value: string | null) =>
     call<void>("prop_set", { path, key, value }),
+
+  // —— §6 用户设置 ——
+  getSettings: () => call<Settings>("settings_get"),
+  /** 返回 Rust 侧夹紧之后的值 —— 存进去的和界面上显示的必须是同一份 */
+  setSettings: (settings: Settings) => call<Settings>("settings_set", { settings }),
 };
 
 /** 外部程序（AI CLI、git、别的编辑器）改了 vault 里的文件（§2.7） */

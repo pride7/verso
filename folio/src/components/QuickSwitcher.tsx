@@ -68,11 +68,11 @@ export function QuickSwitcher({ notes, onPick, onClose }: Props) {
   };
 
   return (
-    <div className="qs-backdrop" onMouseDown={onClose}>
-      <div className="qs" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="overlay overlay-top" onMouseDown={onClose}>
+      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
-          className="qs-input"
+          className="modal-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
@@ -81,9 +81,9 @@ export function QuickSwitcher({ notes, onPick, onClose }: Props) {
         />
 
         {results.length === 0 ? (
-          <div className="qs-empty">没有匹配的笔记</div>
+          <div className="modal-empty">没有匹配的笔记</div>
         ) : (
-          <ul className="qs-list" ref={listRef}>
+          <ul className="modal-list" ref={listRef}>
             {results.map((r, i) => (
               <li
                 key={r.item.path}

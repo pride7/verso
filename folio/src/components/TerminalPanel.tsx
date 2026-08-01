@@ -11,17 +11,31 @@ interface Props {
   height: number;
   onHeightChange: (h: number) => void;
   onClose: () => void;
+  /** 设置里的终端字号 */
+  fontSize: number;
+  /** 主题标识。值本身不用，变了就重新取色 —— 见下面的 effect */
+  theme: string;
 }
 
-/** 从 CSS 变量取色，让终端跟随深浅主题 */
-function themeFromCss() {
+/**
+ * 从 CSS 变量取色/取字体，让终端跟随主题和设置。
+ *
+ * 注意必须**取计算值**再交给 xterm，不能把 `var(--term-font)` 直接塞进去：
+ * xterm 要拿字体串去 canvas 里量字符宽度，那个上下文解析不了 CSS 变量，
+ * 结果是列宽算错、整屏错位。
+ */
+function styleFromCss() {
   const s = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback;
+  const mono = '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace';
   return {
-    background: v("--surface", "#f7f6f3"),
-    foreground: v("--text", "#22252b"),
-    cursor: v("--accent", "#3b6fd4"),
-    selectionBackground: "rgba(120,150,220,0.32)",
+    fontFamily: v("--term-font", mono),
+    theme: {
+      background: v("--surface", "#f7f6f3"),
+      foreground: v("--text", "#22252b"),
+      cursor: v("--accent", "#3b6fd4"),
+      selectionBackground: "rgba(120,150,220,0.32)",
+    },
   };
 }
 
@@ -31,29 +45,35 @@ function themeFromCss() {
  * §7.1：vault 是纯 .md，任何 AI CLI 都能直接在上面工作。这个面板就是那条路
  * 的入口 —— 不用切窗口，一边让 AI 改笔记，一边在编辑器里看结果。
  */
-export function TerminalPanel({ height, onHeightChange, onClose }: Props) {
+export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const idRef = useRef<string | null>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dead, setDead] = useState(false);
+
+  // 初值放 ref：终端只建一次，字号变化走下面那个 effect。
+  // 直接读 props 的话得把它们写进依赖数组，改一次字号就重建终端、
+  // 跑着的进程全没了
+  const initial = useRef({ fontSize });
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
     const term = new Terminal({
-      // 不要在这里写 CSS 变量：xterm 要拿这个字符串去做字符宽度测量，
-      // `var(--font-mono)` 在它的测量上下文里解析不出来
-      fontFamily: '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace',
-      fontSize: 13,
+      ...styleFromCss(),
+      fontSize: initial.current.fontSize,
       lineHeight: 1.2,
       cursorBlink: true,
       // AI CLI 一次输出几百行是常态，默认的 1000 行回滚不够回看
       scrollback: 10000,
-      theme: themeFromCss(),
       allowProposedApi: true,
     });
     const fit = new FitAddon();
+    termRef.current = term;
+    fitRef.current = fit;
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(host);
@@ -146,8 +166,33 @@ export function TerminalPanel({ height, onHeightChange, onClose }: Props) {
       // 留下用户看不见也管不到的孤儿 shell —— 想让 AI 长跑就别关面板。
       if (idRef.current) void api.ptyClose(idRef.current);
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, []);
+
+  /**
+   * 字号、字体、主题变了就地更新，不重建终端 —— 重建等于把跑着的进程杀掉。
+   *
+   * 改完必须 `fit()` 再把新尺寸告诉 PTY：字号一变，同样的像素宽度装下的
+   * 列数就变了，不同步的话 shell 会按旧列数折行，输出看着像错位。
+   */
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const style = styleFromCss();
+    term.options.fontSize = fontSize;
+    term.options.fontFamily = style.fontFamily;
+    term.options.theme = style.theme;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      return;
+    }
+    if (idRef.current && term.cols >= 2 && term.rows >= 2) {
+      void api.ptyResize(idRef.current, term.cols, term.rows).catch(() => {});
+    }
+  }, [fontSize, theme]);
 
   // 拖拽调整高度
   const startDrag = (e: React.MouseEvent) => {
