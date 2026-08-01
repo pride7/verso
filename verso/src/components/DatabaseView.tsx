@@ -416,7 +416,8 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
           />
         )}
       </div>
-      <table className="dbview-table">
+      <div className="dbview-scroll">
+        <table className="dbview-table">
         <thead>
           <tr>
             {result.columns.map((c) => (
@@ -520,7 +521,8 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             </tr>
           ))}
         </tbody>
-      </table>
+        </table>
+      </div>
       {onPatch && (
         <button className="dbview-add" onClick={addRow} title="新建一篇笔记并加进这个视图">
           <Icon name="plus" size={13} />

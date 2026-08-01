@@ -3463,8 +3463,9 @@ textarea:focus-visible {
    空白，看着像没做完；而列宽被平均分掉之后，短列（难度、状态）反倒比长列
    还宽。`max-content` 让每列取自己需要的宽度。 */
 .dbview-table {
-  width: max-content;
-  max-width: 100%;
+  /* 撑满外框。收缩发生在 `.dbview` 那一层，顶栏和表格因此共用一个宽度 ——
+     否则「新建」会飘在表格右边好远的地方 */
+  width: 100%;
   table-layout: auto;
 }
 
@@ -3476,8 +3477,21 @@ textarea:focus-visible {
   width: max-content;
 }
 
-/* 装不下就横向滚，别把整个界面撑宽（外壳那条「页面永远不滚」靠这个成立） */
+/* 外框收缩到内容宽度：顶栏和表格取两者中更宽的那个，一起对齐 */
 .dbview {
+  width: max-content;
+  max-width: 100%;
+}
+.dbview.is-full {
+  width: 100%;
+}
+
+/* **横向滚动放在单独一层。**
+   把 `overflow-x: auto` 和 `width: max-content` 放在同一个元素上会绕成一个
+   环：滚动容器的尺寸取决于内容，内容的可用宽度又取决于容器。实测的表现是
+   元素位置反复微调，自动化点击一直等不到「稳定」——「加一列」那个按钮明明
+   有尺寸、在框内，却点不动。拆成两层就没有这个环。 */
+.dbview-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }

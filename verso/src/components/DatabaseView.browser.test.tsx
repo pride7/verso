@@ -511,14 +511,30 @@ describe("文件自己的时间（内置列）", () => {
 });
 
 describe("表格宽度（§2.6）", () => {
+  const widths = (view: EditorView) => {
+    const box = view.dom.querySelector<HTMLElement>(".dbview")!;
+    return {
+      box: box.getBoundingClientRect().width,
+      bar: view.dom.querySelector<HTMLElement>(".dbview-bar")!.getBoundingClientRect().width,
+      table: view.dom.querySelector<HTMLElement>(".dbview-table")!.getBoundingClientRect().width,
+      avail: box.parentElement!.getBoundingClientRect().width,
+    };
+  };
+
   it("默认按内容宽，不铺满 —— 三列的小表格拉满正文栏中间是一片空白", async () => {
     const view = mount();
     await settle();
-    const table = view.dom.querySelector<HTMLElement>(".dbview-table")!;
-    const box = view.dom.querySelector<HTMLElement>(".dbview")!;
-    expect(table.getBoundingClientRect().width).toBeLessThan(
-      box.getBoundingClientRect().width - 20,
-    );
+    const w = widths(view);
+    expect(w.box).toBeLessThan(w.avail - 20);
+  });
+
+  it("顶栏和表格同宽 —— 否则「新建」会飘在表格右边好远的地方", async () => {
+    // 作者报的就是这个。收缩必须发生在**外框**那一层，只缩表格的话
+    // 顶栏还是通栏的
+    const view = mount();
+    await settle();
+    const w = widths(view);
+    expect(Math.abs(w.bar - w.table)).toBeLessThan(2);
   });
 
   it("`width: full` 才铺满，而且是「至少铺满」不是「压进去」", async () => {
@@ -526,10 +542,8 @@ describe("表格宽度（§2.6）", () => {
     // 「仅针对显示得下的」
     const view = mount('from: "论文/*"\nview: table\nwidth: full');
     await settle();
-    const table = view.dom.querySelector<HTMLElement>(".dbview-table")!;
-    const box = view.dom.querySelector<HTMLElement>(".dbview")!;
-    expect(table.getBoundingClientRect().width).toBeGreaterThanOrEqual(
-      box.getBoundingClientRect().width - 1,
-    );
+    const w = widths(view);
+    expect(w.box).toBeGreaterThanOrEqual(w.avail - 1);
+    expect(Math.abs(w.bar - w.table)).toBeLessThan(2);
   });
 });
