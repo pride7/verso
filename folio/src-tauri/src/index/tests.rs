@@ -13,7 +13,7 @@ impl Drop for Tmp {
 
 /// 建一个真实的 vault，写入若干笔记，返回已索引好的 (目录, vault, index)
 fn setup(files: &[(&str, &str)]) -> (Tmp, Vault, Index) {
-    let dir = std::env::temp_dir().join(format!("folio-idx-{}", ulid::Ulid::new()));
+    let dir = std::env::temp_dir().join(format!("verso-idx-{}", ulid::Ulid::new()));
     std::fs::create_dir_all(&dir).unwrap();
 
     for (rel, content) in files {
@@ -284,7 +284,7 @@ fn indexes_foreign_notes_without_frontmatter() {
 /// CI 上跑 500 篇取十分之一的预算，够发现数量级上的退化。
 #[test]
 fn indexing_is_fast_enough() {
-    let dir = std::env::temp_dir().join(format!("folio-perf-{}", ulid::Ulid::new()));
+    let dir = std::env::temp_dir().join(format!("verso-perf-{}", ulid::Ulid::new()));
     std::fs::create_dir_all(&dir).unwrap();
     let _guard = Tmp(dir.clone());
 

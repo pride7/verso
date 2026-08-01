@@ -15,7 +15,7 @@ use crate::error::Result;
 ///
 /// `attachments` 之所以硬编码在这里是临时的 —— M0 还没有配置系统，
 /// DESIGN.md §10.2 定了它可配置。等 config.json 落地后从配置读。
-const HIDDEN_DIRS: &[&str] = &[".folio", ".git", ".obsidian", "attachments", "node_modules"];
+const HIDDEN_DIRS: &[&str] = &[".verso", ".git", ".obsidian", "attachments", "node_modules"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -260,7 +260,7 @@ mod tests {
     /// DESIGN.md §2.1 的那个例子，一比一还原
     fn design_doc_vault() -> FakeFs {
         FakeFs::new(&[
-            ("", &[("数学", true), ("attachments", true), (".folio", true)]),
+            ("", &[("数学", true), ("attachments", true), (".verso", true)]),
             (
                 "数学",
                 &[
@@ -326,7 +326,7 @@ mod tests {
     fn skips_private_and_attachment_dirs() {
         let fs = design_doc_vault();
         let tree = scan(&fs, Path::new("/vault"), "").unwrap();
-        assert_eq!(tree.len(), 1, "只应剩下「数学」，.folio 和 attachments 要被跳过");
+        assert_eq!(tree.len(), 1, "只应剩下「数学」，.verso 和 attachments 要被跳过");
     }
 
     #[test]

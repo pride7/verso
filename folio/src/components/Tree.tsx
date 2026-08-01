@@ -57,12 +57,12 @@ function TreeItem({
         }}
         draggable={isDoc}
         onDragStart={(e) => {
-          e.dataTransfer.setData("text/folio-path", node.path);
+          e.dataTransfer.setData("text/verso-path", node.path);
           e.dataTransfer.effectAllowed = "move";
         }}
         onDragOver={(e) => {
           if (!isDoc) return;
-          const src = e.dataTransfer.types.includes("text/folio-path");
+          const src = e.dataTransfer.types.includes("text/verso-path");
           if (!src) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -72,7 +72,7 @@ function TreeItem({
         onDrop={(e) => {
           e.preventDefault();
           setDropTarget(false);
-          const src = e.dataTransfer.getData("text/folio-path");
+          const src = e.dataTransfer.getData("text/verso-path");
           // 拖到自己身上是无操作；移进自身子树由 Rust 侧拒绝
           if (src && src !== node.path && isDoc) {
             onMove(src, node.path);

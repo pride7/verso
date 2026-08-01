@@ -4,7 +4,7 @@
 
 ## 这是什么
 
-**Folio** —— 本地优先、排版考究、公式输入极快的笔记软件。Tauri 2 + React + CodeMirror 6，
+**Verso** —— 本地优先、排版考究、公式输入极快的笔记软件。Tauri 2 + React + CodeMirror 6，
 纯 Markdown 文件存储。
 
 **[DESIGN.md](DESIGN.md) 是唯一真源。** 动手前先读相关章节；实现与设计冲突时，
@@ -32,17 +32,17 @@
 | M2 公式 | `v0.3.0` ✅ |
 | M3 索引与 database | `v0.4.0` ✅ |
 | M4 打磨 | `v0.5.0` ✅ |
-| M4 布局调整（左侧图标栏） | `v0.5.1` ✅ |
-| M4 打磨 | `v0.5.0` |
-| M5 同步与终端 | `v0.6.0` |
+| ↳ 左侧图标栏 | `v0.5.1` ✅ |
+| ↳ 改名 Folio → Verso | `v0.5.2` ✅ |
+| M5 同步 | `v0.6.0` |
 | M6 移动端 | `v0.7.0` |
 | M7 发布 | `v0.8.0` |
 
 **版本号存在三个文件里，必须一致**（Tauri 不会帮你同步，不一致会做出版本号错乱的安装包）：
 
-- `folio/package.json`
-- `folio/src-tauri/Cargo.toml`
-- `folio/src-tauri/tauri.conf.json`
+- `verso/package.json`
+- `verso/src-tauri/Cargo.toml`
+- `verso/src-tauri/tauri.conf.json`
 
 别手改这三处，用脚本：
 
@@ -57,10 +57,29 @@ node scripts/version.mjs 0.2.0     # 三处一起改
 2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，写清**用户能感知的变化**，不是 commit 流水账
 3. 提交，然后打 tag：`git tag v0.2.0`
 
+## ⚠️ 还没做完：目录还叫 `folio/`
+
+v0.5.2 从 Folio 改名成 Verso，代码、标识符、文档全部改完了，**只有物理目录
+还叫 `folio/`** —— 改名那天 VS Code 占着 `node_modules` 和 `src-tauri/target`，
+Windows 上 `git mv` 报 Permission denied。
+
+没有硬绕过去，是因为唯一的绕法是重建 `src-tauri/target`，而这台机器的
+Smart App Control 会拦新编译的未签名构建脚本（见下），很可能把构建整个搞坏。
+
+**补上的办法**（作者关掉 VS Code 之后）：
+
+```bash
+cd d:/Projects/notebook
+git mv folio verso
+```
+
+完事之后把 `scripts/version.mjs` 里那段找目录的回退删掉，本节也删掉。
+GitHub 上的仓库名（现在是 `folio-xsfeng`）改不改由作者定，agent 不要碰远端。
+
 ## 构建与测试
 
 ```bash
-cd folio
+cd verso   # 目录暂时还叫 folio/，见上一节
 pnpm install
 pnpm tauri dev                 # 跑起来
 
@@ -120,7 +139,7 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 ### ⚠️ 不要截屏来验证 UI
 
 **别写「抓屏幕上某块区域」的脚本。** 试过一次，`SetForegroundWindow` 没能把
-Folio 提到前台（Windows 有前台锁，后台进程调它经常无效），于是抓到的是当时
+Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），于是抓到的是当时
 盖在上面的另一个应用 —— 作者的微信聊天窗口。截图工具会拍到作者屏幕上任何
 东西，这个风险不该由 agent 去承担。
 
@@ -146,7 +165,7 @@ Folio 提到前台（Windows 有前台锁，后台进程调它经常无效），
 4. **不内置 AI 功能。** 用户通过终端自带 AI CLI，我们不绑模型、不管 API key。
 5. **不做笔记内容触发的代码执行。** 不要「代码块运行按钮」—— 笔记可被分享和发布，
    那等于把「打开一篇笔记」变成「运行一个陌生程序」。
-6. **`.folio/` 必须可以整个删掉后重建。** 它只放派生数据。往里存唯一真源即为违规。
+6. **`.verso/` 必须可以整个删掉后重建。** 它只放派生数据。往里存唯一真源即为违规。
 
 ## 代码约定
 
@@ -250,7 +269,7 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 ## 当前状态
 
 **v0.4.2 — M3 索引与 database 已完成，`/` 菜单与视图渲染已确认正常。**
-详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
+详见 [CHANGELOG.md](CHANGELOG.md) 与 [verso/README.md](verso/README.md)。
 
 M2 的公式手感盲测已通过（作者手测），项目最大的风险点在那时就过去了。
 默认 snippet 库仍在长期迭代，待办记在 DESIGN.md §5.4 的表里 —— 用到不顺手

@@ -170,6 +170,6 @@ fn tmp_path_for(path: &Path) -> PathBuf {
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "tmp".into());
-    name.push_str(".folio-tmp");
+    name.push_str(".verso-tmp");
     path.with_file_name(name)
 }

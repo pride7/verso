@@ -102,7 +102,7 @@ export function SearchView({ onPick, revision }: Props) {
     <div className="side-view">
       <div className="side-head">
         <input
-          id="folio-search-input"
+          id="verso-search-input"
           className="side-input"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

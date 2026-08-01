@@ -18,7 +18,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Folio 崩溃:", error, info);
+    console.error("Verso 崩溃:", error, info);
     this.setState({ stack: info.componentStack ?? null });
   }
 

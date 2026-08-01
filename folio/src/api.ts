@@ -78,7 +78,7 @@ export const api = {
   rebuildIndex: () => call<IndexStats>("index_rebuild"),
 
   // —— §2.6 database 视图 ——
-  /** 执行一个 folio-view 代码块，`source` 是块里的原文 */
+  /** 执行一个 verso-view 代码块，`source` 是块里的原文 */
   viewQuery: (source: string) => call<ViewResult>("view_query", { source }),
   /** 改写 frontmatter 属性。`value` 为 null 表示删除 */
   propSet: (path: string, key: string, value: string | null) =>

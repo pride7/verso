@@ -6,9 +6,9 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 
-import { folioTags } from "./markdownExtended";
+import { versoTags } from "./markdownExtended";
 
-export const folioTheme = EditorView.theme({
+export const versoTheme = EditorView.theme({
   "&": {
     color: "var(--text)",
     backgroundColor: "transparent",
@@ -136,7 +136,7 @@ export const folioTheme = EditorView.theme({
  * 注意这里**没有**把标题、粗体做成变色 —— live preview 已经把标记符号
  * 藏起来了，正文应当看起来就是排好版的文章。变色反而显得像代码编辑器。
  */
-export const folioHighlight = HighlightStyle.define([
+export const versoHighlight = HighlightStyle.define([
   // §6.1 层级靠字重和留白区分，不靠字号暴涨
   { tag: t.heading1, fontSize: "1.85em", fontWeight: "600", lineHeight: "1.3" },
   { tag: t.heading2, fontSize: "1.5em", fontWeight: "600", lineHeight: "1.35" },
@@ -162,12 +162,12 @@ export const folioHighlight = HighlightStyle.define([
   },
 
   // 公式源码（光标进入时露出的那份）用等宽字体，好数括号
-  { tag: folioTags.math, fontFamily: "var(--font-mono)", fontSize: "0.92em" },
-  { tag: folioTags.mathMarker, color: "var(--muted)", opacity: 0.6 },
-  { tag: folioTags.wikiLinkMarker, color: "var(--muted)", opacity: 0.6 },
+  { tag: versoTags.math, fontFamily: "var(--font-mono)", fontSize: "0.92em" },
+  { tag: versoTags.mathMarker, color: "var(--muted)", opacity: 0.6 },
+  { tag: versoTags.wikiLinkMarker, color: "var(--muted)", opacity: 0.6 },
 
   { tag: t.processingInstruction, color: "var(--muted)", opacity: 0.55 },
   { tag: t.contentSeparator, color: "var(--muted)" },
 ]);
 
-export const folioHighlighting = syntaxHighlighting(folioHighlight);
+export const versoHighlighting = syntaxHighlighting(versoHighlight);

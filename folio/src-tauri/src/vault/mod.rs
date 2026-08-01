@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn atomic_write_then_read_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("folio-test-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = vault_at(&dir);
 
@@ -334,7 +334,7 @@ mod tests {
     /// 首次保存必须补上 id，否则这篇笔记没有稳定标识，重命名后链接就断了。
     #[test]
     fn foreign_note_gets_an_id_on_first_save() {
-        let dir = std::env::temp_dir().join(format!("folio-test-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = vault_at(&dir);
 
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn create_child_note_makes_same_named_folder() {
-        let dir = std::env::temp_dir().join(format!("folio-test-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = vault_at(&dir);
 
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_and_invalid_titles() {
-        let dir = std::env::temp_dir().join(format!("folio-test-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = vault_at(&dir);
 

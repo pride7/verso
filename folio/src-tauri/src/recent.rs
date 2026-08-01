@@ -1,6 +1,6 @@
 //! 记住上次打开的 vault。
 //!
-//! 存在**应用配置目录**而不是 `.folio/` —— `.folio/` 是 per-vault 的 UI 状态，
+//! 存在**应用配置目录**而不是 `.verso/` —— `.verso/` 是 per-vault 的 UI 状态，
 //! 而「上次打开哪个 vault」是应用级状态，鸡生蛋问题：还没打开 vault 时读不到它。
 
 use std::path::PathBuf;

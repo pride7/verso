@@ -266,7 +266,7 @@ mod tests {
     /// ConPTY，与 Unix 的 openpty 行为差异很大。
     #[test]
     fn shell_starts_and_echoes_back() {
-        let dir = std::env::temp_dir().join(format!("folio-pty-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-pty-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
 
         let mut s = spawn_shell(&dir, 80, 24).expect("应当能起一个 shell");
@@ -310,7 +310,7 @@ mod tests {
 
             // 等 shell 真正就绪（有提示符）再发命令，否则输入会被启动过程吞掉
             if !sent_cmd && (answered_dsr || acc.contains('>') || acc.contains('$')) {
-                s.writer.write_all(b"echo folio-pty-marker-7f3a\r\n").unwrap();
+                s.writer.write_all(b"echo verso-pty-marker-7f3a\r\n").unwrap();
                 s.writer.flush().unwrap();
                 sent_cmd = true;
                 acc.clear(); // 只关心命令之后的输出
@@ -318,7 +318,7 @@ mod tests {
 
             // 命令回显本身也含这个串，所以要求出现两次：
             // 一次是 shell 的回显，一次是 echo 的真正输出
-            if sent_cmd && acc.matches("folio-pty-marker-7f3a").count() >= 2 {
+            if sent_cmd && acc.matches("verso-pty-marker-7f3a").count() >= 2 {
                 break;
             }
         }
@@ -327,7 +327,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(
-            acc.contains("folio-pty-marker-7f3a"),
+            acc.contains("verso-pty-marker-7f3a"),
             "shell 没有回传预期输出。实际收到:\n{acc}"
         );
     }

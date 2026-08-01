@@ -40,7 +40,7 @@ function mount(doc: string, anchor = 0) {
 const rendered = (v: EditorView) => v.dom.querySelectorAll(".cm-dbview").length;
 const settle = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 
-const VIEW_BLOCK = '```folio-view\nfrom: "论文/*"\nview: table\n```';
+const VIEW_BLOCK = '```verso-view\nfrom: "论文/*"\nview: table\n```';
 
 describe("database 视图", () => {
   it("打开笔记就渲染，不需要先点一下", async () => {

@@ -20,7 +20,7 @@ import { markdownExtended } from "./markdownExtended";
 import { snippetEngine } from "./snippets";
 import { parseCustomSnippets } from "./snippets/custom";
 import type { SnippetSpec } from "./snippets/types";
-import { folioHighlighting, folioTheme } from "./theme";
+import { versoHighlighting, versoTheme } from "./theme";
 import { viewBlocks } from "./viewBlock";
 
 export { mathContextAt, type MathContext } from "./mathContext";
@@ -98,8 +98,8 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
       codeLanguages: [],
     }),
 
-    folioTheme,
-    folioHighlighting,
+    versoTheme,
+    versoHighlighting,
     livePreview,
     // §2.6 database 视图。必须排在 livePreview 之后 —— 它替换整个代码块，
     // 优先级要高于代码块自身的高亮

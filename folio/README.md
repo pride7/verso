@@ -1,4 +1,4 @@
-# Folio
+# Verso
 
 本地优先、排版考究、公式输入极快的笔记软件。设计文档见 [../DESIGN.md](../DESIGN.md)。
 

@@ -1,6 +1,6 @@
 //! SQLite 索引。DESIGN.md §2.5
 //!
-//! 全部是派生数据 —— `.folio/index.db` 删掉后会重建，只丢时间不丢内容。
+//! 全部是派生数据 —— `.verso/index.db` 删掉后会重建，只丢时间不丢内容。
 //! 这是「Markdown 是唯一真源」那条原则的可执行定义。
 
 pub mod parse;
@@ -65,7 +65,7 @@ struct NoteRecord {
 
 impl Index {
     pub fn open(vault_root: &Path) -> Result<Self> {
-        let dir = vault_root.join(".folio");
+        let dir = vault_root.join(".verso");
         std::fs::create_dir_all(&dir)?;
         let conn = Connection::open(dir.join("index.db"))?;
         schema::init(&conn)?;

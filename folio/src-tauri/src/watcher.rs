@@ -58,12 +58,12 @@ impl Drop for VaultWatcher {
     }
 }
 
-/// 只关心 vault 里的 `.md`。`.folio/`（索引自己）和 `.git/` 必须排除 ——
+/// 只关心 vault 里的 `.md`。`.verso/`（索引自己）和 `.git/` 必须排除 ——
 /// 否则索引写自己的 db 会触发监听，触发重建，再写 db，无限循环。
 fn interesting(root: &Path, path: &Path) -> Option<String> {
     let rel = path.strip_prefix(root).ok()?;
     let s = rel.to_string_lossy().replace('\\', "/");
-    if s.starts_with(".folio/") || s.starts_with(".git/") || s.contains("/.git/") {
+    if s.starts_with(".verso/") || s.starts_with(".git/") || s.contains("/.git/") {
         return None;
     }
     if !s.ends_with(".md") {
@@ -153,7 +153,7 @@ mod tests {
 
         assert_eq!(rel("数学/线性代数.md").as_deref(), Some("数学/线性代数.md"));
         // 索引自己的 db 若被监听，会造成「写 db → 触发 → 重建 → 写 db」的死循环
-        assert_eq!(rel(".folio/index.db"), None);
+        assert_eq!(rel(".verso/index.db"), None);
         assert_eq!(rel(".git/HEAD"), None);
         assert_eq!(rel("attachments/fig.png"), None);
         assert_eq!(rel("README.txt"), None);

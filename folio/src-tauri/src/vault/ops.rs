@@ -214,7 +214,7 @@ mod tests {
     }
 
     fn setup() -> (Tmp, Vault) {
-        let dir = std::env::temp_dir().join(format!("folio-ops-{}", ulid::Ulid::new()));
+        let dir = std::env::temp_dir().join(format!("verso-ops-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = Vault {
             root: dir.clone(),

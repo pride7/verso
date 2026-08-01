@@ -1,7 +1,7 @@
 //! SQLite 索引的 schema。DESIGN.md §2.5
 //!
 //! **这里的一切都是派生数据**，可以从 `.md` 文件完整重建。整个
-//! `.folio/` 删掉后下次打开会重新索引一遍 —— 这是「Markdown 是唯一真源」
+//! `.verso/` 删掉后下次打开会重新索引一遍 —— 这是「Markdown 是唯一真源」
 //! 那条原则的可执行定义（§2.1）。
 
 use rusqlite::Connection;

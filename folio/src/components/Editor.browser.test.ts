@@ -47,7 +47,7 @@ describe("Editor 里的 database 视图", () => {
             id: "test-id",
             title: "论文",
             frontmatter: {},
-            body: '# 论文清单\n\n```folio-view\nfrom: "论文/*"\nview: table\n```\n',
+            body: '# 论文清单\n\n```verso-view\nfrom: "论文/*"\nview: table\n```\n',
             mtimeMs: 0,
           },
           onChange: () => {},

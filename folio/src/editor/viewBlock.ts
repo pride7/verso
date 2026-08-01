@@ -1,5 +1,5 @@
 /**
- * 把 ` ```folio-view ` 代码块替换成渲染好的 database 视图。DESIGN.md §2.6
+ * 把 ` ```verso-view ` 代码块替换成渲染好的 database 视图。DESIGN.md §2.6
  *
  * 与公式一样走 live preview 的规则：光标进入代码块时露出源码，移开就渲染。
  * 块级替换必须来自 StateField（§4.2 里那条 CM6 硬约束）。
@@ -64,6 +64,15 @@ function touched(state: EditorState, from: number, to: number) {
   return false;
 }
 
+/**
+ * ` ```verso-view ` 是正式写法，` ```folio-view ` 是改名前的旧写法。
+ *
+ * 两个都认。软件改名不该让用户已经写下的笔记失效 —— 那些 `.md` 是他们的
+ * 数据，不是我们的实现细节（§0 第 1 条）。`/` 菜单只会插入新写法，
+ * 旧别名纯粹是为了让老笔记继续渲染。
+ */
+const VIEW_FENCE = /^```[ \t]*(?:verso|folio)-view[ \t]*\r?\n([\s\S]*?)\r?\n?```$/;
+
 function build(state: EditorState): DecorationSet {
   const marks: Range<Decoration>[] = [];
 
@@ -71,7 +80,7 @@ function build(state: EditorState): DecorationSet {
     enter(node) {
       if (node.name !== "FencedCode") return;
       const text = state.doc.sliceString(node.from, node.to);
-      const m = /^```[ \t]*folio-view[ \t]*\r?\n([\s\S]*?)\r?\n?```$/.exec(text);
+      const m = VIEW_FENCE.exec(text);
       if (!m) return;
       if (touched(state, node.from, node.to)) return false;
 

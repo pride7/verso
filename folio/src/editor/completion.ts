@@ -91,7 +91,7 @@ const BLOCKS: Block[] = [
   {
     label: "database 视图",
     detail: "按属性筛选笔记的表格",
-    template: '```folio-view\nfrom: "|"\nview: table\ncolumns: [title]\n```',
+    template: '```verso-view\nfrom: "|"\nview: table\ncolumns: [title]\n```',
   },
 ];
 

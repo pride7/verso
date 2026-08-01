@@ -63,10 +63,10 @@ export default function App() {
   // 侧栏显示哪个视图、以及展不展开。都跨会话保留 —— 收起侧栏是为了把
   // 编辑区拉宽，每次启动又弹回来就没意义了
   const [sidebarView, setSidebarView] = useState<SidebarView>(
-    () => (localStorage.getItem("folio.sidebarView") as SidebarView | null) ?? "tree",
+    () => (localStorage.getItem("verso.sidebarView") as SidebarView | null) ?? "tree",
   );
   const [sidebarOpen, setSidebarOpen] = useState(
-    () => localStorage.getItem("folio.sidebarOpen") !== "0",
+    () => localStorage.getItem("verso.sidebarOpen") !== "0",
   );
   const [menu, setMenu] = useState<Menu | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -77,20 +77,20 @@ export default function App() {
   /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
   const [revision, setRevision] = useState(0);
   const [termOpen, setTermOpenRaw] = useState(
-    () => localStorage.getItem("folio.termOpen") === "1",
+    () => localStorage.getItem("verso.termOpen") === "1",
   );
   /** 面板开关状态跨会话保留 —— 关掉的人不想每次启动又见到它 */
   const setTermOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setTermOpenRaw((prev) => {
       const v = typeof next === "function" ? next(prev) : next;
-      localStorage.setItem("folio.termOpen", v ? "1" : "0");
+      localStorage.setItem("verso.termOpen", v ? "1" : "0");
       return v;
     });
   }, []);
   // 面板高度记在 localStorage —— 调好一次就别再调第二次。
   // vault 级的 UI 状态（§2.1 workspace.json）等 M3 有配置系统了再搬过去。
   const [termHeight, setTermHeight] = useState(() => {
-    const saved = Number(localStorage.getItem("folio.termHeight"));
+    const saved = Number(localStorage.getItem("verso.termHeight"));
     return Number.isFinite(saved) && saved >= 120 ? saved : 280;
   });
 
@@ -118,12 +118,12 @@ export default function App() {
       const closing = sidebarOpen && v === sidebarView;
       setSidebarOpen(!closing);
       setSidebarView(v);
-      localStorage.setItem("folio.sidebarOpen", closing ? "0" : "1");
-      localStorage.setItem("folio.sidebarView", v);
+      localStorage.setItem("verso.sidebarOpen", closing ? "0" : "1");
+      localStorage.setItem("verso.sidebarView", v);
       if (!closing && v === "search") {
         // 等这一轮渲染把面板挂上去
         requestAnimationFrame(() =>
-          document.getElementById("folio-search-input")?.focus(),
+          document.getElementById("verso-search-input")?.focus(),
         );
       }
     },
@@ -375,7 +375,7 @@ export default function App() {
         // 已经在搜索视图时不要收起侧栏 —— 再按一次的意图是「回到搜索框」，
         // 不是「关掉搜索」。pickView 的 toggle 语义只对点图标成立
         if (sidebarOpen && sidebarView === "search") {
-          document.getElementById("folio-search-input")?.focus();
+          document.getElementById("verso-search-input")?.focus();
         } else {
           pickView("search");
         }
@@ -562,7 +562,7 @@ export default function App() {
   if (!vault) {
     return (
       <div className="welcome">
-        <h1>Folio</h1>
+        <h1>Verso</h1>
         <p className="welcome-sub">本地优先的笔记本</p>
         <button className="btn-primary" onClick={openVault}>
           打开 vault 目录
@@ -708,7 +708,7 @@ export default function App() {
           height={termHeight}
           onHeightChange={(h) => {
             setTermHeight(h);
-            localStorage.setItem("folio.termHeight", String(h));
+            localStorage.setItem("verso.termHeight", String(h));
           }}
           onClose={() => setTermOpen(false)}
           fontSize={settings.terminalFontSize}

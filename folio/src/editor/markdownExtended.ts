@@ -1,5 +1,5 @@
 /**
- * Folio 的 Markdown 方言 —— DESIGN.md §2.4。
+ * Verso 的 Markdown 方言 —— DESIGN.md §2.4。
  *
  * 这是整条编辑器链路的地基：live preview 靠它产出的语法树决定渲染什么，
  * M2 的数学模式检测靠它区分「光标在公式里」和「光标在正文里」。
@@ -28,7 +28,7 @@ const PIPE = 124; // |
 const NEWLINE = 10;
 
 /** 供主题使用的高亮标签。CM6 的内置 tag 里没有「数学公式」这类概念。 */
-export const folioTags = {
+export const versoTags = {
   math: Tag.define(),
   mathMarker: Tag.define(),
   wikiLink: Tag.define(),
@@ -109,7 +109,7 @@ function findMathClose(cx: InlineContext, from: number, delimLen: number): numbe
 }
 
 const inlineMath: InlineParser = {
-  name: "FolioInlineMath",
+  name: "VersoInlineMath",
   // 必须早于强调解析 —— 否则 `$a_1$` 里的下划线会先被吃成斜体
   before: "Emphasis",
   parse(cx, next, pos) {
@@ -143,7 +143,7 @@ const inlineMath: InlineParser = {
 
 /** 独占若干行的 `$$ … $$`。行内那种由 inlineMath 处理。 */
 const blockMath: BlockParser = {
-  name: "FolioBlockMath",
+  name: "VersoBlockMath",
   parse(cx: BlockContext, line: Line) {
     const text = line.text.slice(line.pos);
     if (!text.startsWith("$$")) return false;
@@ -180,7 +180,7 @@ const blockMath: BlockParser = {
 
 /** `[[笔记]]`、`[[笔记|别名]]`、`[[笔记#标题]]`、以及嵌入 `![[文件]]` */
 const wikiLink: InlineParser = {
-  name: "FolioWikiLink",
+  name: "VersoWikiLink",
   before: "Link",
   parse(cx, next, pos) {
     let embed = false;
@@ -231,7 +231,7 @@ const wikiLink: InlineParser = {
 // ---------------------------------------------------------------- 标签
 
 const hashtag: InlineParser = {
-  name: "FolioHashtag",
+  name: "VersoHashtag",
   parse(cx, next, pos) {
     if (next !== HASH) return -1;
 
@@ -257,7 +257,7 @@ const hashtag: InlineParser = {
 // ---------------------------------------------------------------- 高亮
 
 const highlight: InlineParser = {
-  name: "FolioHighlight",
+  name: "VersoHighlight",
   before: "Emphasis",
   parse(cx, next, pos) {
     if (next !== EQUALS || cx.char(pos + 1) !== EQUALS) return -1;
@@ -282,7 +282,7 @@ const highlight: InlineParser = {
 
 /** `> [!note] 标题` 里的 `[!note]` 部分。`>` 本身由标准的引用块解析器处理。 */
 const calloutMarker: InlineParser = {
-  name: "FolioCallout",
+  name: "VersoCallout",
   before: "Link",
   parse(cx, next, pos) {
     if (next !== OPEN_BRACKET || cx.char(pos + 1) !== BANG) return -1;
@@ -304,27 +304,27 @@ const calloutMarker: InlineParser = {
 
 export const markdownExtended: MarkdownConfig = {
   defineNodes: [
-    { name: "InlineMath", style: folioTags.math },
-    { name: "BlockMath", style: folioTags.math },
-    { name: "MathMarker", style: folioTags.mathMarker },
+    { name: "InlineMath", style: versoTags.math },
+    { name: "BlockMath", style: versoTags.math },
+    { name: "MathMarker", style: versoTags.mathMarker },
     { name: "MathContent" },
-    { name: "WikiLink", style: folioTags.wikiLink },
-    { name: "Embed", style: folioTags.wikiLink },
-    { name: "WikiLinkMarker", style: folioTags.wikiLinkMarker },
+    { name: "WikiLink", style: versoTags.wikiLink },
+    { name: "Embed", style: versoTags.wikiLink },
+    { name: "WikiLinkMarker", style: versoTags.wikiLinkMarker },
     { name: "WikiLinkTarget" },
     { name: "WikiLinkAlias" },
-    { name: "Hashtag", style: folioTags.hashtag },
-    { name: "Highlight", style: folioTags.highlight },
-    { name: "HighlightMarker", style: folioTags.mathMarker },
-    { name: "CalloutMarker", style: folioTags.callout },
+    { name: "Hashtag", style: versoTags.hashtag },
+    { name: "Highlight", style: versoTags.highlight },
+    { name: "HighlightMarker", style: versoTags.mathMarker },
+    { name: "CalloutMarker", style: versoTags.callout },
   ],
   parseBlock: [blockMath],
   parseInline: [inlineMath, wikiLink, hashtag, highlight, calloutMarker],
   props: [
     styleTags({
-      "MathContent/...": folioTags.math,
-      "WikiLinkTarget/...": folioTags.wikiLink,
-      "WikiLinkAlias/...": folioTags.wikiLink,
+      "MathContent/...": versoTags.math,
+      "WikiLinkTarget/...": versoTags.wikiLink,
+      "WikiLinkAlias/...": versoTags.wikiLink,
     }),
   ],
 };

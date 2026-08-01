@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { ViewResult, ViewRow } from "../types";
 
 interface Props {
-  /** `folio-view` 代码块里的原文（YAML） */
+  /** `verso-view` 代码块里的原文（YAML） */
   source: string;
   onOpen: (path: string) => void;
   /** 属性被改写后通知外层重查 */

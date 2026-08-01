@@ -10,7 +10,7 @@ interface Props {
 }
 
 /** 最近用过的符号存本地 —— 实测命中率极高，第一格永远是刚用过的那个 */
-const RECENT_KEY = "folio.recentSymbols";
+const RECENT_KEY = "verso.recentSymbols";
 const RECENT_MAX = 12;
 
 interface Entry {

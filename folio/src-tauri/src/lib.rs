@@ -218,7 +218,7 @@ fn notes_by_tag(state: State<'_, AppState>, tag: String) -> Result<Vec<NoteRef>>
 
 // ------------------------------------------------------ database 视图（§2.6）
 
-/// 执行一个 `folio-view` 代码块。`source` 是代码块里的原文（YAML）。
+/// 执行一个 `verso-view` 代码块。`source` 是代码块里的原文（YAML）。
 ///
 /// 在 Rust 侧解析而不是前端：查询要拼 SQL，让解析和执行挨在一起才好保证
 /// 所有用户输入都走参数绑定。视图定义写在笔记里，而笔记可能来自分享。
