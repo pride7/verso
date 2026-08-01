@@ -1,4 +1,5 @@
 # Verso 设计文档
+
 > 一个本地优先、排版考究、公式输入极快的笔记软件。桌面 + 移动端。
 
 **已定决策**：名称 Verso ｜ Tauri 2（桌面 + 移动）｜ 纯 Markdown 文件存储 ｜ CodeMirror 6 编辑器 ｜ 页面级 database ｜ 同名文件夹实现文档嵌套 ｜ Git 作为同步/备份/发布底座 ｜ 附件默认统一放 `attachments/`（可配置）
