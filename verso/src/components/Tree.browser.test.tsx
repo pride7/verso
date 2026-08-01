@@ -40,7 +40,7 @@ const NODES = [doc("甲"), doc("乙"), doc("丙")];
 
 type Reorder = (movedPath: string, targetPath: string, place: "before" | "after") => void;
 
-function mount(onReorder?: Reorder) {
+function mount(onReorder: Reorder) {
   const host = document.createElement("div");
   // 侧栏宽度：行太窄会换行，行高一变分区比例就不是想验的那个了
   host.style.width = "260px";
@@ -124,14 +124,6 @@ describe("拖放分区", () => {
     dragTo(row(host, 1), "甲.md", 0.5);
     expect(onMove).toHaveBeenCalledWith("甲.md", "乙.md");
     expect(onReorder).not.toHaveBeenCalled();
-  });
-
-  // 非手动排序时不传 onReorder。这时整行都该是「移进去」，
-  // 否则用户在边缘拖一下，什么都没发生，看着像坏了
-  it("没有 onReorder 时，边缘也走移动", () => {
-    const { host, onMove } = mount(undefined);
-    dragTo(row(host, 1), "甲.md", 0.1);
-    expect(onMove).toHaveBeenCalledWith("甲.md", "乙.md");
   });
 
   it("拖到自己身上是无操作", () => {

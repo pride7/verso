@@ -82,7 +82,7 @@ describe("手动排序", () => {
 });
 
 describe("拖拽重排", () => {
-  const sibs = [node("甲"), node("乙"), node("丙"), node("丁")];
+  const sibs = ["甲.md", "乙.md", "丙.md", "丁.md"];
 
   it("放到某一项之前", () => {
     expect(reorderSiblings(sibs, "丁.md", "乙.md", "before")).toEqual([
@@ -113,16 +113,39 @@ describe("拖拽重排", () => {
   });
 
   it("拖到自己身上是无操作", () => {
-    expect(reorderSiblings(sibs, "乙.md", "乙.md", "before")).toEqual(sibs.map((n) => n.path));
+    expect(reorderSiblings(sibs, "乙.md", "乙.md", "before")).toEqual(sibs);
   });
 
   it("目标不在这一组里就不动", () => {
-    expect(reorderSiblings(sibs, "甲.md", "别处.md", "after")).toEqual(sibs.map((n) => n.path));
+    expect(reorderSiblings(sibs, "甲.md", "别处.md", "after")).toEqual(sibs);
   });
 
-  // 返回整组而不是只返回被移动的那一个：原来大家可能都没有 order，
-  // 或者 order 有重复、有空洞，整组重编号才能保证结果稳定
+  it("被移动的不在这一组里也不动", () => {
+    expect(reorderSiblings(sibs, "别处.md", "丙.md", "after")).toEqual(sibs);
+  });
+
+  // 返回整组而不是只返回被移动的那一个：这一组可能压根没排过，
+  // 或者顺序文件已经陈旧，整组重写才能保证结果稳定
   it("返回的是完整的兄弟清单", () => {
     expect(reorderSiblings(sibs, "甲.md", "丙.md", "after")).toHaveLength(4);
+  });
+
+  it("不改原数组", () => {
+    const before = [...sibs];
+    reorderSiblings(sibs, "甲.md", "丙.md", "after");
+    expect(sibs).toEqual(before);
+  });
+
+  // 跨目录拖到边缘时，调用方先把新路径拼进清单再排。
+  // 这条路径不通的话，跨目录拖到边缘就只能静悄悄什么都不做
+  it("刚移进来的文件也能定位", () => {
+    const withNewcomer = [...sibs, "新来的.md"];
+    expect(reorderSiblings(withNewcomer, "新来的.md", "甲.md", "before")).toEqual([
+      "新来的.md",
+      "甲.md",
+      "乙.md",
+      "丙.md",
+      "丁.md",
+    ]);
   });
 });

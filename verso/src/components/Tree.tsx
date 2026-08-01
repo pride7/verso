@@ -12,10 +12,12 @@ interface Props {
   /** 拖拽移动：把 `path` 移到 `newParentDoc` 之下（null = vault 根） */
   onMove: (path: string, newParentDoc: string | null) => void;
   /**
-   * 拖拽重排同级顺序。只在手动排序模式下传进来 —— 其他模式下记了顺序
-   * 也立刻被规则盖掉，拖完看不出效果反而像是坏了
+   * 拖拽调顺序：把 `movedPath` 放到 `targetPath` 前/后。
+   *
+   * 任何排序模式下都接 —— 拖动本身就是「我要自己定顺序」的意思，由上层
+   * 顺手切到手动排序。这里不做判断，否则用户得先找到下拉框才能拖第一下
    */
-  onReorder?: (movedPath: string, targetPath: string, place: "before" | "after") => void;
+  onReorder: (movedPath: string, targetPath: string, place: "before" | "after") => void;
   depth?: number;
 }
 
@@ -80,8 +82,8 @@ function TreeItem({
           // 结果差得很远
           const box = e.currentTarget.getBoundingClientRect();
           const r = (e.clientY - box.top) / box.height;
-          if (onReorder && r < 0.25) setDropAt("before");
-          else if (onReorder && r > 0.75) setDropAt("after");
+          if (r < 0.25) setDropAt("before");
+          else if (r > 0.75) setDropAt("after");
           else setDropAt(isDoc ? "into" : null);
         }}
         onDragLeave={() => setDropAt(null)}
@@ -95,7 +97,7 @@ function TreeItem({
           if (where === "into" && isDoc) {
             onMove(src, node.path);
             setExpanded(true);
-          } else if (onReorder && (where === "before" || where === "after")) {
+          } else if (where === "before" || where === "after") {
             onReorder(src, node.path, where);
           }
         }}

@@ -63,6 +63,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  // 拖拽把排序方式从规则切成手动时提示一句。静悄悄地改一个下拉框的值，
+  // 用户下次发现按名字排失效了会莫名其妙
+  const [sortNotice, setSortNotice] = useState(false);
   const [symbolOpen, setSymbolOpen] = useState(false);
   // 侧栏显示哪个视图、以及展不展开。都跨会话保留 —— 收起侧栏是为了把
   // 编辑区拉宽，每次启动又弹回来就没意义了
@@ -181,41 +184,6 @@ export default function App() {
    * 唯一会写文件的是手动排序，那是用户显式拖拽触发的
    */
   const sortedTree = useMemo(() => sortTree(tree, settings.treeSort), [tree, settings.treeSort]);
-
-  /**
-   * 拖拽重排：把 `moved` 放到 `target` 的前/后，整组兄弟一起记下次序。
-   *
-   * 只在手动排序模式下有意义 —— 其他模式下记了顺序也看不出来。
-   * 顺序写进 vault 根的 `.verso-order.json`，笔记本身一个字不动。
-   */
-  const reorder = useCallback(
-    async (movedPath: string, targetPath: string, place: "before" | "after") => {
-      const parentOf = (p: string) => {
-        const cut = p.lastIndexOf("/");
-        return cut < 0 ? "" : p.slice(0, cut);
-      };
-      const parent = parentOf(movedPath);
-      // 只在同一组兄弟内部重排。跨组是「移动」，走 onMove 那条路
-      if (parent !== parentOf(targetPath)) return;
-
-      const siblings = parent
-        ? (tree.flatMap(flatten).find((n) => n.childDir === parent)?.children ?? [])
-        : tree;
-      const ordered = reorderSiblings(
-        sortTree(siblings, settings.treeSort),
-        movedPath,
-        targetPath,
-        place,
-      );
-      try {
-        await api.reorder(parent, ordered);
-        await refresh();
-      } catch (e) {
-        setError((e as Error).message);
-      }
-    },
-    [tree, settings.treeSort, refresh],
-  );
 
 
   /** 立即落盘。切笔记、失焦、Ctrl+S 都走这里。 */
@@ -358,6 +326,67 @@ export default function App() {
     },
     [refresh, openPath],
   );
+
+  /**
+   * 拖拽调顺序：把 `moved` 放到 `target` 的前/后，整组兄弟一起记下次序。
+   * 顺序写进 vault 根的 `.verso-order.json`，笔记本身一个字不动。
+   *
+   * **任何排序模式下都能拖**。拖动本身就是「我要自己定顺序」的意思，
+   * 再要求先去下拉框里选一次「手动排序」纯属多余 —— 所以这里顺手切过去。
+   */
+  const reorder = useCallback(
+    async (movedPath: string, targetPath: string, place: "before" | "after") => {
+      const parentOf = (p: string) => {
+        const cut = p.lastIndexOf("/");
+        return cut < 0 ? "" : p.slice(0, cut);
+      };
+      // 落点看的是**目标**在哪一组，不是被拖的那个原来在哪一组
+      const parent = parentOf(targetPath);
+      const host = parent ? tree.flatMap(flatten).find((n) => n.childDir === parent) : undefined;
+      const siblings = parent ? (host?.children ?? []) : tree;
+
+      let moved = movedPath;
+      try {
+        if (parentOf(movedPath) !== parent) {
+          // 跨目录拖到边缘：先移过去，再排到那个位置。行已经高亮着「插到这里」，
+          // 只因为来源目录不同就静悄悄什么都不做，是最难受的一种失败
+          //
+          // 纯文件夹没有同名文档，当不了「父文档」，这一种只能放弃
+          if (parent && host?.kind !== "document") return;
+          moved = await api.moveNote(movedPath, host?.path ?? null);
+          if (noteRef.current?.path === movedPath) await openPath(moved);
+        }
+
+        // 起点是**当前屏幕上的顺序**，不是文件里记着的。从规则排序切过来时这点
+        // 很关键：按名字排的时候拖一下，除了被拖的那个，别的都不该动
+        const display = sortTree(siblings, settings.treeSort).map((n) => n.path);
+        const ordered = reorderSiblings(
+          display.includes(moved) ? display : [...display, moved],
+          moved,
+          targetPath,
+          place,
+        );
+        await api.reorder(parent, ordered);
+
+        // 默认是按名称排。不自动切的话，拖完立刻被规则盖回去，看着像没生效
+        if (settings.treeSort !== "manual") {
+          await updateSettings({ treeSort: "manual" });
+          setSortNotice(true);
+        }
+        await refresh();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [tree, settings.treeSort, updateSettings, refresh, openPath],
+  );
+
+  // 提示自己消失。它是一次性的说明，不是状态，赖着不走就成了侧栏里的一行垃圾
+  useEffect(() => {
+    if (!sortNotice) return;
+    const t = setTimeout(() => setSortNotice(false), 6000);
+    return () => clearTimeout(t);
+  }, [sortNotice]);
 
   /** `[[链接]]` 跳转。目标不存在时按名字新建 —— 这正是 wiki 式写作的用法。 */
   const followLink = useCallback(
@@ -781,8 +810,11 @@ export default function App() {
               <select
                 className="side-sort"
                 value={settings.treeSort}
-                onChange={(e) => updateSettings({ treeSort: e.target.value as TreeSort })}
-                title="排序方式"
+                onChange={(e) => {
+                  setSortNotice(false);
+                  updateSettings({ treeSort: e.target.value as TreeSort });
+                }}
+                title="排序方式。直接拖动文件也会切到手动排序"
                 aria-label="排序方式"
               >
                 {(Object.keys(SORT_LABELS) as TreeSort[]).map((k) => (
@@ -804,6 +836,10 @@ export default function App() {
             )}
           </header>
 
+          {sortNotice && sidebarView === "tree" && (
+            <p className="hint">已切换到手动排序。想回到按名称排，用上面的下拉框</p>
+          )}
+
           {vault.createdRepo && (
             <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
           )}
@@ -817,7 +853,7 @@ export default function App() {
               onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
               onMenu={(node, x, y) => setMenu({ node, x, y })}
               onMove={moveNode}
-              onReorder={settings.treeSort === "manual" ? reorder : undefined}
+              onReorder={reorder}
             />
           )}
           {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}

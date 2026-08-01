@@ -75,26 +75,27 @@ export function sortTree(nodes: TreeNode[], mode: TreeSort): TreeNode[] {
 }
 
 /**
- * 把一组兄弟节点重排成「把 `moved` 放到 `target` 之前/之后」的次序。
+ * 把一组兄弟重排成「把 `moved` 放到 `target` 之前/之后」的次序。
  *
- * 返回的是**完整的兄弟路径清单**，整组交给 `notes_reorder` 落盘。
- * 只报被移动的那一个是不够的：原来这一组可能压根没排过，或者顺序文件
- * 已经陈旧（在别的软件里改过名），整组重写才能保证结果稳定。
+ * 收的是**路径清单**不是节点：跨目录拖过来的那个文件此刻还不在这一组里，
+ * 调用方得能先把它的新路径拼进清单再排。
+ *
+ * 返回的也是**完整的一组**，整组交给 `notes_reorder` 落盘。只报被移动的
+ * 那一个是不够的：这一组可能压根没排过，或者顺序文件已经陈旧（在别的软件里
+ * 改过名），整组重写才能保证结果稳定。
  */
 export function reorderSiblings(
-  siblings: TreeNode[],
+  siblings: string[],
   movedPath: string,
   targetPath: string,
   place: "before" | "after",
 ): string[] {
-  const rest = siblings.filter((n) => n.path !== movedPath);
-  const moved = siblings.find((n) => n.path === movedPath);
-  if (!moved || movedPath === targetPath) return siblings.map((n) => n.path);
+  if (movedPath === targetPath || !siblings.includes(movedPath)) return [...siblings];
 
-  const at = rest.findIndex((n) => n.path === targetPath);
-  if (at < 0) return siblings.map((n) => n.path);
+  const rest = siblings.filter((p) => p !== movedPath);
+  const at = rest.indexOf(targetPath);
+  if (at < 0) return [...siblings];
 
-  const insert = place === "before" ? at : at + 1;
-  rest.splice(insert, 0, moved);
-  return rest.map((n) => n.path);
+  rest.splice(place === "before" ? at : at + 1, 0, movedPath);
+  return rest;
 }
