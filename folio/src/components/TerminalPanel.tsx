@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 
 import { api, onPtyData, onPtyExit } from "../api";
+import { keyLabel } from "../lib/platform";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -216,7 +217,7 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme
       <div className="term-resizer" onMouseDown={startDrag} />
       <header className="term-head">
         <span className="term-title">终端{dead && " · 已结束"}</span>
-        <button className="term-close" onClick={onClose} title="关闭终端 (Ctrl+`)">
+        <button className="term-close" onClick={onClose} title={`关闭终端 (${keyLabel("Mod+`")})`}>
           ✕
         </button>
       </header>

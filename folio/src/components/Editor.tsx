@@ -16,6 +16,18 @@ export interface EditorHandle {
   insert: (text: string) => void;
 }
 
+/**
+ * 延后卸载 widget 里的 React root。
+ *
+ * 必须先拍快照再清空 Map：StrictMode 会在微任务执行前重新挂载，
+ * 新 root 会放回同一个 Map，旧 cleanup 绝不能碰它们。
+ */
+export function cleanupWidgetRoots(roots: Map<HTMLElement, Root>) {
+  const staleRoots = [...roots.values()];
+  roots.clear();
+  queueMicrotask(() => staleRoots.forEach((r) => r.unmount()));
+}
+
 interface Props {
   note: NoteContent;
   onChange: (body: string) => void;
@@ -91,9 +103,7 @@ export function Editor({
   // 编辑器销毁时把残留的 React root 一起清掉，否则内存泄漏
   useEffect(
     () => () => {
-      const rs = roots.current;
-      queueMicrotask(() => rs.forEach((r) => r.unmount()));
-      rs.clear();
+      cleanupWidgetRoots(roots.current);
     },
     [],
   );

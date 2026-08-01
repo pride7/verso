@@ -30,6 +30,23 @@ function flatten(node: TreeNode): TreeNode[] {
   return [node, ...node.children.flatMap(flatten)];
 }
 
+/**
+ * 正文字数。
+ *
+ * 用 `Array.from` 而不是 `.length`：后者数的是 UTF-16 码元，emoji 和一些
+ * 生僻字会被算成两个。中日韩按**字符**数，西文按**词**数 —— 这是两种语言
+ * 各自的习惯，混着数出来的数字对谁都没意义。
+ */
+export function countChars(text: string): number {
+  const stripped = text
+    .replace(/```[\s\S]*?```/g, "") // 代码块不算正文
+    .replace(/\$\$[\s\S]*?\$\$/g, "") // 块级公式同理
+    .replace(/!?\[\[[^\]]*\]\]/g, ""); // 链接与嵌入只留下它们的位置
+  const cjk = stripped.match(/[一-鿿぀-ヿ가-힯]/g)?.length ?? 0;
+  const words = stripped.replace(/[一-鿿぀-ヿ가-힯]/g, " ").match(/[A-Za-z0-9'’-]+/g)?.length ?? 0;
+  return cjk + words;
+}
+
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -516,10 +533,10 @@ export default function App() {
             <button onClick={() => createAndOpen(null, "新建文档")} title="新建文档">
               ＋
             </button>
-            <button onClick={() => setSwitcherOpen(true)} title="快速跳转 (Ctrl+P)">
+            <button onClick={() => setSwitcherOpen(true)} title={`快速跳转 (${keyLabel("Mod+P")})`}>
               ⌕
             </button>
-            <button onClick={() => setSearchOpen(true)} title="全文搜索 (Ctrl+Shift+F)">
+            <button onClick={() => setSearchOpen(true)} title={`全文搜索 (${keyLabel("Mod+Shift+F")})`}>
               ⌗
             </button>
             <button
@@ -530,7 +547,7 @@ export default function App() {
                 e.preventDefault();
                 api.openTerminal(null).catch((err) => setError((err as Error).message));
               }}
-              title="终端 (Ctrl+`)　右键：在系统终端中打开"
+              title={`终端 (${keyLabel("Mod+`")})　右键：在系统终端中打开`}
             >
               ▤
             </button>
@@ -595,8 +612,24 @@ export default function App() {
             customSnippets={settings.customSnippets}
           />
         ) : (
+          // 空状态是「顺便教一下快捷键」最自然的位置 —— 不做插件系统的软件，
+          // 功能全靠内置，用户没有别的地方能发现它们
           <div className="empty">
-            从左侧选一篇笔记，或按 <kbd>Ctrl</kbd>+<kbd>P</kbd> 跳转
+            <p className="empty-lead">从左侧选一篇笔记开始</p>
+            <ul className="empty-keys">
+              <li>
+                <kbd>{keyLabel("Mod+P")}</kbd> 跳转到某篇笔记
+              </li>
+              <li>
+                <kbd>{keyLabel("Mod+Shift+P")}</kbd> 命令面板
+              </li>
+              <li>
+                <kbd>{keyLabel("Mod+Shift+F")}</kbd> 全文搜索
+              </li>
+              <li>
+                <kbd>{keyLabel("Mod+`")}</kbd> 终端
+              </li>
+            </ul>
           </div>
         )}
       </main>
@@ -617,7 +650,13 @@ export default function App() {
       <footer className="status">
         <span className={`dot dot-${saveState}`} />
         {{ saved: "已保存", dirty: "未保存", saving: "保存中…", error: "保存失败" }[saveState]}
-        {note?.id && <span className="status-id">id {note.id}</span>}
+        {note && (
+          // 显示字数而不是 id：id 是给链接用的内部标识，写东西的人关心的是
+          // 写了多少。中文按字符数算才有意义 —— 按空格切词对中文永远是 1
+          <span className="status-count" title={note.id ? `id ${note.id}` : undefined}>
+            {countChars(body)} 字
+          </span>
+        )}
         {error && <span className="error">{error}</span>}
       </footer>
 
