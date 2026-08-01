@@ -176,33 +176,12 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
             marks.push(hideMark.range(from, to));
             return false;
 
-          // ---- 围栏代码块 ----
-          //
-          // 和 callout 一样用行装饰画圆角底色。不用 replace 整块 ——
-          // 那样光标进不去，代码就没法改了。
-          case "FencedCode": {
-            // ` ```verso-view ` 整块被 database 视图替换掉了（viewBlock.ts），
-            // 再叠一层底色会在视图周围留一圈灰边
-            const head = state.doc.lineAt(from);
-            if (/^\s*```[ \t]*verso-view\b/.test(head.text)) return false;
-
-            const last = state.doc.lineAt(to).number;
-            for (let n = head.number; n <= last; n++) {
-              const line = state.doc.line(n);
-              const cls = [
-                "cm-code",
-                n === head.number ? "is-open" : "",
-                n === last ? "is-close" : "",
-                // 围栏那两行（```）淡化，但不藏 —— 藏了就没法改语言标注，
-                // 而且光标停在块里时会看到行数对不上
-                n === head.number || n === last ? "is-fence" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              marks.push(Decoration.line({ class: cls }).range(line.from));
-            }
+          // 代码块整个交给 codeBlock.ts（那边要跨行藏围栏，只能在
+          // StateField 里做）。这里**必须 return false 不往里走** ——
+          // 否则下面的 CodeMark 分支会把围栏的反引号也藏掉，和那边的
+          // 整行隐藏打架，结果是藏了 ``` 却留下语言标注
+          case "FencedCode":
             return false;
-          }
 
           // ---- 引用块与 callout ----
           //

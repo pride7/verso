@@ -84,7 +84,9 @@ describe("callout 渲染", () => {
   });
 
   it("代码块同理，首尾行圆角", async () => {
-    const v = mount("正文\n\n```rust\nfn main() {}\n```\n\n结尾");
+    // 三行内容 —— 围栏行藏起来之后会和相邻行合并，只有一行内容的块
+    // 会整个并成一行
+    const v = mount("正文\n\n```rust\na\nb\nc\n```\n\n结尾");
     await settle();
     const lines = v.dom.querySelectorAll<HTMLElement>(".cm-code");
     expect(lines.length).toBeGreaterThanOrEqual(3);
@@ -303,7 +305,7 @@ describe("点击进入源码", () => {
   });
 
   it("点代码块，光标进得去", async () => {
-    const v = mount("正文\n\n```rust\nfn main() {}\n```\n\n结尾");
+    const v = mount("正文\n\n```rust\na\nb\nc\n```\n\n结尾");
     await settle();
     const line = v.dom.querySelectorAll<HTMLElement>(".cm-code")[1];
     clickAt(line);
@@ -313,7 +315,7 @@ describe("点击进入源码", () => {
     const head = v.state.selection.main.head;
     const lineNo = v.state.doc.lineAt(head).number;
     expect(lineNo).toBeGreaterThanOrEqual(3);
-    expect(lineNo).toBeLessThanOrEqual(5);
+    expect(lineNo).toBeLessThanOrEqual(7);
   });
 });
 

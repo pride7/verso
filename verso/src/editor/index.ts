@@ -15,6 +15,7 @@ import type { SyntaxNode } from "@lezer/common";
 import type { NoteRef } from "../types";
 
 import { autoFence } from "./autoFence";
+import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
 import { headingFolding } from "./fold";
 import { livePreview } from "./livePreview";
@@ -47,7 +48,7 @@ const snippetCompartment = new Compartment();
  * Markdown 源码，不是纯文本。标题仍然大、代码仍然是等宽，只是 `##`、
  * `**` 这些标记不再被藏起来，公式和表格也不再被渲染成最终形态。
  */
-const PREVIEW: Extension = [livePreview, viewBlocks, tables];
+const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables];
 
 /**
  * 预览装饰单独放一个 compartment，理由和 snippet 那个一样：
