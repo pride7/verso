@@ -188,3 +188,31 @@ export function writeWhere(yaml: string, conds: Condition[]): string {
     conds.map((c) => `${c.key} ${c.op} ${quote(c.value)}`).join(" and "),
   );
 }
+
+/**
+ * 时间戳 → 给人看的写法。
+ *
+ * 索引里的时间是 RFC3339（`2026-06-06T21:04:11+08:00`），直接摆进表格是一串
+ * 没人读的东西。只显示日期，鼠标停上去才看完整时刻 —— 表格里同一天的几十
+ * 行，真正要比较的是「哪天」。
+ *
+ * 认不出来就**原样返回**：用户可能自己写了 `2026 年 6 月` 这种，替他猜一个
+ * 日期比显示原文糟得多。
+ */
+export function formatDate(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : value;
+}
+
+/** `<input type="date">` 只认 `YYYY-MM-DD`，别的写法给它会显示成空 */
+export function toDateInput(value: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  return m ? m[1] : "";
+}
+
+/** 文件本身的时间，不在 frontmatter 里 —— 改不了，也不该让人以为能改 */
+export const BUILTIN_COLUMNS = ["created", "updated"] as const;
+
+export function isBuiltin(key: string): boolean {
+  return (BUILTIN_COLUMNS as readonly string[]).includes(key);
+}

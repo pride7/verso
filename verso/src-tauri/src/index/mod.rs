@@ -18,7 +18,7 @@ use crate::vault::{note, tree::NodeKind, NoteRef, Vault};
 /// 文件 mtime → 和 frontmatter 里的时间戳同一种写法（本地时区、秒精度）。
 ///
 /// 必须同一种写法：树排序是按字符串比大小的，混着 UTC 和本地偏移量会排错。
-fn local_rfc3339(mtime_ms: i64) -> Option<String> {
+pub(crate) fn local_rfc3339(mtime_ms: i64) -> Option<String> {
     chrono::DateTime::from_timestamp_millis(mtime_ms).map(|t| {
         t.with_timezone(&chrono::Local)
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, false)

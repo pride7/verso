@@ -10,6 +10,7 @@ use rusqlite::{types::Value as SqlValue, Connection};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use super::local_rfc3339;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
@@ -222,7 +223,9 @@ fn unquote(s: &str) -> String {
 /// 所有用户输入都走参数绑定，绝不拼进 SQL —— 视图定义写在笔记里，
 /// 而笔记可以来自分享或 AI 生成（§2.9、§7.5）。
 pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
-    let mut sql = String::from("SELECT n.id, n.path, n.title FROM notes n WHERE 1=1");
+    let mut sql = String::from(
+        "SELECT n.id, n.path, n.title, n.created, n.updated, n.mtime_ms FROM notes n WHERE 1=1",
+    );
     let mut args: Vec<SqlValue> = Vec::new();
 
     if let Some(from) = spec.from.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -313,7 +316,8 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
     let mapped = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
     })?;
-    let base: Vec<(String, String, String)> = mapped.collect::<std::result::Result<Vec<_>, _>>()?;
+    type Base = (String, String, String, Option<String>, Option<String>, i64);
+    let base: Vec<Base> = mapped.collect::<std::result::Result<Vec<_>, _>>()?;
 
     // 需要展示哪些列
     let mut columns = spec.columns.clone().unwrap_or_else(|| vec!["title".into()]);
@@ -373,17 +377,43 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
         })
         .collect();
     properties.sort_by(|a, b| a.key.cmp(&b.key));
+    // 内置的两列排在最后，和 frontmatter 里的属性分开
+    for key in ["created", "updated"] {
+        if !properties.iter().any(|p| p.key == key) {
+            properties.push(PropMeta { key: key.into(), r#type: "date".into() });
+        }
+    }
 
     let rows = base
         .into_iter()
-        .map(|(id, path, title)| {
+        .map(|(id, path, title, created, updated, mtime)| {
             let all = props_by_note.remove(&id).unwrap_or_default();
             let mut props = HashMap::new();
+            // 文件本身的时间是**内置列**，不在 frontmatter 里 —— §2.3 起
+            // Verso 不往笔记里写 created/updated 了，但索引一直有（没写
+            // frontmatter 的就回落到文件系统 mtime）。这样「按创建时间排」
+            // 开箱即用，不必先往每篇笔记里塞一个时间戳
+            let fallback = local_rfc3339(mtime);
             for c in &columns {
-                if c == "title" {
-                    props.insert(c.clone(), title.clone());
-                } else if let Some(v) = all.get(c) {
-                    props.insert(c.clone(), v.clone());
+                match c.as_str() {
+                    "title" => {
+                        props.insert(c.clone(), title.clone());
+                    }
+                    "created" => {
+                        if let Some(v) = created.clone().or_else(|| fallback.clone()) {
+                            props.insert(c.clone(), v);
+                        }
+                    }
+                    "updated" => {
+                        if let Some(v) = updated.clone().or_else(|| fallback.clone()) {
+                            props.insert(c.clone(), v);
+                        }
+                    }
+                    _ => {
+                        if let Some(v) = all.get(c) {
+                            props.insert(c.clone(), v.clone());
+                        }
+                    }
                 }
             }
             ViewRow { path, title, props }

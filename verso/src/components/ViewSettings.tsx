@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { Icon, type IconName } from "./Icon";
 import {
+  isBuiltin,
   OPS,
   readColumns,
   readKey,
@@ -284,8 +285,9 @@ export function ColumnPicker({
                     onClose();
                   }}
                 >
-                  <Icon name={propIcon(p.type)} size={13} />
+                  <Icon name={isBuiltin(p.key) ? "clock" : propIcon(p.type)} size={13} />
                   {p.key}
+                  {isBuiltin(p.key) && <span className="vset-tip">文件时间</span>}
                 </button>
               </li>
             ))}

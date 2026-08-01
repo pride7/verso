@@ -3097,3 +3097,15 @@ textarea:focus-visible {
   color: var(--text);
   background: var(--hover-bg);
 }
+
+/* 内置列（文件的创建/更新时间）：只读，光标不该是「点我改」的手型 */
+.dbview-ro {
+  cursor: default;
+  color: var(--muted);
+}
+.vset-tip {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}

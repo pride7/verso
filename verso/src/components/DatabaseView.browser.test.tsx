@@ -16,6 +16,26 @@ const createNote = vi.fn(async () => ({ path: "论文/丙.md", id: null, title: 
 const propDefSet = vi.fn(async () => {});
 /** 每条测试自己决定 schema —— 没声明类型时单元格是文本框（推断类型） */
 let schemaMock: Record<string, { type: string; options?: string[] }> = {};
+const DEFAULT_VIEW = {
+  columns: ["title", "status"],
+  rows: [
+    { path: "论文/甲.md", title: "甲", props: { status: "在读" } },
+    { path: "论文/乙.md", title: "乙", props: { status: "未读" } },
+  ],
+  view: "table",
+  groupBy: null,
+  properties: [
+    { key: "status", type: "string" },
+    { key: "难度", type: "number" },
+  ],
+};
+let viewMock: {
+  columns: string[];
+  rows: { path: string; title: string; props: Record<string, string> }[];
+  view: string;
+  groupBy: string | null;
+  properties: { key: string; type: string }[];
+} = DEFAULT_VIEW;
 const propRenameAll = vi.fn(async () => 3);
 
 vi.mock("../api", () => ({
@@ -27,19 +47,7 @@ vi.mock("../api", () => ({
     propDefSet: propDefSet,
     propCount: async () => 3,
     propRenameAll: propRenameAll,
-    viewQuery: vi.fn(async () => ({
-      columns: ["title", "status"],
-      rows: [
-        { path: "论文/甲.md", title: "甲", props: { status: "在读" } },
-        { path: "论文/乙.md", title: "乙", props: { status: "未读" } },
-      ],
-      view: "table",
-      groupBy: null,
-      properties: [
-        { key: "status", type: "string" },
-        { key: "难度", type: "number" },
-      ],
-    })),
+    viewQuery: vi.fn(async () => viewMock),
   },
 }));
 
@@ -62,6 +70,7 @@ afterEach(() => {
   createNote.mockClear();
   propDefSet.mockClear();
   schemaMock = {};
+  viewMock = DEFAULT_VIEW;
   propRenameAll.mockClear();
 });
 
@@ -466,5 +475,37 @@ describe("在单元格里现建选项（§2.6）", () => {
       (t) => t.textContent,
     );
     expect(labels).toContain("在读");
+  });
+});
+
+describe("文件自己的时间（内置列）", () => {
+  it("创建/更新时间显示成日期，而且改不了", async () => {
+    // 它们不在 frontmatter 里（§2.3 起不往笔记里写），摆一个改不动的输入框
+    // 比不给输入框更让人困惑
+    viewMock = {
+      columns: ["title", "created"],
+      rows: [
+        {
+          path: "论文/甲.md",
+          title: "甲",
+          props: { created: "2026-06-06T21:04:11+08:00" },
+        },
+      ],
+      view: "table",
+      groupBy: null,
+      properties: [{ key: "created", type: "date" }],
+    };
+    const view = mount();
+    await settle();
+
+    const cell = view.dom.querySelector<HTMLElement>(".dbview-ro")!;
+    expect(cell.textContent).toBe("2026-06-06");
+    // 完整时刻留在 title 里，要比对到分秒时还能看
+    expect(cell.getAttribute("title")).toContain("21:04:11");
+
+    await userEvent.click(cell);
+    await settle(200);
+    expect(view.dom.querySelector(".dbview-input")).toBeNull();
+    expect(propSet).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,9 @@ import {
   writeKey,
   writeSort,
   writeWhere,
+  formatDate,
+  toDateInput,
+  isBuiltin,
 } from "./viewSpec";
 
 const SPEC = ['from: "论文/**"', "# 只看没读完的", 'where: status != "已读"', "view: table"].join("\n");
@@ -141,5 +144,32 @@ describe("where", () => {
 
   it("清空条件就把 where 那一行删掉", () => {
     expect(writeWhere('where: a = 1\nview: table', [])).toBe("view: table");
+  });
+});
+
+describe("formatDate", () => {
+  it("RFC3339 只显示日期部分", () => {
+    expect(formatDate("2026-06-06T21:04:11+08:00")).toBe("2026-06-06");
+    expect(formatDate("2026-06-06")).toBe("2026-06-06");
+  });
+
+  it("认不出来就原样返回 —— 替用户猜一个日期比显示原文糟得多", () => {
+    expect(formatDate("2026 年 6 月")).toBe("2026 年 6 月");
+    expect(formatDate("下周三")).toBe("下周三");
+  });
+});
+
+describe("toDateInput", () => {
+  it("`<input type=date>` 只认 YYYY-MM-DD", () => {
+    expect(toDateInput("2026-06-06T21:04:11+08:00")).toBe("2026-06-06");
+    expect(toDateInput("下周三")).toBe("");
+  });
+});
+
+describe("isBuiltin", () => {
+  it("文件本身的时间是内置列，不在 frontmatter 里", () => {
+    expect(isBuiltin("created")).toBe(true);
+    expect(isBuiltin("updated")).toBe(true);
+    expect(isBuiltin("status")).toBe(false);
   });
 });

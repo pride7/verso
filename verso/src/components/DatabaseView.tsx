@@ -10,7 +10,17 @@ import {
   TYPES,
   ViewSettings,
 } from "./ViewSettings";
-import { newNoteParent, nextSort, readColumns, readSort, writeColumns, writeSort } from "../lib/viewSpec";
+import {
+  formatDate,
+  isBuiltin,
+  newNoteParent,
+  nextSort,
+  readColumns,
+  readSort,
+  toDateInput,
+  writeColumns,
+  writeSort,
+} from "../lib/viewSpec";
 import type { PropDef, PropSchema, ViewResult, ViewRow } from "../types";
 
 interface Props {
@@ -203,6 +213,17 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     const type = typeOf(col);
     const options = schema[col]?.options ?? [];
 
+    // 文件本身的创建/更新时间。它们不在 frontmatter 里（§2.3 起 Verso 不往
+    // 笔记里写这两个字段了），所以**只读** —— 摆一个改不动的输入框比不给
+    // 输入框更让人困惑
+    if (isBuiltin(col)) {
+      return (
+        <span className="dbview-cell dbview-ro" title={value || undefined}>
+          {value ? formatDate(value) : <span className="dbview-empty">—</span>}
+        </span>
+      );
+    }
+
     // 复选框不进「编辑态」—— 点一下就是改，再要求回车太绕
     if (type === "checkbox") {
       const on = value === "true" || value === "是";
@@ -242,7 +263,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
           className="dbview-input"
           type={type === "date" ? "date" : type === "number" ? "number" : "text"}
           autoFocus
-          value={draft}
+          value={type === "date" ? toDateInput(draft) : draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -303,6 +324,8 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                   {x}
                 </span>
               ))
+          ) : type === "date" ? (
+            <span title={value}>{formatDate(value)}</span>
           ) : (
             value
           )
@@ -398,7 +421,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                 {onPatch ? (
                   <span className="dbview-thwrap">
                     <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
-                      <Icon name={c === "title" ? "doc" : propIcon(typeOf(c))} size={13} />
+                      <Icon name={c === "title" ? "doc" : isBuiltin(c) ? "clock" : propIcon(typeOf(c))} size={13} />
                       {c}
                       {/* 箭头只在这一列真的在排序时出现 —— 每列都挂一个灰箭头
                           会把表头变成一排噪点 */}
@@ -428,14 +451,18 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                             降序
                           </button>
                         </li>
-                        <li>
-                          <button onClick={() => renameColumn(c)}>重命名…</button>
-                        </li>
-                        {(schema[c]?.type === "select" || schema[c]?.type === "multi") && (
+                        {!isBuiltin(c) && (
                           <li>
-                            <button onClick={() => setPanel({ options: c })}>选项…</button>
+                            <button onClick={() => renameColumn(c)}>重命名…</button>
                           </li>
                         )}
+                        {!isBuiltin(c) &&
+                          (schema[c]?.type === "select" || schema[c]?.type === "multi") && (
+                          <li>
+                              <button onClick={() => setPanel({ options: c })}>选项…</button>
+                            </li>
+                          )}
+                        {!isBuiltin(c) && (
                         <li className="dbview-menu-sub">
                           <span>类型</span>
                           <span className="dbview-types">
@@ -455,6 +482,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                             ))}
                           </span>
                         </li>
+                        )}
                         <li>
                           <button onClick={() => hideColumn(c)}>隐藏这一列</button>
                         </li>
