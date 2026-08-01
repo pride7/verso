@@ -59,6 +59,21 @@ export interface Backlink {
   context: string;
 }
 
+/** §2.6 database 视图的一行 */
+export interface ViewRow {
+  path: string;
+  title: string;
+  /** 只含视图点名的列 */
+  props: Record<string, string>;
+}
+
+export interface ViewResult {
+  rows: ViewRow[];
+  columns: string[];
+  view: string;
+  groupBy: string | null;
+}
+
 export interface IndexStats {
   notes: number;
   links: number;

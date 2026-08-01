@@ -203,6 +203,60 @@ impl Vault {
         })
     }
 
+    /// 改写一条 frontmatter 属性。DESIGN.md §2.6
+    ///
+    /// **这是 database 视图「可写」的实现基础** —— 在表格里改一个单元格
+    /// 就是走这条路径改对应笔记的 frontmatter，然后文件落盘。设计文档说
+    /// 「必须可写，这是它好不好用的分水岭」。
+    ///
+    /// `value` 为 None 表示删除该属性。
+    pub fn set_prop(&self, rel: &str, key: &str, value: Option<&str>) -> Result<()> {
+        // 这几个是内部字段，不能让 database 视图改掉 —— 改了 id 就等于
+        // 把这篇笔记的身份换了，所有指向它的链接都会断
+        if matches!(key, "id" | "created") {
+            return Err(Error::Vault(format!("{key} 是内部字段，不能修改")));
+        }
+
+        let abs = self.resolve(rel)?;
+        let raw = self.fs.read_to_string(&abs)?;
+        let (mut fm, body) = note::parse_frontmatter(&raw);
+
+        match value {
+            None => {
+                fm.remove(serde_yaml::Value::String(key.to_string()));
+            }
+            Some(v) => {
+                let k = serde_yaml::Value::String(key.to_string());
+                // 原本是数组的（比如 tags）就仍然写成数组，
+                // 否则一次编辑会把 `tags: [a, b]` 压成一个字符串
+                let was_seq = matches!(fm.get(&k), Some(serde_yaml::Value::Sequence(_)));
+                let new_val = if was_seq {
+                    serde_yaml::Value::Sequence(
+                        v.split(['、', ','])
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| serde_yaml::Value::String(s.to_string()))
+                            .collect(),
+                    )
+                } else if let Ok(n) = v.parse::<i64>() {
+                    serde_yaml::Value::Number(n.into())
+                } else if let Ok(f) = v.parse::<f64>() {
+                    serde_yaml::Value::Number(serde_yaml::Number::from(f))
+                } else if v == "true" || v == "false" {
+                    serde_yaml::Value::Bool(v == "true")
+                } else {
+                    serde_yaml::Value::String(v.to_string())
+                };
+                fm.insert(k, new_val);
+            }
+        }
+
+        note::ensure_identity(&mut fm, &stem_of(rel));
+        note::touch_updated(&mut fm);
+        self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
+        Ok(())
+    }
+
     /// 只读取 mtime，用于「窗口重新聚焦时检查文件是否被外部程序改过」。
     /// 见 §7.4 —— 用 AI 改完文件回到编辑器，不能一保存就覆盖掉它的修改。
     pub fn stat(&self, rel: &str) -> Result<i64> {

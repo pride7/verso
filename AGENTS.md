@@ -172,6 +172,30 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
    `$`，语法树里根本没有 InlineMath 节点。见 `src/editor/mathContext.ts`
    的注释和 DESIGN.md §5.2。
 
+## ⚠️ 未解决：database 视图不渲染
+
+`src/editor/viewBlock.ts` 把 ` ```folio-view ` 代码块替换成表格。**它曾经工作过**
+（有截图为证：表格正常渲染、`where: status != "已读"` 筛选正确、标题是可点击链接），
+后来在排查「第一屏之外的块不渲染」时被我改坏，回退后没有恢复，原因未查明。
+
+已经排除的：
+- 正则没问题 —— 用真实文件内容验证过，三个块全部匹配
+- Rust 侧没问题 —— `view_query` / `prop_set` 有 80 个测试覆盖
+- 不是 HMR 的锅 —— 完全重启 dev server 之后仍然空白
+
+现象是 `ViewBlockWidget.toDOM()` 根本没被调用（widget 里放了占位文字也不显示），
+说明 decoration 压根没生成，问题在 `build()` 或 StateField 的更新时机上。
+
+**两条已经证伪的思路，不要重走**：
+1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
+   来判断「解析推进了」—— 字段更新顺序不保证语言字段已就绪，那时拿到空树，
+   结果是每次都算出空的 decoration 集，视图全部消失。
+2. 在 `build()` 里用 `ensureSyntaxTree(state, doc.length, 100)` 强制解析整篇 ——
+   同样在 StateField 上下文里不可靠。
+
+下次排查建议：在 `build()` 里打日志确认 `syntaxTree(state)` 到底有没有 `FencedCode`
+节点、`touched()` 是不是误判成 true。
+
 ## 当前状态
 
 **v0.3.0 — M2 公式快速输入已完成，盲测已通过**（作者手测）。

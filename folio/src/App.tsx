@@ -61,9 +61,12 @@ export default function App() {
   const bodyRef = useRef(body);
   const noteRef = useRef(note);
   const dirtyRef = useRef(false);
+  // `[[` 补全通过 getter 读它 —— 清单变化时不必重建编辑器
+  const noteListRef = useRef<NoteRef[]>([]);
   bodyRef.current = body;
   noteRef.current = note;
   dirtyRef.current = saveState === "dirty";
+  noteListRef.current = noteList;
 
   const refresh = useCallback(async () => {
     try {
@@ -426,10 +429,15 @@ export default function App() {
             }}
             onSaveNow={saveNow}
             onFollowLink={followLink}
+            getNotes={() => noteListRef.current}
             breadcrumb={breadcrumb}
             onNavigate={openPath}
             handleRef={editorRef}
             revision={revision}
+            onNoteChanged={() => {
+              void refresh();
+              setRevision((v) => v + 1);
+            }}
           />
         ) : (
           <div className="empty">

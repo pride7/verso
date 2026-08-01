@@ -12,10 +12,14 @@ import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection } f
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 
+import type { NoteRef } from "../types";
+
+import { completion } from "./completion";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
 import { snippetEngine } from "./snippets";
 import { folioHighlighting, folioTheme } from "./theme";
+import { viewBlocks } from "./viewBlock";
 
 export { mathContextAt, type MathContext } from "./mathContext";
 
@@ -24,6 +28,13 @@ export interface EditorCallbacks {
   onSaveNow: () => void;
   /** 点击 `[[链接]]` 时触发，参数是链接目标文本 */
   onFollowLink: (target: string) => void;
+  /**
+   * 当前笔记清单，`[[` 补全用。
+   *
+   * 用 getter 而不是直接传数组：新建/删除笔记后清单会变，传死的话
+   * 得重建整个编辑器，光标和撤销历史全没了。
+   */
+  getNotes: () => NoteRef[];
 }
 
 /** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
@@ -69,11 +80,17 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     folioTheme,
     folioHighlighting,
     livePreview,
+    // §2.6 database 视图。必须排在 livePreview 之后 —— 它替换整个代码块，
+    // 优先级要高于代码块自身的高亮
+    viewBlocks,
     linkClickHandler(cb.onFollowLink),
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
     // 处理要先于「插入缩进」拿到这个键
     snippetEngine(),
+
+    // `[[` 内部链接与 `/` 块插入菜单（§4.3）
+    completion(cb.getNotes),
 
     keymap.of([
       {

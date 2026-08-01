@@ -438,6 +438,124 @@ button {
   font-size: 13px;
 }
 
+/* ---------- database 视图（§2.6） ---------- */
+
+.cm-dbview {
+  margin: 0.8em 0;
+}
+.dbview {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+  background: var(--surface);
+}
+.dbview-loading,
+.dbview-error {
+  padding: 12px 14px;
+  color: var(--muted);
+}
+.dbview-error {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dbview-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.dbview-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.dbview-table td {
+  padding: 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  vertical-align: top;
+}
+.dbview-table tr:last-child td {
+  border-bottom: none;
+}
+
+.dbview-cell,
+.dbview-link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 13px;
+  border-radius: 0;
+}
+.dbview-cell:hover {
+  background: color-mix(in oklch, var(--accent) 9%, transparent);
+}
+.dbview-link {
+  color: var(--accent);
+}
+.dbview-link:hover {
+  text-decoration: underline;
+}
+.dbview-empty {
+  color: var(--muted);
+  opacity: 0.5;
+}
+.dbview-input {
+  width: 100%;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+.dbview-foot {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* 看板 */
+.dbview-board {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  overflow-x: auto;
+}
+.dbview-col {
+  min-width: 170px;
+  flex: none;
+}
+.dbview-col-head {
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 2px 4px 6px;
+}
+.dbview-count {
+  opacity: 0.6;
+}
+.dbview-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  margin-bottom: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.dbview-card:hover {
+  border-color: var(--accent);
+}
+
 /* ---------- 全文搜索（§2.2） ---------- */
 
 .search-item {

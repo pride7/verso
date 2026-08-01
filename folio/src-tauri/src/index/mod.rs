@@ -5,6 +5,7 @@
 
 pub mod parse;
 pub mod schema;
+pub mod view;
 
 use std::path::{Path, PathBuf};
 

@@ -209,6 +209,33 @@ fn all_tags(state: State<'_, AppState>) -> Result<Vec<(String, i64)>> {
     state.with_index(|i| i.all_tags())
 }
 
+// ------------------------------------------------------ database 视图（§2.6）
+
+/// 执行一个 `folio-view` 代码块。`source` 是代码块里的原文（YAML）。
+///
+/// 在 Rust 侧解析而不是前端：查询要拼 SQL，让解析和执行挨在一起才好保证
+/// 所有用户输入都走参数绑定。视图定义写在笔记里，而笔记可能来自分享。
+#[tauri::command]
+fn view_query(state: State<'_, AppState>, source: String) -> Result<index::view::ViewResult> {
+    let spec: index::view::ViewSpec = serde_yaml::from_str(&source)
+        .map_err(|e| Error::Vault(format!("视图定义解析失败: {e}")))?;
+    state.with_index(|i| index::view::query(i.conn(), &spec))
+}
+
+/// 在表格里改一个单元格 → 改对应笔记的 frontmatter → 文件落盘。
+/// §2.6：「必须可写 —— 这是它好不好用的分水岭」。
+#[tauri::command]
+fn prop_set(
+    state: State<'_, AppState>,
+    path: String,
+    key: String,
+    value: Option<String>,
+) -> Result<()> {
+    state.with_vault(|v| v.set_prop(&path, &key, value.as_deref()))?;
+    state.reindex(&path);
+    Ok(())
+}
+
 /// 手动重建索引。索引出问题时的兜底 —— 它是派生数据，重建总能修好。
 #[tauri::command]
 fn index_rebuild(state: State<'_, AppState>) -> Result<index::IndexStats> {
@@ -344,6 +371,8 @@ pub fn run() {
             dangling_links,
             all_tags,
             index_rebuild,
+            view_query,
+            prop_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

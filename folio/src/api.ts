@@ -11,6 +11,7 @@ import type {
   SearchHit,
   TreeNode,
   VaultInfo,
+  ViewResult,
 } from "./types";
 
 /** Rust 侧把所有错误序列化成字符串，这里统一转成 Error 对象。 */
@@ -72,6 +73,13 @@ export const api = {
   danglingLinks: () => call<[string, string][]>("dangling_links"),
   allTags: () => call<[string, number][]>("all_tags"),
   rebuildIndex: () => call<IndexStats>("index_rebuild"),
+
+  // —— §2.6 database 视图 ——
+  /** 执行一个 folio-view 代码块，`source` 是块里的原文 */
+  viewQuery: (source: string) => call<ViewResult>("view_query", { source }),
+  /** 改写 frontmatter 属性。`value` 为 null 表示删除 */
+  propSet: (path: string, key: string, value: string | null) =>
+    call<void>("prop_set", { path, key, value }),
 };
 
 /** 外部程序（AI CLI、git、别的编辑器）改了 vault 里的文件（§2.7） */
