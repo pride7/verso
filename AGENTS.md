@@ -38,6 +38,7 @@
 | ↳ 标题折叠 / 属性可编辑 | `v0.5.10` ✅ |
 | ↳ 文档树排序（手动 + 规则） | `v0.5.13` ✅ |
 | ↳ 拖动直接生效，不必先选手动排序 | `v0.5.14` ✅ |
+| ↳ 关掉 Tauri 的 OS 层拖放，拖拽才真的能用 | `v0.5.15` ✅ |
 | M5 同步 | `v0.6.0` |
 | M6 移动端 | `v0.7.0` |
 | M7 发布 | `v0.8.0` |
@@ -92,6 +93,22 @@ Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2�
 
 判断标准很简单：**如果一个函数单测通过、应用里却坏了，说明缺的是 browser
 测试，不是更多单测。** `/` 命令菜单的 bug 就是这么找出来的（见下）。
+
+### browser 测试也有它够不着的一层：Tauri 运行时
+
+Playwright 起的是**干净的 Chromium**，Tauri 在它和网页之间加的那一层不在里面。
+所以「浏览器里全绿、应用里没反应」这种事仍然可能发生，而且更难查 —— 前端代码
+从头到尾都是对的。
+
+已经栽过一次：**Tauri 默认在操作系统层接管拖放**（`dragDropEnabled` 默认 true），
+webview 里的 `dragstart` / `drop` 根本收不到。tauri-utils 的 `config.rs` 原话是
+「Disabling it is required to use HTML5 drag and drop on the frontend on Windows」。
+文档树的拖拽移动和拖拽排序全靠 HTML5 拖放，于是这两个功能在真 app 里一直是
+死的，而 5 条 browser 测试从头到尾全绿。
+
+**要点：功能依赖浏览器和宿主之间的边界（拖放、剪贴板、文件、协议、窗口）时，
+先去 `tauri.conf.json` 和 Tauri 的 config 文档确认一遍默认值。** 没法自动测的，
+就在 `src/tauriConfig.test.ts` 里把配置钉住，并写清楚删掉它会坏什么。
 
 ### ⚠️ 不要用 `cargo check`
 

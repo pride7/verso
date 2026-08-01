@@ -4,6 +4,27 @@
 
 ---
 
+## v0.5.15 — 拖拽在真 app 里一直是死的
+
+一行配置：`tauri.conf.json` 里加 `"dragDropEnabled": false`。
+
+Tauri 默认在**操作系统层**接管拖放，webview 里的 `dragstart` / `drop` 根本
+收不到。tauri-utils 的 `config.rs` 写得很直白：
+
+> Disabling it is required to use HTML5 drag and drop on the frontend on Windows.
+
+文档树的拖拽移动和拖拽排序全靠 HTML5 拖放，所以这两个功能在应用里从来就
+没生效过 —— **而 5 条浏览器测试从头到尾全绿**。Playwright 起的是干净的
+Chromium，Tauri 加在中间的那一层不在里面。前端代码从头到尾都是对的。
+
+代价：从资源管理器往窗口里拖文件不再走 Tauri 的 `drag-drop` 事件。真要做
+那个功能，用 HTML5 的 `drop` + `dataTransfer.files` 自己接。
+
+没法用组件测试盖住这种东西 —— 它是运行时行为。退而求其次，`tauriConfig.test.ts`
+把这行配置钉住，并在旁边写清楚删掉它会坏什么。AGENTS.md 里也补了一节：
+**功能依赖浏览器和宿主之间的边界（拖放、剪贴板、文件、协议、窗口）时，
+先去确认 Tauri 的默认值**，browser 测试够不着那一层。
+
 ## v0.5.14 — 直接拖就能排，不用先去选「手动排序」
 
 上一版有个多余的步骤：默认是「名称 A→Z」，而这个模式下拖动**毫无反应** ——
