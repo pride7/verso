@@ -64,10 +64,28 @@ pnpm tauri dev                 # 跑起来
 
 cd src-tauri && cargo test     # Rust：树合并、frontmatter、重命名事务、路径越界
 pnpm exec tsc --noEmit         # 前端类型检查
-pnpm exec vitest run           # 前端：Markdown 解析器、模糊匹配
+pnpm test                      # 前端（Node）：解析器、模糊匹配、snippet 匹配
+pnpm test:browser              # 前端（真实 Chromium）：补全、live preview、database 视图
 ```
 
-**提交前这三条都要过。**
+**提交前这四条都要过。** `pnpm test:all` 把后两条串起来跑。
+
+### 什么时候必须写 browser 测试
+
+`pnpm test` 跑在纯 Node 里，没有 DOM 也没有布局。凡是**依赖真实布局引擎**的
+行为，它一律给不出答案，而且给的是**假阴性**（测试通过，应用里坏的）：
+
+- CodeMirror 的补全（`autocompletion`）—— 没有布局时连显式 `startCompletion`
+  都拿不到补全状态
+- tooltip / 补全面板的定位与裁剪
+- 块级 decoration 的**解析时序**（CM6 的语法解析是 view 建立后异步进行的）
+
+这类东西写进 `src/**/*.browser.test.ts`，由 `vitest.browser.config.ts` 用
+Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2（Chromium
+内核），所以结论和应用里高度一致。
+
+判断标准很简单：**如果一个函数单测通过、应用里却坏了，说明缺的是 browser
+测试，不是更多单测。** `/` 命令菜单的 bug 就是这么找出来的（见下）。
 
 ### ⚠️ 不要用 `cargo check`
 
@@ -88,7 +106,8 @@ pnpm exec vitest run           # 前端：Markdown 解析器、模糊匹配
 
 Rust 是 scoop 装的，`RUSTUP_HOME` / `CARGO_HOME` 指向 scoop 的 persist 目录。
 新终端会自动继承，但**装 scoop 包之前就已打开的终端不会** —— 那种情况下 `cargo`
-会报 "could not choose a version of rustc to run"。补：
+会报 "could not choose a version of rustc to run"，或者干脆 "program not found"
+（`pnpm tauri dev` 会以 `failed to run 'cargo metadata'` 的形式报出来）。补：
 
 ```powershell
 $env:RUSTUP_HOME = 'D:\Scoop\persist\rustup-msvc\.rustup'
@@ -96,12 +115,22 @@ $env:CARGO_HOME  = 'D:\Scoop\persist\rustup-msvc\.cargo'
 $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 ```
 
-### 截图验证 UI 时
+### ⚠️ 不要截屏来验证 UI
 
-这台机器 DPI 缩放是 2×。用 `PrintWindow` 截图前必须先调
-`SetProcessDpiAwarenessContext(-4)`，否则 `GetWindowRect` 返回逻辑坐标而
-`PrintWindow` 按设备像素绘制，位图开小了只能截到左上角四分之一 ——
-会让完全正常的布局看起来像是错乱的。
+**别写「抓屏幕上某块区域」的脚本。** 试过一次，`SetForegroundWindow` 没能把
+Folio 提到前台（Windows 有前台锁，后台进程调它经常无效），于是抓到的是当时
+盖在上面的另一个应用 —— 作者的微信聊天窗口。截图工具会拍到作者屏幕上任何
+东西，这个风险不该由 agent 去承担。
+
+要验证行为，用 `pnpm test:browser`：Playwright 起的是独立的 headless Chromium，
+只画自己的页面，既能复现问题又碰不到屏幕上的任何东西。
+
+如果确实需要看画面（比如调排版），请作者自己截图发过来。
+
+另外记一笔历史教训：这台机器 DPI 缩放是 2×，`GetWindowRect` 返回逻辑坐标而
+`PrintWindow` 按设备像素绘制。当初没先调 `SetProcessDpiAwarenessContext(-4)`，
+位图开小了只截到左上角四分之一，**被我误判成「布局错乱」报给了作者**。
+截图这条路既容易拍错东西，又容易看错东西。
 
 ## 不可动摇的东西
 
@@ -172,48 +201,39 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
    `$`，语法树里根本没有 InlineMath 节点。见 `src/editor/mathContext.ts`
    的注释和 DESIGN.md §5.2。
 
-## ⚠️ 未解决：database 视图打开时不渲染，点一下才出来
+## 改 CodeMirror 补全时必须知道的一件事
 
-`src/editor/viewBlock.ts`。作者的原话是「每次点进去还是不渲染，**点一下就会渲染**」。
+**自定义补全来源如果自己做了过滤，一定要返回 `filter: false`。**
 
-### 已经确定的事实（别再重复验证）
+CM6 会拿 `result.from` 到光标之间的**整段文本**去模糊匹配每个选项的 `label`，
+在你的过滤之后再滤一遍。`/` 命令菜单的 `from` 指在 `/` 上，于是 CM6 拿
+`"/标题"` 去匹配「一级标题」—— 因为多了个 `/` 而全部落空，表现是
+**打 `/` 什么都不弹**。`[[` 补全没这毛病，纯属因为它的 `from` 指在 `[[` 之后。
 
-1. **匹配逻辑是对的。** `viewBlock.test.ts` 里 4 个测试证明 `build()` 在
-   **新建的 EditorState** 上能找到全部视图块 —— 正则、语法树、`touched()`
-   判断都没问题。
-2. **Rust 侧没问题。** `view_query` / `prop_set` 有测试覆盖，表格渲染出来时
-   数据和筛选都正确。
-3. **扩展装上了。** `viewBlocks` 在 `createExtensions` 的数组里。
-4. **`toDOM()` 没被调用** —— widget 里放过占位文字，也不显示。
-5. 不是 HMR 的锅，完全重启 dev server 一样。
+关掉 CM6 的过滤之后 `validFor` 也必须去掉：`validFor` 会让它复用旧结果只做
+本地过滤，而本地过滤已经关了，打字就不再收窄。选项只有十几条，每次重查
+无所谓。
 
-### 已证伪的四条思路，不要重走
+这个 bug 的教训写在上面「什么时候必须写 browser 测试」里：`slashSource`
+自己的 10 个单测全过，因为它们直接调函数看返回值，**CM6 的二次过滤根本没
+参与**。要覆盖这类问题，测试必须走真实的 `EditorView`。
+
+### database 视图的解析时序（已解决，别再动）
+
+`viewBlock.ts` + `parseRefresh.ts`。曾经的症状是「打开笔记看到源码，点一下
+才渲染」，根因是 `EditorState.create` 那一刻文档还没解析。现在的方案是用
+ViewPlugin 监测语法树变化后派发 `parseAdvanced` effect 通知 StateField 重算，
+`viewBlock.browser.test.ts` 的 5 个测试在真实 Chromium 里钉住了这个行为。
+
+两条**已证伪**的思路不要重走 —— 它们会让视图彻底消失而不是晚出现，因为
+StateField 的更新顺序不保证语言字段已就绪，读到空树就等于算出空 decoration 集：
 
 1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
 2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析整篇
-   —— 上面两条会让视图**彻底消失**而不是晚出现：StateField 更新顺序不保证
-   语言字段已就绪，读到空树就等于每次算出空的 decoration 集
-3. ViewPlugin 构造时刷新一次（`parseRefresh.ts`）—— 曾经验证成功过一次，
-   但不可靠，多半是碰上了合适的时机
-4. 在 microtask / rAF / 60ms / 300ms 各刷一次 —— 仍然不行
-
-### 下一步该怎么查
-
-事实 1 和 4 是矛盾的：`build()` 明明能找到节点，`field.create()` 却像是
-没产出 decoration。**下一个人应该先解决这个矛盾**，而不是继续调时机。
-
-建议在 `Editor.tsx` 里加一个临时诊断组件，每 500ms 把
-`viewBlockCount(view.state)`（直接调 build）和 `view.state.field(viewBlockField)`
-里实际的 decoration 数**同时**打到界面上。两个数不一致的地方就是真相所在。
-（这个诊断我写过，被撤掉了 —— 见 git 历史。）
-
-另一个未排除的嫌疑：`livePreview` 的 inline plugin 会对 `CodeMark`（``` 围栏）
-加 `hideMark` replace decoration，而那正落在 viewBlock 要整体替换的范围**内部**。
-两个 replace decoration 嵌套时 CM6 的行为值得查一下。
 
 ## 当前状态
 
-**v0.4.0 — M3 索引与 database 已完成。**
+**v0.4.2 — M3 索引与 database 已完成，`/` 菜单与视图渲染已确认正常。**
 详见 [CHANGELOG.md](CHANGELOG.md) 与 [folio/README.md](folio/README.md)。
 
 M2 的公式手感盲测已通过（作者手测），项目最大的风险点在那时就过去了。

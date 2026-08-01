@@ -113,6 +113,19 @@ export function slashSource(ctx: CompletionContext): CompletionResult | null {
   const query = m.text.slice(1);
   return {
     from: m.from,
+    // **必须自己过滤，并且告诉 CM6 别再滤一遍。**
+    //
+    // `from` 指到 `/` 上，所以 CM6 眼里的查询串是 `/标题` 而不是 `标题`。
+    // 它默认会拿这整串去模糊匹配每个选项的 label，而 `/` 不出现在
+    // 「一级标题」里 —— 结果是我筛出来的选项被它全部滤掉，菜单一片空，
+    // 表现为「打 / 什么都不弹」。`[[` 补全没这个毛病，因为它的 `from`
+    // 指在 `[[` 之后。
+    //
+    // 关掉它自己的过滤，顺带能按 detail 匹配（`/###`、`/table` 都能搜到），
+    // 这是纯按 label 匹配做不到的。代价是 `validFor` 不能留 —— 那会让
+    // CM6 复用旧结果、只做本地过滤，而本地过滤已经被关掉了，打字就不再收窄。
+    // 17 个选项重查一次的开销可以忽略。
+    filter: false,
     options: BLOCKS.filter(
       (b) => !query || b.label.includes(query) || b.detail.toLowerCase().includes(query.toLowerCase()),
     ).map((b) => ({
@@ -130,7 +143,6 @@ export function slashSource(ctx: CompletionContext): CompletionResult | null {
         });
       },
     })),
-    validFor: /^\/[一-龥a-zA-Z]*$/,
   };
 }
 

@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 浏览器测试失败时的截图，是诊断产物不入库
+src/**/__screenshots__/
+
+# vitest 的诊断附件，不入库
+.vitest-attachments/
