@@ -121,6 +121,32 @@ describe("浮动目录", () => {
     return { host, picked };
   }
 
+  it("靠上摆，而且给滚动条让出位置", async () => {
+    // 两条都是作者报回来的：居中会和正在读的那一行抢位置；压在滚动条上
+    // 既看着脏，想拖滚动条时也会先碰到目录。它俩只有真布局验得出来
+    const host = document.createElement("div");
+    host.style.cssText = "position:fixed;inset:0";
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    root.render(
+      <div className="app">
+        <main className="main">
+          <div style={{ height: 3000 }} />
+        </main>
+        <OutlineFloat headings={HEADINGS} activeIndex={0} onPick={() => {}} />
+      </div>,
+    );
+    await settle();
+
+    const main = host.querySelector<HTMLElement>(".main")!.getBoundingClientRect();
+    const list = host.querySelector<HTMLElement>(".toc-list")!.getBoundingClientRect();
+    // 滚动条轨道是 11px（styles.css 的 ::-webkit-scrollbar）
+    expect(main.right - list.right).toBeGreaterThanOrEqual(11);
+    // 落在上半屏，不是垂直居中
+    expect(list.top).toBeLessThan(main.top + main.height * 0.35);
+  });
+
   it("收起时只有短横线，标题文字宽度为 0", async () => {
     const { host } = mountFloat();
     await settle();

@@ -1813,13 +1813,18 @@ textarea:focus-visible {
    容器不吃鼠标事件，只有条目吃 —— 否则正文右侧一整条都点不进去了。 */
 .toc-float {
   grid-area: main;
-  align-self: center;
+  /* 靠上而不是垂直居中：读者的视线本来就在上半屏，居中会让目录落在
+     正文中段、和正在读的那一行抢位置。Notion 也是靠上的 */
+  align-self: start;
   justify-self: end;
   z-index: 5;
   pointer-events: none;
   display: flex;
   max-height: 100%;
-  padding: 8px 6px;
+  /* 右边必须让开滚动条那 11px（见下面的 ::-webkit-scrollbar）：滚动条是
+     .main 自己的，而浮动目录和 .main 占同一个 grid area，不让就会压在
+     滚动条上 —— 既看着脏，鼠标想拖滚动条也会先碰到目录 */
+  padding: 152px 19px 12px 6px;
 }
 
 .toc-list {
