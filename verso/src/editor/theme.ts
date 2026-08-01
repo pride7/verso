@@ -199,6 +199,61 @@ export const versoTheme = EditorView.theme({
   // 而且光标停进去时会看到行数对不上
   ".cm-code.is-fence": { color: "color-mix(in oklch, var(--muted) 60%, transparent)" },
 
+  // 行号那条左边距。整块一致（围栏行也有 is-numbered），
+  // 否则光标一进来露出的 ``` 会比代码往左突出一截
+  ".cm-code.is-numbered": { paddingLeft: "3.4em" },
+
+  // 行号用生成内容画。
+  //
+  // **不做成 widget**：`::before` 不进选区也不进剪贴板，框选整块代码
+  // 复制出去才是干净的代码。
+  //
+  // **也不用绝对定位**：块首/块尾那两行带着 0.8em 的纵向内边距，绝对定位
+  // 就得为「文字贴上边」和「文字贴下边」分别配一次 top，配错一次就是
+  // 行号和代码差半行。跟着文字流走，对齐是白来的 —— 三个外边距加起来
+  // 净占位为 0，正文起点仍在 3.4em 上，换行后的续行也不会被推歪
+  ".cm-code[data-ln]::before": {
+    content: "attr(data-ln)",
+    display: "inline-block",
+    width: "2em",
+    marginLeft: "-2.6em",
+    marginRight: "0.6em",
+    textAlign: "right",
+    color: "color-mix(in oklch, var(--muted) 50%, transparent)",
+    // 双保险：Chromium 的 innerText 不收生成内容，但别的引擎不保证
+    userSelect: "none",
+  },
+
+  // 复制按钮。常显但很淡 —— 悬停才出现的话，触摸屏上就等于没有（§6 移动端）
+  ".cm-code-copy": {
+    position: "absolute",
+    top: "2px",
+    right: "6px",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "24px",
+    height: "22px",
+    padding: "0",
+    border: "1px solid transparent",
+    borderRadius: "var(--r-xs)",
+    // 代码有可能长到按钮底下，给个实底把它托住 —— 半透明会糊成一团
+    background: "color-mix(in oklch, var(--muted) 9%, var(--bg))",
+    color: "var(--muted)",
+    opacity: "0.5",
+    cursor: "pointer",
+    transition: "opacity var(--t-fast), color var(--t-fast), border-color var(--t-fast)",
+  },
+  ".cm-code-copy svg": { width: "14px", height: "14px" },
+  ".cm-code-copy:hover": {
+    opacity: "1",
+    color: "var(--text)",
+    borderColor: "var(--hairline)",
+  },
+  // 复制成功那 1.4 秒里必须显眼，否则「到底复制上没有」要靠猜
+  ".cm-code-copy[data-state='done']": { opacity: "1", color: "var(--accent)" },
+  ".cm-code-copy[data-state='failed']": { opacity: "1", color: "var(--danger)" },
+
   // 代码块里的文本已经由 .cm-code 统一了字体和底色，
   // 行内代码那套「小圆角药丸」不该再叠一层 —— 叠上去每一行都会
   // 变成一个独立的灰块，看着像被切碎了
@@ -359,6 +414,36 @@ export const versoHighlight = HighlightStyle.define([
 
   { tag: t.processingInstruction, color: "var(--muted)", opacity: 0.55 },
   { tag: t.contentSeparator, color: "var(--muted)" },
+
+  // ---- 代码块内的语法高亮 ----
+  //
+  // 这些 tag 只有在围栏标了语言、嵌套解析生效之后才会出现（index.ts 的
+  // `codeLanguages`），Markdown 自己一个都不产出 —— 所以正文不会跟着变色。
+  //
+  // 色值全部走 CSS 变量，深浅两套主题在 styles.css 里各配一遍。§6.2 的
+  // 「颜色只做重音」在这里的落法是：**只给会改变代码语义的东西上色**
+  // （关键字、字面量、注释、名字），标点和运算符仍然是正文色 —— 每个
+  // token 都染一遍的配色方案，扫读时反而找不到重点
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier, t.self], color: "var(--code-keyword)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--code-string)" },
+  { tag: [t.escape, t.character], color: "var(--code-escape)" },
+  {
+    tag: [t.comment, t.lineComment, t.blockComment, t.docComment],
+    color: "var(--code-comment)",
+    fontStyle: "italic",
+  },
+  { tag: [t.number, t.integer, t.float, t.bool, t.null, t.atom, t.unit], color: "var(--code-number)" },
+  {
+    tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.labelName],
+    color: "var(--code-fn)",
+  },
+  {
+    tag: [t.typeName, t.className, t.namespace, t.standard(t.name), t.tagName],
+    color: "var(--code-type)",
+  },
+  { tag: [t.propertyName, t.attributeName], color: "var(--code-prop)" },
+  { tag: [t.constant(t.variableName), t.standard(t.variableName)], color: "var(--code-number)" },
+  { tag: t.invalid, color: "var(--danger)" },
 ]);
 
 export const versoHighlighting = syntaxHighlighting(versoHighlight);

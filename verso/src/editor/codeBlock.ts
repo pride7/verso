@@ -1,7 +1,11 @@
 /**
  * 围栏代码块的 live preview。DESIGN.md §4.2
  *
- * 两件事一起做：给每一行加底色的行装饰，以及**把上下两行围栏藏起来**。
+ * 四件事一起做：给每一行加底色的行装饰、**把上下两行围栏藏起来**、
+ * 给内容行编号、右上角挂一个复制按钮。
+ *
+ * 语法高亮不在这里 —— 那是 `markdown({ codeLanguages })` 按围栏上的语言
+ * 标注嵌套解析出来的，配色在 theme.ts。
  *
  * ## 为什么合在一个 StateField 里
  *
@@ -28,6 +32,7 @@ import {
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
+import { CodeCopyWidget } from "./widgets";
 
 const hide = Decoration.replace({});
 
@@ -62,13 +67,31 @@ function build(state: EditorState): DecorationSet {
 
       const hideFences = open && closed;
 
+      // 内容行的范围。围栏没闭合时最后一行是**内容**，不是收尾围栏
+      const firstBody = first.number + 1;
+      const lastBody = closed ? last.number - 1 : last.number;
+      const bodyCount = lastBody - firstBody + 1;
+
       // 圆角标记要同时给围栏行**和**相邻的内容行。
       //
       // 藏围栏是连换行符一起替换的，CM6 会把围栏行和它相邻的内容行合并成
-      // 一个可视行 —— 而合并之后只有一份行装饰生效。只标在围栏行上的话，
-      // 圆角会跟着被藏起来的那一行一起消失。两边都标，哪一行活下来都对。
+      // 一个可视行 —— 而合并之后只有一份行装饰生效（先遇到的那一份）。
+      // 只标在围栏行上的话，圆角会跟着被藏起来的那一行一起消失。
+      // 两边都标，哪一行活下来都对。
+      //
+      // 内容不超过一行时更进一步：首尾围栏和这一行内容会**全部**合成同一个
+      // 可视行，活下来的只有开头围栏那一份装饰。不把 is-close 也补给它，
+      // 单行代码块就会只有上半部分是圆角、下边还少一截内边距
+      const oneVisualLine = hideFences && bodyCount <= 1;
       const opens = new Set([first.number, ...(hideFences ? [first.number + 1] : [])]);
-      const closes = new Set([last.number, ...(hideFences ? [last.number - 1] : [])]);
+      const closes = new Set([
+        last.number,
+        ...(hideFences ? [last.number - 1] : []),
+        ...(oneVisualLine ? [first.number] : []),
+      ]);
+
+      // 只有一行内容就不编号 —— 给 `npm i` 标个「1」纯粹是噪音
+      const numbered = bodyCount >= 2;
 
       for (let n = first.number; n <= last.number; n++) {
         const line = state.doc.line(n);
@@ -79,10 +102,36 @@ function build(state: EditorState): DecorationSet {
           closes.has(n) ? "is-close" : "",
           // 光标在块里时围栏是可见的源码，淡化一下；藏起来时就不需要了
           isFence && !open ? "is-fence" : "",
+          // 编号占的那条左边距要整块一致，围栏行也得留 —— 否则光标一进来，
+          // 露出的 ``` 会比下面的代码往左突出一截
+          numbered ? "is-numbered" : "",
         ]
           .filter(Boolean)
           .join(" ");
-        marks.push(Decoration.line({ class: cls }).range(line.from));
+
+        // 行号走行属性 + CSS 的 `::before`，不做成 widget：生成内容不进
+        // 选区也不进剪贴板，框选整块代码复制出来才是干净的
+        //
+        // 开头的围栏被藏起来时它和第一行代码合成一个可视行，而合并之后
+        // **生效的是围栏行的装饰**（CM6 的 ContentBuilder 先遇到谁用谁），
+        // 所以「1」要同时挂到围栏行上。收尾那边相反 —— 文本先于替换出现，
+        // 生效的本来就是最后一行内容，不用管
+        const ln = n >= firstBody && n <= lastBody ? n - firstBody + 1 : hideFences && n === first.number ? 1 : 0;
+        const attributes = numbered && ln ? { "data-ln": String(ln) } : undefined;
+
+        marks.push(Decoration.line({ class: cls, attributes }).range(line.from));
+      }
+
+      // 复制按钮挂在**第一行内容**上，而不是围栏行上：围栏行会随光标
+      // 进出而藏/显，挂在它上面按钮就跟着闪。空块（``` 紧接 ```）没什么可复制
+      if (bodyCount >= 1) {
+        const from = state.doc.line(firstBody).from;
+        const code = state.doc.sliceString(from, state.doc.line(lastBody).to);
+        marks.push(
+          // side: 1 —— 藏围栏那个 replace 正好结束在这个位置上，
+          // 排在它后面才不会被一起吞掉
+          Decoration.widget({ widget: new CodeCopyWidget(code), side: 1 }).range(from),
+        );
       }
 
       if (hideFences) {

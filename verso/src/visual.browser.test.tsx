@@ -321,6 +321,43 @@ describe("视觉工作台", () => {
     alive();
   });
 
+  /** 把代码块滚到编辑区顶端并放大两倍再截。深浅两套各来一张 */
+  async function codeZoomShot(name: string) {
+    render();
+    await settle(700);
+    // 行号跟代码差半行、按钮压住第一行代码，这类几像素的偏差整屏看不出来
+    document.documentElement.style.zoom = "2";
+    // 放大之后按固定像素数滚是不行的，scrollHeight 全变了。
+    // `scrollIntoView` 也不行 —— CM6 滚完会重算可视区、重新渲染，
+    // 一次就位反而把块甩到屏幕外去了。量一次挪一次，收敛得很快
+    // 目标位置按**相对编辑区顶端**算，不按视口像素：`zoom` 之下写死数字对不上。
+    //
+    // 而且 `getBoundingClientRect` 是缩放后的坐标、`scrollTop` 是缩放前的，
+    // 差值要除以缩放倍数再用 —— 直接加会一次冲过头，块被甩到屏幕外
+    // （这正是 `scrollIntoView` 在这里也不管用的原因：CM6 滚完还要重算可视区）
+    const main = document.querySelector<HTMLElement>(".main")!;
+    for (let i = 0; i < 5; i++) {
+      const r = document.querySelector(".cm-code")!.getBoundingClientRect();
+      const off = r.top - main.getBoundingClientRect().top - 20;
+      if (Math.abs(off) < 6) break;
+      main.scrollTop += off / 2;
+      await settle(150);
+    }
+    await shot(name);
+    document.documentElement.style.zoom = "";
+    alive();
+  }
+
+  it("浅色 · 代码块放大细节（行号与复制按钮）", async () => {
+    await codeZoomShot("08b-light-code-zoom");
+  });
+
+  // 高亮的深色配色是单独一套值，只能看着改
+  it("深色 · 代码块放大细节", async () => {
+    theme = "dark";
+    await codeZoomShot("08c-dark-code-zoom");
+  });
+
   it("浅色 · callout 放大细节", async () => {
     render();
     await settle(700);

@@ -365,7 +365,11 @@ describe("坐标反查落点", () => {
     const v = mount("正文\n\n```rust\nfn main() {}\n```\n\n结尾");
     await settle();
     const host = v.dom.querySelector<HTMLElement>(".cm-content")!;
-    const pos = v.posAtCoords(centerOf(textRect(host, "fn main")));
+    // 只找 "main"，不找 "fn main"：代码块高亮之后 `fn` 和 `main` 落在
+    // 两个不同的 span 里，跨节点的文本 walker 一个都匹配不上。
+    // 而且语言包是异步加载的，同一句话在两种时序下的节点划分不一样 ——
+    // 单个 token 在两种情况下都找得到
+    const pos = v.posAtCoords(centerOf(textRect(host, "main")));
     expect(pos).not.toBeNull();
     expect(v.state.doc.lineAt(pos!).number).toBe(4);
   });

@@ -65,6 +65,19 @@
   --shadow-lg: 0 0 0 0.5px oklch(0% 0 0 / 0.07), 0 12px 32px oklch(0% 0 0 / 0.14),
     0 2px 6px oklch(0% 0 0 / 0.07);
 
+  /* 代码块的语法高亮（editor/theme.ts 引用）。
+     色相沿用界面已有的那几个（accent 195、warn 70、danger 25），
+     另外只补紫和绿两个 —— 关键字与字符串是任何语言里最需要一眼分开的两类。
+     饱和度压得比常见配色低：正文里的一块代码不该比正文本身更抢眼。 */
+  --code-keyword: oklch(48% 0.13 300);
+  --code-string: oklch(46% 0.11 150);
+  --code-comment: oklch(58% 0.02 250);
+  --code-number: oklch(52% 0.12 45);
+  --code-fn: oklch(48% 0.12 250);
+  --code-type: oklch(46% 0.09 195);
+  --code-prop: oklch(45% 0.07 250);
+  --code-escape: oklch(50% 0.12 20);
+
   /* §6.1 排版尺度。这几条会被设置覆写 */
   --body-font-size: 16.5px;
   --body-line-height: 1.75;
@@ -123,6 +136,17 @@
   --d-accent-soft: oklch(74% var(--accent-c) var(--accent-h) / 0.16);
   --d-selected-bg: oklch(31% 0 0);
   --d-hover-bg: oklch(100% 0 0 / 0.07);
+  /* 代码高亮的深色版。同色相、明度翻上去、chroma 略降 —— 和 accent 一个道理，
+     深底上不提亮就糊成一团，不降饱和就刺眼 */
+  --d-code-keyword: oklch(78% 0.11 300);
+  --d-code-string: oklch(78% 0.1 150);
+  --d-code-comment: oklch(58% 0.02 250);
+  --d-code-number: oklch(80% 0.1 55);
+  --d-code-fn: oklch(78% 0.09 250);
+  --d-code-type: oklch(80% 0.07 195);
+  --d-code-prop: oklch(84% 0.05 250);
+  --d-code-escape: oklch(76% 0.1 20);
+
   --d-shadow-sm: 0 0 0 0.5px oklch(100% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.4);
   --d-shadow-md: 0 0 0 0.5px oklch(100% 0 0 / 0.09), 0 4px 14px oklch(0% 0 0 / 0.5);
   --d-shadow-lg: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 14px 36px oklch(0% 0 0 / 0.6);
@@ -144,6 +168,14 @@
     --shadow-sm: var(--d-shadow-sm);
     --shadow-md: var(--d-shadow-md);
     --shadow-lg: var(--d-shadow-lg);
+    --code-keyword: var(--d-code-keyword);
+    --code-string: var(--d-code-string);
+    --code-comment: var(--d-code-comment);
+    --code-number: var(--d-code-number);
+    --code-fn: var(--d-code-fn);
+    --code-type: var(--d-code-type);
+    --code-prop: var(--d-code-prop);
+    --code-escape: var(--d-code-escape);
   }
 }
 
@@ -163,6 +195,14 @@
   --shadow-sm: var(--d-shadow-sm);
   --shadow-md: var(--d-shadow-md);
   --shadow-lg: var(--d-shadow-lg);
+  --code-keyword: var(--d-code-keyword);
+  --code-string: var(--d-code-string);
+  --code-comment: var(--d-code-comment);
+  --code-number: var(--d-code-number);
+  --code-fn: var(--d-code-fn);
+  --code-type: var(--d-code-type);
+  --code-prop: var(--d-code-prop);
+  --code-escape: var(--d-code-escape);
   color-scheme: dark;
 }
 

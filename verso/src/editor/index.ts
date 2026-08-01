@@ -7,6 +7,7 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
+import { languages } from "@codemirror/language-data";
 import { Compartment, type Extension } from "@codemirror/state";
 import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
@@ -128,9 +129,16 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     markdown({
       base: markdownLanguage,
       extensions: [GFM, markdownExtended],
-      // 关掉代码块内的语言高亮：笔记里的代码块大多是片段，
-      // 为它加载一堆语言包不值得，M1 先不做
-      codeLanguages: [],
+      // 代码块内按围栏上的语言标注高亮。
+      //
+      // M1 时这里是空数组，理由是「为几个片段加载一堆语言包不值得」——
+      // 现在不成立了：`@codemirror/language-data` 里每条都是 `LanguageDescription`，
+      // 语法包是**用到才动态 import** 的。一篇笔记里没有 Rust 代码块，
+      // Rust 的语法包就一个字节都不会读进来。
+      //
+      // 加载是异步的，解析完树会变 —— 块级 decoration 靠 parseRefresh
+      // 的 ViewPlugin 察觉树变化后重算（见 parseRefresh.ts）
+      codeLanguages: languages,
     }),
 
     versoTheme,
