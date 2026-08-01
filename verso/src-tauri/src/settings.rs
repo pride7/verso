@@ -7,6 +7,7 @@
 //! 每个字段都带 `#[serde(default)]`：设置文件是可以被用户手改的，少一个键、
 //! 写坏一个值，都不该让应用起不来 —— 那时候用户连改回去的界面都打不开。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,10 @@ fn default_tree_sort() -> String {
     "name".into()
 }
 
+fn default_tab_open() -> String {
+    "new".into()
+}
+
 // §6.1 的排版尺度就是这几个默认值的出处
 fn default_body_font_size() -> f64 {
     16.5
@@ -40,7 +45,8 @@ fn default_ui_font_size() -> f64 {
     14.0
 }
 fn default_terminal_font_size() -> f64 {
-    12.5
+    // 12.5 太小了 —— 终端里读的是等宽小字，而且常常是 AI 刷出来的一屏日志
+    13.5
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,12 +78,31 @@ pub struct Settings {
     /// 到默认，而不是整个设置文件解析失败。
     pub tree_sort: String,
 
+    /// 点侧栏里的文件时开新标签（`"new"`，默认）还是替换当前标签
+    /// （`"replace"`）。两种模式下 Ctrl/⌘+点 和中键都强制开新标签。
+    ///
+    /// `#[serde(default)]`：老的设置文件里没这个键，缺了要回落到默认而不是
+    /// 让整份设置解析失败
+    #[serde(default = "default_tab_open")]
+    pub tab_open: String,
+
     /// 自定义 snippet，Latex Suite 那种 JSON 文本，原样存、由前端解析。
     ///
     /// 有意不在 Rust 侧建模：snippet 的编译规则（触发词、正则、标志位）全在
     /// 前端 `editor/snippets/types.ts` 里，在这边再写一份 schema 只会造出
     /// 两份会各自漂移的定义。Rust 这里只负责把这段文本原封不动地存下来。
     pub custom_snippets: String,
+
+    /// 改过的快捷键：命令 id → 键位（`"Mod+Shift+P"`）。空串表示显式解绑。
+    ///
+    /// 和 snippet 一样**不在 Rust 侧建模**：命令表和键位写法全在前端
+    /// `lib/keymap.ts` 里，这边再写一份只会造出两份各自漂移的定义。
+    /// 只存**与默认不同**的那几条，所以将来调整默认键位时，没动过它的人
+    /// 会跟着一起变。
+    ///
+    /// 用 `BTreeMap` 而不是 `HashMap`：设置文件是给人看、也可以手改的，
+    /// 每次写盘键的顺序都变会让它没法进版本控制。
+    pub keybindings: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
@@ -93,7 +118,9 @@ impl Default for Settings {
             terminal_font_size: default_terminal_font_size(),
             terminal_font: String::new(),
             tree_sort: default_tree_sort(),
+            tab_open: default_tab_open(),
             custom_snippets: String::new(),
+            keybindings: BTreeMap::new(),
         }
     }
 }
@@ -114,11 +141,18 @@ impl Settings {
         ) {
             self.tree_sort = default_tree_sort();
         }
+        if !matches!(self.tab_open.as_str(), "new" | "replace") {
+            self.tab_open = default_tab_open();
+        }
         self.body_font_size = clamp(self.body_font_size, 12.0, 28.0, default_body_font_size());
         self.line_height = clamp(self.line_height, 1.2, 2.4, default_line_height());
         self.content_width = clamp(self.content_width, 24.0, 80.0, default_content_width());
         self.ui_font_size = clamp(self.ui_font_size, 11.0, 20.0, default_ui_font_size());
         self.terminal_font_size = clamp(self.terminal_font_size, 9.0, 24.0, default_terminal_font_size());
+        // 键位写法由前端管，这边只挡住明显是垃圾的：手改的文件里塞进来一段
+        // 长文本，会让设置界面里那一行铺满整个面板
+        self.keybindings
+            .retain(|id, spec| id.len() <= 64 && spec.len() <= 64);
         self
     }
 }
@@ -230,5 +264,33 @@ mod tests {
         };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back.custom_snippets, text);
+    }
+
+    #[test]
+    fn keybindings_survive_a_round_trip() {
+        // 同理：命令表和键位写法都在前端，Rust 只保证原样存取。
+        // 空串是「显式解绑」，不能在存取途中被当成空值丢掉
+        let s: Settings =
+            serde_json::from_str(r#"{"keybindings":{"note.new":"Mod+Alt+N","note.save":""}}"#)
+                .unwrap();
+        assert_eq!(s.keybindings.get("note.new").unwrap(), "Mod+Alt+N");
+        assert_eq!(s.keybindings.get("note.save").unwrap(), "");
+
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.keybindings, s.keybindings);
+    }
+
+    #[test]
+    fn absurd_keybindings_are_dropped() {
+        let mut binds = BTreeMap::new();
+        binds.insert("note.new".to_string(), "Mod+N".to_string());
+        binds.insert("x".to_string(), "A".repeat(500));
+        let s = Settings {
+            keybindings: binds,
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(s.keybindings.len(), 1);
+        assert!(s.keybindings.contains_key("note.new"));
     }
 }

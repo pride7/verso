@@ -41,6 +41,9 @@
 | ↳ 关掉 Tauri 的 OS 层拖放，拖拽才真的能用 | `v0.5.15` ✅ |
 | ↳ 外壳钉死：页面不滚、不橡皮筋 | `v0.5.16` ✅ |
 | ↳ 侧栏头部重排、宽度可拖 | `v0.5.17` ✅ |
+| ↳ 快捷键可改：命令表成唯一真源 | `v0.5.18` ✅ |
+| ↳ 多标签页 | `v0.5.19` ✅ |
+| ↳ 终端：`cd` 可用、配色可读 | `v0.5.20` ✅ |
 | M5 同步 | `v0.6.0` |
 | M6 移动端 | `v0.7.0` |
 | M7 发布 | `v0.8.0` |
@@ -244,18 +247,28 @@ Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），
 两者不可兼得，所以按是否跨行分工：跨行块级公式走 StateField（数量少，全文扫描
 可接受），行内的一切走 ViewPlugin（只扫可视区）。
 
-## 终端相关的两个坑
+## 终端相关的三个坑
 
-改 `src/components/TerminalPanel.tsx` 时会撞上，两者都表现为「面板打开但一片空白」
-且不报任何错：
+改 `src/components/TerminalPanel.tsx` / `src-tauri/src/pty.rs` 时会撞上。前两个
+都表现为「面板打开但一片空白」且不报任何错：
 
 1. **`term.onData` 必须在 `pty_open` 之前注册。** shell 启动时先发 DSR（`ESC[6n`），
    收到回答才打印提示符；xterm 的回答从 `onData` 出来，晚注册就丢了。
 2. **不要在 `term.open()` 之后立刻 `fit()`。** 布局还没完成，算出 0 列 0 行。
    用 `ResizeObserver`，拿到真实尺寸再开 PTY。
+3. **递给外部进程的路径要先过 `winpath::for_external`。** vault 根是
+   `canonicalize()` 出来的，Windows 上那是 `\\?\D:\…`；PowerShell 拿它当 cwd
+   之后会切进 provider 限定名状态，**每一次 `cd` 都报
+   「the value of argument "path" is not valid」**，提示符还变成
+   `Microsoft.PowerShell.Core\FileSystem::\\?\…`。同样适用于「在系统终端中打开」。
 
-`cargo test` 里的 `pty::tests::shell_starts_and_echoes_back` 会覆盖第 1 点 ——
-它自己扮演终端去应答 DSR。这个测试当初就是这么把 bug 抓出来的。
+`cargo test` 里的 `pty::tests::shell_starts_and_echoes_back` 覆盖第 1 点、
+`cd_works_from_a_canonicalized_cwd` 覆盖第 3 点，两个都自己扮演终端去应答 DSR。
+
+**写这类 PTY 测试时先确认它会失败。** 第 3 点的测试第一版是「数标记词出现了
+几次」，结果在没修的代码上照样通过 —— PSReadLine 会为了上色和补全把已经打进去
+的那行反复重画，一条命令在流里出现三四遍，凑够次数太容易了。现在认的是「标记
+后面**同一行**里带着那个临时目录名」，只有真正的输出才满足。
 
 ## 改 snippet 时必须知道的三件事
 

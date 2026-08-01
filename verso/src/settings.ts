@@ -11,6 +11,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import type { TreeSort } from "./lib/treeSort";
 
+/** 点侧栏文件时：开新标签 / 替换当前标签 */
+export type TabOpen = "new" | "replace";
+
 export interface Settings {
   theme: "system" | "light" | "dark";
   bodyFontSize: number;
@@ -26,8 +29,22 @@ export interface Settings {
   terminalFont: string;
   /** 文档树排序方式 */
   treeSort: TreeSort;
+  /**
+   * 点侧栏里的文件时开新标签还是替换当前标签。
+   *
+   * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
+   * 不该被设置盖掉。
+   */
+  tabOpen: TabOpen;
   /** Latex Suite 那种 JSON 文本，由 `editor/snippets` 解析 */
   customSnippets: string;
+  /**
+   * 改过的快捷键。命令 id → 键位（`Mod+Shift+P` 这种写法）。
+   *
+   * 只存**与默认不同**的那几条，空串表示显式解绑。没出现在这里的命令
+   * 用它自己的默认键位 —— 见 `lib/keymap.ts`。
+   */
+  keybindings: Record<string, string>;
 }
 
 /** 与 Rust 侧 `settings.rs` 的默认值保持一致 —— §6.1 的排版尺度 */
@@ -39,10 +56,12 @@ export const DEFAULT_SETTINGS: Settings = {
   uiFontSize: 14,
   bodyFont: "",
   monoFont: "",
-  terminalFontSize: 12.5,
+  terminalFontSize: 13.5,
   terminalFont: "",
   treeSort: "name",
+  tabOpen: "new",
   customSnippets: "",
+  keybindings: {},
 };
 
 /**
@@ -105,10 +124,19 @@ export function sanitize(s: Settings): Settings {
     Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
   return {
     ...s,
+    // 设置文件能手改，这里可能是 null、数组、字符串 —— 全都会让设置界面
+    // 里的快捷键那一页崩掉，而那正是唯一能把它改回来的地方
+    keybindings:
+      s.keybindings && typeof s.keybindings === "object" && !Array.isArray(s.keybindings)
+        ? Object.fromEntries(
+            Object.entries(s.keybindings).filter(([, v]) => typeof v === "string"),
+          )
+        : {},
     theme: (["system", "light", "dark"] as const).includes(s.theme) ? s.theme : "system",
     treeSort: (["manual", "name", "name-desc", "created", "updated"] as const).includes(s.treeSort)
       ? s.treeSort
       : "name",
+    tabOpen: (["new", "replace"] as const).includes(s.tabOpen) ? s.tabOpen : "new",
     bodyFontSize: num(s.bodyFontSize, 12, 28, DEFAULT_SETTINGS.bodyFontSize),
     lineHeight: num(s.lineHeight, 1.2, 2.4, DEFAULT_SETTINGS.lineHeight),
     contentWidth: num(s.contentWidth, 24, 80, DEFAULT_SETTINGS.contentWidth),

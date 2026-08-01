@@ -61,5 +61,7 @@ pub fn open_at(dir: &Path) -> Result<()> {
     if !dir.is_dir() {
         return Err(Error::Vault(format!("不是目录: {}", dir.display())));
     }
-    spawn_terminal(dir)
+    // 和内嵌终端同一个理由：`\\?\D:\…` 递给 wt / PowerShell 之后，
+    // 那个窗口里的 `cd` 就废了（详见 `winpath`）
+    spawn_terminal(&crate::winpath::for_external(dir))
 }

@@ -15,9 +15,61 @@ interface Props {
   onClose: () => void;
   /** 设置里的终端字号 */
   fontSize: number;
+  /** 当前实际是深色还是浅色。决定用哪套 ANSI 调色板 */
+  dark: boolean;
   /** 主题标识。值本身不用，变了就重新取色 —— 见下面的 effect */
   theme: string;
 }
+
+/**
+ * 16 色 ANSI 调色板。
+ *
+ * **必须自己给一套。** 只设 `background`/`foreground` 的话，其余颜色用的是
+ * xterm 的默认值，而那套值是照着**黑底**配的：`yellow` 是 `#cdcd00`、
+ * `brightWhite` 是纯白，画在我们 96% 明度的浅色底上基本看不见。AI CLI 的
+ * 输出里到处是这些颜色，作者报的「字都看不清」就是这么来的。
+ *
+ * 浅色那套里 `white` / `brightWhite` 是**反过来**的（灰 → 近黑）：ANSI 的
+ * "白" 意思是"前景色里最亮的那档"，在白底上照字面给白色等于让它消失。
+ * Solarized Light、GitHub Light 都是这么处理的。
+ */
+const ANSI_LIGHT = {
+  black: "#2b2f36",
+  red: "#c0392b",
+  green: "#1e7a4a",
+  yellow: "#8a6a00",
+  blue: "#2b5fd0",
+  magenta: "#9b2fae",
+  cyan: "#0f6f7a",
+  white: "#6b7280",
+  brightBlack: "#8a9099",
+  brightRed: "#d64545",
+  brightGreen: "#2a9d62",
+  brightYellow: "#a37a00",
+  brightBlue: "#3b6fd4",
+  brightMagenta: "#b344c8",
+  brightCyan: "#17838f",
+  brightWhite: "#22252b",
+};
+
+const ANSI_DARK = {
+  black: "#3a3f47",
+  red: "#f47067",
+  green: "#6bd28c",
+  yellow: "#e3c46a",
+  blue: "#79b8ff",
+  magenta: "#d7a3ff",
+  cyan: "#6bd6e0",
+  white: "#d5d8de",
+  brightBlack: "#6b727d",
+  brightRed: "#ff8f87",
+  brightGreen: "#8ae6a8",
+  brightYellow: "#f0d68a",
+  brightBlue: "#9ecbff",
+  brightMagenta: "#e5bcff",
+  brightCyan: "#8ee6ee",
+  brightWhite: "#f2f4f7",
+};
 
 /**
  * 从 CSS 变量取色/取字体，让终端跟随主题和设置。
@@ -26,17 +78,22 @@ interface Props {
  * xterm 要拿字体串去 canvas 里量字符宽度，那个上下文解析不了 CSS 变量，
  * 结果是列宽算错、整屏错位。
  */
-function styleFromCss() {
+function styleFromCss(dark: boolean) {
   const s = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback;
   const mono = '"JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace';
+  const bg = v("--surface", dark ? "#2a2d33" : "#f7f6f3");
   return {
     fontFamily: v("--term-font", mono),
     theme: {
-      background: v("--surface", "#f7f6f3"),
-      foreground: v("--text", "#22252b"),
+      ...(dark ? ANSI_DARK : ANSI_LIGHT),
+      background: bg,
+      foreground: v("--text", dark ? "#e9eaed" : "#22252b"),
       cursor: v("--accent", "#3b6fd4"),
-      selectionBackground: "rgba(120,150,220,0.32)",
+      // 光标底下那个字的颜色。不给的话它会用前景色 —— 实心光标压上去
+      // 就是同色叠同色，正在输入的那个字符看不见
+      cursorAccent: bg,
+      selectionBackground: dark ? "rgba(120,150,220,0.38)" : "rgba(120,150,220,0.32)",
     },
   };
 }
@@ -47,7 +104,7 @@ function styleFromCss() {
  * §7.1：vault 是纯 .md，任何 AI CLI 都能直接在上面工作。这个面板就是那条路
  * 的入口 —— 不用切窗口，一边让 AI 改笔记，一边在编辑器里看结果。
  */
-export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme }: Props) {
+export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark, theme }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const idRef = useRef<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -58,17 +115,27 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme
   // 初值放 ref：终端只建一次，字号变化走下面那个 effect。
   // 直接读 props 的话得把它们写进依赖数组，改一次字号就重建终端、
   // 跑着的进程全没了
-  const initial = useRef({ fontSize });
+  const initial = useRef({ fontSize, dark });
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
     const term = new Terminal({
-      ...styleFromCss(),
+      ...styleFromCss(initial.current.dark),
       fontSize: initial.current.fontSize,
-      lineHeight: 1.2,
+      // 1.2 太紧，一屏字挤成一片灰。终端里读的是等宽小字，行距比正文更要紧
+      lineHeight: 1.35,
       cursorBlink: true,
+      /**
+       * 前景色和背景色对比度不够时，xterm 自己把前景提亮/压暗到这个比值。
+       *
+       * 调色板只能管 16 色；AI CLI 大量用 256 色和真彩色（灰色的提示行、
+       * 淡色的 diff 背景），那些值是程序自己挑的，多半是照着黑底挑的。
+       * 4.5 是 WCAG AA 对正文的要求 —— 终端里全是小号等宽字，够不着这个
+       * 比值的就是看不清。
+       */
+      minimumContrastRatio: 4.5,
       // AI CLI 一次输出几百行是常态，默认的 1000 行回滚不够回看
       scrollback: 10000,
       allowProposedApi: true,
@@ -182,7 +249,7 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    const style = styleFromCss();
+    const style = styleFromCss(dark);
     term.options.fontSize = fontSize;
     term.options.fontFamily = style.fontFamily;
     term.options.theme = style.theme;
@@ -194,7 +261,7 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme
     if (idRef.current && term.cols >= 2 && term.rows >= 2) {
       void api.ptyResize(idRef.current, term.cols, term.rows).catch(() => {});
     }
-  }, [fontSize, theme]);
+  }, [fontSize, dark, theme]);
 
   // 拖拽调整高度
   const startDrag = (e: React.MouseEvent) => {

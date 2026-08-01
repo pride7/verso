@@ -84,6 +84,15 @@ interface Props {
   /** `![[图.png]]` 的目标名 → 能显示的 URL。null = 显示不了 */
   imageSrc: (target: string) => string | null;
   onError: (msg: string) => void;
+  /**
+   * 上次离开这一页时存下的编辑器状态：光标、选区、**撤销历史**。
+   *
+   * 文档对不上就忽略（笔记在别处被改过），从头建一个 —— 把旧的撤销历史
+   * 接到一份不一样的内容上，撤销会把文件改成从来没存在过的样子。
+   */
+  restoreState?: EditorState | null;
+  /** 卸载前把状态交出去，交给上层按标签存起来 */
+  onStashState?: (state: EditorState) => void;
 }
 
 export function Editor({
@@ -103,6 +112,8 @@ export function Editor({
   onSaveImage,
   imageSrc,
   onError,
+  restoreState,
+  onStashState,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -240,6 +251,7 @@ export function Editor({
     onError,
     imageSrc,
     revision,
+    onStashState,
   });
   cb.current = {
     onChange,
@@ -253,7 +265,11 @@ export function Editor({
     onError,
     imageSrc,
     revision,
+    onStashState,
   };
+
+  /** 同理：只在建 view 的那一刻读一次，之后的变化不该触发重建 */
+  const restoreRef = useRef(restoreState);
 
   // 自定义 snippet 的初值。放 ref 是因为它只在建 view 的那一刻用一次，
   // 之后的变化走下面的 compartment reconfigure，不该让编辑器重建
@@ -264,25 +280,44 @@ export function Editor({
   // 只在挂载时建一次 view
   useEffect(() => {
     if (!host.current) return;
+
+    // 切回一个之前开过的标签时，直接接着上次那份 state 用 —— 光标、选区、
+    // 撤销历史都在里面。文档对不上就说明这篇在别处被改过，那份历史已经不
+    // 适用了，从头建（把旧历史接到不一样的内容上，撤销会把文件改成从来
+    // 没存在过的样子）
+    const stashed = restoreRef.current;
+    const reusable = stashed && stashed.doc.toString() === note.body ? stashed : null;
+
     const view = new EditorView({
-      state: EditorState.create({
-        doc: note.body,
-        extensions: createExtensions({
-          onChange: (v) => cb.current.onChange(v),
-          onSaveNow: () => cb.current.onSaveNow(),
-          onFollowLink: (t) => cb.current.onFollowLink(t),
-          getNotes: () => cb.current.getNotes(),
-          customSnippets: parseCustomSnippets(initialSnippets.current).specs,
-          sourceMode: initialSourceMode.current,
-          saveImage: (name, data) => cb.current.onSaveImage(name, data),
-          onError: (m) => cb.current.onError(m),
+      state:
+        reusable ??
+        EditorState.create({
+          doc: note.body,
+          extensions: createExtensions({
+            onChange: (v) => cb.current.onChange(v),
+            onSaveNow: () => cb.current.onSaveNow(),
+            onFollowLink: (t) => cb.current.onFollowLink(t),
+            getNotes: () => cb.current.getNotes(),
+            customSnippets: parseCustomSnippets(initialSnippets.current).specs,
+            sourceMode: initialSourceMode.current,
+            saveImage: (name, data) => cb.current.onSaveImage(name, data),
+            onError: (m) => cb.current.onError(m),
+          }),
         }),
-      }),
       parent: host.current,
     });
     viewRef.current = view;
+
+    // 复用的那份 state 里，compartment 装的还是**离开这一页时**的配置。
+    // 中途切过源码模式或改过 snippet 的话，这里要按当前值再压一遍
+    if (reusable) {
+      applySourceMode(view, initialSourceMode.current);
+      applyCustomSnippets(view, initialSnippets.current);
+    }
+
     view.focus();
     return () => {
+      cb.current.onStashState?.(view.state);
       view.destroy();
       viewRef.current = null;
     };

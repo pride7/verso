@@ -2,20 +2,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
+import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
+import { KeyBindings } from "./KeyBindings";
 
 interface Props {
   settings: Settings;
+  /** 全部命令。快捷键那一页要照着它列出每一条 */
+  commands: Command[];
   onChange: (patch: Partial<Settings>) => void;
   onReset: () => void;
   onClose: () => void;
 }
 
-type Tab = "appearance" | "editor" | "terminal" | "snippets";
+type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "外观" },
   { id: "editor", label: "编辑器" },
+  { id: "keys", label: "快捷键" },
   { id: "terminal", label: "终端" },
   { id: "snippets", label: "公式 snippet" },
 ];
@@ -113,7 +118,7 @@ function TextRow({
  * 有意做成**改一下立刻生效**、没有「保存」按钮：调字号这种事必须边看边调，
  * 隔着一次确认根本调不准。撤销的入口是每一项旁边的「恢复默认」。
  */
-export function SettingsPanel({ settings, onChange, onReset, onClose }: Props) {
+export function SettingsPanel({ settings, commands, onChange, onReset, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("appearance");
   // snippet 文本单独存一份本地状态：它要边打边校验，但不该每敲一个字符
   // 就往磁盘写一次
@@ -222,6 +227,33 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Props) {
 
           {tab === "editor" && (
             <>
+              <div className="set-row">
+                <div className="set-label">
+                  <span>点侧栏文件时</span>
+                  <span className="set-hint">
+                    Ctrl/⌘+点 和中键总是开新标签，不受这里影响
+                  </span>
+                </div>
+                <div className="set-control">
+                  <div className="segmented">
+                    {(
+                      [
+                        ["new", "开新标签"],
+                        ["replace", "替换当前"],
+                      ] as const
+                    ).map(([v, label]) => (
+                      <button
+                        key={v}
+                        className={settings.tabOpen === v ? "is-on" : undefined}
+                        onClick={() => onChange({ tabOpen: v })}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <Slider
                 label="正文字号"
                 hint="中文比西文需要更大字号"
@@ -259,6 +291,14 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Props) {
                 窗口拉宽时留白增加，而不是行变长 —— 这是长时间阅读最影响眼睛的一项。
               </p>
             </>
+          )}
+
+          {tab === "keys" && (
+            <KeyBindings
+              commands={commands}
+              overrides={settings.keybindings}
+              onChange={(keybindings) => onChange({ keybindings })}
+            />
           )}
 
           {tab === "terminal" && (

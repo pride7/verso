@@ -6,6 +6,8 @@ mod settings;
 mod terminal;
 mod vault;
 mod watcher;
+mod winpath;
+mod workspace;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -505,6 +507,19 @@ fn open_terminal(state: State<'_, AppState>, path: Option<String>) -> Result<()>
     })
 }
 
+// —— 每个 vault 的界面状态：标签页（§2.1）——
+
+/// 读不出来就返回空 —— 见 `workspace.rs`，这份状态丢了只是少开几个页签
+#[tauri::command]
+fn workspace_get(state: State<'_, AppState>) -> Result<workspace::Workspace> {
+    state.with_vault(|v| Ok(workspace::load(v.fs.as_ref(), &v.root)))
+}
+
+#[tauri::command]
+fn workspace_set(state: State<'_, AppState>, ws: workspace::Workspace) -> Result<()> {
+    state.with_vault(|v| workspace::save(v.fs.as_ref(), &v.root, &ws))
+}
+
 // —— 用户设置（§6）——
 
 #[tauri::command]
@@ -561,6 +576,8 @@ pub fn run() {
             prop_rename_all,
             prop_rename,
             notes_reorder,
+            workspace_get,
+            workspace_set,
             settings_get,
             settings_set,
         ])

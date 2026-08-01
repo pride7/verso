@@ -314,7 +314,14 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
 
     let mut stmt = conn.prepare(&sql)?;
     let mapped = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+            r.get::<_, Option<String>>(4)?,
+            r.get::<_, i64>(5)?,
+        ))
     })?;
     type Base = (String, String, String, Option<String>, Option<String>, i64);
     let base: Vec<Base> = mapped.collect::<std::result::Result<Vec<_>, _>>()?;
@@ -327,7 +334,7 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
         }
     }
 
-    let ids: Vec<String> = base.iter().map(|(id, _, _)| id.clone()).collect();
+    let ids: Vec<String> = base.iter().map(|b| b.0.clone()).collect();
 
     // 一次把所有行的属性取出来，避免 N+1 次查询
     let mut props_by_note: HashMap<String, HashMap<String, String>> = HashMap::new();

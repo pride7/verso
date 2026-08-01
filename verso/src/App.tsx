@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { EditorState } from "@codemirror/state";
+
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { api, onVaultChanged, pickVaultFolder } from "./api";
@@ -15,9 +17,24 @@ import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
+import { TabBar } from "./components/TabBar";
 import { parseHeadings, type Heading } from "./lib/outline";
+import {
+  activePath,
+  closeOthers,
+  closeTab,
+  dropSubtree,
+  EMPTY_TABS,
+  gotoTab,
+  moveTab,
+  openTab,
+  renameTab,
+  stepTab,
+  type TabState,
+} from "./lib/tabs";
 import { attachmentPath } from "./lib/vaultPath";
 import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/treeSort";
+import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -76,6 +93,23 @@ export default function App() {
   const [noteList, setNoteList] = useState<NoteRef[]>([]);
   const [note, setNote] = useState<NoteContent | null>(null);
   const [body, setBody] = useState("");
+  /**
+   * 打开着的标签。`note` 始终是当前那一页的内容 —— 别的页不在内存里留正文，
+   * 因为切页之前一定会先落盘（`openPath` 开头那句），没有未保存的东西要护。
+   */
+  const [tabState, setTabState] = useState<TabState>(EMPTY_TABS);
+  const tabsRef = useRef(tabState);
+  tabsRef.current = tabState;
+  /**
+   * 每一页离开时存下的编辑器状态：光标、选区、撤销历史。
+   *
+   * 放 ref 不放 state：它变了不该触发重渲染，而且 `EditorState` 是个不可变
+   * 的大对象，进 state 只会让每次比较都白跑一趟。
+   */
+  const editorStates = useRef(new Map<string, EditorState>());
+  /** 每一页的滚动位置。滚的是 `.main`，不是编辑器自己（见 styles.css） */
+  const scrollTops = useRef(new Map<string, number>());
+  const mainRef = useRef<HTMLElement | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [error, setError] = useState<string | null>(null);
   const [externalChange, setExternalChange] = useState(false);
@@ -103,6 +137,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
+  /** 命令表的最新一份。全局快捷键从这里查，监听器就不必跟着命令表重装 */
+  const commandsRef = useRef<Command[]>([]);
   const { settings, update: updateSettings, reset: resetSettings } = useSettings();
   const effectiveTheme = useEffectiveTheme(settings.theme);
   /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
@@ -273,23 +309,184 @@ export default function App() {
     [vault],
   );
 
+  /** 一页不再开着了：它的编辑器状态和滚动位置都没有留着的理由 */
+  const forgetTab = useCallback((path: string) => {
+    editorStates.current.delete(path);
+    scrollTops.current.delete(path);
+  }, []);
+
+  /**
+   * 把某一页的内容读进来并显示。**只管内容，不碰标签**。
+   *
+   * 拆成两半是因为「换标签」和「换内容」不总是一起发生：关掉一页之后要显示
+   * 邻居的内容，但那不是一次「打开」；重启恢复时标签是一次性摆好的。
+   */
+  const loadNote = useCallback(async (path: string) => {
+    try {
+      const content = await api.readNote(path);
+      setNote(content);
+      setBody(content.body);
+      savedMtime.current = content.mtimeMs;
+      setSaveState("saved");
+      setExternalChange(false);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  /**
+   * 打开一篇笔记。
+   *
+   * `newTab` 明确给了就听它的（Ctrl/⌘+点、中键），否则按设置里的
+   * 「点文件时开新标签还是替换当前」。已经开着的那一篇总是切过去。
+   */
   const openPath = useCallback(
-    async (path: string) => {
+    async (path: string, opts?: { newTab?: boolean }) => {
       if (noteRef.current && dirtyRef.current) await saveNow();
-      try {
-        const content = await api.readNote(path);
-        setNote(content);
-        setBody(content.body);
-        savedMtime.current = content.mtimeMs;
+      // 离开当前页之前记下滚动位置，切回来时还在原处
+      const leaving = activePath(tabsRef.current);
+      if (leaving && mainRef.current) scrollTops.current.set(leaving, mainRef.current.scrollTop);
+
+      const mode = (opts?.newTab ?? settings.tabOpen === "new") ? "new" : "replace";
+      const next = openTab(tabsRef.current, path, mode);
+      // 替换模式下被顶掉的那一页，缓存也跟着丢 —— 留着只会占内存，
+      // 而且下次它再被打开时，文件很可能已经变了
+      if (mode === "replace") {
+        const dropped = tabsRef.current.tabs[tabsRef.current.active];
+        if (dropped && !next.tabs.includes(dropped)) forgetTab(dropped);
+      }
+      tabsRef.current = next;
+      setTabState(next);
+      await loadNote(path);
+    },
+    [saveNow, loadNote, settings.tabOpen, forgetTab],
+  );
+
+  /**
+   * 换到另一组标签状态，并把当前页的内容跟上。
+   *
+   * 切换、关闭、快捷键全走这一条 —— 它们的差别只在于怎么算出那个新状态，
+   * 而「先存盘、记滚动位置、再载入新页」这套流程是共用的。
+   */
+  const applyTabs = useCallback(
+    async (next: TabState) => {
+      const before = activePath(tabsRef.current);
+      const after = activePath(next);
+      tabsRef.current = next;
+      setTabState(next);
+
+      if (before === after) return;
+      if (before) {
+        if (dirtyRef.current) await saveNow();
+        if (mainRef.current) scrollTops.current.set(before, mainRef.current.scrollTop);
+      }
+      if (after) {
+        await loadNote(after);
+      } else {
+        // 一个都不剩了。回到空状态，别留着最后那篇的内容假装还开着
+        setNote(null);
+        setBody("");
         setSaveState("saved");
-        setExternalChange(false);
-        setError(null);
-      } catch (e) {
-        setError((e as Error).message);
       }
     },
-    [saveNow],
+    [saveNow, loadNote],
   );
+
+  const closeTabAt = useCallback(
+    (i: number) => {
+      const path = tabsRef.current.tabs[i];
+      if (path) forgetTab(path);
+      void applyTabs(closeTab(tabsRef.current, i));
+    },
+    [applyTabs, forgetTab],
+  );
+
+  const closeOtherTabs = useCallback(
+    (i: number) => {
+      const keep = tabsRef.current.tabs[i];
+      for (const p of tabsRef.current.tabs) if (p !== keep) forgetTab(p);
+      void applyTabs(closeOthers(tabsRef.current, i));
+    },
+    [applyTabs, forgetTab],
+  );
+
+  /**
+   * 打开 vault 之后恢复上次的标签。
+   *
+   * `fallback` 是 `recent.json` 里记的「上次那篇」—— 给从旧版本升上来的人用：
+   * 那时还没有 workspace.json，只有一篇笔记的记录。
+   */
+  const restoreTabs = useCallback(
+    async (fallback?: string | null) => {
+      let ws = EMPTY_TABS;
+      try {
+        ws = await api.workspaceGet();
+      } catch {
+        /* 读不到就当没开过标签，见 workspace.rs */
+      }
+      if (ws.tabs.length === 0 && fallback) ws = { tabs: [fallback], active: 0 };
+
+      editorStates.current.clear();
+      scrollTops.current.clear();
+      tabsRef.current = ws;
+      setTabState(ws);
+
+      const path = activePath(ws);
+      if (path) await loadNote(path);
+      else {
+        setNote(null);
+        setBody("");
+      }
+    },
+    [loadNote],
+  );
+
+  /**
+   * 标签一变就落盘。
+   *
+   * 不做防抖：开关标签本来就不密集，而且这份状态的全部意义就是「下次启动
+   * 回到原处」—— 崩溃时丢掉最后一次操作会比多写几次文件更让人恼火。
+   */
+  useEffect(() => {
+    if (!vault) return;
+    // try/catch 包住整个调用而不是只 .catch()：这一条**存不下也不该拦住任何
+    // 事**，而同步抛出的错（比如后端还没起来）会直接把整个 App 打掉
+    try {
+      void Promise.resolve(api.workspaceSet(tabState)).catch(() => {});
+    } catch {
+      /* 界面状态存不下不值得打扰用户 */
+    }
+  }, [tabState, vault]);
+
+  /**
+   * 只改标签上的**路径**，不换页也不重新载入。
+   *
+   * 重命名和移动走这条：那一页显示的还是同一篇笔记，只是它换了个位置。
+   * 走 `applyTabs` 的话会因为「当前路径变了」白载入一次。
+   */
+  const retagTabs = useCallback((fn: (s: TabState) => TabState) => {
+    const next = fn(tabsRef.current);
+    // 缓存是按路径存的，路径变了得跟着搬，否则切回来时那份撤销历史就丢了
+    const remap = new Map<string, string>();
+    tabsRef.current.tabs.forEach((old, i) => {
+      if (next.tabs[i] && next.tabs[i] !== old) remap.set(old, next.tabs[i]);
+    });
+    for (const [from, to] of remap) {
+      const st = editorStates.current.get(from);
+      if (st) {
+        editorStates.current.set(to, st);
+        editorStates.current.delete(from);
+      }
+      const top = scrollTops.current.get(from);
+      if (top !== undefined) {
+        scrollTops.current.set(to, top);
+        scrollTops.current.delete(from);
+      }
+    }
+    tabsRef.current = next;
+    setTabState(next);
+  }, []);
 
   const openVault = useCallback(async () => {
     try {
@@ -301,10 +498,28 @@ export default function App() {
       setBody("");
       setError(null);
       await refresh();
+      // 标签是 per-vault 的，换库要换成新库自己那一组
+      await restoreTabs(null);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [refresh]);
+  }, [refresh, restoreTabs]);
+
+  /**
+   * 换页之后把滚动位置放回去。
+   *
+   * 等一帧：这一刻编辑器刚挂上，`.main` 的 scrollHeight 还没算出来，
+   * 直接写 scrollTop 会被夹成 0。
+   */
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el || !note) return;
+    const top = scrollTops.current.get(note.path) ?? 0;
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = top;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [note?.path]);
 
   const createAndOpen = useCallback(
     async (parentDoc: string | null, promptLabel: string) => {
@@ -328,13 +543,16 @@ export default function App() {
       try {
         const newPath = await api.renameNote(node.path, title);
         await refresh();
+        // 开着的标签跟着改路径 —— 连同子树，重命名 `X.md` 时 `X/` 底下那些
+        // 也全变了，不跟的话它们会指向不存在的文件
+        retagTabs((s) => renameTab(s, node.path, newPath));
         // 改的正是当前打开的这篇，就跟着切到新路径，否则后续保存会写到旧路径
-        if (noteRef.current?.path === node.path) await openPath(newPath);
+        if (noteRef.current?.path === node.path) await loadNote(newPath);
       } catch (e) {
         setError((e as Error).message);
       }
     },
-    [refresh, openPath],
+    [refresh, loadNote, retagTabs],
   );
 
   const deleteNode = useCallback(
@@ -349,16 +567,18 @@ export default function App() {
       if (n === 0 && !window.confirm(`删除「${node.name}」？`)) return;
       try {
         await api.deleteNote(node.path, withChildren);
-        if (noteRef.current?.path === node.path) {
-          setNote(null);
-          setBody("");
-        }
         await refresh();
+        // 删掉的那些页要从标签栏消失（连同子树）。当前页正好被删时，
+        // applyTabs 会切到最接近的邻居，而不是弹回第一个
+        for (const p of tabsRef.current.tabs) {
+          if (p === node.path || p.startsWith(`${node.path.replace(/\.md$/, "")}/`)) forgetTab(p);
+        }
+        await applyTabs(dropSubtree(tabsRef.current, node.path));
       } catch (e) {
         setError((e as Error).message);
       }
     },
-    [refresh],
+    [refresh, applyTabs, forgetTab],
   );
 
   const moveNode = useCallback(
@@ -366,12 +586,13 @@ export default function App() {
       try {
         const newPath = await api.moveNote(path, newParentDoc);
         await refresh();
-        if (noteRef.current?.path === path) await openPath(newPath);
+        retagTabs((s) => renameTab(s, path, newPath));
+        if (noteRef.current?.path === path) await loadNote(newPath);
       } catch (e) {
         setError((e as Error).message);
       }
     },
-    [refresh, openPath],
+    [refresh, loadNote, retagTabs],
   );
 
   /**
@@ -510,7 +731,7 @@ export default function App() {
         if (!restored) return;
         setVault(restored.vault);
         await refresh();
-        if (restored.lastNote) await openPath(restored.lastNote);
+        await restoreTabs(restored.lastNote);
       } catch {
         /* 上次的目录没了就停在欢迎页 */
       }
@@ -568,55 +789,36 @@ export default function App() {
     return () => window.removeEventListener("blur", onBlur);
   }, [saveNow]);
 
-  // 全局快捷键
+  // 全局快捷键。键位不写在这里 —— 全部来自下面那张命令表（`commands`），
+  // 用户在设置里改过的会盖掉默认值。见 `lib/keymap.ts`
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.shiftKey && e.key.toLowerCase() === "p") {
-        // 命令面板要排在快速切换器前面判断 —— 否则 Shift 被忽略，
-        // Ctrl+Shift+P 会先被上一条吃掉
-        e.preventDefault();
-        setPaletteOpen(true);
-      } else if (mod && e.key.toLowerCase() === "p" && !e.shiftKey) {
-        e.preventDefault();
-        setSwitcherOpen(true);
-      } else if (mod && e.key === ",") {
-        // 沿用几乎所有桌面软件的「设置」快捷键
-        e.preventDefault();
-        setSettingsOpen(true);
-      } else if (mod && e.key === "`") {
-        // 沿用 VS Code 的肌肉记忆（§7.3）
-        e.preventDefault();
-        setTermOpen((v) => !v);
-      } else if (mod && e.key === "/") {
-        // §5.3 符号面板：覆盖 snippet 记不住的长尾
-        e.preventDefault();
-        setSymbolOpen(true);
-      } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
-        // §2.2 全文搜索。沿用 VS Code 的 Ctrl+Shift+F
-        e.preventDefault();
-        // 已经在搜索视图时不要收起侧栏 —— 再按一次的意图是「回到搜索框」，
-        // 不是「关掉搜索」。pickView 的 toggle 语义只对点图标成立
-        if (sidebarOpen && sidebarView === "search") {
-          document.getElementById("verso-search-input")?.focus();
-        } else {
-          pickView("search");
-        }
-      } else if (mod && e.key.toLowerCase() === "e" && !e.shiftKey) {
-        // Obsidian 用 Ctrl+E 在源码与预览之间切，沿用它的肌肉记忆
-        e.preventDefault();
-        toggleSourceMode();
-      } else if (mod && e.shiftKey && e.key.toLowerCase() === "o") {
-        // VS Code 的 Ctrl+Shift+O 是「跳转到符号」，笔记里的符号就是标题
-        e.preventDefault();
-        pickView("outline");
+      const target = e.target as HTMLElement | null;
+      // 浮层（命令面板、设置、快速跳转）里的按键归浮层自己管。设置里正在
+      // 录快捷键时尤其重要：按下的组合键不能顺手把那条命令也执行一遍
+      if (target?.closest?.(".overlay")) return;
+      const spec = eventSpec(e);
+      if (!spec) return;
+      const hit = commandsRef.current.find((c) => c.binding === spec);
+      if (!hit || hit.enabled === false) return;
+      // **终端里键盘归 shell**。Ctrl+N/P/E/B 在 readline、vim、tmux 里全都
+      // 有各自的意思，被界面截走的话终端就成了半个终端 —— 而在终端里跑
+      // AI CLI 正是这个软件的主路径（§7.3）。只留两条出路：关掉终端、
+      // 和命令面板
+      if (target?.closest?.(".term") && hit.id !== "term.toggle" && hit.id !== "view.palette") {
+        return;
       }
+      // 挂在 capture 阶段、并且掐断传播：CodeMirror 自己也绑了 Mod-s 和
+      // Ctrl-Shift-[，让事件传下去的话这两处会各跑一遍（折叠那条正好互相
+      // 抵消，表现成「按了没反应」）
+      e.preventDefault();
+      e.stopPropagation();
+      hit.run();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // pickView 依赖当前视图状态，漏掉的话 Ctrl+Shift+F 会用到旧的闭包，
-    // 表现是切过一次视图之后快捷键就不灵了
-  }, [pickView, sidebarOpen, sidebarView, setTermOpen, toggleSourceMode]);
+    // 命令表每次渲染都是新数组，靠 ref 读最新的一份，监听器只装一次
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   // 点任意位置关掉右键菜单
   useEffect(() => {
@@ -647,15 +849,16 @@ export default function App() {
   }, [refresh]);
 
   /**
-   * 命令面板的命令表。
+   * 命令表。**全局快捷键、命令面板、设置里那份键位清单都从这里来**。
    *
-   * 每条都带着快捷键一起显示 —— 一个不做插件系统的软件，功能全靠内置，
-   * 命令面板是用户唯一能「发现」这些快捷键的地方。
+   * 每条带一个 `defaultKeys` 默认键位，用户在设置里改过的会盖掉它。以前
+   * 键位写死在 keydown 那条 if 链里、提示文字又在这里各写一遍，两处迟早对
+   * 不上；现在只有这一份真相。
    *
    * 依赖数组有意写全：`enabled` 依赖当前有没有打开笔记，漏掉的话面板里
    * 会显示出一条点了没反应的命令。
    */
-  const commands: Command[] = useMemo(() => {
+  const baseCommands: Command[] = useMemo(() => {
     const hasNote = !!note;
     const cur = note?.path ?? null;
     const node = cur ? tree.flatMap(flatten).find((n) => n.path === cur) : undefined;
@@ -664,57 +867,108 @@ export default function App() {
         id: "note.new",
         group: "笔记",
         label: "新建文档",
+        defaultKeys: "Mod+N",
         run: () => createAndOpen(null, "新建文档"),
       },
       {
         id: "note.switch",
         group: "笔记",
         label: "快速跳转",
-        keys: keyLabel("Mod+P"),
+        defaultKeys: "Mod+P",
         run: () => setSwitcherOpen(true),
+      },
+      {
+        id: "tab.close",
+        group: "标签页",
+        label: "关闭当前标签",
+        defaultKeys: "Mod+W",
+        enabled: tabState.tabs.length > 0,
+        run: () => closeTabAt(tabsRef.current.active),
+      },
+      {
+        id: "tab.next",
+        group: "标签页",
+        label: "下一个标签",
+        defaultKeys: "Mod+Alt+Right",
+        enabled: tabState.tabs.length > 1,
+        run: () => void applyTabs(stepTab(tabsRef.current, 1)),
+      },
+      {
+        id: "tab.prev",
+        group: "标签页",
+        label: "上一个标签",
+        defaultKeys: "Mod+Alt+Left",
+        enabled: tabState.tabs.length > 1,
+        run: () => void applyTabs(stepTab(tabsRef.current, -1)),
+      },
+      {
+        id: "tab.closeOthers",
+        group: "标签页",
+        label: "关闭其他标签",
+        enabled: tabState.tabs.length > 1,
+        run: () => closeOtherTabs(tabsRef.current.active),
       },
       {
         id: "note.search",
         group: "笔记",
         label: "全文搜索",
-        keys: keyLabel("Mod+Shift+F"),
-        run: () => pickView("search"),
+        // §2.2 全文搜索。沿用 VS Code 的 Ctrl+Shift+F
+        defaultKeys: "Mod+Shift+F",
+        run: () => {
+          // 已经在搜索视图时不要收起侧栏 —— 再按一次的意图是「回到搜索框」，
+          // 不是「关掉搜索」。pickView 的 toggle 语义只对点图标成立
+          if (sidebarOpen && sidebarView === "search") {
+            document.getElementById("verso-search-input")?.focus();
+          } else {
+            pickView("search");
+          }
+        },
       },
       {
         id: "note.tags",
         group: "笔记",
         label: "标签面板",
+        // VS Code 那一竖条上的视图都是 Ctrl+Shift+字母，标签取 T
+        defaultKeys: "Mod+Shift+T",
         run: () => pickView("tags"),
       },
       {
         id: "note.outline",
         group: "笔记",
         label: "大纲",
-        keys: keyLabel("Mod+Shift+O"),
+        // VS Code 的 Ctrl+Shift+O 是「跳转到符号」，笔记里的符号就是标题
+        defaultKeys: "Mod+Shift+O",
         run: () => pickView("outline"),
       },
       {
         id: "view.tree",
         group: "外观",
         label: "文档树",
+        // VS Code 的资源管理器就是 Ctrl+Shift+E
+        defaultKeys: "Mod+Shift+E",
         run: () => pickView("tree"),
       },
       {
         id: "view.sidebar",
         group: "外观",
+        name: "展开／收起侧栏",
         label: sidebarOpen ? "收起侧栏" : "展开侧栏",
+        defaultKeys: "Mod+B",
         run: () => pickView(sidebarView),
       },
       {
         id: "view.sourceMode",
         group: "外观",
+        name: "源码模式",
         label: sourceMode ? "退出源码模式" : "源码模式",
-        keys: keyLabel("Mod+E"),
+        // Obsidian 用 Ctrl+E 在源码与预览之间切，沿用它的肌肉记忆
+        defaultKeys: "Mod+E",
         run: toggleSourceMode,
       },
       {
         id: "view.tocFloat",
         group: "外观",
+        name: "浮动大纲",
         label: tocFloat ? "隐藏浮动大纲" : "显示浮动大纲",
         run: toggleTocFloat,
       },
@@ -722,7 +976,7 @@ export default function App() {
         id: "note.save",
         group: "笔记",
         label: "立即保存",
-        keys: keyLabel("Mod+S"),
+        defaultKeys: "Mod+S",
         enabled: hasNote,
         run: () => void saveNow(),
       },
@@ -730,6 +984,8 @@ export default function App() {
         id: "note.rename",
         group: "笔记",
         label: "重命名当前文档",
+        // 文件管理器里重命名都是 F2
+        defaultKeys: "F2",
         enabled: !!node,
         run: () => node && void renameNode(node),
       },
@@ -744,7 +1000,7 @@ export default function App() {
         id: "fold.toggle",
         group: "标题",
         label: "折叠／展开当前小节",
-        keys: keyLabel("Mod+Shift+["),
+        defaultKeys: "Mod+Shift+[",
         enabled: hasNote,
         run: () => editorRef.current?.toggleFold(),
       },
@@ -766,14 +1022,16 @@ export default function App() {
         id: "formula.symbols",
         group: "公式",
         label: "符号面板",
-        keys: keyLabel("Mod+/"),
+        // §5.3 符号面板：覆盖 snippet 记不住的长尾
+        defaultKeys: "Mod+/",
         run: () => setSymbolOpen(true),
       },
       {
         id: "term.toggle",
         group: "终端",
         label: "打开／关闭终端面板",
-        keys: keyLabel("Mod+`"),
+        // 沿用 VS Code 的肌肉记忆（§7.3）
+        defaultKeys: "Mod+`",
         run: () => setTermOpen((v) => !v),
       },
       {
@@ -785,6 +1043,7 @@ export default function App() {
       {
         id: "view.theme",
         group: "外观",
+        name: "切换主题",
         label: `主题：切换到${{ system: "浅色", light: "深色", dark: "跟随系统" }[settings.theme]}`,
         run: () =>
           updateSettings({
@@ -793,10 +1052,18 @@ export default function App() {
           }),
       },
       {
+        id: "view.palette",
+        group: "外观",
+        label: "命令面板",
+        defaultKeys: "Mod+Shift+P",
+        run: () => setPaletteOpen(true),
+      },
+      {
         id: "view.settings",
         group: "外观",
         label: "打开设置",
-        keys: keyLabel("Mod+,"),
+        // 沿用几乎所有桌面软件的「设置」快捷键
+        defaultKeys: "Mod+,",
         run: () => setSettingsOpen(true),
       },
       {
@@ -835,6 +1102,28 @@ export default function App() {
     setTermOpen,
     updateSettings,
   ]);
+
+  /**
+   * 把默认键位和用户改过的键位合成每条命令**当前生效**的那一个。
+   *
+   * 派发（`binding`）和显示（`keys`）都从这里出，所以命令面板里写着什么，
+   * 按下去就一定是什么 —— 包括用户自己改过的。
+   */
+  const commands: Command[] = useMemo(
+    () =>
+      baseCommands.map((c) => {
+        const spec = bindingOf(c, settings.keybindings);
+        return spec ? { ...c, binding: spec, keys: keyLabel(spec) } : c;
+      }),
+    [baseCommands, settings.keybindings],
+  );
+  commandsRef.current = commands;
+
+  /** 按钮上的快捷键提示。改了键位，tooltip 跟着变 */
+  const keyOf = useCallback(
+    (id: string) => commands.find((c) => c.id === id)?.keys,
+    [commands],
+  );
 
   if (!vault) {
     return (
@@ -875,6 +1164,7 @@ export default function App() {
       <ActivityBar
         view={sidebarView}
         onView={pickView}
+        keyOf={keyOf}
         sidebarOpen={sidebarOpen}
         sourceMode={sourceMode}
         onToggleSourceMode={toggleSourceMode}
@@ -934,7 +1224,7 @@ export default function App() {
                 <button
                   className="side-act"
                   onClick={() => createAndOpen(null, "新建文档")}
-                  title="新建文档"
+                  title={hint("新建文档", keyOf("note.new"))}
                   aria-label="新建文档"
                 >
                   <Icon name="plus" size={15} />
@@ -958,7 +1248,7 @@ export default function App() {
               <Tree
                 nodes={sortedTree}
                 activePath={note?.path ?? null}
-                onOpen={(n) => openPath(n.path)}
+                onOpen={(n, o) => openPath(n.path, o)}
                 onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
                 onMenu={(node, x, y) => setMenu({ node, x, y })}
                 onMove={moveNode}
@@ -1005,7 +1295,17 @@ export default function App() {
         </aside>
       )}
 
-      <main className="main">
+      <TabBar
+        tabs={tabState.tabs}
+        active={tabState.active}
+        dirtyPath={saveState === "dirty" ? (note?.path ?? null) : null}
+        onPick={(i) => void applyTabs(gotoTab(tabsRef.current, i))}
+        onClose={closeTabAt}
+        onCloseOthers={closeOtherTabs}
+        onMove={(from, to) => retagTabs((s) => moveTab(s, from, to))}
+      />
+
+      <main className="main" ref={mainRef}>
         {externalChange && (
           <div className="banner">
             <span>文件已被外部程序修改</span>
@@ -1043,25 +1343,31 @@ export default function App() {
             onSaveImage={saveImage}
             imageSrc={imageSrc}
             onError={setError}
+            restoreState={editorStates.current.get(note.path) ?? null}
+            onStashState={(s) => editorStates.current.set(note.path, s)}
           />
         ) : (
           // 空状态是「顺便教一下快捷键」最自然的位置 —— 不做插件系统的软件，
           // 功能全靠内置，用户没有别的地方能发现它们
           <div className="empty">
             <p className="empty-lead">从左侧选一篇笔记开始</p>
+            {/* 键位从命令表里现取：用户改过之后，这里教的必须是他自己那一套 */}
             <ul className="empty-keys">
-              <li>
-                <kbd>{keyLabel("Mod+P")}</kbd> 跳转到某篇笔记
-              </li>
-              <li>
-                <kbd>{keyLabel("Mod+Shift+P")}</kbd> 命令面板
-              </li>
-              <li>
-                <kbd>{keyLabel("Mod+Shift+F")}</kbd> 全文搜索
-              </li>
-              <li>
-                <kbd>{keyLabel("Mod+`")}</kbd> 终端
-              </li>
+              {(
+                [
+                  ["note.switch", "跳转到某篇笔记"],
+                  ["view.palette", "命令面板"],
+                  ["note.search", "全文搜索"],
+                  ["term.toggle", "终端"],
+                ] as const
+              ).map(([id, what]) => {
+                const k = keyOf(id);
+                return k ? (
+                  <li key={id}>
+                    <kbd>{k}</kbd> {what}
+                  </li>
+                ) : null;
+              })}
             </ul>
           </div>
         )}
@@ -1084,6 +1390,7 @@ export default function App() {
           }}
           onClose={() => setTermOpen(false)}
           fontSize={settings.terminalFontSize}
+          dark={effectiveTheme === "dark"}
           theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}
         />
       )}
@@ -1098,7 +1405,7 @@ export default function App() {
           <button
             className="status-mode"
             onClick={toggleSourceMode}
-            title={`退出源码模式 (${keyLabel("Mod+E")})`}
+            title={hint("退出源码模式", keyOf("view.sourceMode"))}
           >
             源码模式
           </button>
@@ -1130,6 +1437,7 @@ export default function App() {
       {settingsOpen && (
         <SettingsPanel
           settings={settings}
+          commands={commands}
           onChange={updateSettings}
           onReset={resetSettings}
           onClose={() => setSettingsOpen(false)}

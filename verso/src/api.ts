@@ -16,6 +16,10 @@ import type {
   ViewResult,
 } from "./types";
 import type { Settings } from "./settings";
+import type { TabState } from "./lib/tabs";
+
+/** 与 Rust 的 `workspace::Workspace` 对应 —— 字段名和 `TabState` 一致 */
+type Workspace = TabState;
 
 /** Rust 侧把所有错误序列化成字符串，这里统一转成 Error 对象。 */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -113,6 +117,11 @@ export const api = {
    * `paths` 要是**完整的一组**，不是只有被拖的那一个
    */
   reorder: (parent: string, paths: string[]) => call<void>("notes_reorder", { parent, paths }),
+
+  // —— §2.1 每个 vault 的界面状态：标签页 ——
+  /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */
+  workspaceGet: () => call<Workspace>("workspace_get"),
+  workspaceSet: (ws: Workspace) => call<void>("workspace_set", { ws }),
 
   // —— §6 用户设置 ——
   getSettings: () => call<Settings>("settings_get"),

@@ -109,7 +109,10 @@ pub fn spawn_shell(cwd: &std::path::Path, cols: u16, rows: u16) -> Result<Spawne
         .map_err(|e| Error::Vault(format!("创建终端失败: {e}")))?;
 
     let mut cmd = default_shell();
-    cmd.cwd(cwd);
+    // vault 根是 canonicalize 出来的，Windows 上那是 `\\?\D:\…`。直接拿它当
+    // cwd 的话 PowerShell 会进到 provider 限定名那个状态，**`cd` 全线报错**、
+    // 提示符还长得占掉大半行（详见 `winpath`）
+    cmd.cwd(crate::winpath::for_external(cwd));
     // 让 AI CLI 知道自己在什么终端里，色彩才正常
     cmd.env("TERM", "xterm-256color");
 
@@ -329,6 +332,109 @@ mod tests {
         assert!(
             acc.contains("verso-pty-marker-7f3a"),
             "shell 没有回传预期输出。实际收到:\n{acc}"
+        );
+    }
+
+    /// `cd` 必须能用。
+    ///
+    /// 作者报「怎么 cd 都不支持」：vault 根是 `canonicalize()` 出来的，Windows
+    /// 上那是 `\\?\D:\…`，PowerShell 拿它当 cwd 之后每一次 `Set-Location` 都报
+    /// 「the value of argument "path" is not valid」，提示符还变成
+    /// `Microsoft.PowerShell.Core\FileSystem::\\?\…`。
+    ///
+    /// 所以这里**故意用 canonicalize 后的路径**起 shell —— 那正是应用里的真实
+    /// 情形。断言看的是 `cd ..` 之后 shell 报的当前位置：既不能带 `\\?\`，
+    /// 也不能出现报错。
+    #[test]
+    fn cd_works_from_a_canonicalized_cwd() {
+        let base = std::env::temp_dir().join(format!("verso-cd-{}", ulid::Ulid::new()));
+        let sub = base.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let start = sub.canonicalize().unwrap();
+
+        let mut s = spawn_shell(&start, 80, 24).expect("应当能起一个 shell");
+
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let mut reader = s.reader;
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+
+        // 命令的输出必须自带一个标记词。光看「有没有路径」不够 —— 提示符本身
+        // 也印当前路径，那会让断言在命令根本没跑起来的情况下照样通过
+        let mut acc = String::new();
+        let mut answered_dsr = false;
+        let mut ready_at: Option<Instant> = None;
+        let mut sent_cmd = false;
+        let deadline = Instant::now() + Duration::from_secs(40);
+
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(200)) {
+                Ok(chunk) => acc.push_str(&String::from_utf8_lossy(&chunk)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(_) => break,
+            }
+
+            if !answered_dsr && acc.contains("\x1b[6n") {
+                s.writer.write_all(b"\x1b[1;1R").unwrap();
+                s.writer.flush().unwrap();
+                answered_dsr = true;
+                // 答完 DSR 还得留点时间让提示符起来。抢在那之前发的输入会被
+                // 启动过程吞掉，而且吞得静悄悄 —— 看着就像命令没执行
+                ready_at = Some(Instant::now() + Duration::from_millis(1500));
+            }
+
+            if !sent_cmd && ready_at.is_some_and(|t| Instant::now() >= t) {
+                // `;`、`echo`、`$( )` 在 PowerShell 和 POSIX shell 里是一个意思
+                s.writer
+                    .write_all(b"cd .. ; echo \"VERSO-CWD-$(pwd)\"\r\n")
+                    .unwrap();
+                s.writer.flush().unwrap();
+                sent_cmd = true;
+                continue;
+            }
+
+            // 要出现两次：一次是 shell 回显我们打的那行，一次是真正的输出
+            if sent_cmd && acc.matches("VERSO-CWD-").count() >= 2 {
+                break;
+            }
+        }
+
+        let _ = s.child.kill();
+        std::fs::remove_dir_all(&base).ok();
+
+        // 认「标记后面**同一行**里带着那个临时目录名」的那一处。
+        //
+        // 不能简单数标记出现了几次：PSReadLine 会为了上色、补全把已经打进去的
+        // 那一行反复重画，一条命令能在流里出现三四遍。而回显里跟在标记后面的
+        // 是没展开的 `$(pwd)`，只有真正的输出才会带上目录名。
+        let reported = acc
+            .match_indices("VERSO-CWD-")
+            .map(|(i, m)| acc[i + m.len()..].lines().next().unwrap_or_default())
+            .filter(|line| line.contains("verso-cd-"))
+            .last();
+
+        let Some(reported) = reported else {
+            panic!("命令没跑起来，下面几条断言就什么都没验证。实际收到:\n{acc}");
+        };
+        assert!(
+            !reported.contains(r"\\?\") && !reported.contains("FileSystem::"),
+            "shell 报的当前位置还带着扩展长度前缀，这种状态下 cd 全线报错：\n{reported}"
+        );
+        // `cd ..` 真的走上去了 —— 报的是父目录，不再是 `sub`
+        assert!(
+            !reported.trim_end().ends_with("sub"),
+            "cd .. 没有生效，还停在原来的目录：\n{reported}"
+        );
+        // PowerShell 报错的原文（中英文环境各一半），任一出现都说明没修好
+        assert!(
+            !acc.contains("is not valid") && !acc.contains("不是有效"),
+            "cd 报错了。实际收到:\n{acc}"
         );
     }
 

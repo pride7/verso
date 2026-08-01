@@ -6,7 +6,9 @@ import { Icon } from "./Icon";
 interface Props {
   nodes: TreeNode[];
   activePath: string | null;
-  onOpen: (node: TreeNode) => void;
+  /** `newTab` 来自 Ctrl/⌘+点 或中键 —— 那是「我要开新标签」的明确表态，
+      不受设置里的默认打开方式影响 */
+  onOpen: (node: TreeNode, opts?: { newTab?: boolean }) => void;
   onAddChild: (node: TreeNode) => void;
   onMenu: (node: TreeNode, x: number, y: number) => void;
   /** 拖拽移动：把 `path` 移到 `newParentDoc` 之下（null = vault 根） */
@@ -116,7 +118,19 @@ function TreeItem({
 
         <button
           className="tree-label"
-          onClick={() => isDoc && onOpen(node)}
+          // 没按修饰键时**不传** `newTab`，而不是传 `false`：`false` 会盖掉
+          // 设置里的默认打开方式，让「开新标签」那一档永远失效
+          onClick={(e) =>
+            isDoc && onOpen(node, e.ctrlKey || e.metaKey ? { newTab: true } : undefined)
+          }
+          // 中键开新标签。用 mouseup 而不是 auxclick —— 后者在 WebView2 上
+          // 不总是派发；`button === 1` 已经把它和右键分开了
+          onMouseUp={(e) => {
+            if (e.button === 1 && isDoc) {
+              e.preventDefault();
+              onOpen(node, { newTab: true });
+            }
+          }}
           // 纯文件夹没有对应文档，点它只能展开
           disabled={!isDoc}
           title={isDoc ? node.path : `${node.path}（纯文件夹，没有同名文档）`}

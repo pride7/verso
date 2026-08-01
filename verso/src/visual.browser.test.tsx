@@ -191,6 +191,8 @@ vi.mock("./api", () => ({
       view: "table",
     }),
     propSet: async () => {},
+    workspaceGet: async () => ({ tabs: [], active: 0 }),
+    workspaceSet: async () => {},
     getSettings: async () => ({ theme }),
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},

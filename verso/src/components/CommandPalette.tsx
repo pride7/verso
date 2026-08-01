@@ -5,9 +5,20 @@ import { rankNotes } from "../lib/fuzzy";
 export interface Command {
   id: string;
   label: string;
+  /**
+   * 设置里那份快捷键清单用的稳定名字。
+   *
+   * `label` 会跟着状态变（「收起侧栏」／「展开侧栏」），当命令名读着别扭 ——
+   * 那份清单是绑键位的地方，不该跟着当前状态左右横跳。只有变的那几条要填。
+   */
+  name?: string;
   /** 分组名，显示在标题左侧。也参与搜索 */
   group: string;
-  /** 快捷键提示，已按平台转换好 */
+  /** 默认键位，`Mod+Shift+P` 这种平台无关写法。留空 = 默认不绑 */
+  defaultKeys?: string;
+  /** 当前实际生效的键位（用户可能改过）。由 `App` 算好填进来 */
+  binding?: string;
+  /** 快捷键提示，已按平台转换好。由 `App` 从 `binding` 算出来 */
   keys?: string;
   run: () => void;
   /** 返回 false 时这条命令当前不可用（比如没打开笔记时的「重命名」） */

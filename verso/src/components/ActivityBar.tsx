@@ -1,4 +1,4 @@
-import { keyLabel } from "../lib/platform";
+import { hint } from "../lib/keymap";
 import { Icon, type IconName } from "./Icon";
 
 /** 侧栏当前显示哪个面板 */
@@ -7,6 +7,13 @@ export type SidebarView = "tree" | "search" | "tags" | "outline";
 interface Props {
   view: SidebarView;
   onView: (v: SidebarView) => void;
+  /**
+   * 某条命令当前的快捷键提示文字，没绑就是 undefined。
+   *
+   * 键位不写死在这里 —— 它们全归命令表管，用户改过之后这一竖条上的
+   * tooltip 要跟着变，否则就成了一排骗人的提示。
+   */
+  keyOf: (commandId: string) => string | undefined;
   /** 侧栏是否展开。点当前已选中的图标会收起它 */
   sidebarOpen: boolean;
   sourceMode: boolean;
@@ -18,12 +25,13 @@ interface Props {
   onSettings: () => void;
 }
 
-const VIEWS: { id: SidebarView; icon: IconName; label: string; keys?: string }[] = [
-  { id: "tree", icon: "tree", label: "文档树" },
-  { id: "search", icon: "search", label: "搜索", keys: keyLabel("Mod+Shift+F") },
-  { id: "tags", icon: "tag", label: "标签" },
+/** `cmd` 是这个图标对应的命令 id —— 快捷键提示从命令表里现取 */
+const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] = [
+  { id: "tree", icon: "tree", label: "文档树", cmd: "view.tree" },
+  { id: "search", icon: "search", label: "搜索", cmd: "note.search" },
+  { id: "tags", icon: "tag", label: "标签", cmd: "note.tags" },
   // 大纲是「当前这篇」的视图，排在三个跨文档视图后面
-  { id: "outline", icon: "outline", label: "大纲", keys: keyLabel("Mod+Shift+O") },
+  { id: "outline", icon: "outline", label: "大纲", cmd: "note.outline" },
 ];
 
 /**
@@ -42,6 +50,7 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; keys?: string }[]
 export function ActivityBar({
   view,
   onView,
+  keyOf,
   sidebarOpen,
   sourceMode,
   onToggleSourceMode,
@@ -60,7 +69,7 @@ export function ActivityBar({
           // 点已经选中的那个就收起侧栏 —— 和 VS Code 一致，也是唯一能
           // 把编辑区拉到最宽的办法
           onClick={() => onView(v.id)}
-          title={v.keys ? `${v.label} (${v.keys})` : v.label}
+          title={hint(v.label, keyOf(v.cmd))}
           aria-label={v.label}
           aria-pressed={sidebarOpen && view === v.id}
         >
@@ -76,7 +85,7 @@ export function ActivityBar({
       <button
         className={`rail-btn rail-action${sourceMode ? " is-on" : ""}`}
         onClick={onToggleSourceMode}
-        title={`源码模式 (${keyLabel("Mod+E")})`}
+        title={hint("源码模式", keyOf("view.sourceMode"))}
         aria-label="源码模式"
         aria-pressed={sourceMode}
       >
@@ -90,7 +99,7 @@ export function ActivityBar({
           e.preventDefault();
           onSystemTerminal();
         }}
-        title={`终端 (${keyLabel("Mod+`")})　右键：在系统终端中打开`}
+        title={`${hint("终端", keyOf("term.toggle"))}　右键：在系统终端中打开`}
         aria-label="终端"
       >
         <Icon name="terminal" />
@@ -98,7 +107,7 @@ export function ActivityBar({
       <button
         className="rail-btn rail-action"
         onClick={onPalette}
-        title={`命令面板 (${keyLabel("Mod+Shift+P")})`}
+        title={hint("命令面板", keyOf("view.palette"))}
         aria-label="命令面板"
       >
         <Icon name="command" />
@@ -106,7 +115,7 @@ export function ActivityBar({
       <button
         className="rail-btn rail-action"
         onClick={onSettings}
-        title={`设置 (${keyLabel("Mod+,")})`}
+        title={hint("设置", keyOf("view.settings"))}
         aria-label="设置"
       >
         <Icon name="settings" />
