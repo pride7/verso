@@ -46,6 +46,12 @@ export const api = {
   writeNote: (path: string, body: string) => call<number>("note_write", { path, body }),
   createNote: (parentDoc: string | null, title: string) =>
     call<NoteMeta>("note_create", { parentDoc, title }),
+  /**
+   * 建一篇「未命名」。名字由后端定（同目录下重名会往后编号），
+   * 建完前端就地改名 —— 不弹窗先问名字
+   */
+  createUntitled: (parentDoc: string | null) =>
+    call<NoteMeta>("note_create_untitled", { parentDoc }),
   statNote: (path: string) => call<number>("note_stat", { path }),
   /**
    * 粘贴板里的图片落盘到 `attachments/`，返回 vault 相对路径。

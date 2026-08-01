@@ -345,6 +345,20 @@ mod tests {
     /// 所以这里**故意用 canonicalize 后的路径**起 shell —— 那正是应用里的真实
     /// 情形。断言看的是 `cd ..` 之后 shell 报的当前位置：既不能带 `\\?\`，
     /// 也不能出现报错。
+    /// 从 pty 的输出里挑出**真正的那一行**：标记后面同一行带着临时目录名的。
+    ///
+    /// 不能简单数标记出现了几次 —— PSReadLine 会为了上色、补全把已经打进去的
+    /// 那一行反复重画，一条命令能在流里出现三四遍。而回显里跟在标记后面的是
+    /// 没展开的 `$(pwd)`，只有真正的输出才会带上目录名。
+    ///
+    /// 循环的结束条件和最后的断言**共用它**，两处才不会各判各的。
+    fn reported_cwd(acc: &str) -> Option<&str> {
+        acc.match_indices("VERSO-CWD-")
+            .map(|(i, m)| acc[i + m.len()..].lines().next().unwrap_or_default())
+            .filter(|line| line.contains("verso-cd-"))
+            .last()
+    }
+
     #[test]
     fn cd_works_from_a_canonicalized_cwd() {
         let base = std::env::temp_dir().join(format!("verso-cd-{}", ulid::Ulid::new()));
@@ -399,8 +413,14 @@ mod tests {
                 continue;
             }
 
-            // 要出现两次：一次是 shell 回显我们打的那行，一次是真正的输出
-            if sent_cmd && acc.matches("VERSO-CWD-").count() >= 2 {
+            // 结束条件必须和下面的判定用**同一把尺子**：认「标记后面同一行里
+            // 带着那个临时目录名」的那一处。
+            //
+            // 原来是数标记出现了几次（≥2 就算跑完），但 PSReadLine 会为了上色和
+            // 补全把已经打进去的那一行反复重画 —— 两次很容易**全是回显**。
+            // 那时候循环就跳出去了，真正的输出还没来，断言看到的是一片回显，
+            // 报「命令没跑起来」。
+            if sent_cmd && reported_cwd(&acc).is_some() {
                 break;
             }
         }
@@ -408,18 +428,7 @@ mod tests {
         let _ = s.child.kill();
         std::fs::remove_dir_all(&base).ok();
 
-        // 认「标记后面**同一行**里带着那个临时目录名」的那一处。
-        //
-        // 不能简单数标记出现了几次：PSReadLine 会为了上色、补全把已经打进去的
-        // 那一行反复重画，一条命令能在流里出现三四遍。而回显里跟在标记后面的
-        // 是没展开的 `$(pwd)`，只有真正的输出才会带上目录名。
-        let reported = acc
-            .match_indices("VERSO-CWD-")
-            .map(|(i, m)| acc[i + m.len()..].lines().next().unwrap_or_default())
-            .filter(|line| line.contains("verso-cd-"))
-            .last();
-
-        let Some(reported) = reported else {
+        let Some(reported) = reported_cwd(&acc) else {
             panic!("命令没跑起来，下面几条断言就什么都没验证。实际收到:\n{acc}");
         };
         assert!(

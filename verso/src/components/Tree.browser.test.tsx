@@ -59,6 +59,8 @@ function mount(onReorder: Reorder) {
         onMenu={() => {}}
         onMove={onMove}
         onReorder={onReorder}
+        onRenameSubmit={() => {}}
+        onRenameCancel={() => {}}
       />,
     );
   });

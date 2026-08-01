@@ -286,6 +286,14 @@ fn note_create(
     Ok(meta)
 }
 
+/// 建一篇「未命名」。名字由后端定（重名往后编号），前端建完就地改名
+#[tauri::command]
+fn note_create_untitled(state: State<'_, AppState>, parent_doc: Option<String>) -> Result<NoteMeta> {
+    let meta = state.with_vault(|v| v.create_untitled(parent_doc.as_deref()))?;
+    state.reindex(&meta.path);
+    Ok(meta)
+}
+
 /// 窗口重新获得焦点时，前端拿它比对已打开文件的 mtime。
 /// §7.4：有了终端跑 AI 之后，外部修改从边界情况变成日常主路径。
 #[tauri::command]
@@ -551,6 +559,7 @@ pub fn run() {
             attachment_write,
             frontmatter_write,
             note_create,
+            note_create_untitled,
             note_stat,
             note_list,
             note_rename,

@@ -135,6 +135,8 @@ export default function App() {
     return clampSidebar(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_SIDEBAR_W);
   });
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
@@ -522,14 +524,21 @@ export default function App() {
     return () => cancelAnimationFrame(id);
   }, [note?.path]);
 
+  /**
+   * 新建文档：**先建出来，再就地改名**。
+   *
+   * 以前是先弹一个 `window.prompt` 问名字。那个弹窗最难受的地方不是丑，是它
+   * 把顺序搞反了 —— 逼着人在还没开始写之前先想好标题，而标题往往是写完才
+   * 定得下来的。现在建一篇「未命名」，光标落在树里那个名字上：想好了就敲，
+   * 没想好按 Esc 走人，文档已经在那儿了。Obsidian 和思源都是这个路子。
+   */
   const createAndOpen = useCallback(
-    async (parentDoc: string | null, promptLabel: string, opts?: { newTab?: boolean }) => {
-      const title = window.prompt(promptLabel, "未命名");
-      if (!title) return;
+    async (parentDoc: string | null, opts?: { newTab?: boolean }) => {
       try {
-        const meta = await api.createNote(parentDoc, title);
+        const meta = await api.createUntitled(parentDoc);
         await refresh();
         await openPath(meta.path, opts);
+        setRenaming(meta.path);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -537,24 +546,33 @@ export default function App() {
     [refresh, openPath],
   );
 
-  const renameNode = useCallback(
-    async (node: TreeNode) => {
-      const title = window.prompt("重命名为", node.name);
-      if (!title || title === node.name) return;
+  /**
+   * 改名交回来了。空、或者没改，都当作放弃 —— 不去调后端，也就不会因为
+   * 「新名字和旧名字一样」收到一句「已存在同名文档」。
+   */
+  const submitRename = useCallback(
+    async (path: string, title: string) => {
+      setRenaming(null);
+      const name = title.trim();
+      const old = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+      if (!name || name === old) return;
       try {
-        const newPath = await api.renameNote(node.path, title);
+        const newPath = await api.renameNote(path, name);
         await refresh();
         // 开着的标签跟着改路径 —— 连同子树，重命名 `X.md` 时 `X/` 底下那些
         // 也全变了，不跟的话它们会指向不存在的文件
-        retagTabs((s) => renameTab(s, node.path, newPath));
+        retagTabs((s) => renameTab(s, path, newPath));
         // 改的正是当前打开的这篇，就跟着切到新路径，否则后续保存会写到旧路径
-        if (noteRef.current?.path === node.path) await loadNote(newPath);
+        if (noteRef.current?.path === path) await loadNote(newPath);
       } catch (e) {
         setError((e as Error).message);
       }
     },
     [refresh, loadNote, retagTabs],
   );
+
+  /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
+  const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
 
   const deleteNode = useCallback(
     async (node: TreeNode) => {
@@ -869,7 +887,7 @@ export default function App() {
         group: "笔记",
         label: "新建文档",
         defaultKeys: "Mod+N",
-        run: () => createAndOpen(null, "新建文档"),
+        run: () => createAndOpen(null),
       },
       {
         id: "note.switch",
@@ -1235,7 +1253,7 @@ export default function App() {
                 </div>
                 <button
                   className="side-act"
-                  onClick={() => createAndOpen(null, "新建文档")}
+                  onClick={() => void createAndOpen(null)}
                   title={hint("新建文档", keyOf("note.new"))}
                   aria-label="新建文档"
                 >
@@ -1261,10 +1279,13 @@ export default function App() {
                 nodes={sortedTree}
                 activePath={note?.path ?? null}
                 onOpen={(n, o) => openPath(n.path, o)}
-                onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
+                onAddChild={(n) => void createAndOpen(n.path)}
                 onMenu={(node, x, y) => setMenu({ node, x, y })}
                 onMove={moveNode}
                 onReorder={reorder}
+                renamingPath={renaming}
+                onRenameSubmit={(p, v) => void submitRename(p, v)}
+                onRenameCancel={() => setRenaming(null)}
               />
             )}
             {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
@@ -1320,7 +1341,7 @@ export default function App() {
         onMove={(from, to) => retagTabs((s) => moveTab(s, from, to))}
         // 标签栏的 `+` = 新建文档，而且**一定**开在新标签上：按下它的那一刻
         // 就是在说「我要多一页」，这时候还去看设置里的默认打开方式没有意义
-        onNewTab={() => void createAndOpen(null, "新建文档", { newTab: true })}
+        onNewTab={() => void createAndOpen(null, { newTab: true })}
       />
 
       <main className="main" ref={mainRef}>
@@ -1493,7 +1514,7 @@ export default function App() {
             <button
               onClick={() => {
                 setMenu(null);
-                createAndOpen(menu.node.path, `在「${menu.node.name}」下新建子文档`);
+                void createAndOpen(menu.node.path);
               }}
             >
               新建子文档

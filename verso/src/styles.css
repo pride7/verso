@@ -2621,6 +2621,21 @@ textarea:focus-visible {
 
 /* 排序方式。做成朴素的下拉而不是图标菜单 —— 它有五个选项、要显示
    当前选中项，原生 select 在这几点上都更省事也更好用 */
+/* 就地改名的输入框。撑满标签那一格，字号行高和标签一致 ——
+   进入改名态时那一行不该跳一下高度 */
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  margin: 1px 0;
+  font: inherit;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  outline: none;
+}
+
 /* ---------- 设置里的主题色色板 ---------- */
 
 .swatches {

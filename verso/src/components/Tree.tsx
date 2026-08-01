@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { TreeNode } from "../types";
 import { Icon } from "./Icon";
@@ -20,6 +20,14 @@ interface Props {
    * 顺手切到手动排序。这里不做判断，否则用户得先找到下拉框才能拖第一下
    */
   onReorder: (movedPath: string, targetPath: string, place: "before" | "after") => void;
+  /**
+   * 正在就地改名的那个节点。新建文档之后立刻进这个状态 ——
+   * 名字是「未命名」，光标就落在它上面（Obsidian / 思源的做法）
+   */
+  renamingPath?: string | null;
+  /** 交回新名字。空、或和原来一样，都当作放弃 */
+  onRenameSubmit: (path: string, name: string) => void;
+  onRenameCancel: () => void;
   depth?: number;
 }
 
@@ -45,9 +53,19 @@ function TreeItem({
   onMenu,
   onMove,
   onReorder,
+  renamingPath,
+  onRenameSubmit,
+  onRenameCancel,
   depth,
 }: Omit<Props, "nodes" | "depth"> & { node: TreeNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth === 0);
+  const renaming = renamingPath === node.path;
+
+  // 在收起的节点底下新建子文档时，那一行根本没渲染出来，改名框也就无从谈起。
+  // 所以只要被改名的那个在自己子树里，就展开
+  useEffect(() => {
+    if (node.childDir && renamingPath?.startsWith(`${node.childDir}/`)) setExpanded(true);
+  }, [renamingPath, node.childDir]);
   /** 拖到哪里：`into` 变成子文档，`before`/`after` 只调顺序 */
   const [dropAt, setDropAt] = useState<"into" | "before" | "after" | null>(null);
 
@@ -116,27 +134,35 @@ function TreeItem({
           {hasChildren && <Icon name="chevron" size={12} />}
         </button>
 
-        <button
-          className="tree-label"
-          // 没按修饰键时**不传** `newTab`，而不是传 `false`：`false` 会盖掉
-          // 设置里的默认打开方式，让「开新标签」那一档永远失效
-          onClick={(e) =>
-            isDoc && onOpen(node, e.ctrlKey || e.metaKey ? { newTab: true } : undefined)
-          }
-          // 中键开新标签。用 mouseup 而不是 auxclick —— 后者在 WebView2 上
-          // 不总是派发；`button === 1` 已经把它和右键分开了
-          onMouseUp={(e) => {
-            if (e.button === 1 && isDoc) {
-              e.preventDefault();
-              onOpen(node, { newTab: true });
+        {renaming ? (
+          <RenameInput
+            name={node.name}
+            onSubmit={(v) => onRenameSubmit(node.path, v)}
+            onCancel={onRenameCancel}
+          />
+        ) : (
+          <button
+            className="tree-label"
+            // 没按修饰键时**不传** `newTab`，而不是传 `false`：`false` 会盖掉
+            // 设置里的默认打开方式，让「开新标签」那一档永远失效
+            onClick={(e) =>
+              isDoc && onOpen(node, e.ctrlKey || e.metaKey ? { newTab: true } : undefined)
             }
-          }}
-          // 纯文件夹没有对应文档，点它只能展开
-          disabled={!isDoc}
-          title={isDoc ? node.path : `${node.path}（纯文件夹，没有同名文档）`}
-        >
-          {node.name}
-        </button>
+            // 中键开新标签。用 mouseup 而不是 auxclick —— 后者在 WebView2 上
+            // 不总是派发；`button === 1` 已经把它和右键分开了
+            onMouseUp={(e) => {
+              if (e.button === 1 && isDoc) {
+                e.preventDefault();
+                onOpen(node, { newTab: true });
+              }
+            }}
+            // 纯文件夹没有对应文档，点它只能展开
+            disabled={!isDoc}
+            title={isDoc ? node.path : `${node.path}（纯文件夹，没有同名文档）`}
+          >
+            {node.name}
+          </button>
+        )}
 
         {isDoc && (
           <button
@@ -163,9 +189,68 @@ function TreeItem({
           onMenu={onMenu}
           onMove={onMove}
           onReorder={onReorder}
+          renamingPath={renamingPath}
+          onRenameSubmit={onRenameSubmit}
+          onRenameCancel={onRenameCancel}
           depth={depth + 1}
         />
       )}
     </li>
+  );
+}
+
+/**
+ * 就地改名的输入框。
+ *
+ * 挂载时**只选中文件名的主干**，扩展名那类后缀不在树里显示，所以这里就是
+ * 全选；但仍然显式 `select()` 而不是靠 `autoFocus` —— 后者只给焦点不给选区，
+ * 结果是光标停在末尾，想换个名字得先手动全选一遍。
+ *
+ * 失焦按「确定」处理，和 Obsidian 一致：改完名点到别处，本意显然是要这个名字，
+ * 那时候丢掉刚敲的字最让人恼火。
+ */
+function RenameInput({
+  name,
+  onSubmit,
+  onCancel,
+}: {
+  name: string;
+  onSubmit: (v: string) => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLInputElement | null>(null);
+  /** 提交过就别再被失焦触发第二次 —— 回车之后输入框会被卸载，那也算一次 blur */
+  const done = useRef(false);
+
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+
+  const finish = (ok: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    if (ok) onSubmit(ref.current?.value ?? "");
+    else onCancel();
+  };
+
+  return (
+    <input
+      ref={ref}
+      className="tree-rename"
+      defaultValue={name}
+      spellCheck={false}
+      onKeyDown={(e) => {
+        // 别让方向键、回车冒泡到树和全局快捷键上去
+        e.stopPropagation();
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      }}
+      onBlur={() => finish(true)}
+      // 点输入框不该顺手把这一行打开
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    />
   );
 }

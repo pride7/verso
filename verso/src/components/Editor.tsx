@@ -315,7 +315,16 @@ export function Editor({
       applyCustomSnippets(view, initialSnippets.current);
     }
 
-    view.focus();
+    // **别抢正在输入的框。** 新建文档时树里那个改名框刚拿到焦点，编辑器
+    // 紧接着挂载；抢过来的话改名框会失焦，而失焦按「确定」处理 —— 表现就是
+    // 输入框一闪就没了。搜索框、属性条同理。
+    const busy = document.activeElement;
+    const typing =
+      busy instanceof HTMLInputElement ||
+      busy instanceof HTMLTextAreaElement ||
+      (busy instanceof HTMLElement && busy.isContentEditable && !view.dom.contains(busy));
+    if (!typing) view.focus();
+
     return () => {
       cb.current.onStashState?.(view.state);
       view.destroy();

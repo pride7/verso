@@ -215,6 +215,32 @@ impl Vault {
         })
     }
 
+    /// 建一篇「未命名」，重名就往后编号。
+    ///
+    /// 和 `create_note` 分开，因为**同名的处理方式正好相反**：显式给了标题却
+    /// 撞名，那是要报错的（改名时尤其如此，静悄悄给个别的名字等于没听懂）；
+    /// 而「新建」这个动作里名字本来就是占位符，撞了就该自己让开。
+    ///
+    /// 让路径由后端定，前端不必先去数一遍有哪些文件 —— 那个数法在文件被
+    /// 外部程序改动时会算错，而这里是**建之前的一瞬间**才检查的。
+    pub fn create_untitled(&self, parent_doc: Option<&str>) -> Result<NoteMeta> {
+        const BASE: &str = "未命名";
+        for n in 1..1000 {
+            let title = if n == 1 {
+                BASE.to_string()
+            } else {
+                format!("{BASE} {n}")
+            };
+            match self.create_note(parent_doc, &title) {
+                // 只有「已存在」才继续往后试。路径越界、目录建不出来这些
+                // 得原样抛上去 —— 循环一千次再报错只会把真正的原因埋掉
+                Err(Error::Vault(m)) if m.starts_with("已存在同名文档") => continue,
+                other => return other,
+            }
+        }
+        Err(Error::Vault("同一个目录下未命名文档太多了".into()))
+    }
+
     /// 源码模式（§4.2）里手改 frontmatter：用一段 YAML 原文换掉文件里那一段，
     /// **正文一个字节都不动**。
     ///
@@ -737,6 +763,39 @@ created: 2026-01-01T00:00:00+08:00
         assert!(dir.join("线性代数").is_dir(), "同名文件夹应被建出来");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // 新建时名字只是个占位符，撞了就该自己让开 —— 和显式给标题时相反，
+    // 那种情况撞名必须报错（改名时静悄悄换个名字等于没听懂）
+    #[test]
+    fn untitled_notes_number_themselves() {
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        assert_eq!(v.create_untitled(None).unwrap().path, "未命名.md");
+        assert_eq!(v.create_untitled(None).unwrap().path, "未命名 2.md");
+        assert_eq!(v.create_untitled(None).unwrap().path, "未命名 3.md");
+
+        // 编号是**按目录**算的，子文档那边重新从头开始
+        let parent = v.create_note(None, "数学").unwrap();
+        assert_eq!(
+            v.create_untitled(Some(&parent.path)).unwrap().path,
+            "数学/未命名.md"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // 只有「已存在」才该让循环继续。路径越界这类错误原样抛出，
+    // 否则真正的原因会被一千次重试埋掉
+    #[test]
+    fn untitled_propagates_real_errors() {
+        let v = vault_at(Path::new("/vault"));
+        assert!(matches!(
+            v.create_untitled(Some("../外面.md")),
+            Err(Error::PathEscape(_))
+        ));
     }
 
     #[test]
