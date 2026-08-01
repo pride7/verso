@@ -132,6 +132,8 @@ impl Vault {
             id: note::get_str(&fm, "id"),
             title,
             frontmatter: mapping_to_json(&fm),
+            // 源码模式要看文件里真实的那几行，不是解析完再拼回去的
+            frontmatter_text: note::split_frontmatter(&raw).0.map(str::to_string),
             body,
             mtime_ms: meta.mtime_ms,
         })
@@ -326,6 +328,32 @@ mod tests {
         // 保存不能丢掉 frontmatter 里的 id —— 丢了链接就断了
         let raw = std::fs::read_to_string(dir.join("测试笔记.md")).unwrap();
         assert!(raw.contains(&meta.id));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 源码模式（§4.2）要显示的是 frontmatter 在文件里的**原文**：
+    /// 解析成映射再拼回去的话，键序、缩进、注释全没了 —— 那就不叫源码了。
+    #[test]
+    fn read_note_keeps_the_raw_frontmatter_text() {
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        let raw = "---\n# 这行注释解析完就没了\nstatus: 整理中\ntags:\n  - 索引页\n---\n正文\n";
+        std::fs::write(dir.join("带属性.md"), raw).unwrap();
+
+        let read = v.read_note("带属性.md").unwrap();
+        assert_eq!(
+            read.frontmatter_text.as_deref(),
+            Some("# 这行注释解析完就没了\nstatus: 整理中\ntags:\n  - 索引页\n"),
+        );
+        assert_eq!(read.body, "正文\n");
+
+        // 没有 frontmatter 的笔记必须是 None，不能是空字符串 ——
+        // 前端靠它决定「要不要显示这一块」
+        std::fs::write(dir.join("没属性.md"), "光秃秃的正文\n").unwrap();
+        assert!(v.read_note("没属性.md").unwrap().frontmatter_text.is_none());
 
         std::fs::remove_dir_all(&dir).ok();
     }

@@ -27,6 +27,12 @@ export interface NoteContent {
   id: string | null;
   title: string;
   frontmatter: Record<string, unknown>;
+  /**
+   * frontmatter 在文件里的**原文**（两道 `---` 之间那段，不含 `---` 本身）。
+   * 没有 frontmatter 时是 null。源码模式要给人看的是这个，不是上面那个
+   * 解析完的映射 —— 解析会丢掉键序、缩进和注释。
+   */
+  frontmatterText: string | null;
   body: string;
   mtimeMs: number;
 }

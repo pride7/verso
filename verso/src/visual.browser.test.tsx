@@ -102,6 +102,7 @@ const NOTE: NoteContent = {
   id: "01J8XKQ2M4N7P9R3T5V8W1Y2Z0",
   title: "论文",
   frontmatter: { tags: ["索引页"], status: "整理中" },
+  frontmatterText: "tags:\n  - 索引页\nstatus: 整理中\n",
   body: NOTE_BODY,
   mtimeMs: 0,
 };

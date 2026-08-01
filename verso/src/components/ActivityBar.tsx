@@ -9,6 +9,8 @@ interface Props {
   onView: (v: SidebarView) => void;
   /** 侧栏是否展开。点当前已选中的图标会收起它 */
   sidebarOpen: boolean;
+  sourceMode: boolean;
+  onToggleSourceMode: () => void;
   termOpen: boolean;
   onToggleTerm: () => void;
   onSystemTerminal: () => void;
@@ -41,6 +43,8 @@ export function ActivityBar({
   view,
   onView,
   sidebarOpen,
+  sourceMode,
+  onToggleSourceMode,
   termOpen,
   onToggleTerm,
   onSystemTerminal,
@@ -66,6 +70,18 @@ export function ActivityBar({
 
       <div className="rail-gap" />
 
+      {/* 源码模式排在动作组的第一个：它作用于正文，比终端和设置更「靠近内容」。
+          Obsidian 和 Typora 都给了这个开关一个常驻按钮 —— 只藏在快捷键和命令
+          面板里的话，不知道它存在的人永远不会用到 */}
+      <button
+        className={`rail-btn rail-action${sourceMode ? " is-on" : ""}`}
+        onClick={onToggleSourceMode}
+        title={`源码模式 (${keyLabel("Mod+E")})`}
+        aria-label="源码模式"
+        aria-pressed={sourceMode}
+      >
+        <Icon name="code" />
+      </button>
       <button
         className={`rail-btn rail-action${termOpen ? " is-on" : ""}`}
         onClick={onToggleTerm}

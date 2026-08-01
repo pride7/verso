@@ -112,6 +112,12 @@ pub struct NoteContent {
     pub title: String,
     /// frontmatter 原样回传给前端（M1 的属性表单要用）
     pub frontmatter: serde_json::Value,
+    /// frontmatter 在文件里的**原文**（两道 `---` 之间那段，不含 `---` 本身）。
+    ///
+    /// 上面那个 `frontmatter` 是解析后的映射，键序、缩进、注释全没了 ——
+    /// 源码模式（§4.2）要给人看的恰恰是文件里真实的样子，所以另存一份原文。
+    /// 没有 frontmatter 的笔记是 `None`。
+    pub frontmatter_text: Option<String>,
     pub body: String,
     pub mtime_ms: i64,
 }

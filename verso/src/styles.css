@@ -1964,3 +1964,26 @@ textarea:focus-visible {
 .status-mode:hover {
   background: color-mix(in oklch, var(--accent) 22%, transparent);
 }
+
+/* ---------- 源码模式下的 frontmatter ---------- */
+
+/* 只读，所以要一眼看出「这块和下面的正文不是一回事」：淡底 + 左侧细条 +
+   降一档明度。字号跟着正文字号缩放，不写死 —— 设置里把正文调大之后，
+   只有这一块还是小字会很突兀。 */
+.fm-source {
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  border-left: 2px solid var(--border);
+  background: color-mix(in oklch, var(--muted) 7%, transparent);
+  font-family: var(--font-mono);
+  font-size: calc(var(--body-font-size) * 0.85);
+  line-height: 1.6;
+  color: var(--muted);
+  /* 长的 YAML 值要能换行，不要横向滚 —— 这块只是给人看的 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 能选中复制。只读不等于连拿都拿不走 */
+  user-select: text;
+  cursor: text;
+}

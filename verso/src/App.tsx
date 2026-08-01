@@ -663,6 +663,8 @@ export default function App() {
         view={sidebarView}
         onView={pickView}
         sidebarOpen={sidebarOpen}
+        sourceMode={sourceMode}
+        onToggleSourceMode={toggleSourceMode}
         termOpen={termOpen}
         onToggleTerm={() => setTermOpen((v) => !v)}
         onSystemTerminal={() =>

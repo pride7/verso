@@ -9,6 +9,7 @@ import { setViewRenderer } from "../editor/viewBlock";
 import { DatabaseView } from "./DatabaseView";
 import type { NoteContent, NoteRef } from "../types";
 import { Backlinks } from "./Backlinks";
+import { FrontmatterSource } from "./FrontmatterSource";
 import { Properties } from "./Properties";
 
 /** 让 App 能往编辑器里塞内容（符号面板要用） */
@@ -281,7 +282,13 @@ export function Editor({
         ))}
       </nav>
 
-      <Properties frontmatter={note.frontmatter} />
+      {/* 属性条是 frontmatter 的渲染结果，和正文里的表格公式是一回事：
+          源码模式下正文都退回源码了，它也得跟着退 */}
+      {sourceMode ? (
+        <FrontmatterSource text={note.frontmatterText} />
+      ) : (
+        <Properties frontmatter={note.frontmatter} />
+      )}
 
       <div className="editor-host" ref={host} />
 

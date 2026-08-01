@@ -50,7 +50,15 @@ function mountEditor() {
   roots.push(root);
   root.render(
     <Editor
-      note={{ path: "长文.md", id: null, title: "长文", frontmatter: {}, body: DOC, mtimeMs: 0 }}
+      note={{
+        path: "长文.md",
+        id: null,
+        title: "长文",
+        frontmatter: {},
+        frontmatterText: null,
+        body: DOC,
+        mtimeMs: 0,
+      }}
       onChange={() => {}}
       onSaveNow={() => {}}
       onFollowLink={() => {}}
