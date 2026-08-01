@@ -6,40 +6,26 @@
  *   node scripts/version.mjs          查看当前版本 + 检查一致性
  *   node scripts/version.mjs 0.2.0    三处一起改
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/**
- * 应用目录。正式名字是 `verso/`，但 v0.5.2 从 Folio 改名时，物理目录暂时
- * 还叫 `folio/` —— Windows 上 VS Code 占着 `node_modules` 和
- * `src-tauri/target`，重命名会被拒。
- *
- * 与其让这个脚本在改名完成前一直报错，不如让它自己找。等 `folio/` 消失了
- * 这段回退就可以删掉。
- */
-const APP = ["verso", "folio"].find((d) => existsSync(join(root, d, "package.json")));
-if (!APP) {
-  console.error("找不到应用目录（verso/ 或 folio/）");
-  process.exit(1);
-}
-
 /** 用正则而不是 JSON.parse+stringify —— 后者会重排键序、丢掉格式，
  *  让 diff 里除了版本号之外全是噪音。 */
 const FILES = [
   {
-    path: join(root, APP, "package.json"),
+    path: join(root, "verso/package.json"),
     re: /("version"\s*:\s*")([^"]+)(")/,
   },
   {
-    path: join(root, APP, "src-tauri/tauri.conf.json"),
+    path: join(root, "verso/src-tauri/tauri.conf.json"),
     re: /("version"\s*:\s*")([^"]+)(")/,
   },
   {
     // 只匹配 [package] 段那个 version，别碰依赖的版本号
-    path: join(root, APP, "src-tauri/Cargo.toml"),
+    path: join(root, "verso/src-tauri/Cargo.toml"),
     re: /(^version\s*=\s*")([^"]+)(")/m,
   },
 ];

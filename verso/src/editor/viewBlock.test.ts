@@ -62,27 +62,12 @@ describe("verso-view 代码块识别", () => {
   });
 });
 
-// ---------------------------------------------------------------- 改名兼容
-
-describe("改名前的 folio-view 仍然要认", () => {
-  // 软件从 Folio 改名成 Verso，但用户已经写下的 .md 是他们的数据，
-  // 不该因为我们改名就失效（§0 第 1 条）
-  it("旧写法照常渲染", () => {
-    // 开头留一行 —— stateOf 把光标放在 0，代码块紧贴文档开头的话光标就在
-    // 块里，那时露出源码是设计如此，不是别名没生效
-    expect(viewBlockCount(stateOf('开头\n\n```folio-view\nfrom: "*"\nview: table\n```'))).toBe(1);
-  });
-
-  it("新旧写法混在一篇里都算", () => {
-    expect(
-      viewBlockCount(
-        stateOf('开头\n\n```folio-view\nfrom: "a"\n```\n\n中间\n\n```verso-view\nfrom: "b"\n```'),
-      ),
-    ).toBe(2);
-  });
-
-  it("别的语言标记不受影响", () => {
-    expect(viewBlockCount(stateOf('开头\n\n```folio\nfrom: "*"\n```'))).toBe(0);
+describe("只认 verso-view 这一种围栏标记", () => {
+  // 开头都留一行 —— stateOf 把光标放在 0，代码块紧贴文档开头的话光标就在
+  // 块里，那时露出源码是设计如此，不是匹配没生效
+  it("别的语言标记不当成视图", () => {
+    expect(viewBlockCount(stateOf('开头\n\n```verso\nfrom: "*"\n```'))).toBe(0);
     expect(viewBlockCount(stateOf('开头\n\n```other-view\nfrom: "*"\n```'))).toBe(0);
+    expect(viewBlockCount(stateOf('开头\n\n```folio-view\nfrom: "*"\n```'))).toBe(0);
   });
 });

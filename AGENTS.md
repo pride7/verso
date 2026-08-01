@@ -57,29 +57,10 @@ node scripts/version.mjs 0.2.0     # 三处一起改
 2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，写清**用户能感知的变化**，不是 commit 流水账
 3. 提交，然后打 tag：`git tag v0.2.0`
 
-## ⚠️ 还没做完：目录还叫 `folio/`
-
-v0.5.2 从 Folio 改名成 Verso，代码、标识符、文档全部改完了，**只有物理目录
-还叫 `folio/`** —— 改名那天 VS Code 占着 `node_modules` 和 `src-tauri/target`，
-Windows 上 `git mv` 报 Permission denied。
-
-没有硬绕过去，是因为唯一的绕法是重建 `src-tauri/target`，而这台机器的
-Smart App Control 会拦新编译的未签名构建脚本（见下），很可能把构建整个搞坏。
-
-**补上的办法**（作者关掉 VS Code 之后）：
-
-```bash
-cd d:/Projects/notebook
-git mv folio verso
-```
-
-完事之后把 `scripts/version.mjs` 里那段找目录的回退删掉，本节也删掉。
-GitHub 上的仓库名（现在是 `folio-xsfeng`）改不改由作者定，agent 不要碰远端。
-
 ## 构建与测试
 
 ```bash
-cd verso   # 目录暂时还叫 folio/，见上一节
+cd verso
 pnpm install
 pnpm tauri dev                 # 跑起来
 
@@ -122,6 +103,34 @@ Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2�
 **用它们代替 `cargo check`**。若 `cargo clean` 之后连 build 也被拦，那才需要
 跟作者讨论（关闭 Smart App Control 是不可逆的，关掉后不重装 Windows 就开不回来，
 这个决定不该由 agent 做）。
+
+### 移动过项目目录之后，Rust 构建会报「系统找不到指定的路径」
+
+Tauri 的构建脚本把**绝对路径**写进了 `target/debug/build/*/out`（权限清单
+那些 `.toml`）。目录一改名，`cargo test` 就会去找旧路径，报
+`failed to read plugin permissions ... (os error 3)`。
+
+**不要用 `cargo clean` 解决**：那会连构建脚本的可执行文件一起删掉，重编译
+出来的新二进制正是 Smart App Control 要拦的东西（见上一节），可能把构建
+彻底卡死。
+
+只删「输出目录」，保留已编译的 `build-script-build.exe`：
+
+```powershell
+cd verso\src-tauri
+$out = Get-ChildItem target\debug\build -Directory |
+  Where-Object { Test-Path (Join-Path $_.FullName 'out') }
+$out | Where-Object {
+  Test-Path (Join-Path $_.FullName 'output')
+} | Where-Object {
+  Select-String -Path (Join-Path $_.FullName 'output') -Pattern '旧目录名' -Quiet
+} | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }
+```
+
+cargo 会用**现有的**构建脚本二进制重跑一遍，输出里的路径就对了。
+
+另外 pnpm 的 `node_modules` 也是路径绑定的，改名后要
+`CI=true pnpm install` 重装（非交互环境下它不敢自己清目录）。
 
 ### Windows 工具链的坑
 

@@ -64,14 +64,7 @@ function touched(state: EditorState, from: number, to: number) {
   return false;
 }
 
-/**
- * ` ```verso-view ` 是正式写法，` ```folio-view ` 是改名前的旧写法。
- *
- * 两个都认。软件改名不该让用户已经写下的笔记失效 —— 那些 `.md` 是他们的
- * 数据，不是我们的实现细节（§0 第 1 条）。`/` 菜单只会插入新写法，
- * 旧别名纯粹是为了让老笔记继续渲染。
- */
-const VIEW_FENCE = /^```[ \t]*(?:verso|folio)-view[ \t]*\r?\n([\s\S]*?)\r?\n?```$/;
+const VIEW_FENCE = /^```[ \t]*verso-view[ \t]*\r?\n([\s\S]*?)\r?\n?```$/;
 
 function build(state: EditorState): DecorationSet {
   const marks: Range<Decoration>[] = [];

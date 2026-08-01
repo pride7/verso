@@ -73,7 +73,6 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
 
     let gitignore = root.join(".gitignore");
     let created_gitignore = if gitignore.exists() {
-        migrate_renamed_private_dir(&gitignore)?;
         false
     } else {
         std::fs::write(&gitignore, GITIGNORE)?;
@@ -85,28 +84,6 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
         created_gitignore,
         renamed_branch,
     })
-}
-
-/// 软件从 Folio 改名成 Verso（v0.5.2）之后，私有目录从 `.folio/` 变成
-/// `.verso/`。早先建的 vault 里，`.gitignore` 忽略的还是旧名字 —— 那样
-/// **索引数据库会变成未忽略文件，很容易被误提交进笔记仓库**。
-///
-/// 只在能确认这份 `.gitignore` 是我们写的时候补（含 `.folio/` 那行），
-/// 而且只**追加**、不改动任何已有内容 —— 用户可能已经加了自己的规则，
-/// 那是他们的文件。
-///
-/// 这段是一次性的迁移，等确认没有旧 vault 了就可以删掉。
-fn migrate_renamed_private_dir(gitignore: &Path) -> Result<()> {
-    let content = std::fs::read_to_string(gitignore)?;
-    if !content.contains(".folio/") || content.contains(".verso/") {
-        return Ok(());
-    }
-    let sep = if content.ends_with('\n') { "" } else { "\n" };
-    std::fs::write(
-        gitignore,
-        format!("{content}{sep}\n# 改名 Folio → Verso 后的私有目录\n.verso/\n"),
-    )?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -171,52 +148,6 @@ mod tests {
             "我自己写的规则\n",
             "不能覆盖用户已有的 .gitignore"
         );
-    }
-
-    /// 改名迁移：旧 vault 的 .gitignore 忽略的是 .folio/，补上 .verso/。
-    /// 不补的话索引数据库会变成未忽略文件，很容易被误提交进笔记仓库。
-    #[test]
-    fn appends_new_private_dir_to_old_gitignore() {
-        let t = tmp_dir();
-        std::fs::write(
-            t.0.join(".gitignore"),
-            "# Folio 私有目录\n.folio/\n\n.DS_Store\n",
-        )
-        .unwrap();
-
-        ensure_repo(&t.0).unwrap();
-
-        let content = std::fs::read_to_string(t.0.join(".gitignore")).unwrap();
-        assert!(content.contains(".verso/"), "必须补上新目录");
-        // 只追加，不动已有内容 —— 那是用户的文件
-        assert!(content.contains(".folio/"), "旧规则要留着");
-        assert!(content.contains(".DS_Store"), "用户自己的规则不能丢");
-    }
-
-    #[test]
-    fn does_not_touch_gitignore_without_the_old_marker() {
-        // 认不出是我们写的就不碰。用户手写的 .gitignore 不该被我们追加东西
-        let t = tmp_dir();
-        std::fs::write(t.0.join(".gitignore"), "我自己写的规则\n").unwrap();
-
-        ensure_repo(&t.0).unwrap();
-
-        assert_eq!(
-            std::fs::read_to_string(t.0.join(".gitignore")).unwrap(),
-            "我自己写的规则\n"
-        );
-    }
-
-    #[test]
-    fn migration_is_idempotent() {
-        let t = tmp_dir();
-        std::fs::write(t.0.join(".gitignore"), ".folio/\n").unwrap();
-
-        ensure_repo(&t.0).unwrap();
-        let once = std::fs::read_to_string(t.0.join(".gitignore")).unwrap();
-        ensure_repo(&t.0).unwrap();
-
-        assert_eq!(once, std::fs::read_to_string(t.0.join(".gitignore")).unwrap());
     }
 
     /// 早期版本建出来的空仓库停在 master。空仓库里分支名纯粹是个名字，
