@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
+import { Icon } from "./Icon";
 import { newNoteParent, nextSort, readSort, writeSort } from "../lib/viewSpec";
 import type { ViewResult, ViewRow } from "../types";
 
@@ -98,7 +99,9 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     if (col === "title") {
       return (
         <button className="dbview-link" onClick={() => onOpen(row.path)}>
-          {row.title}
+          {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}
+          <Icon name="doc" size={14} className="dbview-rowicon" />
+          <span>{row.title}</span>
         </button>
       );
     }
@@ -166,6 +169,17 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
 
   return (
     <div className="dbview">
+      <div className="dbview-bar">
+        <span className="dbview-kind">
+          <Icon name="table" size={14} />
+          表格
+        </span>
+        {onPatch && (
+          <button className="dbview-new" onClick={addRow}>
+            新建
+          </button>
+        )}
+      </div>
       <table className="dbview-table">
         <thead>
           <tr>
@@ -197,13 +211,14 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
           ))}
         </tbody>
       </table>
+      {onPatch && (
+        <button className="dbview-add" onClick={addRow} title="新建一篇笔记并加进这个视图">
+          <Icon name="plus" size={13} />
+          添加条目
+        </button>
+      )}
       <div className="dbview-foot">
         {result.rows.length === 0 ? "没有匹配的笔记" : `${result.rows.length} 条`}
-        {onPatch && (
-          <button className="dbview-add" onClick={addRow} title="新建一篇笔记并加进这个视图">
-            + 新建
-          </button>
-        )}
       </div>
     </div>
   );

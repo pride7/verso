@@ -861,12 +861,10 @@ button {
 .cm-dbview {
   margin: 0.8em 0;
 }
+/* 不画外框、不铺底色 —— Notion 的表格是**靠线分行**的，一个描边卡片会把它
+   从正文里割出去，而它明明是正文的一部分（§6.3 层次靠留白和细线，不靠边框） */
 .dbview {
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  overflow: hidden;
   font-size: 13px;
-  background: var(--surface);
 }
 .dbview-loading,
 .dbview-error {
@@ -885,28 +883,27 @@ button {
 }
 .dbview-table th {
   text-align: left;
-  font-weight: 500;
-  font-size: 11.5px;
+  font-weight: 400;
+  font-size: 12px;
   color: var(--muted);
-  padding: 7px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 .dbview-table td {
   padding: 0;
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
-  vertical-align: top;
-}
-.dbview-table tr:last-child td {
-  border-bottom: none;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: middle;
 }
 
 .dbview-cell,
 .dbview-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
-  padding: 7px 10px;
+  padding: 7px 8px;
   font-size: 13px;
   border-radius: 0;
 }
@@ -914,10 +911,23 @@ button {
   background: color-mix(in oklch, var(--accent) 9%, transparent);
 }
 .dbview-link {
-  color: var(--accent);
+  color: var(--text);
+  font-weight: 500;
 }
-.dbview-link:hover {
+.dbview-link span {
   text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--t-fast);
+}
+.dbview-link:hover span {
+  text-decoration-color: currentColor;
+}
+/* 行首那个文档图标退到背景里 —— 它是提示不是主角 */
+.dbview-rowicon {
+  flex: none;
+  color: var(--muted);
+  opacity: 0.7;
 }
 .dbview-empty {
   color: var(--muted);
@@ -2287,4 +2297,54 @@ textarea:focus-visible {
 .dbview-add:hover {
   color: var(--accent);
   background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+/* 视图顶栏：左边是视图类型，右边是「新建」。§2.6 的视图有 table/board/list
+   三种，把当前是哪种摆在左上角，切换视图以后才不用回代码块里确认 */
+.dbview-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 6px;
+}
+.dbview-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  background: var(--hover-bg);
+  font-size: 12px;
+  color: var(--muted);
+}
+.dbview-new {
+  margin-left: auto;
+  padding: 3px 12px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  transition: filter var(--t-fast);
+}
+.dbview-new:hover {
+  filter: brightness(1.08);
+}
+
+/* 「+ 添加条目」做成表格最后一行的样子，不是一个居右的按钮 ——
+   它在语义上就是「再来一行」，Notion 和 Obsidian 都是这么放的 */
+.dbview-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.dbview-add:hover {
+  background: var(--hover-bg);
+  color: var(--text);
 }
