@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api";
+import type { TreeSort } from "./lib/treeSort";
 
 export interface Settings {
   theme: "system" | "light" | "dark";
@@ -23,6 +24,8 @@ export interface Settings {
   terminalFontSize: number;
   /** 留空则跟随 monoFont */
   terminalFont: string;
+  /** 文档树排序方式 */
+  treeSort: TreeSort;
   /** Latex Suite 那种 JSON 文本，由 `editor/snippets` 解析 */
   customSnippets: string;
 }
@@ -38,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   monoFont: "",
   terminalFontSize: 12.5,
   terminalFont: "",
+  treeSort: "name",
   customSnippets: "",
 };
 
@@ -102,6 +106,9 @@ export function sanitize(s: Settings): Settings {
   return {
     ...s,
     theme: (["system", "light", "dark"] as const).includes(s.theme) ? s.theme : "system",
+    treeSort: (["manual", "name", "name-desc", "created", "updated"] as const).includes(s.treeSort)
+      ? s.treeSort
+      : "name",
     bodyFontSize: num(s.bodyFontSize, 12, 28, DEFAULT_SETTINGS.bodyFontSize),
     lineHeight: num(s.lineHeight, 1.2, 2.4, DEFAULT_SETTINGS.lineHeight),
     contentWidth: num(s.contentWidth, 24, 80, DEFAULT_SETTINGS.contentWidth),

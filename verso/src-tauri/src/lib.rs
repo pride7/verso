@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use error::{Error, Result};
-use vault::{note::NoteContent, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultInfo};
+use vault::{note::NoteContent, order, tree::TreeNode, NoteMeta, NoteRef, Vault, VaultInfo};
 
 #[derive(Default)]
 struct AppState {
@@ -127,7 +127,57 @@ fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reope
 
 #[tauri::command]
 fn tree_list(state: State<'_, AppState>) -> Result<Vec<TreeNode>> {
-    state.with_vault(|v| v.tree())
+    let mut tree = state.with_vault(|v| v.tree())?;
+
+    // 时间戳从索引补。索引没就绪时留空 —— 树照样能显示，只是暂时不能按
+    // 时间排，不该因此整个打不开
+    if let Ok(keys) = state.with_index(|i| i.sort_keys()) {
+        let map: std::collections::HashMap<_, _> = keys
+            .into_iter()
+            .map(|(path, created, updated)| (path, (created, updated)))
+            .collect();
+        fill_times(&mut tree, &map);
+    }
+
+    // 手动顺序来自 vault 根的 .verso-order.json（见 vault/order.rs
+    // 里为什么不放 .verso/ 也不放 frontmatter）
+    let order = state.with_vault(|v| Ok(order::load(v.fs.as_ref(), &v.root)))?;
+    fill_order(&mut tree, &order);
+
+    Ok(tree)
+}
+
+type Times = std::collections::HashMap<String, (Option<String>, Option<String>)>;
+
+fn fill_times(nodes: &mut [TreeNode], map: &Times) {
+    for n in nodes {
+        if let Some((created, updated)) = map.get(&n.path) {
+            n.created = created.clone();
+            n.updated = updated.clone();
+        }
+        fill_times(&mut n.children, map);
+    }
+}
+
+fn fill_order(nodes: &mut [TreeNode], map: &order::OrderMap) {
+    for n in nodes {
+        n.order = order::index_of(map, &n.path);
+        fill_order(&mut n.children, map);
+    }
+}
+
+/// 记录一组兄弟的手动顺序。
+///
+/// 只写 vault 根目录的一个文件，**不碰任何笔记** —— 早先的版本往每篇
+/// frontmatter 写 `order`，除了污染笔记，还会顺手把 `updated` 刷成现在，
+/// 把「最近修改」排序毁掉。
+#[tauri::command]
+fn notes_reorder(state: State<'_, AppState>, parent: String, paths: Vec<String>) -> Result<()> {
+    state.with_vault(|v| {
+        let mut map = order::load(v.fs.as_ref(), &v.root);
+        order::set_group(&mut map, &parent, paths);
+        order::save(v.fs.as_ref(), &v.root, &map)
+    })
 }
 
 #[tauri::command]
@@ -285,8 +335,25 @@ fn rebuild_index(state: &AppState) {
 }
 
 #[tauri::command]
+/// 路径变了之后把排序文件里的条目修好。
+///
+/// 不修的话，重命名一篇笔记会让它（以及它整棵子树）在树里沉到底部 ——
+/// 一个很常见的操作，结果是手排的顺序莫名其妙乱掉。
+fn fix_order_after_move(state: &AppState, from: &str, to: Option<&str>) {
+    let _ = state.with_vault(|v| {
+        let mut map = order::load(v.fs.as_ref(), &v.root);
+        match to {
+            Some(to) => order::rename_path(&mut map, from, to),
+            None => order::remove_path(&mut map, from),
+        }
+        order::save(v.fs.as_ref(), &v.root, &map)
+    });
+}
+
+#[tauri::command]
 fn note_rename(state: State<'_, AppState>, path: String, title: String) -> Result<String> {
     let new_path = state.with_vault(|v| v.rename_note(&path, &title))?;
+    fix_order_after_move(&state, &path, Some(&new_path));
     rebuild_index(&state);
     Ok(new_path)
 }
@@ -298,6 +365,7 @@ fn note_move(
     new_parent_doc: Option<String>,
 ) -> Result<String> {
     let new_path = state.with_vault(|v| v.move_note(&path, new_parent_doc.as_deref()))?;
+    fix_order_after_move(&state, &path, Some(&new_path));
     rebuild_index(&state);
     Ok(new_path)
 }
@@ -305,6 +373,7 @@ fn note_move(
 #[tauri::command]
 fn note_delete(state: State<'_, AppState>, path: String, with_children: bool) -> Result<()> {
     state.with_vault(|v| v.delete_note(&path, with_children))?;
+    fix_order_after_move(&state, &path, None);
     rebuild_index(&state);
     Ok(())
 }
@@ -415,6 +484,7 @@ pub fn run() {
             view_query,
             prop_set,
             prop_rename,
+            notes_reorder,
             settings_get,
             settings_set,
         ])

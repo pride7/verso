@@ -2133,3 +2133,46 @@ textarea:focus-visible {
   line-height: 1.5;
 }
 
+
+/* 拖拽重排时的插入位置指示。用一条线而不是整行高亮 —— 整行高亮是
+   「放进这一项里面」的意思，两种操作必须一眼分得开 */
+.tree-row.is-drop-before,
+.tree-row.is-drop-after {
+  position: relative;
+}
+.tree-row.is-drop-before::before,
+.tree-row.is-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.tree-row.is-drop-before::before {
+  top: -1px;
+}
+.tree-row.is-drop-after::after {
+  bottom: -1px;
+}
+
+/* 排序方式。做成朴素的下拉而不是图标菜单 —— 它有五个选项、要显示
+   当前选中项，原生 select 在这几点上都更省事也更好用 */
+.side-sort {
+  flex: none;
+  max-width: 6.5em;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.side-sort:hover {
+  color: var(--text);
+  border-color: var(--border);
+}

@@ -11,6 +11,11 @@ interface Props {
   onMenu: (node: TreeNode, x: number, y: number) => void;
   /** 拖拽移动：把 `path` 移到 `newParentDoc` 之下（null = vault 根） */
   onMove: (path: string, newParentDoc: string | null) => void;
+  /**
+   * 拖拽重排同级顺序。只在手动排序模式下传进来 —— 其他模式下记了顺序
+   * 也立刻被规则盖掉，拖完看不出效果反而像是坏了
+   */
+  onReorder?: (movedPath: string, targetPath: string, place: "before" | "after") => void;
   depth?: number;
 }
 
@@ -35,10 +40,12 @@ function TreeItem({
   onAddChild,
   onMenu,
   onMove,
+  onReorder,
   depth,
 }: Omit<Props, "nodes" | "depth"> & { node: TreeNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth === 0);
-  const [dropTarget, setDropTarget] = useState(false);
+  /** 拖到哪里：`into` 变成子文档，`before`/`after` 只调顺序 */
+  const [dropAt, setDropAt] = useState<"into" | "before" | "after" | null>(null);
 
   const hasChildren = node.children.length > 0;
   const isDoc = node.kind === "document";
@@ -49,7 +56,10 @@ function TreeItem({
       <div
         className={
           `tree-row${isActive ? " is-active" : ""}` +
-          `${isDoc ? "" : " is-folder"}${dropTarget ? " is-drop-target" : ""}`
+          `${isDoc ? "" : " is-folder"}` +
+          `${dropAt === "into" ? " is-drop-target" : ""}` +
+          `${dropAt === "before" ? " is-drop-before" : ""}` +
+          `${dropAt === "after" ? " is-drop-after" : ""}`
         }
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
         onContextMenu={(e) => {
@@ -62,22 +72,31 @@ function TreeItem({
           e.dataTransfer.effectAllowed = "move";
         }}
         onDragOver={(e) => {
-          if (!isDoc) return;
-          const src = e.dataTransfer.types.includes("text/verso-path");
-          if (!src) return;
+          if (!e.dataTransfer.types.includes("text/verso-path")) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
-          setDropTarget(true);
+          // 上下各四分之一是"插到前面/后面"，中间一半才是"放进去当子文档"。
+          // 不分区的话，想调顺序永远会变成移动层级 —— 这两件事看着像，
+          // 结果差得很远
+          const box = e.currentTarget.getBoundingClientRect();
+          const r = (e.clientY - box.top) / box.height;
+          if (onReorder && r < 0.25) setDropAt("before");
+          else if (onReorder && r > 0.75) setDropAt("after");
+          else setDropAt(isDoc ? "into" : null);
         }}
-        onDragLeave={() => setDropTarget(false)}
+        onDragLeave={() => setDropAt(null)}
         onDrop={(e) => {
           e.preventDefault();
-          setDropTarget(false);
+          const where = dropAt;
+          setDropAt(null);
           const src = e.dataTransfer.getData("text/verso-path");
           // 拖到自己身上是无操作；移进自身子树由 Rust 侧拒绝
-          if (src && src !== node.path && isDoc) {
+          if (!src || src === node.path) return;
+          if (where === "into" && isDoc) {
             onMove(src, node.path);
             setExpanded(true);
+          } else if (onReorder && (where === "before" || where === "after")) {
+            onReorder(src, node.path, where);
           }
         }}
       >
@@ -127,6 +146,7 @@ function TreeItem({
           onAddChild={onAddChild}
           onMenu={onMenu}
           onMove={onMove}
+          onReorder={onReorder}
           depth={depth + 1}
         />
       )}

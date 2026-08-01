@@ -92,6 +92,11 @@ export const api = {
   /** 属性改名。保留原值和原位置 —— 不是删旧建新 */
   propRename: (path: string, from: string, to: string) =>
     call<void>("prop_rename", { path, from, to }),
+  /**
+   * 记下一组兄弟的手动次序。`parent` 是它们的父目录（根目录传空串），
+   * `paths` 要是**完整的一组**，不是只有被拖的那一个
+   */
+  reorder: (parent: string, paths: string[]) => call<void>("notes_reorder", { parent, paths }),
 
   // —— §6 用户设置 ——
   getSettings: () => call<Settings>("settings_get"),

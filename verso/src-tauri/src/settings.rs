@@ -22,6 +22,10 @@ fn default_theme() -> String {
     "system".into()
 }
 
+fn default_tree_sort() -> String {
+    "name".into()
+}
+
 // §6.1 的排版尺度就是这几个默认值的出处
 fn default_body_font_size() -> f64 {
     16.5
@@ -62,6 +66,12 @@ pub struct Settings {
     /// 终端字体。留空跟随 `mono_font`
     pub terminal_font: String,
 
+    /// 文档树排序方式。`"manual"` 时按每篇笔记 frontmatter 里的 `order` 排。
+    ///
+    /// 用字符串而不是 enum：以后加排序方式时，旧版本读到不认识的值会回退
+    /// 到默认，而不是整个设置文件解析失败。
+    pub tree_sort: String,
+
     /// 自定义 snippet，Latex Suite 那种 JSON 文本，原样存、由前端解析。
     ///
     /// 有意不在 Rust 侧建模：snippet 的编译规则（触发词、正则、标志位）全在
@@ -82,6 +92,7 @@ impl Default for Settings {
             mono_font: String::new(),
             terminal_font_size: default_terminal_font_size(),
             terminal_font: String::new(),
+            tree_sort: default_tree_sort(),
             custom_snippets: String::new(),
         }
     }
@@ -96,6 +107,12 @@ impl Settings {
     pub fn sanitized(mut self) -> Self {
         if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
             self.theme = default_theme();
+        }
+        if !matches!(
+            self.tree_sort.as_str(),
+            "manual" | "name" | "name-desc" | "created" | "updated"
+        ) {
+            self.tree_sort = default_tree_sort();
         }
         self.body_font_size = clamp(self.body_font_size, 12.0, 28.0, default_body_font_size());
         self.line_height = clamp(self.line_height, 1.2, 2.4, default_line_height());

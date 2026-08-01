@@ -14,6 +14,7 @@ import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { parseHeadings, type Heading } from "./lib/outline";
+import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/treeSort";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -174,6 +175,48 @@ export default function App() {
       setError((e as Error).message);
     }
   }, []);
+
+  /**
+   * 排序后的树。原始树保持 Rust 给的顺序，排序只影响显示 ——
+   * 唯一会写文件的是手动排序，那是用户显式拖拽触发的
+   */
+  const sortedTree = useMemo(() => sortTree(tree, settings.treeSort), [tree, settings.treeSort]);
+
+  /**
+   * 拖拽重排：把 `moved` 放到 `target` 的前/后，整组兄弟一起记下次序。
+   *
+   * 只在手动排序模式下有意义 —— 其他模式下记了顺序也看不出来。
+   * 顺序写进 vault 根的 `.verso-order.json`，笔记本身一个字不动。
+   */
+  const reorder = useCallback(
+    async (movedPath: string, targetPath: string, place: "before" | "after") => {
+      const parentOf = (p: string) => {
+        const cut = p.lastIndexOf("/");
+        return cut < 0 ? "" : p.slice(0, cut);
+      };
+      const parent = parentOf(movedPath);
+      // 只在同一组兄弟内部重排。跨组是「移动」，走 onMove 那条路
+      if (parent !== parentOf(targetPath)) return;
+
+      const siblings = parent
+        ? (tree.flatMap(flatten).find((n) => n.childDir === parent)?.children ?? [])
+        : tree;
+      const ordered = reorderSiblings(
+        sortTree(siblings, settings.treeSort),
+        movedPath,
+        targetPath,
+        place,
+      );
+      try {
+        await api.reorder(parent, ordered);
+        await refresh();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [tree, settings.treeSort, refresh],
+  );
+
 
   /** 立即落盘。切笔记、失焦、Ctrl+S 都走这里。 */
   const saveNow = useCallback(async () => {
@@ -735,6 +778,21 @@ export default function App() {
               {vault.name}
             </button>
             {sidebarView === "tree" && (
+              <select
+                className="side-sort"
+                value={settings.treeSort}
+                onChange={(e) => updateSettings({ treeSort: e.target.value as TreeSort })}
+                title="排序方式"
+                aria-label="排序方式"
+              >
+                {(Object.keys(SORT_LABELS) as TreeSort[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SORT_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            )}
+            {sidebarView === "tree" && (
               <button
                 className="side-add"
                 onClick={() => createAndOpen(null, "新建文档")}
@@ -753,12 +811,13 @@ export default function App() {
 
           {sidebarView === "tree" && (
             <Tree
-              nodes={tree}
+              nodes={sortedTree}
               activePath={note?.path ?? null}
               onOpen={(n) => openPath(n.path)}
               onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
               onMenu={(node, x, y) => setMenu({ node, x, y })}
               onMove={moveNode}
+              onReorder={settings.treeSort === "manual" ? reorder : undefined}
             />
           )}
           {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}

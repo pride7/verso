@@ -1,6 +1,7 @@
 pub mod fs;
 pub mod git;
 pub mod note;
+pub mod order;
 pub mod ops;
 pub mod tree;
 

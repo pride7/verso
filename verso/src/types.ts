@@ -10,6 +10,10 @@ export interface TreeNode {
   kind: NodeKind;
   /** 同名文件夹路径，仅当该 document 有子文档时有值 */
   childDir: string | null;
+  /** frontmatter 里的 `order`，手动排序用。没排过则为 null */
+  order: number | null;
+  created: string | null;
+  updated: string | null;
   children: TreeNode[];
 }
 

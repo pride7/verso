@@ -38,6 +38,17 @@ pub struct TreeNode {
     /// 同名文件夹的相对路径，仅 Document 且该文件夹存在时有值
     pub child_dir: Option<String>,
     pub children: Vec<TreeNode>,
+
+    // ---- 排序键。扫目录时填不了，由 `tree_list` 从索引补上 ----
+    //
+    // **手动顺序存在 frontmatter 的 `order` 里**，不存 `.verso/`：
+    // §0 第 1 条要求用户数据能脱离本软件存在，而第 6 条要求 `.verso/`
+    // 可以整个删掉重建 —— 手动排的顺序显然不是能重建的派生数据。
+    // 放 frontmatter 里它是纯文本、能 git diff、拖进 Obsidian 也还在。
+    /// frontmatter 里的 `order`，没有则为 None
+    pub order: Option<f64>,
+    pub created: Option<String>,
+    pub updated: Option<String>,
 }
 
 /// 递归扫描目录，产出合并后的树。
@@ -90,6 +101,9 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             kind: NodeKind::Document,
             child_dir,
             children,
+            order: None,
+            created: None,
+            updated: None,
         });
     }
 
@@ -106,6 +120,9 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             kind: NodeKind::Folder,
             child_dir: None,
             children,
+            order: None,
+            created: None,
+            updated: None,
         });
     }
 

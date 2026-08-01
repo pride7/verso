@@ -34,7 +34,16 @@ const node = (
   path: string,
   children: TreeNode[] = [],
   kind: "document" | "folder" = "document",
-): TreeNode => ({ name, path, kind, children, childDir: children.length ? path.replace(/.md$/, "") : null });
+): TreeNode => ({
+  name,
+  path,
+  kind,
+  children,
+  childDir: children.length ? path.replace(/\.md$/, "") : null,
+  order: null,
+  created: null,
+  updated: null,
+});
 
 const TREE: TreeNode[] = [
   node("数学", "数学.md", [

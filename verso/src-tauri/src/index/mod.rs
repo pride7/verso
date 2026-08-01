@@ -15,6 +15,16 @@ use serde::Serialize;
 use crate::error::{Error, Result};
 use crate::vault::{note, tree::NodeKind, NoteRef, Vault};
 
+/// 文件 mtime → 和 frontmatter 里的时间戳同一种写法（本地时区、秒精度）。
+///
+/// 必须同一种写法：树排序是按字符串比大小的，混着 UTC 和本地偏移量会排错。
+fn local_rfc3339(mtime_ms: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp_millis(mtime_ms).map(|t| {
+        t.with_timezone(&chrono::Local)
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
+    })
+}
+
 pub struct Index {
     conn: Connection,
 }
@@ -292,6 +302,34 @@ impl Index {
                 path: r.get(0)?,
                 name: r.get(1)?,
             })
+        })?;
+        let out: std::result::Result<Vec<_>, _> = mapped.collect();
+        Ok(out?)
+    }
+
+    /// 文档树按时间排序用的键。
+    ///
+    /// 走索引而不是建树时逐个读 frontmatter —— 那样每次刷新树都要把整个
+    /// vault 的文件读一遍，几百篇就能感觉到卡。索引里这些数据本来就有。
+    ///
+    /// **手动顺序不在这里。** 它存在 vault 根的 `.verso-order.json` 里，
+    /// 见 `vault/order.rs` 里为什么既不放 frontmatter 也不放 `.verso/`。
+    pub fn sort_keys(&self) -> Result<Vec<(String, Option<String>, Option<String>)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, created, updated, mtime_ms FROM notes")?;
+        let mapped = stmt.query_map([], |r| {
+            // §2.3 起 frontmatter 里有什么全由用户决定，多数笔记没有
+            // `created` / `updated`。缺了就回落到文件系统的 mtime ——
+            // 同步工具会破坏 mtime（所以它不是首选），但「最近修改」这一档
+            // 排序不该因为用户没手写时间戳就整个失灵
+            let mtime: i64 = r.get(3)?;
+            let fallback = local_rfc3339(mtime);
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?.or_else(|| fallback.clone()),
+                r.get::<_, Option<String>>(2)?.or(fallback),
+            ))
         })?;
         let out: std::result::Result<Vec<_>, _> = mapped.collect();
         Ok(out?)
