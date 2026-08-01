@@ -13,18 +13,36 @@ export interface TabState {
   tabs: string[];
   /** 当前页下标。`tabs` 为空时是 0 */
   active: number;
+  /**
+   * **前 `pinnedCount` 个是固定的。**
+   *
+   * 不用「一个存路径的集合」来表示固定，是因为那样要在关闭、重命名、删除
+   * 子树、拖动重排每一处都记得同步维护它，漏一处就会留下一条指着不存在
+   * 文件的"幽灵固定项"。用下标区间的话，「固定的排在最前」这条不变量是
+   * **结构上成立**的，剩下的只是把这个数字跟着增减。
+   */
+  pinnedCount: number;
 }
 
-export const EMPTY_TABS: TabState = { tabs: [], active: 0 };
+export const EMPTY_TABS: TabState = { tabs: [], active: 0, pinnedCount: 0 };
 
 /** 当前页的路径。没有标签时是 null */
 export function activePath(s: TabState): string | null {
   return s.tabs[s.active] ?? null;
 }
 
+/** 第 `i` 个是不是固定的 */
+export function isPinned(s: TabState, i: number): boolean {
+  return i >= 0 && i < s.pinnedCount;
+}
+
 function clamp(s: TabState): TabState {
   if (s.tabs.length === 0) return EMPTY_TABS;
-  return { tabs: s.tabs, active: Math.min(Math.max(s.active, 0), s.tabs.length - 1) };
+  return {
+    tabs: s.tabs,
+    active: Math.min(Math.max(s.active, 0), s.tabs.length - 1),
+    pinnedCount: Math.min(Math.max(s.pinnedCount, 0), s.tabs.length),
+  };
 }
 
 /**
@@ -38,19 +56,53 @@ function clamp(s: TabState): TabState {
  */
 export function openTab(s: TabState, path: string, mode: "new" | "replace"): TabState {
   const existing = s.tabs.indexOf(path);
-  if (existing >= 0) return { tabs: s.tabs, active: existing };
+  if (existing >= 0) return { ...s, active: existing };
 
-  if (s.tabs.length === 0) return { tabs: [path], active: 0 };
+  if (s.tabs.length === 0) return { tabs: [path], active: 0, pinnedCount: 0 };
 
-  if (mode === "replace") {
+  // 固定的那个**不会被替换掉**。钉住的意思就是「它一直在这儿」，
+  // 让"点侧栏替换当前页"把它换走，等于钉了个寂寞
+  if (mode === "replace" && !isPinned(s, s.active)) {
     const tabs = [...s.tabs];
     tabs[s.active] = path;
-    return { tabs, active: s.active };
+    return { ...s, tabs };
   }
 
+  // 插在当前页右边；当前页是固定的就落到固定区之后 —— 固定区中间不能插进
+  // 一个没固定的，否则「前 N 个是固定的」这条不变量就破了
+  const at = Math.max(s.active + 1, s.pinnedCount);
   const tabs = [...s.tabs];
-  tabs.splice(s.active + 1, 0, path);
-  return { tabs, active: s.active + 1 };
+  tabs.splice(at, 0, path);
+  return { ...s, tabs, active: at };
+}
+
+/**
+ * 固定一个标签：挪到固定区末尾。
+ *
+ * 「固定」在这里意味着三件事：排在最前、批量关闭时留着、不会被"替换当前页"
+ * 换走。**不**意味着关不掉 —— × 照样在，需要一个不打开菜单也能关掉它的办法。
+ */
+export function pinTab(s: TabState, index: number): TabState {
+  if (index < 0 || index >= s.tabs.length || isPinned(s, index)) return s;
+  const current = s.tabs[s.active];
+  const tabs = [...s.tabs];
+  const [moved] = tabs.splice(index, 1);
+  tabs.splice(s.pinnedCount, 0, moved);
+  return { tabs, active: Math.max(0, tabs.indexOf(current)), pinnedCount: s.pinnedCount + 1 };
+}
+
+/** 取消固定：落到未固定区的最前面，而不是弹回队尾 —— 位置突变会让人找不着 */
+export function unpinTab(s: TabState, index: number): TabState {
+  if (!isPinned(s, index)) return s;
+  const current = s.tabs[s.active];
+  const tabs = [...s.tabs];
+  const [moved] = tabs.splice(index, 1);
+  tabs.splice(s.pinnedCount - 1, 0, moved);
+  return { tabs, active: Math.max(0, tabs.indexOf(current)), pinnedCount: s.pinnedCount - 1 };
+}
+
+export function togglePin(s: TabState, index: number): TabState {
+  return isPinned(s, index) ? unpinTab(s, index) : pinTab(s, index);
 }
 
 /**
@@ -67,7 +119,8 @@ export function closeTab(s: TabState, index: number): TabState {
   let active = s.active;
   if (index < s.active) active = s.active - 1;
   else if (index === s.active) active = Math.min(s.active, tabs.length - 1);
-  return clamp({ tabs, active });
+  const pinnedCount = isPinned(s, index) ? s.pinnedCount - 1 : s.pinnedCount;
+  return clamp({ tabs, active, pinnedCount });
 }
 
 /** 关掉某个路径。它没开着就什么都不做 */
@@ -76,10 +129,21 @@ export function closePath(s: TabState, path: string): TabState {
   return i < 0 ? s : closeTab(s, i);
 }
 
-/** 只留下这一个 */
+/**
+ * 只留下这一个 —— **以及所有固定的**。
+ *
+ * 「关闭其他」是个批量动作，而固定正是用来标记「批量操作时别动它」的：
+ * 一份天天要看的索引被一次右键清掉，比多留几个标签难受得多。
+ */
 export function closeOthers(s: TabState, index: number): TabState {
   const keep = s.tabs[index];
-  return keep ? { tabs: [keep], active: 0 } : s;
+  if (!keep) return s;
+  const tabs = s.tabs.filter((p, i) => i < s.pinnedCount || p === keep);
+  return clamp({
+    tabs,
+    active: tabs.indexOf(keep),
+    pinnedCount: Math.min(s.pinnedCount, tabs.length),
+  });
 }
 
 /**
@@ -91,22 +155,34 @@ export function moveTab(s: TabState, from: number, to: number): TabState {
   const current = s.tabs[s.active];
   const tabs = [...s.tabs];
   const [moved] = tabs.splice(from, 1);
-  tabs.splice(Math.min(Math.max(to, 0), tabs.length), 0, moved);
+  const at = Math.min(Math.max(to, 0), tabs.length);
+  tabs.splice(at, 0, moved);
+
+  // **拖进固定区就是固定它，拖出去就是取消固定。**
+  //
+  // 把固定表示成「前 N 个」之后，这是唯一自洽的解释 —— 否则固定区中间会
+  // 插进一个没固定的。边界要用**拿走之后**的下标算，从固定区里拖走的那一个
+  // 已经不占位置了。
+  const boundary = isPinned(s, from) ? s.pinnedCount - 1 : s.pinnedCount;
+  let pinnedCount = s.pinnedCount;
+  if (isPinned(s, from) && at >= boundary) pinnedCount -= 1;
+  else if (!isPinned(s, from) && at < boundary) pinnedCount += 1;
+
   // 当前页跟着它的**路径**走，不是跟着下标 —— 拖动不该顺手换页
-  return { tabs, active: Math.max(0, tabs.indexOf(current)) };
+  return { tabs, active: Math.max(0, tabs.indexOf(current)), pinnedCount };
 }
 
 /** 相对切换，循环。`Ctrl+Tab` / `Ctrl+Shift+Tab` 用 */
 export function stepTab(s: TabState, delta: number): TabState {
   const n = s.tabs.length;
   if (n === 0) return s;
-  return { tabs: s.tabs, active: (((s.active + delta) % n) + n) % n };
+  return { ...s, active: (((s.active + delta) % n) + n) % n };
 }
 
 /** 跳到第 n 个（0 起）。超出范围时跳到最后一个 —— `Ctrl+9` 的常见约定 */
 export function gotoTab(s: TabState, index: number): TabState {
   if (s.tabs.length === 0) return s;
-  return { tabs: s.tabs, active: Math.min(Math.max(index, 0), s.tabs.length - 1) };
+  return { ...s, active: Math.min(Math.max(index, 0), s.tabs.length - 1) };
 }
 
 /**
@@ -123,18 +199,22 @@ export function renameTab(s: TabState, from: string, to: string): TabState {
     if (p === from) return to;
     return p.startsWith(`${fromDir}/`) ? `${toDir}${p.slice(fromDir.length)}` : p;
   });
-  return { tabs, active: s.active };
+  // 顺序一个没动，固定的还是那几个 —— 这正是「固定 = 前 N 个」省下的活
+  return { ...s, tabs };
 }
 
 /** 删除之后把它和它子树的标签都去掉 */
 export function dropSubtree(s: TabState, path: string): TabState {
   const dir = path.replace(/\.md$/, "");
+  const gone = (p: string) => p === path || p.startsWith(`${dir}/`);
   const current = s.tabs[s.active];
-  const tabs = s.tabs.filter((p) => p !== path && !p.startsWith(`${dir}/`));
+  const tabs = s.tabs.filter((p) => !gone(p));
   if (tabs.length === 0) return EMPTY_TABS;
+  // 固定区里删掉几个，这个数就减几个
+  const pinnedCount = s.tabs.slice(0, s.pinnedCount).filter((p) => !gone(p)).length;
   const stillThere = tabs.indexOf(current);
   // 当前页被删掉了就退到最接近的位置，而不是跳回第一个
-  return clamp({ tabs, active: stillThere >= 0 ? stillThere : s.active });
+  return clamp({ tabs, active: stillThere >= 0 ? stillThere : s.active, pinnedCount });
 }
 
 /** 标签上显示的名字：去掉目录和 `.md` */

@@ -25,6 +25,22 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "snippets", label: "公式 snippet" },
 ];
 
+/**
+ * 预设主题色：名字、色相、鲜艳度。
+ *
+ * 第一个是石墨（鲜艳度 0）—— 它不是「没选颜色」，而是一个明确的选择：
+ * 整个界面连重音都不要彩色。默认那个青绿取自应用图标。
+ */
+const ACCENTS: [string, number, number][] = [
+  ["石墨", 0, 0],
+  ["青绿", 195, 0.085],
+  ["靛蓝", 255, 0.09],
+  ["紫", 300, 0.085],
+  ["森绿", 150, 0.085],
+  ["琥珀", 75, 0.1],
+  ["绯红", 20, 0.095],
+];
+
 /** 数值设置统一长这样：滑块调、右边显示当前值、能一键回默认 */
 function Slider({
   label,
@@ -173,7 +189,7 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
               <div className="set-row">
                 <div className="set-label">
                   <span>主题</span>
-                  <span className="set-hint">深浅两套用同一组色相，只翻转明度</span>
+                  <span className="set-hint">深浅两套共用一组中性灰，只翻转明度</span>
                 </div>
                 <div className="set-control">
                   <div className="segmented">
@@ -195,6 +211,58 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
                   </div>
                 </div>
               </div>
+
+              <div className="set-row">
+                <div className="set-label">
+                  <span>主题色</span>
+                  <span className="set-hint">
+                    界面本身是黑白灰，这个颜色只出现在链接、焦点环、选中标记上
+                  </span>
+                </div>
+                <div className="set-control">
+                  <div className="swatches">
+                    {ACCENTS.map(([name, h, c]) => {
+                      const on =
+                        Math.round(settings.accentHue) === h &&
+                        Math.abs(settings.accentChroma - c) < 0.005;
+                      return (
+                        <button
+                          key={name}
+                          className={`swatch${on ? " is-on" : ""}`}
+                          style={{ background: `oklch(58% ${c} ${h})` }}
+                          title={name}
+                          aria-label={name}
+                          aria-pressed={on}
+                          onClick={() => onChange({ accentHue: h, accentChroma: c })}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <Slider
+                label="色相"
+                hint="沿着色环转。鲜艳度为 0 时它不起作用"
+                value={settings.accentHue}
+                min={0}
+                max={359}
+                step={1}
+                suffix="°"
+                fallback={DEFAULT_SETTINGS.accentHue}
+                onChange={(v) => onChange({ accentHue: v })}
+              />
+              <Slider
+                label="鲜艳度"
+                hint="拉到 0 就是完全无彩的石墨风"
+                value={settings.accentChroma}
+                min={0}
+                max={0.16}
+                step={0.005}
+                suffix=""
+                fallback={DEFAULT_SETTINGS.accentChroma}
+                onChange={(v) => onChange({ accentChroma: v })}
+              />
 
               <Slider
                 label="界面字号"

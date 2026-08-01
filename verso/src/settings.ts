@@ -36,6 +36,15 @@ export interface Settings {
    * 不该被设置盖掉。
    */
   tabOpen: TabOpen;
+  /**
+   * 主题色的色相（oklch 的 h，0–360）与鲜艳度（c）。
+   *
+   * 界面底色是中性灰，这两个值只影响链接、焦点环、选中标记这些「重音」。
+   * **明度不开放** —— 深浅两套主题各需要不同的明度才看得清，让人调它等于
+   * 给了一个把界面调成看不见的机会。鲜艳度拉到 0 就是完全无彩的石墨风。
+   */
+  accentHue: number;
+  accentChroma: number;
   /** Latex Suite 那种 JSON 文本，由 `editor/snippets` 解析 */
   customSnippets: string;
   /**
@@ -60,6 +69,9 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFont: "",
   treeSort: "name",
   tabOpen: "new",
+  // 应用图标上那点青绿
+  accentHue: 195,
+  accentChroma: 0.085,
   customSnippets: "",
   keybindings: {},
 };
@@ -105,6 +117,10 @@ export function applySettings(s: Settings, root: HTMLElement = document.document
   else root.setAttribute("data-theme", s.theme);
 
   const style = root.style;
+  // 主题色只给这两个自由度，`--accent` 系列由 CSS 从它们算出来 ——
+  // 深浅两套主题各用各的明度，那部分不该由这里决定（styles.css §6.2）
+  style.setProperty("--accent-h", String(s.accentHue));
+  style.setProperty("--accent-c", String(s.accentChroma));
   style.setProperty("--body-font-size", `${s.bodyFontSize}px`);
   style.setProperty("--body-line-height", String(s.lineHeight));
   style.setProperty("--content-width", `${s.contentWidth}rem`);
@@ -137,6 +153,12 @@ export function sanitize(s: Settings): Settings {
       ? s.treeSort
       : "name",
     tabOpen: (["new", "replace"] as const).includes(s.tabOpen) ? s.tabOpen : "new",
+    // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
+    // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
+    accentHue: Number.isFinite(s.accentHue)
+      ? ((s.accentHue % 360) + 360) % 360
+      : DEFAULT_SETTINGS.accentHue,
+    accentChroma: num(s.accentChroma, 0, 0.16, DEFAULT_SETTINGS.accentChroma),
     bodyFontSize: num(s.bodyFontSize, 12, 28, DEFAULT_SETTINGS.bodyFontSize),
     lineHeight: num(s.lineHeight, 1.2, 2.4, DEFAULT_SETTINGS.lineHeight),
     contentWidth: num(s.contentWidth, 24, 80, DEFAULT_SETTINGS.contentWidth),

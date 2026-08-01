@@ -7,15 +7,23 @@ import {
   dropSubtree,
   EMPTY_TABS,
   gotoTab,
+  isPinned,
   moveTab,
   openTab,
+  pinTab,
   renameTab,
   stepTab,
   tabLabels,
+  togglePin,
+  unpinTab,
   type TabState,
 } from "./tabs";
 
-const st = (tabs: string[], active = 0): TabState => ({ tabs, active });
+const st = (tabs: string[], active = 0, pinnedCount = 0): TabState => ({
+  tabs,
+  active,
+  pinnedCount,
+});
 
 describe("打开", () => {
   it("空的时候开第一个", () => {
@@ -140,6 +148,85 @@ describe("跟着文件走", () => {
 
   it("全删光回到空", () => {
     expect(dropSubtree(st(["数学.md", "数学/线代.md"], 0), "数学.md")).toEqual(EMPTY_TABS);
+  });
+});
+
+describe("固定", () => {
+  const s = st(["甲.md", "乙.md", "丙.md", "丁.md"], 1);
+
+  it("固定的排到最前，当前页还是原来那篇", () => {
+    const out = pinTab(s, 2);
+    expect(out.tabs).toEqual(["丙.md", "甲.md", "乙.md", "丁.md"]);
+    expect(out.pinnedCount).toBe(1);
+    expect(out.tabs[out.active]).toBe("乙.md");
+  });
+
+  it("再固定一个，排在已固定的后面而不是插到最前", () => {
+    const out = pinTab(pinTab(s, 2), 2);
+    expect(out.tabs.slice(0, 2)).toEqual(["丙.md", "乙.md"]);
+    expect(out.pinnedCount).toBe(2);
+  });
+
+  // 弹回队尾的话，取消固定之后得满标签栏找它
+  it("取消固定落在未固定区的最前面", () => {
+    const pinned = pinTab(pinTab(s, 2), 2); // 丙 乙 | 甲 丁
+    const out = unpinTab(pinned, 0);
+    expect(out.tabs).toEqual(["乙.md", "丙.md", "甲.md", "丁.md"]);
+    expect(out.pinnedCount).toBe(1);
+  });
+
+  it("toggle 来回一次回到原样", () => {
+    const once = togglePin(s, 0);
+    expect(isPinned(once, 0)).toBe(true);
+    expect(togglePin(once, 0)).toEqual(s);
+  });
+
+  it("关掉一个固定的，计数跟着减", () => {
+    const pinned = pinTab(s, 0); // 甲 | 乙 丙 丁
+    expect(closeTab(pinned, 0).pinnedCount).toBe(0);
+    expect(closeTab(pinned, 2).pinnedCount).toBe(1);
+  });
+
+  // 一份天天要看的索引被一次右键清掉，比多留几个标签难受得多
+  it("「关闭其他」留着固定的", () => {
+    const pinned = pinTab(s, 0); // 甲 | 乙 丙 丁
+    const out = closeOthers(pinned, 2);
+    expect(out.tabs).toEqual(["甲.md", "丙.md"]);
+    expect(out.pinnedCount).toBe(1);
+    expect(out.tabs[out.active]).toBe("丙.md");
+  });
+
+  it("新标签不会插进固定区中间", () => {
+    const pinned = pinTab(s, 0); // 甲(固定) | 乙 丙 丁，当前页是甲
+    const out = openTab({ ...pinned, active: 0 }, "新.md", "new");
+    expect(out.tabs).toEqual(["甲.md", "新.md", "乙.md", "丙.md", "丁.md"]);
+    expect(out.pinnedCount).toBe(1);
+  });
+
+  // 钉住的意思就是「它一直在这儿」，被替换掉等于钉了个寂寞
+  it("「替换当前」不会换掉固定的那一个", () => {
+    const pinned = pinTab(s, 0);
+    const out = openTab({ ...pinned, active: 0 }, "新.md", "replace");
+    expect(out.tabs).toEqual(["甲.md", "新.md", "乙.md", "丙.md", "丁.md"]);
+  });
+
+  it("拖进固定区就固定，拖出去就取消", () => {
+    const pinned = pinTab(s, 0); // 甲 | 乙 丙 丁
+    expect(moveTab(pinned, 2, 0).pinnedCount).toBe(2);
+    expect(moveTab(pinned, 0, 3).pinnedCount).toBe(0);
+    // 在各自的区里挪不改变固定状态
+    expect(moveTab(pinned, 2, 3).pinnedCount).toBe(1);
+  });
+
+  it("删除子树时固定计数跟着重算", () => {
+    const t = st(["数学.md", "数学/线代.md", "别的.md"], 2, 2);
+    const out = dropSubtree(t, "数学.md");
+    expect(out.tabs).toEqual(["别的.md"]);
+    expect(out.pinnedCount).toBe(0);
+  });
+
+  it("固定的数量永远不超过标签数 —— 手改过的状态文件也不能把它撑爆", () => {
+    expect(closeTab(st(["甲.md", "乙.md"], 0, 9), 0).pinnedCount).toBe(1);
   });
 });
 

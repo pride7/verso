@@ -31,6 +31,17 @@ fn default_tab_open() -> String {
     "new".into()
 }
 
+/// 主题色的色相与鲜艳度。默认是应用图标上那点青绿。
+///
+/// **明度不开放**：深浅两套主题各自需要不同的明度才看得清，让用户调它
+/// 等于给了一个把界面调成看不见的机会。
+fn default_accent_hue() -> f64 {
+    195.0
+}
+fn default_accent_chroma() -> f64 {
+    0.085
+}
+
 // §6.1 的排版尺度就是这几个默认值的出处
 fn default_body_font_size() -> f64 {
     16.5
@@ -86,6 +97,14 @@ pub struct Settings {
     #[serde(default = "default_tab_open")]
     pub tab_open: String,
 
+    /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
+    /// 链接、焦点环、选中标记这些「重音」上
+    #[serde(default = "default_accent_hue")]
+    pub accent_hue: f64,
+    /// 主题色鲜艳度（oklch 的 c）。0 = 完全无彩的石墨风
+    #[serde(default = "default_accent_chroma")]
+    pub accent_chroma: f64,
+
     /// 自定义 snippet，Latex Suite 那种 JSON 文本，原样存、由前端解析。
     ///
     /// 有意不在 Rust 侧建模：snippet 的编译规则（触发词、正则、标志位）全在
@@ -119,6 +138,8 @@ impl Default for Settings {
             terminal_font: String::new(),
             tree_sort: default_tree_sort(),
             tab_open: default_tab_open(),
+            accent_hue: default_accent_hue(),
+            accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
             keybindings: BTreeMap::new(),
         }
@@ -144,6 +165,15 @@ impl Settings {
         if !matches!(self.tab_open.as_str(), "new" | "replace") {
             self.tab_open = default_tab_open();
         }
+        // 色相是环形的，超出范围绕回来而不是夹到端点 —— 夹的话 370 会
+        // 变成 360（红），而它本该是 10（也是红），差别在别的角度上会很明显
+        self.accent_hue = if self.accent_hue.is_finite() {
+            self.accent_hue.rem_euclid(360.0)
+        } else {
+            default_accent_hue()
+        };
+        // 上限 0.16：再高在浅色主题下会刺眼，而这套界面的彩色本来就只做重音
+        self.accent_chroma = clamp(self.accent_chroma, 0.0, 0.16, default_accent_chroma());
         self.body_font_size = clamp(self.body_font_size, 12.0, 28.0, default_body_font_size());
         self.line_height = clamp(self.line_height, 1.2, 2.4, default_line_height());
         self.content_width = clamp(self.content_width, 24.0, 80.0, default_content_width());

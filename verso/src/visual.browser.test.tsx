@@ -147,6 +147,13 @@ const HITS: SearchHit[] = [
  */
 let theme: "light" | "dark" = "light";
 
+/** 开着哪些标签。标签栏那一张要预先摆几个才看得出效果 */
+let workspace: { tabs: string[]; active: number; pinnedCount: number } = {
+  tabs: [],
+  active: 0,
+  pinnedCount: 0,
+};
+
 vi.mock("./api", () => ({
   api: {
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
@@ -191,7 +198,7 @@ vi.mock("./api", () => ({
       view: "table",
     }),
     propSet: async () => {},
-    workspaceGet: async () => ({ tabs: [], active: 0 }),
+    workspaceGet: async () => workspace,
     workspaceSet: async () => {},
     getSettings: async () => ({ theme }),
     setSettings: async (s: unknown) => s,
@@ -232,6 +239,7 @@ function render() {
 beforeEach(() => {
   localStorage.clear();
   theme = "light";
+  workspace = { tabs: [], active: 0, pinnedCount: 0 };
   document.documentElement.removeAttribute("data-theme");
 });
 
@@ -259,6 +267,47 @@ describe("视觉工作台", () => {
     theme = "dark";
     render();
     await shot("02-dark-tree");
+    alive();
+  });
+
+  // 作者报过：标签太挤、× 看不见。这两张就是拿来对着看的
+  const TAB_SCENE = {
+    tabs: [
+      "论文.md",
+      "数学/线性代数/奇异值分解.md",
+      "论文/奇异值分解的数值方法.md",
+      "日志.md",
+      "数学/泛函分析.md",
+    ],
+    active: 2,
+    pinnedCount: 1,
+  };
+
+  it("浅色 · 标签栏（第一个是固定的）", async () => {
+    workspace = TAB_SCENE;
+    render();
+    await shot("11-light-tabs");
+    alive();
+  });
+
+  it("深色 · 标签栏（第一个是固定的）", async () => {
+    theme = "dark";
+    workspace = TAB_SCENE;
+    render();
+    await shot("12-dark-tabs");
+    alive();
+  });
+
+  // 这个菜单被报过"太丑"：它当时同时吃到内联的 left 和 .side-menu 的
+  // right:0，被拉成横跨半个窗口的白盒子
+  it("浅色 · 标签右键菜单", async () => {
+    workspace = TAB_SCENE;
+    render();
+    await settle(700);
+    document.querySelectorAll<HTMLElement>(".tab")[0]?.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 30 }),
+    );
+    await shot("13-light-tab-menu");
     alive();
   });
 

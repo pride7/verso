@@ -17,21 +17,43 @@
        --surface  侧栏、状态栏、终端（退后一层）
        --raised   浮层、输入框、选中态（浮在 surface 之上）
        --hairline 分隔线，比 --border 淡得多，只用来分区不用来描边 */
-  --bg: oklch(99.2% 0.003 85);
-  --surface: oklch(96.2% 0.005 85);
-  --raised: oklch(100% 0 0);
-  --text: oklch(24% 0.012 260);
-  --muted: oklch(52% 0.016 260);
-  --border: oklch(89% 0.006 260);
-  --hairline: oklch(0% 0 0 / 0.07);
-  --accent: oklch(56% 0.16 256);
-  --warn: oklch(70% 0.13 70);
-  --danger: oklch(58% 0.16 25);
+  /* ## 底色是**真中性灰**，chroma 全为 0
 
-  /* 选中态。macOS 侧栏选中是**实心圆角条**，不是半透明色块 ——
-     半透明会让底下的背景色透上来，一排选中项看着深浅不一 */
-  --selected-bg: oklch(56% 0.16 256);
-  --selected-text: oklch(100% 0 0);
+     原来整套带 260 的色相（偏蓝），加上一条实心蓝的选中条 —— 那是界面
+     "廉价"最主要的来源：一个工具的底色带着倾向，你看它一整天都在被那点
+     倾向推着走。图标是深炭灰 + 白 + 一点青绿，界面照着来：**黑白灰打底，
+     颜色只做重音**。 */
+  --bg: oklch(99% 0 0);
+  --surface: oklch(96.4% 0 0);
+  --raised: oklch(100% 0 0);
+  --text: oklch(22% 0 0);
+  --muted: oklch(52% 0 0);
+  --border: oklch(89% 0 0);
+  --hairline: oklch(0% 0 0 / 0.07);
+  --warn: oklch(70% 0.12 70);
+  --danger: oklch(58% 0.15 25);
+
+  /* ## 主题色只有两个自由度：色相和鲜艳度
+
+     明度**不给用户调** —— 深浅两套主题各自需要不同的明度才看得清，
+     开放它等于让人有机会把界面调成看不见。设置只写下面这两个变量，
+     `--accent` 系列由它们算出来，两套主题各算各的。
+
+     默认是图标上那点青绿。鲜艳度拉到 0 就是完全无彩的石墨风。 */
+  --accent-h: 195;
+  --accent-c: 0.085;
+
+  --accent: oklch(52% var(--accent-c) var(--accent-h));
+  /* 大面积铺的时候用这个：同色相、极低明度对比，不抢正文 */
+  --accent-soft: oklch(52% var(--accent-c) var(--accent-h) / 0.12);
+
+  /* ## 选中态：中性灰底 + 一根主题色的竖条
+
+     实心彩色条认读性最好，但一排下来彩色块面积太大。改成灰底 + 左边 2px
+     的标记：底色负责"这一行被选中了"，那根竖条负责"就是它"。 */
+  --selected-bg: oklch(91.5% 0 0);
+  --selected-text: var(--text);
+  --selected-mark: var(--accent);
   /* 失焦时的选中态：Mac 会把它降成灰色，提示"这里现在不接受键盘" */
   --hover-bg: oklch(0% 0 0 / 0.05);
 
@@ -89,15 +111,17 @@
    深色不是把浅色反过来那么简单：明度差要拉得比浅色大（深色背景上人眼对
    明度差更迟钝），而 accent 要提亮、降饱和，否则在深底上会刺眼。 */
 :root {
-  --d-bg: oklch(19% 0.008 260);
-  --d-surface: oklch(23% 0.009 260);
-  --d-raised: oklch(27% 0.011 260);
-  --d-text: oklch(93% 0.005 85);
-  --d-muted: oklch(66% 0.014 260);
-  --d-border: oklch(33% 0.011 260);
+  --d-bg: oklch(18.5% 0 0);
+  --d-surface: oklch(22.5% 0 0);
+  --d-raised: oklch(26.5% 0 0);
+  --d-text: oklch(92% 0 0);
+  --d-muted: oklch(65% 0 0);
+  --d-border: oklch(32% 0 0);
   --d-hairline: oklch(100% 0 0 / 0.09);
-  --d-accent: oklch(72% 0.14 256);
-  --d-selected-bg: oklch(52% 0.15 256);
+  /* 深底上要提亮：同一个 chroma 在暗背景上看起来更闷，明度不拉高会糊成一团 */
+  --d-accent: oklch(74% var(--accent-c) var(--accent-h));
+  --d-accent-soft: oklch(74% var(--accent-c) var(--accent-h) / 0.16);
+  --d-selected-bg: oklch(31% 0 0);
   --d-hover-bg: oklch(100% 0 0 / 0.07);
   --d-shadow-sm: 0 0 0 0.5px oklch(100% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.4);
   --d-shadow-md: 0 0 0 0.5px oklch(100% 0 0 / 0.09), 0 4px 14px oklch(0% 0 0 / 0.5);
@@ -114,6 +138,7 @@
     --border: var(--d-border);
     --hairline: var(--d-hairline);
     --accent: var(--d-accent);
+    --accent-soft: var(--d-accent-soft);
     --selected-bg: var(--d-selected-bg);
     --hover-bg: var(--d-hover-bg);
     --shadow-sm: var(--d-shadow-sm);
@@ -132,6 +157,7 @@
   --border: var(--d-border);
   --hairline: var(--d-hairline);
   --accent: var(--d-accent);
+  --accent-soft: var(--d-accent-soft);
   --selected-bg: var(--d-selected-bg);
   --hover-bg: var(--d-hover-bg);
   --shadow-sm: var(--d-shadow-sm);
@@ -277,36 +303,72 @@ button {
   position: relative;
   min-width: 0;
   background: var(--surface);
-  border-bottom: 1px solid var(--hairline);
+  /* `+` 跟在标签条右边，所以这里是 flex；`min-width: 0` 让标签条能被压窄
+     并自己横向滚，而不是把 `+` 挤出视野 */
+  display: flex;
+  align-items: stretch;
+  /* 不画底边：当前页的背景就是正文的背景，两者连成一片才说得通"这个标签
+     就是下面这块内容"。一条横线横穿过去，标签会变成飘在内容上的一排按钮 */
+}
+
+/* 新建文档。在标签条**里面**，紧跟最后一个标签，跟着一起横向滚 */
+.tab-new {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  /* 和标签同高但不铺满：上下留一点，看起来是"挂在标签旁边"而不是又一个标签 */
+  margin: 2px 2px 4px 4px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.tab-new:hover {
+  color: var(--text);
+  background: var(--hover-bg);
 }
 /* 标签多了横向滚，不换行也不挤扁 —— 挤扁到看不清名字的标签栏等于没有。
-   滚动条藏起来：这一条本来就窄，一根横条会占掉三分之一的高度 */
+   滚动条藏起来：这一条本来就窄，一根横条会占掉三分之一的高度。
+
+   上面留 5px、标签之间留 2px：原来标签一个挨一个、靠 1px 硬线分隔，
+   密得像一排表格单元格。留白比线更能分开东西（§6.3） */
 .tab-strip {
   display: flex;
   align-items: stretch;
+  gap: 2px;
+  padding: 5px 8px 0;
   overflow-x: auto;
   scrollbar-width: none;
+  /* 占满 `+` 之外的空间，并且**可以被压窄**（flex 项的默认 min-width 是
+     auto，不写这一行的话它会被内容撑开，把 `+` 顶出视野） */
+  flex: 1;
+  min-width: 0;
 }
 .tab-strip::-webkit-scrollbar {
   display: none;
 }
 
+/* **等宽**，不跟着标题长短变。
+   一排宽窄不一的标签，眼睛每次都要重新找 × 和名字的位置；等宽之后这两样
+   永远在同一个横向位置上，扫过去就够了。短名字浪费掉的那点宽度，换来的是
+   整条栏读得动。 */
 .tab {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex: none;
-  max-width: 200px;
-  padding: 0 8px 0 12px;
-  height: 34px;
+  width: 168px;
+  padding: 0 5px 0 11px;
+  height: 30px;
   font-size: 12.5px;
   color: var(--muted);
   cursor: default;
-  border-right: 1px solid var(--hairline);
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
   transition: background var(--t-fast), color var(--t-fast);
 }
 .tab:hover {
-  background: var(--bg);
+  background: var(--hover-bg);
   color: var(--text);
 }
 /* 当前页用**背景连到正文**来表示，不是加一条底边：标签和它下面的内容是
@@ -317,18 +379,41 @@ button {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 .tab-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 关闭按钮和未保存的圆点**共用一个位置**：两个都常驻会把标签栏右边挤成
-   一排小图标。平时显示圆点（有改动时），悬停换成 × */
+/* 固定区和其余标签之间画一条竖线。只靠图钉的话，「前几个是固定的」得一个个
+   看过去才数得出来 */
+.tab.is-last-pinned {
+  margin-right: 9px;
+  position: relative;
+}
+.tab.is-last-pinned::after {
+  content: "";
+  position: absolute;
+  right: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--border);
+}
+.tab-pin {
+  flex: none;
+  color: var(--accent);
+}
+
+/* 关闭按钮和未保存的圆点共用一个位置。**× 常驻** —— 标签等宽之后右边本来
+   就留着这块地方，藏起来只换来一个"要先猜它在哪"的按钮。不在当前页时压暗
+   一档，不抢视线 */
 .tab-close,
 .tab-dot {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -343,20 +428,26 @@ button {
   background: var(--accent);
 }
 .tab-close {
-  display: none;
+  /* 0.5 还是太淡（第一版就是这么被报"看不见"的）。0.62 在 muted 色上
+     刚好是"看得见但不抢戏" */
+  opacity: 0.62;
+  transition: opacity var(--t-fast), background var(--t-fast);
 }
 .tab:hover .tab-close,
 .tab.is-active .tab-close {
-  display: flex;
+  opacity: 1;
 }
-.tab:hover .tab-dot,
-.tab.is-active .tab-dot,
-.tab:not(.is-dirty) .tab-dot {
+/* 有未保存改动时让位给圆点，鼠标移到这个标签上才换回 × */
+.tab.is-dirty:not(:hover) .tab-close {
+  display: none;
+}
+.tab:not(.is-dirty) .tab-dot,
+.tab.is-dirty:hover .tab-dot {
   display: none;
 }
 .tab-close:hover {
-  background: var(--border);
-  color: var(--text);
+  background: color-mix(in oklch, var(--danger) 18%, transparent);
+  color: var(--danger);
 }
 
 /* 拖动重排时的落点 */
@@ -364,9 +455,11 @@ button {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.tab-menu {
-  top: calc(100% - 2px);
-  left: 8px;
+/* 两个类名一起写，特异性才压得过下面的 `.side-menu`（它在文件里排得更后，
+   同特异性就赢了）。少了这一手，`right: 0` 会和内联的 `left` 一起生效，
+   菜单被从鼠标位置一路拉到标签栏右边缘 —— 一个横跨半个窗口的白盒子 */
+.side-menu.tab-menu {
+  top: calc(100% - 4px);
   right: auto;
 }
 
@@ -516,8 +609,8 @@ button {
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 6px 10px;
-  font-size: 13px;
+  padding: 5px 10px;
+  font-size: 12.5px;
   color: var(--text);
   text-align: left;
   border-radius: var(--r-sm);
@@ -525,6 +618,21 @@ button {
 }
 .side-menu button:hover {
   background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+/* 分组之间一条极淡的线。菜单一长，「切换状态」和「关掉东西」挤在一起，
+   手快的时候很容易点错 */
+.side-menu li.is-sep {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hairline);
+}
+/* 补充说明靠右、压暗。写进按钮文字里（「关闭其他（固定的留着）」）会让
+   整个菜单跟着最长的那一条撑宽，而那句话本来只是个注脚 */
+.menu-hint {
+  margin-left: auto;
+  padding-left: 14px;
+  font-size: 11px;
+  color: var(--muted);
 }
 .side-menu button.is-current {
   color: var(--accent);
@@ -669,23 +777,55 @@ body.is-resizing {
   padding-right: 6px;
   border-radius: var(--r-sm);
   margin: 0 8px 1px;
+  /* 选中标记那根竖条是绝对定位的，得以行为包含块 */
+  position: relative;
   transition: background var(--t-fast);
 }
 .tree-row:hover {
   background: var(--hover-bg);
 }
 
-/* 选中态是**实心**圆角条，不是半透明色块。
-   半透明会让底下的背景透上来，一排选中项深浅不一；实心才是 macOS
-   侧栏的做法，也才敢把文字反白。 */
+/* 选中态：**实心**中性灰底 + 左边一根主题色的竖条。
+   半透明底会让下面的背景透上来，一排选中项深浅不一，所以底色仍然是实心的；
+   彩色则收窄成 2px 的标记 —— 底色说「这一行被选中」，竖条说「就是它」。 */
 .tree-row.is-active,
 .tree-row.is-active:hover {
   background: var(--selected-bg);
 }
-.tree-row.is-active .tree-label,
-.tree-row.is-active .tree-twisty,
-.tree-row.is-active .tree-add {
+.tree-row.is-active .tree-label {
   color: var(--selected-text);
+  font-weight: 500;
+}
+/* 选中标记。界面上所有「一列里选中一项」的地方都用它，一条规则管到底 ——
+   分开写八份，迟早有一份漂掉，而漂了不报错，只是某个面板看着不一样。
+
+   宿主必须是 `position: relative`，下面统一给。 */
+.tree-row.is-active,
+.qs-item.is-active,
+.search-item.is-active,
+.tag-row.is-active,
+.tag-note.is-active,
+.sym-item.is-active,
+.outline-row.is-active,
+.palette-list button.is-active {
+  position: relative;
+}
+.tree-row.is-active::before,
+.qs-item.is-active::before,
+.search-item.is-active::before,
+.tag-row.is-active::before,
+.tag-note.is-active::before,
+.sym-item.is-active::before,
+.outline-row.is-active::before,
+.palette-list button.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--selected-mark);
 }
 
 .tree-twisty {
@@ -2153,8 +2293,10 @@ textarea:focus-visible {
   color: var(--accent);
   font-weight: 600;
 }
+/* 命中的那几个字仍然用主题色。选中态已经不是彩色条了，accent 在灰底上
+   照样看得清 —— 反倒是把它改成正文色会让「你输的是哪几个字」整个消失 */
 .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
-  color: var(--selected-text);
+  color: var(--accent);
 }
 .cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
   flex: 0 0 auto;
@@ -2479,6 +2621,34 @@ textarea:focus-visible {
 
 /* 排序方式。做成朴素的下拉而不是图标菜单 —— 它有五个选项、要显示
    当前选中项，原生 select 在这几点上都更省事也更好用 */
+/* ---------- 设置里的主题色色板 ---------- */
+
+.swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* 选中态用一圈外扩的描边，不是把色块本身改大 —— 改大会让一排色块
+   高低不齐，而这排东西的全部意义就是让人横着扫一眼比颜色 */
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.12);
+  transition: box-shadow var(--t-fast);
+}
+.swatch:hover {
+  box-shadow:
+    inset 0 0 0 1px oklch(0% 0 0 / 0.12),
+    0 0 0 2px var(--border);
+}
+.swatch.is-on {
+  box-shadow:
+    inset 0 0 0 1px oklch(0% 0 0 / 0.12),
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+
 /* ---------- 图片（§4.2 / §4.3） ---------- */
 
 /* 整块图片是「一个东西」：inline-block 而不是行内元素，

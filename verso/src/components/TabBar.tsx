@@ -6,14 +6,27 @@ import { tabLabels } from "../lib/tabs";
 interface Props {
   tabs: string[];
   active: number;
+  /** 前几个是固定的。固定的排在最前，见 `lib/tabs.ts` */
+  pinnedCount: number;
   /** 有未保存改动的那一个（同一时刻至多一个 —— 切页会先落盘） */
   dirtyPath?: string | null;
   onPick: (index: number) => void;
   onClose: (index: number) => void;
   onCloseOthers: (index: number) => void;
+  onTogglePin: (index: number) => void;
   /** `to` 是移走之后的目标下标 */
   onMove: (from: number, to: number) => void;
+  /** 紧跟在最后一个标签后面的 `+`：新建文档，开在新标签上 */
+  onNewTab: () => void;
 }
+
+/**
+ * 右键菜单的大致宽度，只用来把它从窗口右边缘往回收。
+ *
+ * 写死一个数而不是渲染完再量：量的话得先画出来、再挪一次，屏幕上会看到
+ * 一次跳动。差个十几像素不影响这件事要解决的问题。
+ */
+const MENU_W = 176;
 
 /**
  * 标签栏。
@@ -24,17 +37,21 @@ interface Props {
 export function TabBar({
   tabs,
   active,
+  pinnedCount,
   dirtyPath,
   onPick,
   onClose,
   onCloseOthers,
+  onTogglePin,
   onMove,
+  onNewTab,
 }: Props) {
   const labels = tabLabels(tabs);
   const strip = useRef<HTMLDivElement | null>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
-  const [menu, setMenu] = useState<number | null>(null);
+  /** 右键菜单：开在哪个标签上、以及横向落点（相对标签栏） */
+  const [menu, setMenu] = useState<{ i: number; x: number } | null>(null);
 
   // 切到看不见的那个标签时把它滚进来 —— 快捷键切页和「点了链接跳过去」
   // 都可能落在视野外，那时候屏幕上什么都没变，看着像没生效
@@ -45,7 +62,7 @@ export function TabBar({
   }, [active, tabs.length]);
 
   useEffect(() => {
-    if (menu === null) return;
+    if (!menu) return;
     const close = () => setMenu(null);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null);
     window.addEventListener("mousedown", close);
@@ -67,11 +84,17 @@ export function TabBar({
             className={
               `tab${i === active ? " is-active" : ""}` +
               `${dirtyPath === path ? " is-dirty" : ""}` +
-              `${dropAt === i ? " is-drop" : ""}`
+              `${dropAt === i ? " is-drop" : ""}` +
+              `${i < pinnedCount ? " is-pinned" : ""}` +
+              // 固定区和其余标签之间画一条竖线。没有这条线，"前几个是固定的"
+              // 就只能靠一个个看图钉去数
+              `${pinnedCount > 0 && i === pinnedCount - 1 ? " is-last-pinned" : ""}`
             }
             role="tab"
             aria-selected={i === active}
-            title={path}
+            title={`${path}${i < pinnedCount ? "（已固定）" : ""}\n双击${
+              i < pinnedCount ? "取消固定" : "固定"
+            }`}
             draggable
             onMouseDown={(e) => {
               // 中键关闭。用 mousedown 而不是 click —— 中键在 Windows 上
@@ -83,9 +106,17 @@ export function TabBar({
                 onPick(i);
               }
             }}
+            // 双击切换固定。VS Code 的双击是"从预览变成正式打开"，我们没有
+            // 预览态，这个手势正好空着 —— 而固定值得有一个不用开菜单的入口
+            onDoubleClick={() => onTogglePin(i)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenu(i);
+              // 菜单开在鼠标底下，不是永远钉在左上角 —— 标签栏可以很长，
+              // 在第 9 个标签上右键、菜单弹在最左边会让人以为点错了。
+              // 靠右边时要往回收，否则它会伸到窗口外面
+              const box = e.currentTarget.closest(".tabbar")?.getBoundingClientRect();
+              const x = e.clientX - (box?.left ?? 0);
+              setMenu({ i, x: Math.max(0, Math.min(x, (box?.width ?? 0) - MENU_W)) });
             }}
             onDragStart={(e) => {
               e.dataTransfer.effectAllowed = "move";
@@ -110,12 +141,17 @@ export function TabBar({
               setDropAt(null);
             }}
           >
+            {/* 固定标记放在名字左边。放右边会和 × 抢位置，而 × 是每个标签
+                都要有的 */}
+            {i < pinnedCount && <Icon name="pin" size={11} className="tab-pin" />}
             <span className="tab-name">{labels[i]}</span>
-            {/* 未保存的圆点占的是关闭按钮那个位置，悬停时才换成 × ——
-                两个都常驻会让标签栏右边挤成一排小图标 */}
+            {/* × 常驻。标签现在等宽，右边本来就留着这块地方 —— 藏起来只
+                换来一个"要先猜它在哪"的按钮。没在当前页时压暗一档，不抢视线。
+                有未保存改动时显示圆点，鼠标移到这个标签上才换回 × */}
             <button
               className="tab-close"
               onMouseDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onClose(i);
@@ -123,37 +159,57 @@ export function TabBar({
               title="关闭"
               aria-label={`关闭 ${labels[i]}`}
             >
-              <Icon name="close" size={11} />
+              <Icon name="close" size={12} />
             </button>
             <span className="tab-dot" aria-hidden />
           </div>
         ))}
+
+        {/* 紧贴最后一个标签，**跟着标签条一起滚** —— 浏览器就是这样，
+            手会顺着最后一个标签摸过去。钉在标签栏最右端的话，标签一多，
+            它和最后一个标签之间会隔着一大片空白，看着不像一组东西 */}
+        <button
+          className="tab-new"
+          onClick={onNewTab}
+          title="新建文档"
+          aria-label="新建文档"
+        >
+          <Icon name="plus" size={14} />
+        </button>
       </div>
 
-      {menu !== null && (
-        <ul className="side-menu tab-menu" onMouseDown={(e) => e.stopPropagation()}>
-          <li>
-            <button
-              onClick={() => {
-                const i = menu;
-                setMenu(null);
-                onClose(i);
-              }}
-            >
-              关闭
-            </button>
-          </li>
-          <li>
-            <button
-              onClick={() => {
-                const i = menu;
-                setMenu(null);
-                onCloseOthers(i);
-              }}
-            >
-              关闭其他
-            </button>
-          </li>
+      {menu && (
+        <ul
+          className="side-menu tab-menu"
+          style={{ left: menu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {[
+            {
+              label: menu.i < pinnedCount ? "取消固定" : "固定",
+              run: () => onTogglePin(menu.i),
+            },
+            // 「改状态」和「关掉东西」之间隔一条线：菜单一长，手快的时候
+            // 很容易点错，而这两件事的代价差得远
+            { label: "关闭", sep: true, run: () => onClose(menu.i) },
+            {
+              label: "关闭其他",
+              hint: pinnedCount > 0 ? "固定的留着" : undefined,
+              run: () => onCloseOthers(menu.i),
+            },
+          ].map((item) => (
+            <li key={item.label} className={item.sep ? "is-sep" : undefined}>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  item.run();
+                }}
+              >
+                {item.label}
+                {item.hint && <span className="menu-hint">{item.hint}</span>}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </div>

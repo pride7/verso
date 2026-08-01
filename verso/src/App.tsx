@@ -30,6 +30,7 @@ import {
   openTab,
   renameTab,
   stepTab,
+  togglePin,
   type TabState,
 } from "./lib/tabs";
 import { attachmentPath } from "./lib/vaultPath";
@@ -425,7 +426,7 @@ export default function App() {
       } catch {
         /* 读不到就当没开过标签，见 workspace.rs */
       }
-      if (ws.tabs.length === 0 && fallback) ws = { tabs: [fallback], active: 0 };
+      if (ws.tabs.length === 0 && fallback) ws = { tabs: [fallback], active: 0, pinnedCount: 0 };
 
       editorStates.current.clear();
       scrollTops.current.clear();
@@ -522,13 +523,13 @@ export default function App() {
   }, [note?.path]);
 
   const createAndOpen = useCallback(
-    async (parentDoc: string | null, promptLabel: string) => {
+    async (parentDoc: string | null, promptLabel: string, opts?: { newTab?: boolean }) => {
       const title = window.prompt(promptLabel, "未命名");
       if (!title) return;
       try {
         const meta = await api.createNote(parentDoc, title);
         await refresh();
-        await openPath(meta.path);
+        await openPath(meta.path, opts);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -907,6 +908,17 @@ export default function App() {
         label: "关闭其他标签",
         enabled: tabState.tabs.length > 1,
         run: () => closeOtherTabs(tabsRef.current.active),
+      },
+      {
+        id: "tab.pin",
+        group: "标签页",
+        name: "固定／取消固定标签",
+        label:
+          tabState.active < tabState.pinnedCount ? "取消固定当前标签" : "固定当前标签",
+        // 默认不绑键位 —— 固定是低频操作，不该占掉一个组合键。想要的人
+        // 去设置里绑
+        enabled: tabState.tabs.length > 0,
+        run: () => retagTabs((s) => togglePin(s, s.active)),
       },
       {
         id: "note.search",
@@ -1298,11 +1310,17 @@ export default function App() {
       <TabBar
         tabs={tabState.tabs}
         active={tabState.active}
+        pinnedCount={tabState.pinnedCount}
         dirtyPath={saveState === "dirty" ? (note?.path ?? null) : null}
         onPick={(i) => void applyTabs(gotoTab(tabsRef.current, i))}
         onClose={closeTabAt}
         onCloseOthers={closeOtherTabs}
+        // 固定只是重排标签栏，不换页 —— 和拖动一样走 retagTabs
+        onTogglePin={(i) => retagTabs((s) => togglePin(s, i))}
         onMove={(from, to) => retagTabs((s) => moveTab(s, from, to))}
+        // 标签栏的 `+` = 新建文档，而且**一定**开在新标签上：按下它的那一刻
+        // 就是在说「我要多一页」，这时候还去看设置里的默认打开方式没有意义
+        onNewTab={() => void createAndOpen(null, "新建文档", { newTab: true })}
       />
 
       <main className="main" ref={mainRef}>
@@ -1457,6 +1475,20 @@ export default function App() {
 
       {menu && (
         <ul className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+          {/* Ctrl/⌘+点 和中键都要键盘或三键鼠标。这一条是它们的等价入口 ——
+              §0：只能用快捷键完成的操作必须有能点的地方 */}
+          {menu.node.kind === "document" && (
+            <li>
+              <button
+                onClick={() => {
+                  setMenu(null);
+                  void openPath(menu.node.path, { newTab: true });
+                }}
+              >
+                在新标签页打开
+              </button>
+            </li>
+          )}
           <li>
             <button
               onClick={() => {

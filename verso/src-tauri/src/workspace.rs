@@ -31,6 +31,10 @@ pub struct Workspace {
     /// 当前页在 `tabs` 里的下标
     #[serde(default)]
     pub active: usize,
+    /// **前几个是固定的。** 固定不是一个存路径的集合，而是一段下标区间 ——
+    /// 「固定的排在最前」这条不变量因此是结构上成立的，见 `src/lib/tabs.ts`
+    #[serde(default)]
+    pub pinned_count: usize,
 }
 
 impl Workspace {
@@ -43,6 +47,8 @@ impl Workspace {
         } else if self.active >= self.tabs.len() {
             self.active = self.tabs.len() - 1;
         }
+        // 手改过、或者上个版本写的文件里，这个数可能比标签还多
+        self.pinned_count = self.pinned_count.min(self.tabs.len());
         self
     }
 }
@@ -83,6 +89,7 @@ mod tests {
         Workspace {
             tabs: tabs.iter().map(|s| s.to_string()).collect(),
             active,
+            ..Default::default()
         }
     }
 
@@ -122,6 +129,25 @@ mod tests {
     fn out_of_range_active_falls_back_to_last() {
         assert_eq!(ws(&["甲.md", "乙.md"], 9).sanitized().active, 1);
         assert_eq!(ws(&[], 3).sanitized().active, 0);
+    }
+
+    // 上个版本写的文件里没有这个键。少一个键不该让标签全丢
+    #[test]
+    fn a_file_without_pinned_count_still_loads() {
+        let w: Workspace = serde_json::from_str(r#"{"tabs":["甲.md"],"active":0}"#).unwrap();
+        assert_eq!(w.pinned_count, 0);
+        assert_eq!(w.tabs.len(), 1);
+    }
+
+    #[test]
+    fn pinned_count_cannot_exceed_the_tabs() {
+        let w = Workspace {
+            tabs: vec!["甲.md".into()],
+            active: 0,
+            pinned_count: 9,
+        }
+        .sanitized();
+        assert_eq!(w.pinned_count, 1);
     }
 
     #[test]
