@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { TreeNode } from "../types";
+import { Icon } from "./Icon";
 
 interface Props {
   nodes: TreeNode[];
@@ -81,12 +82,15 @@ function TreeItem({
         }}
       >
         <button
-          className={`tree-twisty${hasChildren ? "" : " is-empty"}`}
+          className={
+            `tree-twisty${hasChildren ? "" : " is-empty"}${expanded ? " is-open" : ""}`
+          }
           onClick={() => setExpanded((v) => !v)}
           aria-label={expanded ? "折叠" : "展开"}
           tabIndex={hasChildren ? 0 : -1}
         >
-          {hasChildren ? (expanded ? "▾" : "▸") : ""}
+          {/* 折叠态靠 CSS 旋转，不换图标 —— 旋转能做过渡动画，换字符不能 */}
+          {hasChildren && <Icon name="chevron" size={12} />}
         </button>
 
         <button
@@ -110,7 +114,7 @@ function TreeItem({
             title="新建子文档"
             aria-label="新建子文档"
           >
-            ＋
+            <Icon name="plus" size={13} />
           </button>
         )}
       </div>

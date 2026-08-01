@@ -18,11 +18,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   test: {
-    include: ["src/**/*.browser.test.ts"],
+    include: ["src/**/*.browser.test.{ts,tsx}"],
     browser: {
       enabled: true,
       provider: playwright(),
       headless: true,
+      // 视口固定成常见的笔记本尺寸 —— 视觉工作台的截图要能反映
+      // 真实使用时的比例，默认的小视口会把三栏挤成一条
+      viewport: { width: 1440, height: 900 },
       instances: [{ browser: "chromium" }],
     },
   },

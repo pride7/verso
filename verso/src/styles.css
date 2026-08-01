@@ -4,35 +4,69 @@
 
 :root {
   /* §6.2 不用纯黑纯白。深色主题用**同一套 oklch 色相**、只翻转明度，
-     色相一致是两套主题观感统一的来源。 */
-  --bg: oklch(99% 0.004 85);
-  --surface: oklch(97% 0.005 85);
-  /* 比 surface 再重一档，用于浮层与选中态 —— 只靠一个 surface
-     会让「面板」和「面板里被选中的那一行」分不开 */
-  --raised: oklch(94% 0.006 85);
-  --text: oklch(25% 0.01 260);
-  --muted: oklch(55% 0.015 260);
-  --border: oklch(90% 0.006 260);
-  --accent: oklch(58% 0.14 250);
+     色相一致是两套主题观感统一的来源。
+
+     ## 层次靠背景分层，不靠边框
+
+     侧栏原本是 97%、正文区 99% —— 差 2%，肉眼几乎分不出，全靠 1px 硬边框
+     在撑。这正是界面显得「像网页不像应用」的原因：macOS 几乎不用硬边框，
+     它靠**背景明度分层 + 极淡的分隔线**。
+
+     现在把侧栏压到 96.2%，并且规定：
+       --bg       正文区（最亮，视线主要落点）
+       --surface  侧栏、状态栏、终端（退后一层）
+       --raised   浮层、输入框、选中态（浮在 surface 之上）
+       --hairline 分隔线，比 --border 淡得多，只用来分区不用来描边 */
+  --bg: oklch(99.2% 0.003 85);
+  --surface: oklch(96.2% 0.005 85);
+  --raised: oklch(100% 0 0);
+  --text: oklch(24% 0.012 260);
+  --muted: oklch(52% 0.016 260);
+  --border: oklch(89% 0.006 260);
+  --hairline: oklch(0% 0 0 / 0.07);
+  --accent: oklch(56% 0.16 256);
   --warn: oklch(70% 0.13 70);
   --danger: oklch(58% 0.16 25);
 
-  /* 浮层阴影。深浅两套不一样：浅色靠投影，深色靠描边 —— 深背景上的
-     黑色投影是看不见的，硬加只会让边缘发脏 */
-  --shadow: 0 8px 28px oklch(25% 0.01 260 / 0.13), 0 1px 3px oklch(25% 0.01 260 / 0.08);
+  /* 选中态。macOS 侧栏选中是**实心圆角条**，不是半透明色块 ——
+     半透明会让底下的背景色透上来，一排选中项看着深浅不一 */
+  --selected-bg: oklch(56% 0.16 256);
+  --selected-text: oklch(100% 0 0);
+  /* 失焦时的选中态：Mac 会把它降成灰色，提示"这里现在不接受键盘" */
+  --hover-bg: oklch(0% 0 0 / 0.05);
+
+  /* 阴影分三档。浅色靠投影，深色靠描边 —— 深背景上的黑色投影看不见，
+     硬加只会让边缘发脏。三档都带一层极淡的 1px 描边（阴影的第一段），
+     那是 macOS 浮层看起来"贴合"而不是"飘着"的关键。 */
+  --shadow-sm: 0 0 0 0.5px oklch(0% 0 0 / 0.06), 0 1px 2px oklch(0% 0 0 / 0.06);
+  --shadow-md: 0 0 0 0.5px oklch(0% 0 0 / 0.06), 0 4px 12px oklch(0% 0 0 / 0.1);
+  --shadow-lg: 0 0 0 0.5px oklch(0% 0 0 / 0.07), 0 12px 32px oklch(0% 0 0 / 0.14),
+    0 2px 6px oklch(0% 0 0 / 0.07);
 
   /* §6.1 排版尺度。这几条会被设置覆写 */
   --body-font-size: 16.5px;
   --body-line-height: 1.75;
   --content-width: 42rem;
-  --ui-font-size: 14px;
+  --ui-font-size: 13.5px;
 
-  --font-ui: Inter, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-body: Inter, system-ui, -apple-system, "PingFang SC", "Source Han Sans SC",
-    "Microsoft YaHei", sans-serif;
+  /* 字体栈把系统 UI 字体放在最前。
+     原来 Inter 排第一，但它大概率没装 —— 实际落到 system-ui，等于这条
+     排序没起作用，还让人误以为界面是按 Inter 调的。系统字体本来就是
+     为界面优化过的（macOS 上是 SF，Windows 上是 Segoe UI Variable）。 */
+  --font-ui: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Inter,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI Variable Text", Inter, "PingFang SC",
+    "Source Han Sans SC", "Microsoft YaHei", sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Consolas, "Courier New", monospace;
   --term-font: var(--font-mono);
   --term-font-size: 12.5px;
+
+  /* 圆角成体系。原来 3/4/5/6/7/8/10px 混用，看着就是没规划过。
+     四档够用：控件、行、面板、浮层。 */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
 
   /* §6.3 动效只在 120–180ms、ease-out 范围内。超过 200ms 会让软件显得慢 */
   --t-fast: 120ms ease-out;
@@ -41,31 +75,68 @@
   color-scheme: light dark;
 }
 
-/* 深色的色值只写一遍，两个入口共用：
-   `system`（不带 data-theme）走媒体查询，明确选深色走属性选择器。
-   属性选择器排在媒体查询之后，所以在深色系统里选「浅色」也能盖回去。 */
+/* 深色主题。
+
+   ## 为什么值和转接分开写
+
+   深色有两个入口：`system`（不带 data-theme）走媒体查询，明确选深色走属性
+   选择器。CSS 没法让两个选择器共用一段声明，早先的写法是把整套色值抄两遍
+   —— 那迟早会漂，而且漂了不报错，只是某个主题下颜色对不上。
+
+   现在**色值只写一处**（下面这组 `--d-*`），两个入口只做转接。值不可能漂，
+   转接漏了一行则是机械问题，扫一眼就能看出来。
+
+   深色不是把浅色反过来那么简单：明度差要拉得比浅色大（深色背景上人眼对
+   明度差更迟钝），而 accent 要提亮、降饱和，否则在深底上会刺眼。 */
+:root {
+  --d-bg: oklch(19% 0.008 260);
+  --d-surface: oklch(23% 0.009 260);
+  --d-raised: oklch(27% 0.011 260);
+  --d-text: oklch(93% 0.005 85);
+  --d-muted: oklch(66% 0.014 260);
+  --d-border: oklch(33% 0.011 260);
+  --d-hairline: oklch(100% 0 0 / 0.09);
+  --d-accent: oklch(72% 0.14 256);
+  --d-selected-bg: oklch(52% 0.15 256);
+  --d-hover-bg: oklch(100% 0 0 / 0.07);
+  --d-shadow-sm: 0 0 0 0.5px oklch(100% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.4);
+  --d-shadow-md: 0 0 0 0.5px oklch(100% 0 0 / 0.09), 0 4px 14px oklch(0% 0 0 / 0.5);
+  --d-shadow-lg: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 14px 36px oklch(0% 0 0 / 0.6);
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
-    --bg: oklch(20% 0.008 260);
-    --surface: oklch(24% 0.009 260);
-    --raised: oklch(28% 0.01 260);
-    --text: oklch(92% 0.006 85);
-    --muted: oklch(65% 0.012 260);
-    --border: oklch(32% 0.01 260);
-    --accent: oklch(72% 0.13 250);
-    --shadow: 0 8px 28px oklch(0% 0 0 / 0.45), 0 0 0 1px oklch(40% 0.01 260 / 0.6);
+    --bg: var(--d-bg);
+    --surface: var(--d-surface);
+    --raised: var(--d-raised);
+    --text: var(--d-text);
+    --muted: var(--d-muted);
+    --border: var(--d-border);
+    --hairline: var(--d-hairline);
+    --accent: var(--d-accent);
+    --selected-bg: var(--d-selected-bg);
+    --hover-bg: var(--d-hover-bg);
+    --shadow-sm: var(--d-shadow-sm);
+    --shadow-md: var(--d-shadow-md);
+    --shadow-lg: var(--d-shadow-lg);
   }
 }
 
+/* 排在媒体查询之后，所以在深色系统里选「浅色」也能盖回去 */
 :root[data-theme="dark"] {
-  --bg: oklch(20% 0.008 260);
-  --surface: oklch(24% 0.009 260);
-  --raised: oklch(28% 0.01 260);
-  --text: oklch(92% 0.006 85);
-  --muted: oklch(65% 0.012 260);
-  --border: oklch(32% 0.01 260);
-  --accent: oklch(72% 0.13 250);
-  --shadow: 0 8px 28px oklch(0% 0 0 / 0.45), 0 0 0 1px oklch(40% 0.01 260 / 0.6);
+  --bg: var(--d-bg);
+  --surface: var(--d-surface);
+  --raised: var(--d-raised);
+  --text: var(--d-text);
+  --muted: var(--d-muted);
+  --border: var(--d-border);
+  --hairline: var(--d-hairline);
+  --accent: var(--d-accent);
+  --selected-bg: var(--d-selected-bg);
+  --hover-bg: var(--d-hover-bg);
+  --shadow-sm: var(--d-shadow-sm);
+  --shadow-md: var(--d-shadow-md);
+  --shadow-lg: var(--d-shadow-lg);
   color-scheme: dark;
 }
 
@@ -134,7 +205,7 @@ button {
   background: var(--accent);
   color: white;
   padding: 9px 20px;
-  border-radius: 7px;
+  border-radius: var(--r-md);
   font-weight: 500;
   transition: filter 150ms ease-out; /* §6.3 动效 120-180ms */
 }
@@ -179,10 +250,11 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 8px 0 10px;
+  gap: 4px;
+  padding: 10px 0 12px;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  /* 和侧栏同色、不画分隔线 —— 它们是同一块"退后的"区域，
+     中间加线会把左边切成两条细长条，显得局促 */
 }
 
 /* 把下半组动作推到底部。上组=切视图、下组=执行动作，两组在视觉上
@@ -193,24 +265,22 @@ button {
 
 .rail-btn {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   color: var(--muted);
-  font-size: 15px;
-  line-height: 1;
   transition: color var(--t-fast), background var(--t-fast);
 }
 .rail-btn:hover {
   color: var(--text);
-  background: var(--border);
+  background: var(--hover-bg);
 }
 .rail-btn.is-on {
   color: var(--accent);
-  background: color-mix(in oklch, var(--accent) 15%, transparent);
+  background: color-mix(in oklch, var(--accent) 13%, transparent);
 }
 
 /* 选中的视图在最左边有一条竖标 —— VS Code 的做法。
@@ -218,18 +288,20 @@ button {
 .rail-btn.is-on:not(.rail-action)::before {
   content: "";
   position: absolute;
-  left: -6px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
-  border-radius: 1px;
+  left: -7px;
+  top: 5px;
+  bottom: 5px;
+  width: 2.5px;
+  border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
 
 .sidebar {
   grid-area: sidebar;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  /* 唯一一条竖向分隔线，而且用 hairline（约 7% 黑）而不是 border ——
+     侧栏和正文区的明度差已经把两边分开了，线只是收个边 */
+  border-right: 1px solid var(--hairline);
   overflow-y: auto;
   padding-bottom: 16px;
   display: flex;
@@ -238,9 +310,9 @@ button {
 
 .sidebar-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  padding: 12px 8px 8px 14px;
+  padding: 12px 8px 10px 14px;
   position: sticky;
   top: 0;
   background: var(--surface);
@@ -249,7 +321,7 @@ button {
 .side-title {
   font-weight: 600;
   font-size: 12px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--muted);
   flex: none;
 }
@@ -259,7 +331,7 @@ button {
   font-size: 11.5px;
   color: var(--muted);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -274,7 +346,7 @@ button {
   flex: none;
   color: var(--muted);
   padding: 0 4px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   line-height: 1;
 }
 .side-add:hover {
@@ -301,7 +373,7 @@ button {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   outline: none;
   transition: border-color var(--t-fast);
 }
@@ -325,7 +397,7 @@ button {
   font-family: var(--font-mono);
   font-size: 0.92em;
   background: var(--border);
-  border-radius: 3px;
+  border-radius: var(--r-xs);
   padding: 0 3px;
 }
 .side-list {
@@ -354,34 +426,54 @@ button {
 .tree-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   padding-right: 6px;
-  border-radius: 5px;
-  margin: 0 6px 1px;
+  border-radius: var(--r-sm);
+  margin: 0 8px 1px;
+  transition: background var(--t-fast);
 }
 .tree-row:hover {
-  background: var(--border);
+  background: var(--hover-bg);
 }
-.tree-row.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+
+/* 选中态是**实心**圆角条，不是半透明色块。
+   半透明会让底下的背景透上来，一排选中项深浅不一；实心才是 macOS
+   侧栏的做法，也才敢把文字反白。 */
+.tree-row.is-active,
+.tree-row.is-active:hover {
+  background: var(--selected-bg);
+}
+.tree-row.is-active .tree-label,
+.tree-row.is-active .tree-twisty,
+.tree-row.is-active .tree-add {
+  color: var(--selected-text);
 }
 
 .tree-twisty {
-  width: 15px;
+  width: 16px;
+  height: 16px;
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
-  font-size: 10px;
   padding: 0;
-  line-height: 1;
+  opacity: 0.75;
+  /* 折叠/展开只转 90°，比换图标平滑 */
+  transition: transform var(--t-fast), opacity var(--t-fast);
+}
+.tree-twisty.is-open {
+  transform: rotate(90deg);
 }
 .tree-twisty.is-empty {
   cursor: default;
+  opacity: 0;
 }
 
 .tree-label {
   flex: 1;
   text-align: left;
-  padding: 4px 2px;
+  padding: 5px 2px;
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -430,7 +522,7 @@ button {
   font-family: var(--font-mono);
   font-size: 0.85em;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 1px 5px;
   margin: 0 1px;
 }
@@ -441,13 +533,18 @@ button {
   outline-offset: -2px;
 }
 
+/* 内缩的圆角卡片，不是通栏横条 —— 它是一条**临时**的提示，
+   通栏会让人以为是常驻的界面结构 */
 .banner {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 16px;
-  background: color-mix(in oklch, var(--warn) 20%, var(--bg));
-  border-bottom: 1px solid var(--border);
+  margin: 12px auto 0;
+  max-width: var(--content-width);
+  padding: 9px 14px;
+  background: color-mix(in oklch, var(--warn) 18%, var(--bg));
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
   font-size: 13px;
 }
 .banner button {
@@ -466,10 +563,13 @@ button {
   flex-direction: column;
 }
 
+/* 顶部要留够白。正文贴着窗口边缘是"网页感"最强的一处 ——
+   桌面应用的内容区总有一段呼吸空间 */
 .breadcrumb {
-  padding: 18px 2px 10px;
+  padding: 32px 2px 12px;
   font-size: 12px;
   color: var(--muted);
+  letter-spacing: 0.01em;
 }
 .breadcrumb-sep {
   margin: 0 6px;
@@ -479,7 +579,7 @@ button {
   color: inherit;
   font: inherit;
   padding: 1px 2px;
-  border-radius: 3px;
+  border-radius: var(--r-xs);
 }
 .breadcrumb-link:hover {
   color: var(--accent);
@@ -506,7 +606,7 @@ button {
   width: 100%;
   padding: 4px 2px;
   color: var(--muted);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
 }
 .props-toggle:hover {
   background: color-mix(in oklch, var(--muted) 10%, transparent);
@@ -524,8 +624,10 @@ button {
 .props-tag {
   color: var(--accent);
   background: color-mix(in oklch, var(--accent) 12%, transparent);
-  border-radius: 4px;
-  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  padding: 1.5px 7px;
+  /* 标签中间断行会变成上下两截，看着像两个标签 */
+  white-space: nowrap;
 }
 .props-count {
   opacity: 0.65;
@@ -557,7 +659,7 @@ button {
 .overlay {
   position: fixed;
   inset: 0;
-  background: color-mix(in oklch, black 28%, transparent);
+  background: oklch(0% 0 0 / 0.18);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -583,10 +685,9 @@ button {
   max-height: 62vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
+  background: var(--raised);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: modal-in var(--t-base);
 }
@@ -607,7 +708,7 @@ button {
   font: inherit;
   font-size: 15px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hairline);
 }
 .modal-list {
   list-style: none;
@@ -620,11 +721,16 @@ button {
   align-items: baseline;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .qs-item.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+  color: var(--selected-text);
+}
+.qs-item.is-active .qs-path,
+.qs-item.is-active .qs-hit {
+  color: var(--selected-text);
 }
 .qs-name {
   font-size: 13.5px;
@@ -656,7 +762,7 @@ button {
 }
 .dbview {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   overflow: hidden;
   font-size: 13px;
   background: var(--surface);
@@ -724,7 +830,7 @@ button {
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--accent);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   outline: none;
 }
 .dbview-foot {
@@ -760,7 +866,7 @@ button {
   margin-bottom: 5px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   font-size: 12.5px;
 }
 .dbview-card:hover {
@@ -776,11 +882,20 @@ button {
   width: 100%;
   text-align: left;
   padding: 7px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .search-item.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+}
+.search-item.is-active .search-title,
+.search-item.is-active .search-snippet,
+.search-item.is-active .search-path {
+  color: var(--selected-text);
+}
+.search-item.is-active .search-snippet mark {
+  background: color-mix(in oklch, var(--selected-text) 30%, transparent);
+  color: var(--selected-text);
 }
 .search-title {
   display: block;
@@ -833,13 +948,18 @@ button {
   gap: 2px;
   margin: 0 6px 1px;
   padding-right: 6px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
 }
 .tag-row:hover {
   background: var(--border);
 }
 .tag-row.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+}
+.tag-row.is-active .tag-label,
+.tag-row.is-active .tag-count,
+.tag-row.is-active .tree-twisty {
+  color: var(--selected-text);
 }
 .tag-label {
   flex: 1;
@@ -872,7 +992,7 @@ button {
   width: 100%;
   text-align: left;
   padding: 5px 8px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -882,7 +1002,8 @@ button {
   background: var(--border);
 }
 .tag-note.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+  color: var(--selected-text);
   font-weight: 500;
 }
 
@@ -900,7 +1021,7 @@ button {
   font-size: 12px;
   color: var(--muted);
   padding: 3px 2px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
 }
 .backlinks-head:hover {
   background: color-mix(in oklch, var(--muted) 10%, transparent);
@@ -919,7 +1040,7 @@ button {
   width: 100%;
   text-align: left;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
 }
 .backlink:hover {
   background: color-mix(in oklch, var(--accent) 10%, transparent);
@@ -949,11 +1070,12 @@ button {
   align-items: baseline;
   gap: 12px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   cursor: pointer;
 }
 .sym-item.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+  color: var(--selected-text);
 }
 .sym-latex {
   font-family: var(--font-mono);
@@ -976,7 +1098,7 @@ button {
   font-size: 11px;
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 1px 5px;
   flex: none;
 }
@@ -989,18 +1111,17 @@ button {
   list-style: none;
   margin: 0;
   padding: 4px;
-  min-width: 148px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 10px 28px color-mix(in oklch, black 20%, transparent);
+  min-width: 152px;
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
 }
 .ctx button {
   display: block;
   width: 100%;
   text-align: left;
   padding: 6px 10px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   font-size: 13px;
 }
 .ctx button:hover {
@@ -1018,7 +1139,7 @@ button {
   align-items: center;
   gap: 8px;
   padding: 5px 14px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hairline);
   background: var(--surface);
   font-size: 11.5px;
   color: var(--muted);
@@ -1060,6 +1181,11 @@ button {
   flex-direction: column;
   min-height: 0;
   background: var(--surface);
+  /* 只圆上面两角：左右和底部都贴着窗口边，那三个方向圆了会露出
+     后面的背景，看着是脏的而不是精致的 */
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  overflow: hidden;
   border-top: 1px solid var(--border);
   position: relative;
 }
@@ -1093,11 +1219,11 @@ button {
 .term-close {
   color: var(--muted);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   line-height: 1;
 }
 .term-close:hover {
-  background: var(--border);
+  background: var(--hover-bg);
   color: var(--text);
 }
 
@@ -1149,7 +1275,7 @@ button {
   color: var(--muted);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 12px;
   overflow-x: auto;
   white-space: pre-wrap;
@@ -1184,10 +1310,18 @@ button {
   width: 100%;
   text-align: left;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
 }
 .palette-list button.is-active {
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--selected-bg);
+}
+.palette-list button.is-active .palette-label,
+.palette-list button.is-active .palette-group,
+.palette-list button.is-active .palette-keys {
+  color: var(--selected-text);
+}
+.palette-list button.is-active .palette-keys {
+  border-color: color-mix(in oklch, var(--selected-text) 40%, transparent);
 }
 /* 分组名定宽右对齐，让所有命令名竖着对齐成一列 —— 扫读快得多 */
 .palette-group {
@@ -1207,7 +1341,7 @@ button {
   font-size: 11px;
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   padding: 1px 5px;
 }
 .palette-empty {
@@ -1253,11 +1387,11 @@ button {
 .modal-close {
   color: var(--muted);
   padding: 4px 8px;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   line-height: 1;
 }
 .modal-close:hover {
-  background: var(--border);
+  background: var(--hover-bg);
   color: var(--text);
 }
 .settings-body {
@@ -1321,11 +1455,11 @@ button {
 .set-reset {
   color: var(--muted);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-xs);
   line-height: 1;
 }
 .set-reset:hover:not(:disabled) {
-  background: var(--border);
+  background: var(--hover-bg);
   color: var(--text);
 }
 .set-reset:disabled {
@@ -1340,7 +1474,7 @@ button {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   outline: none;
   transition: border-color var(--t-fast);
 }
@@ -1369,7 +1503,7 @@ button {
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   outline: none;
   resize: vertical;
   tab-size: 2;
@@ -1383,7 +1517,7 @@ button {
   padding: 10px 12px;
   background: color-mix(in oklch, var(--danger) 10%, transparent);
   border: 1px solid color-mix(in oklch, var(--danger) 35%, transparent);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   font-size: 12px;
   line-height: 1.7;
   color: var(--text);
@@ -1411,7 +1545,7 @@ button {
   display: flex;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--r-md);
   padding: 2px;
   gap: 2px;
 }
@@ -1419,7 +1553,7 @@ button {
   padding: 5px 12px;
   font-size: 12.5px;
   color: var(--muted);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .segmented button:hover {
@@ -1456,4 +1590,162 @@ button {
 .status-count {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 滚动条 ----------
+
+   Windows 默认的滚动条是又宽又实的一条灰色，占 17px 宽、永远显形，在一个
+   讲究留白的界面里非常抢眼。macOS 的是细的、半透明的、悬停才变明显。
+
+   用 `::-webkit-scrollbar` 而不是 `scrollbar-width: thin` —— 后者只能选
+   粗细，改不了颜色，在深色主题下仍然是浅色的一条。 */
+
+* {
+  scrollbar-color: var(--scroll-thumb, oklch(0% 0 0 / 0.22)) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  /* 背景裁到内容盒，加上透明边框，就得到"两侧留白的细条" ——
+     直接设 width 会把整条轨道都变窄，滚动区域跟着变小 */
+  background: oklch(0% 0 0 / 0.2);
+  background-clip: content-box;
+  border: 3px solid transparent;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0% 0 0 / 0.35);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: oklch(100% 0 0 / 0.2);
+  background-clip: content-box;
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: oklch(100% 0 0 / 0.34);
+  background-clip: content-box;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) ::-webkit-scrollbar-thumb {
+    background: oklch(100% 0 0 / 0.2);
+    background-clip: content-box;
+  }
+  :root:not([data-theme]) ::-webkit-scrollbar-thumb:hover {
+    background: oklch(100% 0 0 / 0.34);
+    background-clip: content-box;
+  }
+}
+
+/* ---------- 焦点 ----------
+
+   键盘用户必须看得见焦点，鼠标用户不该被焦点环打扰 —— `:focus-visible`
+   正是为这个区分而生的。统一用一圈 accent 描边，不用浏览器默认的黑框。 */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+/* 输入框自己已经有边框变色作为焦点反馈，再套一圈就重了 */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* ---------- 文本选中 ---------- */
+
+::selection {
+  background: color-mix(in oklch, var(--accent) 26%, transparent);
+}
+
+/* ---------- 补全面板（`[[` 与 `/`）----------
+
+   ## 为什么写在这里而不是 EditorView.theme 里
+
+   CodeMirror 的 tooltip 默认是 `position: fixed`，**渲染在编辑器 DOM 之外**
+   （挂到 document.body 下）。`EditorView.theme` 生成的规则带着编辑器根节点
+   上的作用域类名，够不到那里 —— 写在那边的样式一条都不会生效。
+
+   这个失效很有迷惑性：面板的字号看着是对的，那不是样式起作用，而是它
+   继承了 body 的字号，恰好一样。真正露馅的是圆角和阴影全没有、行高只有
+   18px。`completionStyle.browser.test.ts` 就是量这几项的。
+
+   类名写两遍（`.cm-tooltip-autocomplete.cm-tooltip-autocomplete`）是为了
+   压过 CodeMirror 自带的基础主题 —— 它的规则同样特异度，靠源码顺序决胜，
+   而它是在编辑器创建时才注入的，比这个文件晚。 */
+
+.cm-tooltip.cm-tooltip-autocomplete.cm-tooltip-autocomplete {
+  background: var(--raised);
+  border: none;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  padding: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--ui-font-size);
+  color: var(--text);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete.cm-tooltip-autocomplete > ul {
+  font-family: inherit;
+  /* 按**行数**限高，不按像素。行高固定成 2.4em（见下），所以整数倍
+     永远落在行的边界上 —— CodeMirror 默认按 px 截断才会切出半行，
+     而半行看着像"到底了"，人就不会再往下翻 */
+  max-height: calc(2.4em * 8);
+  margin: 0;
+  padding: 0;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete.cm-tooltip-autocomplete > ul > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 固定行高，配合上面按行数限高 */
+  height: 2.4em;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: inherit;
+}
+
+/* 选中项用实心条，和文档树、命令面板一致 */
+.cm-tooltip.cm-tooltip-autocomplete.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--selected-bg);
+  color: var(--selected-text);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionLabel {
+  flex: 1 1 auto;
+}
+/* 匹配到的字符默认是加粗，在中文里几乎看不出来，改成强调色 */
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionMatchedText {
+  text-decoration: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: var(--selected-text);
+}
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
+  flex: 0 0 auto;
+  margin: 0;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--muted);
+}
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionDetail {
+  color: color-mix(in oklch, var(--selected-text) 78%, transparent);
+}
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon {
+  display: none;
 }

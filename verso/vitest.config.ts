@@ -10,6 +10,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   test: {
-    exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.ts"],
+    exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.{ts,tsx}"],
   },
 });

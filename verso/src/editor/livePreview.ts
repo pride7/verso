@@ -36,7 +36,8 @@ import {
 } from "@codemirror/view";
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
-import { MathWidget } from "./widgets";
+import { calloutKind } from "./callout";
+import { BulletWidget, CalloutWidget, MathWidget, TaskWidget } from "./widgets";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
 const hideMark = Decoration.replace({});
@@ -47,6 +48,7 @@ const styleMarks = {
   hashtag: Decoration.mark({ class: "cm-hashtag" }),
   highlight: Decoration.mark({ class: "cm-highlight" }),
   callout: Decoration.mark({ class: "cm-callout-marker" }),
+  taskDone: Decoration.mark({ class: "cm-task-done" }),
 };
 
 /**
@@ -174,9 +176,97 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
             marks.push(hideMark.range(from, to));
             return false;
 
-          case "CalloutMarker":
-            marks.push(styleMarks.callout.range(from, to));
+          // ---- 围栏代码块 ----
+          //
+          // 和 callout 一样用行装饰画圆角底色。不用 replace 整块 ——
+          // 那样光标进不去，代码就没法改了。
+          case "FencedCode": {
+            // ` ```verso-view ` 整块被 database 视图替换掉了（viewBlock.ts），
+            // 再叠一层底色会在视图周围留一圈灰边
+            const head = state.doc.lineAt(from);
+            if (/^\s*```[ \t]*verso-view\b/.test(head.text)) return false;
+
+            const last = state.doc.lineAt(to).number;
+            for (let n = head.number; n <= last; n++) {
+              const line = state.doc.line(n);
+              const cls = [
+                "cm-code",
+                n === head.number ? "is-open" : "",
+                n === last ? "is-close" : "",
+                // 围栏那两行（```）淡化，但不藏 —— 藏了就没法改语言标注，
+                // 而且光标停在块里时会看到行数对不上
+                n === head.number || n === last ? "is-fence" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              marks.push(Decoration.line({ class: cls }).range(line.from));
+            }
             return false;
+          }
+
+          // ---- 引用块与 callout ----
+          //
+          // 靠**行装饰**画左侧色条和底色。行装饰不替换换行符，所以
+          // ViewPlugin 里可以安全产出（那条硬约束只挡跨行的 replace）。
+          case "Blockquote": {
+            // 光标进来就整块回到源码，和别的 live preview 规则一致
+            if (touched(state, from, to)) return false;
+
+            // 按**首行文本**判断是不是 callout，不查语法树。
+            //
+            // `getChild("CalloutMarker")` 是错的：标记嵌在
+            // Blockquote > Paragraph > CalloutMarker，而 getChild 只看直接
+            // 子节点，永远返回 null —— 表现是 callout 全都退化成普通引用，
+            // 但徽标又是好的（那条走的是另一个 case），很难看出问题在哪。
+            const head = state.doc.lineAt(from);
+            const m = /^\s*>\s*(\[!\s*[^\]\s]+\s*\][-+]?)/.exec(head.text);
+            const kind = m ? calloutKind(m[1]) : null;
+
+            const first = head.number;
+            const last = state.doc.lineAt(to).number;
+            for (let n = first; n <= last; n++) {
+              const line = state.doc.line(n);
+              const cls = [
+                kind ? "cm-callout" : "cm-quote",
+                kind ? `cm-callout-${kind.tone}` : "",
+                n === first ? "is-open" : "",
+                n === last ? "is-close" : "",
+                kind && n === first ? "is-title" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              marks.push(Decoration.line({ class: cls }).range(line.from));
+            }
+            // 继续进入子节点，把 `>` 和 `[!note]` 藏掉
+            return;
+          }
+
+          // `>` 连同后面那个空格一起藏掉 —— 左侧色条已经表明这是引用了
+          case "QuoteMark": {
+            const quote = node.node.parent;
+            if (quote && touched(state, quote.from, quote.to)) return false;
+            const end = state.doc.sliceString(to, to + 1) === " " ? to + 1 : to;
+            marks.push(hideMark.range(from, end));
+            return false;
+          }
+
+          case "CalloutMarker": {
+            const quote = node.node.parent;
+            if (quote && touched(state, quote.from, quote.to)) return false;
+            const kind = calloutKind(state.doc.sliceString(from, to));
+            // 标题写了就用标题，没写就用类型的中文名
+            const rest = state.doc.sliceString(to, state.doc.lineAt(to).to).trim();
+            const label = rest || kind.label;
+            const end = rest ? to : state.doc.lineAt(to).to;
+            marks.push(
+              Decoration.replace({
+                widget: new CalloutWidget(kind.tone, kind.icon, label),
+              }).range(from, end),
+            );
+            // 标题已经进 widget 了，把原文那段也吃掉，否则会重复显示一遍
+            if (rest) marks.push(hideMark.range(to, state.doc.lineAt(to).to));
+            return false;
+          }
 
           // ---- 标准 Markdown 的标记符号 ----
           case "EmphasisMark":
@@ -185,6 +275,45 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
             const parent = node.node.parent;
             if (parent && touched(state, parent.from, parent.to)) return false;
             marks.push(hideMark.range(from, to));
+            return false;
+          }
+
+          // ---- 任务列表 ----
+          //
+          // GFM 把 `- [x] 事项` 解析成 ListItem > (ListMark, Task > TaskMarker)。
+          // 光标进入这一行时整行回到源码，和别的 live preview 规则一致。
+          case "TaskMarker": {
+            const line = state.doc.lineAt(from);
+            if (touched(state, line.from, line.to)) return false;
+            const checked = /[xX]/.test(state.doc.sliceString(from + 1, from + 2));
+            marks.push(
+              Decoration.replace({ widget: new TaskWidget(checked, from) }).range(from, to),
+            );
+            // 勾掉的事项整行降级 —— 一眼能看出哪些做完了。
+            // 只到行尾，不跨行，所以 ViewPlugin 里可以安全产出
+            // 从文字开始划，跳过复选框后面那个空格 —— 不跳的话删除线
+            // 会从框的右边伸出来一小截，像多了个短横
+            const textStart = state.doc.sliceString(to, to + 1) === " " ? to + 1 : to;
+            if (checked && textStart < line.to) {
+              marks.push(styleMarks.taskDone.range(textStart, line.to));
+            }
+            return false;
+          }
+
+          case "ListMark": {
+            const line = state.doc.lineAt(from);
+            if (touched(state, line.from, line.to)) return false;
+            // 有序列表的 `1.` 是内容的一部分，不能换成圆点
+            if (!/^[-*+]$/.test(state.doc.sliceString(from, to))) return false;
+            // 任务项的 `-` 直接藏掉：复选框本身已经表明这是一个列表项，
+            // 再画个圆点会变成「• ☐ 事项」，多一个符号
+            const isTask = !!node.node.parent?.getChild("Task");
+            marks.push(
+              (isTask
+                ? hideMark
+                : Decoration.replace({ widget: new BulletWidget() })
+              ).range(from, to),
+            );
             return false;
           }
 
@@ -205,7 +334,10 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
   }
 
   // RangeSetBuilder 要求按 from 递增添加，而语法树遍历的产出顺序不保证如此
-  marks.sort((a, b) => a.from - b.from || a.to - b.to);
+  // RangeSetBuilder 要求按 (from, startSide) 递增添加，而语法树遍历的产出
+  // 顺序不保证如此。startSide 必须参与排序 —— 行装饰的 startSide 比普通
+  // mark 小得多，同一个位置上排错了会直接抛 "Ranges must be added sorted"
+  marks.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide || a.to - b.to);
   const builder = new RangeSetBuilder<Decoration>();
   for (const m of marks) builder.add(m.from, m.to, m.value);
   return builder.finish();
@@ -219,7 +351,20 @@ class InlinePreviewPlugin implements PluginValue {
   }
 
   update(update: ViewUpdate) {
-    if (update.docChanged || update.viewportChanged || update.selectionSet) {
+    // **解析推进也要重建。**
+    //
+    // 构造这个插件的那一刻文档往往还没解析完（CM6 的解析是 view 建好之后
+    // 异步进行的），那时 `syntaxTree` 是空的，什么也算不出来。而下面三个
+    // 条件都不包含"解析完成"，于是要等用户碰一下（挪光标、打个字）才补上。
+    //
+    // 平时不容易发现：打开笔记后总会有别的事件触发更新，看起来是好的。
+    // 只有在"挂上去之后什么都不做"的场景（比如测试、或者纯阅读一篇笔记）
+    // 才会露出源码。database 视图当初踩的是同一个坑，解法也一样 ——
+    // 听 parseRefresh 派发的 effect。
+    const parsed = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(parseAdvanced)),
+    );
+    if (update.docChanged || update.viewportChanged || update.selectionSet || parsed) {
       this.decorations = buildInlineDecorations(update.view);
     }
   }

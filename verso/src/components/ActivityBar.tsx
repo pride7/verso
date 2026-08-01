@@ -1,4 +1,5 @@
 import { keyLabel } from "../lib/platform";
+import { Icon, type IconName } from "./Icon";
 
 /** 侧栏当前显示哪个面板 */
 export type SidebarView = "tree" | "search" | "tags";
@@ -15,10 +16,10 @@ interface Props {
   onSettings: () => void;
 }
 
-const VIEWS: { id: SidebarView; icon: string; label: string; keys?: string }[] = [
-  { id: "tree", icon: "▤", label: "文档树" },
-  { id: "search", icon: "⌕", label: "搜索", keys: keyLabel("Mod+Shift+F") },
-  { id: "tags", icon: "#", label: "标签" },
+const VIEWS: { id: SidebarView; icon: IconName; label: string; keys?: string }[] = [
+  { id: "tree", icon: "tree", label: "文档树" },
+  { id: "search", icon: "search", label: "搜索", keys: keyLabel("Mod+Shift+F") },
+  { id: "tags", icon: "tag", label: "标签" },
 ];
 
 /**
@@ -54,9 +55,10 @@ export function ActivityBar({
           // 把编辑区拉到最宽的办法
           onClick={() => onView(v.id)}
           title={v.keys ? `${v.label} (${v.keys})` : v.label}
+          aria-label={v.label}
           aria-pressed={sidebarOpen && view === v.id}
         >
-          {v.icon}
+          <Icon name={v.icon} />
         </button>
       ))}
 
@@ -71,22 +73,25 @@ export function ActivityBar({
           onSystemTerminal();
         }}
         title={`终端 (${keyLabel("Mod+`")})　右键：在系统终端中打开`}
+        aria-label="终端"
       >
-        ▣
+        <Icon name="terminal" />
       </button>
       <button
         className="rail-btn rail-action"
         onClick={onPalette}
         title={`命令面板 (${keyLabel("Mod+Shift+P")})`}
+        aria-label="命令面板"
       >
-        ⌘
+        <Icon name="command" />
       </button>
       <button
         className="rail-btn rail-action"
         onClick={onSettings}
         title={`设置 (${keyLabel("Mod+,")})`}
+        aria-label="设置"
       >
-        ⚙
+        <Icon name="settings" />
       </button>
     </nav>
   );

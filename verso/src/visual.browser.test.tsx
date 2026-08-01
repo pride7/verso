@@ -1,0 +1,358 @@
+/**
+ * 视觉工作台。
+ *
+ * 改 UI 不能靠想象。但**不能截屏幕** —— 抓屏会拍到作者屏幕上任何东西
+ * （AGENTS.md 里记着那次事故）。Playwright 起的是独立的 headless Chromium，
+ * 只画自己那一页，既能看见效果又碰不到别的窗口。
+ *
+ * 跑法：`pnpm test:browser -- visual`，产物在 `src/__shots__/`。
+ * 这不是断言型测试，是给人看的 —— 所以只有一条"画得出来"的兜底断言，
+ * 真正的价值在生成的 PNG 上。
+ */
+import { page } from "vitest/browser";
+import { EditorView } from "@codemirror/view";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { NoteContent, NoteRef, SearchHit, TreeNode, VaultInfo } from "./types";
+
+// ---------------------------------------------------------------- 假数据
+//
+// 内容有意做得像真的：中英混排、长短不一的标题、几层嵌套。
+// 用 "笔记1/笔记2" 这种占位符看不出排版问题 —— 而排版问题正是要看的东西。
+
+const VAULT: VaultInfo = {
+  root: "D:/Notes/vault",
+  name: "vault",
+  createdRepo: false,
+  createdGitignore: false,
+  renamedBranch: false,
+};
+
+const node = (
+  name: string,
+  path: string,
+  children: TreeNode[] = [],
+  kind: "document" | "folder" = "document",
+): TreeNode => ({ name, path, kind, children, childDir: children.length ? path.replace(/.md$/, "") : null });
+
+const TREE: TreeNode[] = [
+  node("数学", "数学.md", [
+    node("线性代数", "数学/线性代数.md", [
+      node("奇异值分解", "数学/线性代数/奇异值分解.md"),
+      node("特征值与特征向量", "数学/线性代数/特征值与特征向量.md"),
+    ]),
+    node("泛函分析", "数学/泛函分析.md"),
+  ]),
+  node("论文", "论文.md", [
+    node("Attention Is All You Need", "论文/Attention Is All You Need.md"),
+    node("奇异值分解的数值方法", "论文/奇异值分解的数值方法.md"),
+    node("一篇还没开始读的", "论文/一篇还没开始读的.md"),
+  ]),
+  node("日志", "日志.md"),
+];
+
+const NOTE_BODY = `# 论文清单
+
+这就是 §2.6 说的「页面级 database」——数据来源是每篇笔记的 frontmatter，
+底下仍然只是一堆 \`.md\` 文件。**点单元格可以直接改**，改动会写回那篇笔记。
+
+任意矩阵 $A \\in \\mathbb{R}^{m \\times n}$ 都可以分解为
+
+$$
+A = U \\Sigma V^{\\mathsf{T}}
+$$
+
+其中 $U$ 的列是 [[特征值与特征向量|左奇异向量]]。标签：#线性代数 #矩阵分解
+
+> [!note] 提示
+> callout 用来放旁注，不打断正文的阅读节奏。
+
+> [!warning]
+> 奇异值接近零时，直接求逆会放大误差。
+
+> [!tip] 实践建议
+> 用 Golub–Kahan 双对角化，数值上稳定得多。
+
+> 普通引用不该和 callout 长一样 —— 它只有一条灰色竖线。
+> 引用可以有第二行。
+
+| 敲这些 | 应当得到 |
+|---|---|
+| \`//\` | 分式，光标在分子 |
+| \`xsr\` | 上标平方 |
+| \`pmat3x3\` | 3×3 矩阵骨架 |
+
+## 代码
+
+\`\`\`rust
+fn main() {
+    println!("围栏代码块现在有圆角底色了");
+}
+\`\`\`
+
+## 待办
+
+- [ ] 补齐数值稳定性那一节
+- [x] 整理参考文献
+`;
+
+const NOTE: NoteContent = {
+  path: "论文.md",
+  id: "01J8XKQ2M4N7P9R3T5V8W1Y2Z0",
+  title: "论文",
+  frontmatter: { tags: ["索引页"], status: "整理中" },
+  body: NOTE_BODY,
+  mtimeMs: 0,
+};
+
+const NOTES: NoteRef[] = [
+  { path: "数学/线性代数.md", name: "线性代数" },
+  { path: "数学/线性代数/奇异值分解.md", name: "奇异值分解" },
+  { path: "论文/Attention Is All You Need.md", name: "Attention Is All You Need" },
+];
+
+const HITS: SearchHit[] = [
+  {
+    path: "数学/线性代数/奇异值分解.md",
+    title: "奇异值分解",
+    snippet: "任意<mark>矩阵</mark>都可以分解为三个矩阵的乘积，这是数值线性代数里最有用的工具",
+  },
+  {
+    path: "数学/线性代数.md",
+    title: "线性代数",
+    snippet: "<mark>矩阵</mark>分解的入口。见奇异值分解与特征值",
+  },
+  {
+    path: "论文/奇异值分解的数值方法.md",
+    title: "奇异值分解的数值方法",
+    snippet: "Golub–Kahan 双对角化是实践中最常用的<mark>矩阵</mark>算法",
+  },
+];
+
+/**
+ * 主题不能靠在 beforeEach 里打 data-theme —— App 挂载后 `useSettings` 会按
+ * 设置重新刷一遍，"跟随系统"时它会把属性删掉，深色那张就又变回浅色了。
+ * 必须从设置这一层给，走的才是真实路径。
+ */
+let theme: "light" | "dark" = "light";
+
+vi.mock("./api", () => ({
+  api: {
+    reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
+    openVault: async () => VAULT,
+    tree: async () => TREE,
+    listNotes: async () => NOTES,
+    readNote: async () => NOTE,
+    writeNote: async () => 0,
+    statNote: async () => 0,
+    createNote: async () => ({ path: "新文档.md", id: "x", title: "新文档" }),
+    renameNote: async () => "",
+    moveNote: async () => "",
+    deleteNote: async () => {},
+    search: async () => HITS,
+    backlinks: async () => [
+      { path: "数学/线性代数.md", title: "线性代数", line: 7, context: "见 [[论文]] 里的清单" },
+    ],
+    allTags: async () => [
+      ["线性代数", 6],
+      ["论文/已读", 4],
+      ["论文/在读", 2],
+      ["矩阵分解", 3],
+      ["索引页", 1],
+    ],
+    notesByTag: async () => NOTES,
+    viewQuery: async () => ({
+      columns: ["title", "作者", "status", "难度"],
+      rows: [
+        {
+          path: "论文/奇异值分解的数值方法.md",
+          values: { title: "奇异值分解的数值方法", 作者: "Golub", status: "在读", 难度: "5" },
+        },
+        {
+          path: "论文/Attention Is All You Need.md",
+          values: { title: "Attention Is All You Need", 作者: "Vaswani 等", status: "已读", 难度: "4" },
+        },
+        {
+          path: "论文/一篇还没开始读的.md",
+          values: { title: "一篇还没开始读的", 作者: "张三", status: "未读", 难度: "2" },
+        },
+      ],
+      view: "table",
+    }),
+    propSet: async () => {},
+    getSettings: async () => ({ theme }),
+    setSettings: async (s: unknown) => s,
+    openTerminal: async () => {},
+    rebuildIndex: async () => ({}),
+    ptyOpen: async () => "1",
+    ptyWrite: async () => {},
+    ptyResize: async () => {},
+    ptyClose: async () => {},
+  },
+  onVaultChanged: async () => () => {},
+  onPtyData: async () => () => {},
+  onPtyExit: async () => () => {},
+  pickVaultFolder: async () => null,
+}));
+
+const { default: App } = await import("./App");
+
+/** 让布局稳定下来：解析、KaTeX、database 视图都要一点时间 */
+const settle = (ms = 900) => new Promise((r) => setTimeout(r, ms));
+
+async function shot(name: string) {
+  await settle();
+  await page.screenshot({ path: `__shots__/${name}.png` });
+}
+
+let root: Root | null = null;
+
+/** 挂到一个占满视口的容器上 —— App 的布局是 100vh 的 grid */
+function render() {
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;inset:0";
+  document.body.appendChild(host);
+  root = createRoot(host);
+  root.render(<App />);
+}
+
+beforeEach(() => {
+  localStorage.clear();
+  theme = "light";
+  document.documentElement.removeAttribute("data-theme");
+});
+
+afterEach(() => {
+  root?.unmount();
+  root = null;
+  document.body.innerHTML = "";
+});
+
+/** 点图标栏上的某个按钮。视图切换要走真实交互，不能直接改 state */
+function clickRail(label: string) {
+  document.querySelector<HTMLElement>(`.rail-btn[aria-label="${label}"]`)?.click();
+}
+
+const alive = () => expect(document.querySelector(".app")).not.toBeNull();
+
+describe("视觉工作台", () => {
+  it("浅色 · 文档树", async () => {
+    render();
+    await shot("01-light-tree");
+    alive();
+  });
+
+  it("深色 · 文档树", async () => {
+    theme = "dark";
+    render();
+    await shot("02-dark-tree");
+    alive();
+  });
+
+  it("浅色 · 代码块与任务列表", async () => {
+    render();
+    await settle(700);
+    // 这几块在首屏之外，得滚下去才看得见
+    const main = document.querySelector<HTMLElement>(".main");
+    if (main) main.scrollTop = main.scrollHeight;
+    await shot("08-light-blocks");
+    alive();
+  });
+
+  it("浅色 · callout 放大细节", async () => {
+    render();
+    await settle(700);
+    // 放大两倍再截 —— 圆角、色条这种几个像素的东西，
+    // 在整屏截图里根本分辨不出来，只能放大了看
+    document.documentElement.style.zoom = "2";
+    const main = document.querySelector<HTMLElement>(".main");
+    if (main) main.scrollTop = 700;
+    await shot("09-light-callout-zoom");
+    document.documentElement.style.zoom = "";
+    alive();
+  });
+
+  it("浅色 · 表格与引用", async () => {
+    render();
+    await settle(700);
+    document.documentElement.style.zoom = "1.6";
+    const main = document.querySelector<HTMLElement>(".main");
+    if (main) main.scrollTop = 430;
+    // 诊断：App 里到底有没有渲染出引用和表格
+    const q = document.querySelectorAll(".cm-quote").length;
+    const t = document.querySelectorAll(".cm-table").length;
+    const c = document.querySelectorAll(".cm-callout").length;
+    expect({ quote: q, table: t, callout: c }).toEqual({ quote: 2, table: 1, callout: 6 });
+    // 引用和 callout 用同一套盒模型 —— 只有配色不同。
+    // 曾经误判成"引用的样式没生效"，量一下就知道不是
+    const qs = getComputedStyle(document.querySelector(".cm-quote")!);
+    const cs = getComputedStyle(document.querySelector(".cm-callout")!);
+    expect(qs.paddingLeft).toBe(cs.paddingLeft);
+    expect(qs.borderLeftWidth).toBe(cs.borderLeftWidth);
+
+    await shot("10-light-table-quote");
+    document.documentElement.style.zoom = "";
+    alive();
+  });
+
+  it("浅色 · 搜索", async () => {
+    render();
+    await settle(400);
+    clickRail("搜索");
+    const input = document.querySelector<HTMLInputElement>("#verso-search-input");
+    if (input) {
+      input.value = "矩阵";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    await shot("03-light-search");
+    alive();
+  });
+
+  it("浅色 · 标签", async () => {
+    render();
+    await settle(400);
+    clickRail("标签");
+    await settle(300);
+    document.querySelector<HTMLElement>(".tag-label")?.click();
+    await shot("04-light-tags");
+    alive();
+  });
+
+  it("深色 · 命令面板", async () => {
+    theme = "dark";
+    render();
+    await settle(400);
+    clickRail("命令面板");
+    await shot("05-dark-palette");
+    alive();
+  });
+
+  it("浅色 · / 命令菜单", async () => {
+    render();
+    await settle(600);
+    // 用 EditorView.findFromDOM 拿到真实的编辑器实例，走真实输入路径 ——
+    // 补全面板只有在真的敲了字符之后才会弹
+    const dom = document.querySelector<HTMLElement>(".cm-editor");
+    const cm = dom && EditorView.findFromDOM(dom);
+    expect(cm, "没找到编辑器实例").not.toBeNull();
+    cm!.focus();
+    const at = cm!.state.doc.length;
+    cm!.dispatch({ changes: { from: at, insert: "\n" }, selection: { anchor: at + 1 } });
+    cm!.dispatch({
+      changes: { from: at + 1, insert: "/" },
+      selection: { anchor: at + 2 },
+      userEvent: "input.type",
+    });
+    await shot("07-light-slash");
+    alive();
+  });
+
+  it("浅色 · 设置", async () => {
+    render();
+    await settle(400);
+    clickRail("设置");
+    await shot("06-light-settings");
+    alive();
+  });
+});

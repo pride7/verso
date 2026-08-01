@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
+import { Icon } from "./Icon";
 
 interface Props {
   settings: Settings;
@@ -156,8 +157,8 @@ export function SettingsPanel({ settings, onChange, onReset, onClose }: Props) {
               </button>
             ))}
           </nav>
-          <button className="modal-close" onClick={onClose} title="关闭 (Esc)">
-            ✕
+          <button className="modal-close" onClick={onClose} title="关闭 (Esc)" aria-label="关闭">
+            <Icon name="close" />
           </button>
         </header>
 

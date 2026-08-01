@@ -68,66 +68,189 @@ export const versoTheme = EditorView.theme({
   ".cm-hashtag": {
     color: "var(--accent)",
     backgroundColor: "color-mix(in oklch, var(--accent) 12%, transparent)",
-    borderRadius: "4px",
+    borderRadius: "var(--r-xs)",
     padding: "1px 5px",
     fontSize: "0.9em",
   },
 
   ".cm-highlight": {
     backgroundColor: "color-mix(in oklch, var(--warn) 40%, transparent)",
-    borderRadius: "2px",
+    borderRadius: "var(--r-xs)",
     padding: "0 2px",
   },
 
+  // ---- GFM 表格 ----
+  ".cm-table": {
+    margin: "0.9em 0",
+    overflowX: "auto",
+    borderRadius: "var(--r-lg)",
+    border: "1px solid var(--hairline)",
+  },
+  ".cm-table table": {
+    borderCollapse: "collapse",
+    width: "100%",
+    fontSize: "0.92em",
+  },
+  ".cm-table th, .cm-table td": {
+    padding: "7px 12px",
+    // 只画横线不画竖线 —— 竖线会把表格变成网格纸，横向扫读反而更难
+    borderBottom: "1px solid var(--hairline)",
+    verticalAlign: "top",
+  },
+  ".cm-table thead th": {
+    fontWeight: "600",
+    background: "color-mix(in oklch, var(--muted) 8%, transparent)",
+    whiteSpace: "nowrap",
+  },
+  ".cm-table tbody tr:last-child td": { borderBottom: "none" },
+  // 单元格里的行内代码。和正文里那套药丸保持一致
+  ".cm-inline-code": {
+    fontFamily: "var(--font-mono)",
+    fontSize: "0.9em",
+    background: "color-mix(in oklch, var(--muted) 14%, transparent)",
+    borderRadius: "var(--r-xs)",
+    padding: "1px 5px",
+  },
+
+  // ---- 围栏代码块 ----
+  ".cm-code": {
+    padding: "0 14px",
+    background: "color-mix(in oklch, var(--muted) 9%, transparent)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "0.88em",
+  },
+  ".cm-code.is-open": {
+    paddingTop: "0.55em",
+    borderTopLeftRadius: "var(--r-lg)",
+    borderTopRightRadius: "var(--r-lg)",
+    marginTop: "0.8em",
+  },
+  ".cm-code.is-close": {
+    paddingBottom: "0.55em",
+    borderBottomLeftRadius: "var(--r-lg)",
+    borderBottomRightRadius: "var(--r-lg)",
+    marginBottom: "0.8em",
+  },
+  // 围栏行淡化但不隐藏 —— 藏了就改不了语言标注，
+  // 而且光标停进去时会看到行数对不上
+  ".cm-code.is-fence": { color: "color-mix(in oklch, var(--muted) 60%, transparent)" },
+
+  // 代码块里的文本已经由 .cm-code 统一了字体和底色，
+  // 行内代码那套「小圆角药丸」不该再叠一层 —— 叠上去每一行都会
+  // 变成一个独立的灰块，看着像被切碎了
+  ".cm-code span": {
+    background: "none",
+    padding: "0",
+    fontSize: "1em",
+  },
+
+  // ---- 引用块与 callout ----
+  //
+  // 用**行装饰**画：每一行铺一层底色 + 左侧色条，连起来就是一个块。
+  // 不能用真正的块级容器 —— CM6 里那要求 replace 掉整段，而那样光标
+  // 就进不去了，编辑体验会毁掉。
+
+  // 引用和 callout 各写一份完整规则。共用一条逗号选择器也能工作
+  // （量过：两边的 border/padding 计算值一致），但分开写之后各自的
+  // 意图更清楚 —— callout 有底色、引用只有竖线。
+  ".cm-callout": {
+    // **不要用负外边距外扩。** 负边距会让行盒比 .cm-content 宽，
+    // 编辑器出现横向滚动条，而左侧色条恰好画在被推出可视区的那一段上，
+    // 表现就是"竖线怎么调都看不见"。块与正文栏左右对齐就够了。
+    padding: "0.15em 14px 0.15em 16px",
+    borderLeft: "3px solid var(--callout, var(--accent))",
+    background: "color-mix(in oklch, var(--callout, var(--muted)) 7%, transparent)",
+  },
+  ".cm-callout.is-open": {
+    paddingTop: "0.5em",
+    borderTopLeftRadius: "var(--r-lg)",
+    borderTopRightRadius: "var(--r-lg)",
+    marginTop: "0.7em",
+  },
+  ".cm-callout.is-close": {
+    paddingBottom: "0.5em",
+    borderBottomLeftRadius: "var(--r-lg)",
+    borderBottomRightRadius: "var(--r-lg)",
+    marginBottom: "0.7em",
+  },
+
+  // 普通引用：只有竖线，没有底色 —— 那是它和 callout 的区别。
+  // 竖线必须看得见：用 --border（89% 的灰）画在 99% 的背景上等于没画。
+  ".cm-quote": {
+    padding: "0.15em 14px 0.15em 16px",
+    // 45% 太淡，在 99% 明度的背景上肉眼看不见。竖线是引用唯一的
+    // 视觉标记，宁可重一点
+    borderLeft: "3px solid color-mix(in oklch, var(--muted) 85%, transparent)",
+    color: "var(--muted)",
+  },
+  ".cm-quote.is-open": { paddingTop: "0.4em", marginTop: "0.7em" },
+  ".cm-quote.is-close": { paddingBottom: "0.4em", marginBottom: "0.7em" },
+
+  ".cm-callout-info": { "--callout": "var(--accent)" },
+  ".cm-callout-tip": { "--callout": "oklch(62% 0.15 152)" },
+  ".cm-callout-warning": { "--callout": "var(--warn)" },
+  ".cm-callout-danger": { "--callout": "var(--danger)" },
+  ".cm-callout-question": { "--callout": "oklch(72% 0.15 85)" },
+  ".cm-callout-quote": { "--callout": "var(--muted)" },
+
+  ".cm-callout-badge": {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.4em",
+    color: "var(--callout, var(--accent))",
+    fontWeight: "600",
+    // 标题比正文小一点：它是标签不是内容
+    fontSize: "0.92em",
+  },
+  ".cm-callout-badge svg": {
+    width: "1.05em",
+    height: "1.05em",
+    flex: "none",
+  },
+
+  // 光标进入时露出的源码里，`[!note]` 仍然要能一眼认出来
   ".cm-callout-marker": {
     color: "var(--accent)",
     fontWeight: "600",
     fontSize: "0.85em",
   },
 
-  // ---- 补全面板（`[[` 与 `/`）----
+  // ---- 任务列表 ----
   //
-  // CM6 自带的样式是浅色硬编码的，深色主题下会变成白底黑字的一块。
-  // 这里整套重写，尺寸用 UI 字号而不是正文字号 —— 它是界面不是内容。
-  ".cm-tooltip.cm-tooltip-autocomplete": {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "8px",
-    boxShadow: "var(--shadow)",
-    overflow: "hidden",
-    fontFamily: "var(--font-ui)",
-    fontSize: "var(--ui-font-size)",
+  // 尺寸用 em 而不是 px：正文字号在设置里能调，复选框要跟着一起变，
+  // 否则调大字号之后框会显得越来越小
+  ".cm-task": {
+    display: "inline-block",
+    width: "1.05em",
+    height: "1.05em",
+    verticalAlign: "-0.16em",
+    marginRight: "0.35em",
+    borderRadius: "0.28em",
+    border: "1.5px solid color-mix(in oklch, var(--muted) 60%, transparent)",
+    cursor: "pointer",
+    transition: "background 120ms ease-out, border-color 120ms ease-out",
   },
-  ".cm-tooltip-autocomplete > ul": {
-    fontFamily: "inherit",
-    maxHeight: "16em",
+  ".cm-task:hover": { borderColor: "var(--accent)" },
+  ".cm-task.is-done": {
+    background: "var(--accent)",
+    borderColor: "var(--accent)",
+    // 对勾用 SVG 背景而不是 ::after 画两条边框旋转 —— 后者在不同字号下
+    // 对不齐，而 SVG 会跟着盒子等比缩放
+    backgroundImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.4l3 3 6-6.5' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+    backgroundSize: "100% 100%",
   },
-  ".cm-tooltip-autocomplete > ul > li": {
-    padding: "5px 10px",
-    display: "flex",
-    alignItems: "baseline",
-    gap: "10px",
-    lineHeight: "1.5",
-  },
-  "&.cm-focused .cm-tooltip-autocomplete > ul > li[aria-selected], .cm-tooltip-autocomplete > ul > li[aria-selected]":
-    {
-      background: "color-mix(in oklch, var(--accent) 16%, transparent)",
-      color: "var(--text)",
-    },
-  ".cm-completionLabel": { flex: "1 1 auto" },
-  // 匹配到的字符高亮。默认是加粗，在中文里几乎看不出来，改成强调色
-  ".cm-completionMatchedText": {
-    textDecoration: "none",
-    color: "var(--accent)",
-    fontWeight: "600",
-  },
-  ".cm-completionDetail": {
-    fontStyle: "normal",
+  ".cm-task-done": {
     color: "var(--muted)",
-    fontSize: "0.85em",
-    fontFamily: "var(--font-mono)",
-    flex: "0 0 auto",
+    textDecoration: "line-through",
+    textDecorationColor: "color-mix(in oklch, var(--muted) 55%, transparent)",
   },
+
+  // 无序列表的圆点。比 `-` 更接近排好版的样子
+  ".cm-bullet": {
+    color: "var(--muted)",
+    opacity: 0.75,
+  }
 });
 
 /**
@@ -157,7 +280,7 @@ export const versoHighlight = HighlightStyle.define([
     fontFamily: "var(--font-mono)",
     fontSize: "0.9em",
     backgroundColor: "color-mix(in oklch, var(--muted) 14%, transparent)",
-    borderRadius: "4px",
+    borderRadius: "var(--r-xs)",
     padding: "1px 4px",
   },
 

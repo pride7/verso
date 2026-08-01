@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, onPtyData, onPtyExit } from "../api";
 import { keyLabel } from "../lib/platform";
+import { Icon } from "./Icon";
 import "@xterm/xterm/css/xterm.css";
 
 interface Props {
@@ -217,8 +218,8 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, theme
       <div className="term-resizer" onMouseDown={startDrag} />
       <header className="term-head">
         <span className="term-title">终端{dead && " · 已结束"}</span>
-        <button className="term-close" onClick={onClose} title={`关闭终端 (${keyLabel("Mod+`")})`}>
-          ✕
+        <button className="term-close" onClick={onClose} title={`关闭终端 (${keyLabel("Mod+`")})`} aria-label="关闭终端">
+          <Icon name="close" size={13} />
         </button>
       </header>
       {error ? <div className="term-error">{error}</div> : <div className="term-host" ref={hostRef} />}

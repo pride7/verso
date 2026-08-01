@@ -101,8 +101,33 @@ describe("主题切换", () => {
   });
 
   it("明确选浅色要能盖过系统的深色偏好", () => {
-    // 属性选择器写在媒体查询之后才有这个效果，顺序反了就盖不住
+    // 属性选择器写在媒体查询之后才有这个效果，顺序反了就盖不住。
+    //
+    // 断言「不等于深色值」而不是「等于某个具体色值」—— 后者每次微调
+    // 配色都会挂，那种测试只会训练人去改断言而不是去看问题
     withSettings({ theme: "light" });
-    expect(rootVar("--bg")).toBe("oklch(99% 0.004 85)");
+    expect(rootVar("--bg")).not.toBe(rootVar("--d-bg"));
+    expect(rootVar("--d-bg")).not.toBe(""); // 深色调色板确实存在，不是拿空值蒙混过关
+  });
+
+  // 深色的色值只写在 --d-* 那一组里，两个入口（媒体查询 / data-theme）
+  // 都只做转接。这条钉住转接没漏行 —— 漏了不会报错，只是某个主题下
+  // 某个颜色悄悄退回浅色
+  it("data-theme=dark 时每一项都接到了深色调色板", () => {
+    withSettings({ theme: "dark" });
+    for (const name of [
+      "bg",
+      "surface",
+      "raised",
+      "text",
+      "muted",
+      "border",
+      "hairline",
+      "accent",
+      "selected-bg",
+      "hover-bg",
+    ]) {
+      expect(rootVar(`--${name}`), `--${name} 没接到深色值`).toBe(rootVar(`--d-${name}`));
+    }
   });
 });

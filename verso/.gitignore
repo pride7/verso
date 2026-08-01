@@ -28,3 +28,5 @@ src/**/__screenshots__/
 
 # vitest 的诊断附件，不入库
 .vitest-attachments/
+
+src/__shots__/

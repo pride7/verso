@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, onVaultChanged, pickVaultFolder } from "./api";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
+import { Icon } from "./components/Icon";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
@@ -622,8 +623,9 @@ export default function App() {
                 className="side-add"
                 onClick={() => createAndOpen(null, "新建文档")}
                 title="新建文档"
+                aria-label="新建文档"
               >
-                ＋
+                <Icon name="plus" />
               </button>
             )}
           </header>
