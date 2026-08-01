@@ -68,8 +68,21 @@ fn activate(app: &AppHandle, state: &AppState, v: Vault) {
     // vault**：笔记可以来自分享（§2.9），`![[../../秘密.png]]` 不该能读到
     // vault 外面去。换 vault 时这里会再放行新的那个，旧的留着无妨 ——
     // 作用域只是「允许读」，真正的路径检查仍在 `Vault::resolve`
-    if let Err(e) = app.asset_protocol_scope().allow_directory(&root, true) {
-        let _ = app.emit("index:error", format!("图片显示可能不可用：{e}"));
+    //
+    // **两种写法都要放行。** `canonicalize` 在 Windows 上给的是扩展长度路径
+    // （`\\?\D:\…`），而前端交给 asset 协议的是剥掉前缀的 `D:/…`；作用域是
+    // 按模式匹配的，只授权其中一种，另一种会被一律拒掉 —— 表现就是
+    // 「图片找不到」，而文件明明就在那儿。
+    let scope = app.asset_protocol_scope();
+    let raw = root.to_string_lossy().into_owned();
+    let plain = raw
+        .trim_start_matches(r"\\?\UNC\")
+        .trim_start_matches(r"\\?\")
+        .to_string();
+    for dir in [&raw, &plain] {
+        if let Err(e) = scope.allow_directory(dir, true) {
+            let _ = app.emit("index:error", format!("图片显示可能不可用：{e}"));
+        }
     }
 
     match index::Index::open(&root).and_then(|mut i| i.rebuild(&v).map(|_| i)) {

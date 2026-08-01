@@ -16,6 +16,7 @@ import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { parseHeadings, type Heading } from "./lib/outline";
+import { attachmentPath } from "./lib/vaultPath";
 import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/treeSort";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
@@ -239,18 +240,14 @@ export default function App() {
   /**
    * `![[图.png]]` 的目标名 → webview 能显示的 URL。
    *
-   * 本地文件必须过 Tauri 的 asset 协议（`convertFileSrc`），而作用域在打开
-   * vault 时只放行了 vault 根，所以越界的路径到不了浏览器那一步；这里再挡一次
-   * `..`，让它连试都不用试。
-   *
-   * 只带文件名的（`![[图.png]]`）按 §2.3 的约定去 `attachments/` 找 ——
-   * 粘贴插入的是完整相对路径，手写的通常只有名字，两种都要认。
+   * 本地文件必须过 Tauri 的 asset 协议（`convertFileSrc`）。路径怎么拼见
+   * `lib/vaultPath.ts` —— Windows 上 vault 根是扩展长度写法（`\\?\D:\…`），
+   * 照着直接拼出来的 URL 协议那边解析不了，表现是「图片找不到」而文件明明在。
    */
   const imageSrc = useCallback(
     (target: string) => {
-      if (!vault || !target || target.includes("..")) return null;
-      const rel = target.includes("/") ? target : `attachments/${target}`;
-      return convertFileSrc(`${vault.root}/${rel}`);
+      const abs = vault && attachmentPath(vault.root, target);
+      return abs ? convertFileSrc(abs) : null;
     },
     [vault],
   );
