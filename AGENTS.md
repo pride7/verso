@@ -104,6 +104,11 @@ Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2�
 跟作者讨论（关闭 Smart App Control 是不可逆的，关掉后不重装 Windows 就开不回来，
 这个决定不该由 agent 做）。
 
+**首次执行的拦截往往是临时的，先重试一次再下结论。** v0.5.3 改名后新生成的
+`verso.exe` 第一次运行被拦（os error 4551），第二次就正常了 —— SAC 在向云端
+查信誉期间会先拒绝。看到 4551 不要立刻断定"被永久封杀"，也不要因此去建议
+关掉 SAC。
+
 ### 移动过项目目录之后，Rust 构建会报「系统找不到指定的路径」
 
 Tauri 的构建脚本把**绝对路径**写进了 `target/debug/build/*/out`（权限清单
