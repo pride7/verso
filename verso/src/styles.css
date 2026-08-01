@@ -2824,3 +2824,115 @@ textarea:focus-visible {
   color: var(--accent);
   background: color-mix(in oklch, var(--accent) 14%, transparent);
 }
+
+/* ---------- 按类型的单元格 ---------- */
+
+/* 复选框：点一下就改，不进编辑态 */
+.dbview-check {
+  justify-content: flex-start;
+}
+.dbview-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-xs);
+  color: white;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.dbview-check.is-on .dbview-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 单选 / 多选的值做成标签 —— 一眼看出这是「从几个里挑的」而不是随手写的文本 */
+.dbview-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  margin-right: 4px;
+  border-radius: 99px;
+  background: var(--hover-bg);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* 多选：勾选面板浮在单元格上 */
+.dbview-multi {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+.dbview-multi label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.dbview-multi label:hover {
+  background: var(--hover-bg);
+}
+.dbview-multi-done {
+  margin-top: 4px;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+.dbview-multi-done:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+/* 网址：链接负责跳转，右边的小铅笔负责改 —— 一个东西同时做这两件事，
+   两件都做不利索 */
+.dbview-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dbview-url a {
+  color: var(--accent);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dbview-url a:hover {
+  text-decoration: underline;
+}
+.dbview-edit {
+  margin-left: auto;
+  padding: 0 4px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.dbview-url:hover .dbview-edit {
+  opacity: 1;
+}
+
+/* 选项面板里的一行 */
+.vset-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: var(--r-sm);
+}
+.vset-opt:hover {
+  background: var(--hover-bg);
+}
+.vset-opt span {
+  flex: 1;
+  min-width: 0;
+}

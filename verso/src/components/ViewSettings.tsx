@@ -328,3 +328,68 @@ export function propIcon(type: string): "hash" | "clock" | "check" | "tag" | "te
       return "text";
   }
 }
+
+interface OptionsEditorProps {
+  column: string;
+  def: PropDef | undefined;
+  onDefine: (key: string, def: PropDef) => void;
+  onClose: () => void;
+}
+
+/**
+ * 单选 / 多选的候选值。
+ *
+ * **删掉一个选项不会去改任何笔记。** 已经写着这个值的笔记照样留着它，
+ * 单元格里也照样显示 —— 选项表只是「下拉里列出哪些」，不是一份会反过来
+ * 清洗数据的约束。要真去掉那个值，得一格一格改，那是用户的决定。
+ */
+export function OptionsEditor({ column, def, onDefine, onClose }: OptionsEditorProps) {
+  const options = def?.options ?? [];
+  const [name, setName] = useState("");
+
+  const save = (next: string[]) => onDefine(column, { type: def?.type ?? "select", options: next });
+
+  return (
+    <div className="vset vset-cols" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="vset-head">
+        <span>「{column}」的选项</span>
+        <button className="vset-x" onClick={onClose} aria-label="关闭">
+          <Icon name="close" size={13} />
+        </button>
+      </div>
+
+      {options.length === 0 && <p className="vset-sub">还没有选项，下面加一个</p>}
+      <ul className="vset-list">
+        {options.map((o) => (
+          <li key={o} className="vset-opt">
+            <span>{o}</span>
+            <button
+              className="vset-del"
+              onClick={() => save(options.filter((x) => x !== o))}
+              aria-label={`删掉 ${o}`}
+              title="从下拉里去掉。已经写着这个值的笔记不受影响"
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <form
+        className="vset-newcol"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const v = name.trim();
+          if (!v || options.includes(v)) return;
+          save([...options, v]);
+          setName("");
+        }}
+      >
+        <input value={name} placeholder="新选项" onChange={(e) => setName(e.target.value)} autoFocus />
+        <button type="submit" disabled={!name.trim()}>
+          添加
+        </button>
+      </form>
+    </div>
+  );
+}

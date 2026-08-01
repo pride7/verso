@@ -52,6 +52,15 @@ pub struct NoteRef {
     pub name: String,
 }
 
+/// `甲、乙` / `甲, 乙` → YAML 数组。多选列和 tags 都用它
+fn split_list(v: &str) -> Vec<serde_yaml::Value> {
+    v.split(['、', ','])
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| serde_yaml::Value::String(s.to_string()))
+        .collect()
+}
+
 impl Vault {
     /// 用共享的「自己写入」登记表打开 —— 文件监听靠它区分「我改的」和
     /// 「外部程序改的」（§2.7）
@@ -305,17 +314,37 @@ impl Vault {
             }
             Some(v) => {
                 let k = serde_yaml::Value::String(key.to_string());
-                // 原本是数组的（比如 tags）就仍然写成数组，
-                // 否则一次编辑会把 `tags: [a, b]` 压成一个字符串
+                // **schema 说了算**（`.verso-props.json`）：用户把这一列指成
+                // 「多选」，第一次填值就该写成数组，而不是等它碰巧已经是数组。
+                // 指成「文本」的列也不该因为填了 `3` 就悄悄变成数字 ——
+                // 那会让 `where 编号 = "3"` 之类的条件莫名其妙地不匹配
+                let declared = self.prop_schema().get(key).and_then(|d| d.r#type);
+                if let Some(t) = declared {
+                    use schema::PropType::*;
+                    let val = match t {
+                        Multi => serde_yaml::Value::Sequence(split_list(v)),
+                        Checkbox => serde_yaml::Value::Bool(v == "true" || v == "是"),
+                        Number => v
+                            .parse::<i64>()
+                            .map(|n| serde_yaml::Value::Number(n.into()))
+                            .or_else(|_| {
+                                v.parse::<f64>()
+                                    .map(|f| serde_yaml::Value::Number(serde_yaml::Number::from(f)))
+                            })
+                            // 数字列里填了非数字：留成文本而不是报错或吞掉 ——
+                            // 用户看得见自己写了什么，才知道要改哪
+                            .unwrap_or_else(|_| serde_yaml::Value::String(v.to_string())),
+                        Text | Date | Select | Url => serde_yaml::Value::String(v.to_string()),
+                    };
+                    fm.insert(k, val);
+                    note::touch_updated(&mut fm);
+                    self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
+                    return Ok(());
+                }
+                // 没声明类型就还是按值猜（§2.6：schema 只是提示，删了不丢数据）
                 let was_seq = matches!(fm.get(&k), Some(serde_yaml::Value::Sequence(_)));
                 let new_val = if was_seq {
-                    serde_yaml::Value::Sequence(
-                        v.split(['、', ','])
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty())
-                            .map(|s| serde_yaml::Value::String(s.to_string()))
-                            .collect(),
-                    )
+                    serde_yaml::Value::Sequence(split_list(v))
                 } else if let Ok(n) = v.parse::<i64>() {
                     serde_yaml::Value::Number(n.into())
                 } else if let Ok(f) = v.parse::<f64>() {
@@ -573,6 +602,32 @@ created: 2026-01-01T00:00:00+08:00
         // 前端靠它决定「要不要显示这一块」
         std::fs::write(dir.join("没属性.md"), "光秃秃的正文\n").unwrap();
         assert!(v.read_note("没属性.md").unwrap().frontmatter_text.is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// schema 说了算：多选列第一次填值就该写成数组；文本列填了 `3`
+    /// 不该悄悄变成数字（那会让 `where 编号 = "3"` 莫名其妙不匹配）
+    #[test]
+    fn declared_type_decides_how_the_value_is_written() {
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+        let meta = v.create_note(None, "笔记").unwrap();
+
+        v.set_prop_def("标签", Some(schema::PropDef { r#type: Some(schema::PropType::Multi), options: vec![] })).unwrap();
+        v.set_prop_def("编号", Some(schema::PropDef { r#type: Some(schema::PropType::Text), options: vec![] })).unwrap();
+        v.set_prop_def("读完", Some(schema::PropDef { r#type: Some(schema::PropType::Checkbox), options: vec![] })).unwrap();
+
+        v.set_prop(&meta.path, "标签", Some("甲、乙")).unwrap();
+        v.set_prop(&meta.path, "编号", Some("3")).unwrap();
+        v.set_prop(&meta.path, "读完", Some("true")).unwrap();
+
+        let raw = std::fs::read_to_string(dir.join(&meta.path)).unwrap();
+        let (fm, _) = note::parse_frontmatter(&raw);
+        assert!(matches!(fm.get("标签"), Some(serde_yaml::Value::Sequence(s)) if s.len() == 2));
+        assert!(matches!(fm.get("编号"), Some(serde_yaml::Value::String(s)) if s == "3"));
+        assert_eq!(fm.get("读完"), Some(&serde_yaml::Value::Bool(true)));
 
         std::fs::remove_dir_all(&dir).ok();
     }

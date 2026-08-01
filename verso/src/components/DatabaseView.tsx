@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
 import { Icon } from "./Icon";
-import { ColumnPicker, propIcon, TYPES, ViewSettings } from "./ViewSettings";
+import { ColumnPicker, OptionsEditor, propIcon, TYPES, ViewSettings } from "./ViewSettings";
 import { newNoteParent, nextSort, readColumns, readSort, writeColumns, writeSort } from "../lib/viewSpec";
 import type { PropDef, PropSchema, ViewResult, ViewRow } from "../types";
 
@@ -28,13 +28,17 @@ interface Props {
  * 对应笔记的 frontmatter，文件立刻落盘 —— 设计文档说这是「它好不好用的
  * 分水岭：只能看不能改的表格，价值和一个静态列表差不多」。
  */
+/** 列头菜单开在哪一列上。面板有好几种，这里把类型收窄一下 */
+type Panel = null | "settings" | "columns" | { col: string } | { options: string };
+const colMenu = (p: Panel) => (p && typeof p === "object" && "col" in p ? p.col : null);
+
 export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: Props) {
   const [result, setResult] = useState<ViewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ path: string; key: string } | null>(null);
   const [draft, setDraft] = useState("");
   /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
-  const [panel, setPanel] = useState<null | "settings" | "columns" | { col: string }>(null);
+  const [panel, setPanel] = useState<Panel>(null);
   /** 用户指定的类型和选项（`.verso-props.json`）。读不到就退回按值推断 */
   const [schema, setSchema] = useState<PropSchema>({});
 
@@ -107,17 +111,22 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     }
   };
 
-  const commit = async () => {
-    if (!editing) return;
-    const { path, key } = editing;
-    setEditing(null);
+  /** 写一个格子。空值 = 删掉这个属性，不是写一个空字符串 */
+  const commitValue = async (path: string, key: string, value: string) => {
     try {
-      await api.propSet(path, key, draft.trim() === "" ? null : draft);
+      await api.propSet(path, key, value.trim() === "" ? null : value);
       onChanged();
       load();
     } catch (e) {
       setError((e as Error).message);
     }
+  };
+
+  const commit = async () => {
+    if (!editing) return;
+    const { path, key } = editing;
+    setEditing(null);
+    await commitValue(path, key, draft);
   };
 
   if (error) {
@@ -184,10 +193,79 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
         </button>
       );
     }
+    const type = typeOf(col);
+    const options = schema[col]?.options ?? [];
+
+    // 复选框不进「编辑态」—— 点一下就是改，再要求回车太绕
+    if (type === "checkbox") {
+      const on = value === "true" || value === "是";
+      return (
+        <button
+          className={`dbview-cell dbview-check${on ? " is-on" : ""}`}
+          onClick={() => void commitValue(row.path, col, on ? "false" : "true")}
+          role="checkbox"
+          aria-checked={on}
+          title={on ? "点一下取消" : "点一下勾上"}
+        >
+          <span className="dbview-box">{on && <Icon name="check" size={11} />}</span>
+        </button>
+      );
+    }
+
     if (isEditing) {
+      // 单选：给下拉。**保留一条「当前值」** —— 值不在选项里时（手改过
+      // frontmatter、或者选项后来删了）不能让打开下拉这个动作把它冲掉
+      if (type === "select") {
+        return (
+          <select
+            className="dbview-input"
+            autoFocus
+            value={draft}
+            onChange={(e) => {
+              setEditing(null);
+              void commitValue(row.path, col, e.target.value);
+            }}
+            onBlur={() => setEditing(null)}
+          >
+            <option value="">（空）</option>
+            {[...new Set([...(value ? [value] : []), ...options])].map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        );
+      }
+
+      // 多选：勾选，写回时用顿号连起来（Rust 侧按 schema 存成 YAML 数组）
+      if (type === "multi") {
+        const chosen = value ? value.split(/[、,]/).map((x) => x.trim()).filter(Boolean) : [];
+        return (
+          <div className="dbview-multi" onMouseDown={(e) => e.stopPropagation()}>
+            {[...new Set([...chosen, ...options])].map((o) => (
+              <label key={o}>
+                <input
+                  type="checkbox"
+                  checked={chosen.includes(o)}
+                  onChange={(e) => {
+                    const next = e.target.checked
+                      ? [...chosen, o]
+                      : chosen.filter((x) => x !== o);
+                    void commitValue(row.path, col, next.join("、"));
+                  }}
+                />
+                {o}
+              </label>
+            ))}
+            <button className="dbview-multi-done" onClick={() => setEditing(null)}>
+              完成
+            </button>
+          </div>
+        );
+      }
+
       return (
         <input
           className="dbview-input"
+          type={type === "date" ? "date" : type === "number" ? "number" : "text"}
           autoFocus
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -204,16 +282,58 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
         />
       );
     }
+
+    // 网址显示成能点的链接。点它跳转，改它走右边那个小铅笔 ——
+    // 一个既是链接又是编辑入口的东西，两件事都做不利索
+    if (type === "url" && value) {
+      return (
+        <span className="dbview-cell dbview-url">
+          <a href={value} target="_blank" rel="noreferrer">
+            {value}
+          </a>
+          <button
+            className="dbview-edit"
+            onClick={() => {
+              setEditing({ path: row.path, key: col });
+              setDraft(value);
+            }}
+            aria-label="编辑"
+            title="编辑"
+          >
+            ✎
+          </button>
+        </span>
+      );
+    }
+
     return (
       <button
-        className="dbview-cell"
+        className={`dbview-cell${type === "select" && value ? " dbview-tagcell" : ""}`}
         onClick={() => {
           setEditing({ path: row.path, key: col });
           setDraft(value);
         }}
         title="点击编辑，改动会写回这篇笔记的 frontmatter"
       >
-        {value || <span className="dbview-empty">—</span>}
+        {value ? (
+          type === "select" ? (
+            <span className="dbview-tag">{value}</span>
+          ) : type === "multi" ? (
+            value
+              .split(/[、,]/)
+              .map((x) => x.trim())
+              .filter(Boolean)
+              .map((x) => (
+                <span className="dbview-tag" key={x}>
+                  {x}
+                </span>
+              ))
+          ) : (
+            value
+          )
+        ) : (
+          <span className="dbview-empty">—</span>
+        )}
       </button>
     );
   };
@@ -276,6 +396,14 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             onClose={() => setPanel(null)}
           />
         )}
+        {panel && typeof panel === "object" && "options" in panel && (
+          <OptionsEditor
+            column={panel.options}
+            def={schema[panel.options]}
+            onDefine={(k, d) => void define(k, d)}
+            onClose={() => setPanel(null)}
+          />
+        )}
         {panel === "columns" && onPatch && (
           <ColumnPicker
             source={source}
@@ -306,14 +434,14 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                     <button
                       className="dbview-more"
                       onClick={() =>
-                        setPanel(typeof panel === "object" && panel?.col === c ? null : { col: c })
+                        setPanel(colMenu(panel) === c ? null : { col: c })
                       }
                       title="这一列"
                       aria-label={`${c} 这一列`}
                     >
                       ⋮
                     </button>
-                    {typeof panel === "object" && panel?.col === c && (
+                    {colMenu(panel) === c && (
                       <ul className="dbview-menu" onMouseDown={(e) => e.stopPropagation()}>
                         <li>
                           <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "asc" })); setPanel(null); }}>
@@ -328,6 +456,11 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                         <li>
                           <button onClick={() => renameColumn(c)}>重命名…</button>
                         </li>
+                        {(schema[c]?.type === "select" || schema[c]?.type === "multi") && (
+                          <li>
+                            <button onClick={() => setPanel({ options: c })}>选项…</button>
+                          </li>
+                        )}
                         <li className="dbview-menu-sub">
                           <span>类型</span>
                           <span className="dbview-types">
