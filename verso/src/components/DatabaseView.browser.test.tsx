@@ -334,31 +334,51 @@ describe("列与设置（§2.6）", () => {
 });
 
 describe("按类型给编辑控件（§2.6）", () => {
-  it("单选给下拉，选一个就写回", async () => {
+  it("单选：点开就能挑，选一个写回", async () => {
     schemaMock = { status: { type: "select", options: ["未读", "在读", "已读"] } };
     const view = mount();
     await settle();
 
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
     await settle(200);
-    const sel = view.dom.querySelector<HTMLSelectElement>("select.dbview-input")!;
-    expect([...sel.options].map((o) => o.value)).toContain("已读");
-    await userEvent.selectOptions(sel, "已读");
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".optpick-list button")].find((b) =>
+        b.textContent?.includes("已读"),
+      )!,
+    );
     await settle();
 
     expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "已读");
   });
 
-  it("下拉里保留当前值 —— 手改过 frontmatter 的值不能被打开下拉这个动作冲掉", async () => {
-    // 「在读」故意不在选项表里
+  it("在单元格里就能新建选项 —— 填值那一刻才知道自己要哪个", async () => {
+    schemaMock = { status: { type: "select", options: ["未读"] } };
+    const view = mount();
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
+    await settle(200);
+    await userEvent.fill(view.dom.querySelector<HTMLInputElement>(".optpick-q")!, "读了一半");
+    await settle(100);
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".optpick-new")!);
+    await settle();
+
+    expect(propDefSet).toHaveBeenCalledWith("status", {
+      type: "select",
+      options: ["未读", "读了一半"],
+    });
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "读了一半");
+  });
+
+  it("当前值一定在列表里 —— 手改过 frontmatter 的值不能被打开面板冲掉", async () => {
     schemaMock = { status: { type: "select", options: ["未读", "已读"] } };
     const view = mount();
     await settle();
 
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
     await settle(200);
-    const sel = view.dom.querySelector<HTMLSelectElement>("select.dbview-input")!;
-    expect([...sel.options].map((o) => o.value)).toContain("在读");
+    const labels = [...view.dom.querySelectorAll(".optpick-list button")].map((b) => b.textContent);
+    expect(labels.some((t) => t?.includes("在读"))).toBe(true);
   });
 
   it("复选框点一下就改，不用进编辑态再回车", async () => {
@@ -395,5 +415,56 @@ describe("按类型给编辑控件（§2.6）", () => {
 
     expect(propDefSet).toHaveBeenCalledWith("status", { type: "select", options: ["在读"] });
     expect(propSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("在单元格里现建选项（§2.6）", () => {
+  it("单选列一个选项都没有时，输入就能新建并选上", async () => {
+    // 填值那一刻才是知道自己需要哪个选项的时刻 —— 先去列头菜单配好再回来
+    // 填，是这类表格最烦人的地方
+    schemaMock = { status: { type: "select" } };
+    const view = mount();
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
+    await settle(200);
+    await userEvent.fill(view.dom.querySelector<HTMLInputElement>(".optpick-q")!, "读完了");
+    await settle(100);
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".optpick-new")!);
+    await settle();
+
+    // 选项进 schema，值进那篇笔记
+    expect(propDefSet).toHaveBeenCalledWith("status", { type: "select", options: ["读完了"] });
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "读完了");
+  });
+
+  it("回车等于点「新建」", async () => {
+    schemaMock = { status: { type: "select", options: ["未读"] } };
+    const view = mount();
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
+    await settle(200);
+    await userEvent.fill(view.dom.querySelector<HTMLInputElement>(".optpick-q")!, "在读中");
+    await userEvent.keyboard("{Enter}");
+    await settle();
+
+    expect(propDefSet).toHaveBeenCalledWith("status", {
+      type: "select",
+      options: ["未读", "在读中"],
+    });
+  });
+
+  it("当前值即使不在选项表里也列出来 —— 手改过的 frontmatter 不能被冲掉", async () => {
+    schemaMock = { status: { type: "select", options: ["未读", "已读"] } };
+    const view = mount();
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-cell")!);
+    await settle(200);
+    const labels = [...view.dom.querySelectorAll(".optpick-list .dbview-tag")].map(
+      (t) => t.textContent,
+    );
+    expect(labels).toContain("在读");
   });
 });

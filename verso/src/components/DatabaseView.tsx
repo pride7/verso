@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
 import { Icon } from "./Icon";
-import { ColumnPicker, OptionsEditor, propIcon, TYPES, ViewSettings } from "./ViewSettings";
+import {
+  ColumnPicker,
+  OptionPicker,
+  OptionsEditor,
+  propIcon,
+  TYPES,
+  ViewSettings,
+} from "./ViewSettings";
 import { newNoteParent, nextSort, readColumns, readSort, writeColumns, writeSort } from "../lib/viewSpec";
 import type { PropDef, PropSchema, ViewResult, ViewRow } from "../types";
 
@@ -213,52 +220,20 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     }
 
     if (isEditing) {
-      // 单选：给下拉。**保留一条「当前值」** —— 值不在选项里时（手改过
-      // frontmatter、或者选项后来删了）不能让打开下拉这个动作把它冲掉
-      if (type === "select") {
+      // 单选 / 多选都走同一个选择器 —— 它能就地新建选项，那正是填值那一刻
+      // 才知道自己需要哪个选项的地方
+      if (type === "select" || type === "multi") {
         return (
-          <select
-            className="dbview-input"
-            autoFocus
-            value={draft}
-            onChange={(e) => {
-              setEditing(null);
-              void commitValue(row.path, col, e.target.value);
-            }}
-            onBlur={() => setEditing(null)}
-          >
-            <option value="">（空）</option>
-            {[...new Set([...(value ? [value] : []), ...options])].map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </select>
-        );
-      }
-
-      // 多选：勾选，写回时用顿号连起来（Rust 侧按 schema 存成 YAML 数组）
-      if (type === "multi") {
-        const chosen = value ? value.split(/[、,]/).map((x) => x.trim()).filter(Boolean) : [];
-        return (
-          <div className="dbview-multi" onMouseDown={(e) => e.stopPropagation()}>
-            {[...new Set([...chosen, ...options])].map((o) => (
-              <label key={o}>
-                <input
-                  type="checkbox"
-                  checked={chosen.includes(o)}
-                  onChange={(e) => {
-                    const next = e.target.checked
-                      ? [...chosen, o]
-                      : chosen.filter((x) => x !== o);
-                    void commitValue(row.path, col, next.join("、"));
-                  }}
-                />
-                {o}
-              </label>
-            ))}
-            <button className="dbview-multi-done" onClick={() => setEditing(null)}>
-              完成
-            </button>
-          </div>
+          <OptionPicker
+            value={value}
+            options={options}
+            multi={type === "multi"}
+            onSet={(v) => void commitValue(row.path, col, v)}
+            onCreateOption={(o) =>
+              void define(col, { type, options: [...options, o] })
+            }
+            onClose={() => setEditing(null)}
+          />
         );
       }
 

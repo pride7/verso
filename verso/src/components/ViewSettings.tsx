@@ -393,3 +393,126 @@ export function OptionsEditor({ column, def, onDefine, onClose }: OptionsEditorP
     </div>
   );
 }
+
+interface OptionPickerProps {
+  /** 单元格当前的值。多选时是「甲、乙」这种 */
+  value: string;
+  options: string[];
+  multi: boolean;
+  /** 选好之后写回单元格 */
+  onSet: (value: string) => void;
+  /** 现建一个选项：写进 schema，然后立刻选上 */
+  onCreateOption: (option: string) => void;
+  onClose: () => void;
+}
+
+/**
+ * 单选 / 多选的选择器。
+ *
+ * **在单元格里就能新建选项** —— Notion 和思源都是这样，而这正是「先去列头
+ * 菜单里把选项配好、再回来填」最烦人的地方：填值的那一刻才是你知道自己
+ * 需要哪个选项的时刻。
+ *
+ * 新建只往 schema 里加一条候选，值照常写进那篇笔记的 frontmatter；
+ * 反过来，删选项也不会去动任何笔记（见 `OptionsEditor`）。
+ */
+export function OptionPicker({
+  value,
+  options,
+  multi,
+  onSet,
+  onCreateOption,
+  onClose,
+}: OptionPickerProps) {
+  const [q, setQ] = useState("");
+  const chosen = value
+    ? value
+        .split(/[、,]/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+    : [];
+  // 当前值排在最前，且一定在列表里 —— 手改过 frontmatter、或者选项后来被
+  // 删掉的值，不能因为打开这个面板就消失
+  const all = [...new Set([...chosen, ...options])];
+  const key = q.trim();
+  const hits = key ? all.filter((o) => o.includes(key)) : all;
+  const canCreate = key.length > 0 && !all.includes(key);
+
+  const pick = (o: string) => {
+    if (!multi) {
+      onSet(chosen[0] === o ? "" : o);
+      onClose();
+      return;
+    }
+    const next = chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o];
+    onSet(next.join("、"));
+  };
+
+  return (
+    <div className="optpick" onMouseDown={(e) => e.stopPropagation()}>
+      <input
+        className="optpick-q"
+        value={q}
+        placeholder={multi ? "搜索或新建选项" : "搜索或新建"}
+        autoFocus
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (canCreate) {
+              onCreateOption(key);
+              pick(key);
+              setQ("");
+            } else if (hits.length === 1) {
+              pick(hits[0]);
+            }
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      />
+
+      <ul className="optpick-list">
+        {hits.map((o) => (
+          <li key={o}>
+            <button className={chosen.includes(o) ? "is-on" : undefined} onClick={() => pick(o)}>
+              <span className="dbview-tag">{o}</span>
+              {chosen.includes(o) && <Icon name="check" size={12} />}
+            </button>
+          </li>
+        ))}
+        {canCreate && (
+          <li>
+            <button
+              className="optpick-new"
+              onClick={() => {
+                onCreateOption(key);
+                pick(key);
+                setQ("");
+              }}
+            >
+              <Icon name="plus" size={12} />
+              新建「{key}」
+            </button>
+          </li>
+        )}
+        {hits.length === 0 && !canCreate && <li className="optpick-none">还没有选项</li>}
+      </ul>
+
+      <div className="optpick-foot">
+        {!multi && chosen.length > 0 && (
+          <button
+            onClick={() => {
+              onSet("");
+              onClose();
+            }}
+          >
+            清空
+          </button>
+        )}
+        <button onClick={onClose}>完成</button>
+      </div>
+    </div>
+  );
+}
