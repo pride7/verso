@@ -120,7 +120,7 @@ export function Editor({
   // 只在挂载时注册的话，改一次代码 database 视图就全变空白了。
   useEffect(() => {
     setViewRenderer({
-      mount: (el, source) => {
+      mount: (el, source, patch) => {
         // 同一个容器可能被 CM6 复用，先清掉旧的
         roots.current.get(el)?.unmount();
         const root = createRoot(el);
@@ -131,6 +131,7 @@ export function Editor({
             onOpen={(p) => cb.current.onNavigate(p)}
             onChanged={() => cb.current.onChanged()}
             revision={cb.current.revision}
+            onPatch={patch}
           />,
         );
       },

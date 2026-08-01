@@ -18,7 +18,14 @@ import { parseAdvanced, parseRefresh } from "./parseRefresh";
 
 /** 由 App 注入：把一个 DOM 容器渲染成 React 的 DatabaseView */
 export interface ViewRenderer {
-  mount: (el: HTMLElement, source: string) => void;
+  /**
+   * `patch` 把改过的 YAML 写回代码块本身。
+   *
+   * 视图的排序、列这些**是用户内容不是界面状态**（§0 第 1 条）：它写在
+   * 笔记里的那个代码块里，跟着 `.md` 走，别的编辑器打开也看得见。所以点
+   * 表头排序做的事是改文件，不是改一个 React state。
+   */
+  mount: (el: HTMLElement, source: string, patch: (yaml: string) => void) => void;
   unmount: (el: HTMLElement) => void;
 }
 
@@ -29,21 +36,31 @@ export function setViewRenderer(r: ViewRenderer) {
 }
 
 class ViewBlockWidget extends WidgetType {
-  constructor(readonly source: string) {
+  constructor(
+    readonly source: string,
+    /** 代码块里 YAML 那一段的范围，写回时要换掉的正是它 */
+    readonly from: number,
+    readonly to: number,
+  ) {
     super();
   }
 
   eq(other: ViewBlockWidget) {
-    return other.source === this.source;
+    return other.source === this.source && other.from === this.from;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement("div");
     el.className = "cm-dbview";
     // 先放占位，React 挂上之后会覆盖。没有它的话「decoration 没生成」和
     // 「React 没挂上」两种失败长得一模一样，都是一片空白。
     el.textContent = "database 视图加载中…";
-    renderer?.mount(el, this.source);
+    renderer?.mount(el, this.source, (yaml) => {
+      view.dispatch({
+        changes: { from: this.from, to: this.to, insert: yaml },
+        userEvent: "input.view.spec",
+      });
+    });
     return el;
   }
 
@@ -77,8 +94,12 @@ function build(state: EditorState): DecorationSet {
       if (!m) return;
       if (touched(state, node.from, node.to)) return false;
 
+      // YAML 那一段在文档里的位置：开围栏那一行之后，收围栏之前
+      const bodyFrom = node.from + text.indexOf(m[1]);
       marks.push(
-        Decoration.replace({ widget: new ViewBlockWidget(m[1]) }).range(node.from, node.to),
+        Decoration.replace({
+          widget: new ViewBlockWidget(m[1], bodyFrom, bodyFrom + m[1].length),
+        }).range(node.from, node.to),
       );
       return false;
     },

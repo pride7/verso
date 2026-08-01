@@ -2242,3 +2242,49 @@ textarea:focus-visible {
 .cm-img.is-missing .cm-img-handle {
   display: none;
 }
+
+/* ---------- database 视图：可操作的部分（§2.6） ---------- */
+
+/* 表头做成按钮，但要看着还是表头 —— 不是一排控件 */
+.dbview-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  border-radius: var(--r-xs);
+  transition: color var(--t-fast);
+}
+.dbview-th:hover {
+  color: var(--text);
+}
+.dbview-table th.is-sorted .dbview-th {
+  color: var(--text);
+  font-weight: 600;
+}
+/* 箭头只在真的按这一列排序时出现 —— 每列都挂一个灰箭头，
+   表头就变成一排噪点了 */
+.dbview-arrow {
+  font-size: 0.85em;
+  color: var(--accent);
+}
+
+/* 底部那一行：左边是条数，右边是「新建」 */
+.dbview-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.dbview-add {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  font-size: inherit;
+  color: var(--muted);
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.dbview-add:hover {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
