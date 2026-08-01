@@ -163,6 +163,21 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* 页面本身**永远不滚**。这是个桌面应用外壳，滚动只发生在里面那几个面板
+     （侧栏、编辑区、终端）。少了这一行，只要有任何东西比视口高一点点 ——
+     缩放、某个浮层、一条横向滚动条挤出来的十几像素 —— 整个界面就会被
+     拖上去：状态栏跑到视口外，顶上的侧栏被切掉一截，下面露出一块白。 */
+  overflow: hidden;
+
+  /* 弹性 overscroll（橡皮筋）。**这是上一条挡不住的** —— 它不是 DOM 滚动，
+     而是合成器层直接把整个页面平移一下再弹回来，`overflow:hidden` 和
+     `scrollTop` 都感知不到，所以任何自动化测试都量不出来。
+
+     症状是触控板两指一滑，整个界面（连图标栏和状态栏一起）跟着晃，
+     边上露出一块白。桌面应用的外壳不该有这种网页味的手感。
+
+     `none` 同时也关掉滚动链：面板滚到头之后继续滑，不会再把外层带着一起动。 */
+  overscroll-behavior: none;
 }
 
 body {
@@ -216,8 +231,16 @@ button {
 /* ---------- 布局：§6.3 ---------- */
 
 .app {
-  height: 100vh;
+  /* `100%`（跟着 #root → body → html）而不是 `100vh`：两者在缩放、
+     横向滚动条出现、移动端地址栏这些情况下会差出几十像素，而差出来的那部分
+     正好会把整个界面顶出视口 */
+  height: 100%;
   overflow: hidden;
+  /* `overflow:hidden` 只裁剪**以自己为包含块**的后代。少了这一行，任何
+     `position:absolute` 的后代（浮动大纲、折叠箭头、图片把手、各种浮层）
+     只要祖先都是 static，就会以视口为准定位、**从这个盒子里逃出去**，
+     把整个文档撑大 —— 于是界面能上下滑也能左右滑。 */
+  position: relative;
   display: grid;
   /* `1fr` 实际是 `minmax(auto, 1fr)`，那个 auto 最小值 = 内容的 min-content，
      会被编辑区的 max-width 撑破容器 —— 横向把内容顶出窗口，
@@ -511,6 +534,8 @@ button {
   grid-area: main;
   overflow-y: auto;
   min-width: 0;
+  /* 滚到头之后继续滑，不要把外层一起带动 */
+  overscroll-behavior: contain;
 }
 
 .empty {

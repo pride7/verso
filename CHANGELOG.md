@@ -4,6 +4,43 @@
 
 ---
 
+## v0.5.16 — 整个界面不会再跟着手指晃
+
+作者报的症状是「上下左右都能滑，还有回弹」：触控板两指一划，**整个界面**
+连图标栏带状态栏一起动，边上露出一块白。
+
+这不是滚动。是**弹性 overscroll（橡皮筋）**——它发生在合成器层，直接把整页
+平移一下再弹回来，`overflow` 和 `scrollTop` 都感知不到。所以我按「正文滚动」
+查了一整轮，量到的布局全是好的，因为布局本来就没错。
+
+`overscroll-behavior: none`（html/body）关掉它；`.main` 上加 `contain`，
+编辑区滚到头之后不再把外层带着一起动。桌面应用的外壳不该有这种网页味的手感。
+
+顺带把外壳收紧了三处，都是「本来就该有、只是一直没露馅」的：
+
+- **`html/body { overflow: hidden }`** —— 页面本身永远不滚
+- **`.app { position: relative }`** —— `overflow:hidden` 只裁剪**以自己为
+  包含块**的后代。少了它，任何 `position:absolute` 的后代（浮动大纲、折叠
+  箭头、图片把手）只要祖先都是 static 就会以视口定位、从这个盒子里逃出去，
+  把整个文档撑大
+- **`.app` 的 `100vh` 改成 `100%`** —— 两者在缩放、横向滚动条出现时会差出
+  几十像素，而差出来的那截正好把界面顶出视口
+
+还加了 `shell.ts`：`overflow:hidden` 只挡用户滚，**挡不住程序滚**。
+`scrollIntoView` 和焦点移动照样能把文档顶上去，而且顶上去不会自己回来 ——
+CodeMirror 的光标滚动和界面里那些 `.focus()` 都会触发。所以文档一旦被滚走就
+立刻拉回去。
+
+### 这次的教训：browser 测试也够不着合成器
+
+`pageScroll.browser.test.tsx` 里那几条钉住的是 `overflow` / `overscroll-behavior`
+这些声明本身，不是行为 —— 橡皮筋在 headless 里根本不发生。和上一版
+`dragDropEnabled` 是同一类：**测试能覆盖的边界，比想象中窄一层。**
+
+另外记一笔：早先那轮诊断把 App 挂在 `position:fixed;inset:0` 的容器里，等于
+给它罩了一层绝对撑不开 body 的壳，页面级的问题会被完整屏蔽。新测试挂进
+`#root`、走正常文档流，和 `index.html` 一样。
+
 ## v0.5.15 — 拖拽在真 app 里一直是死的
 
 一行配置：`tauri.conf.json` 里加 `"dragDropEnabled": false`。

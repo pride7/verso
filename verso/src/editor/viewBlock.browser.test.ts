@@ -81,6 +81,47 @@ describe("database 视图", () => {
     expect(rendered(v)).toBe(1);
   });
 
+  /**
+   * widget 的高度是**后来才变的**：`toDOM` 返回的是一行占位文字，React 把
+   * 表格塞进去之后它可能高几百像素。CM6 在创建时量过一次就记进高度图，
+   * 外部 DOM 后来长高它并不知道 —— 于是编辑器认为文档比实际短一大截，
+   * 正文往下滚会滚不到底。
+   *
+   * 图片（`![[图.png]]`）也是同一类：`<img>` 加载完才有高度。
+   */
+  it("widget 后来长高时，高度图要跟着更新", async () => {
+    setViewRenderer({
+      mount: (el) => {
+        el.textContent = "占位";
+        // 模拟 React 异步挂载出一个很高的表格
+        setTimeout(() => {
+          el.textContent = "";
+          const tall = document.createElement("div");
+          tall.style.height = "400px";
+          el.appendChild(tall);
+        }, 30);
+      },
+      unmount: () => {},
+    });
+    try {
+      const v = mount(`开头\n\n${VIEW_BLOCK}\n\n结尾\n`);
+      await settle();
+
+      const widget = v.dom.querySelector(".cm-dbview") as HTMLElement;
+      expect(widget.getBoundingClientRect().height, "widget 自己确实长高了").toBeGreaterThan(390);
+
+      // 高度图（contentHeight）和真实 DOM 高度必须对得上。差一大截就说明
+      // CM6 还按占位那一行算，文档总高偏小
+      const real = v.contentDOM.getBoundingClientRect().height;
+      expect(
+        Math.abs(v.contentHeight - real),
+        `高度图 ${v.contentHeight} vs 真实 ${real}`,
+      ).toBeLessThan(20);
+    } finally {
+      setViewRenderer({ mount: () => {}, unmount: () => {} });
+    }
+  });
+
   it("挂上 renderer 后 widget 会交给它渲染", async () => {
     const seen: string[] = [];
     setViewRenderer({

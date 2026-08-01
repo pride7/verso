@@ -39,6 +39,7 @@
 | ↳ 文档树排序（手动 + 规则） | `v0.5.13` ✅ |
 | ↳ 拖动直接生效，不必先选手动排序 | `v0.5.14` ✅ |
 | ↳ 关掉 Tauri 的 OS 层拖放，拖拽才真的能用 | `v0.5.15` ✅ |
+| ↳ 外壳钉死：页面不滚、不橡皮筋 | `v0.5.16` ✅ |
 | M5 同步 | `v0.6.0` |
 | M6 移动端 | `v0.7.0` |
 | M7 发布 | `v0.8.0` |
@@ -109,6 +110,18 @@ webview 里的 `dragstart` / `drop` 根本收不到。tauri-utils 的 `config.rs
 **要点：功能依赖浏览器和宿主之间的边界（拖放、剪贴板、文件、协议、窗口）时，
 先去 `tauri.conf.json` 和 Tauri 的 config 文档确认一遍默认值。** 没法自动测的，
 就在 `src/tauriConfig.test.ts` 里把配置钉住，并写清楚删掉它会坏什么。
+
+还有更下面一层够不着的：**合成器**。弹性 overscroll（橡皮筋）直接把整页平移
+再弹回来，`overflow` 和 `scrollTop` 都感知不到，headless 里根本不发生 ——
+作者报「界面上下左右都能滑、还回弹」，我按 DOM 滚动查了一整轮，量到的布局
+全是好的，因为布局本来就没错。这类只能钉声明（`pageScroll.browser.test.tsx`
+钉的是 `overscroll-behavior`，不是行为）。
+
+### App 级的 browser 测试要挂进 `#root`，走正常文档流
+
+`position:fixed;inset:0` 的宿主容器等于给 App 罩了一层「绝对撑不开 body」的壳，
+**所有页面级的溢出问题都会被完整屏蔽**。这条踩过：整个界面能被顶出视口，而
+诊断测试一路全绿。照着 `index.html` 来：`<div id="root">`，别的什么都不加。
 
 ### ⚠️ 不要用 `cargo check`
 
