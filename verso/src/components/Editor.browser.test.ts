@@ -59,6 +59,7 @@ describe("Editor 里的 database 视图", () => {
           revision: 0,
           onNoteChanged: () => {},
           customSnippets: "",
+          sourceMode: false,
         }),
       ),
     );

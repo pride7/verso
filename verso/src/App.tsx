@@ -106,6 +106,23 @@ export default function App() {
     });
   }, []);
 
+  /**
+   * 源码模式：摘掉全部 live preview 装饰，直接看 Markdown 源码。
+   *
+   * 是**全局**开关不是每篇一个 —— 切进源码模式通常是为了做一件事（改一段
+   * 表格、抠一个链接、看 AI 到底写了什么），做完就切回来。每篇记一个状态的话，
+   * 过两天打开某篇笔记发现它"坏了"，其实只是上次忘了切回来。
+   */
+  const [sourceMode, setSourceMode] = useState(
+    () => localStorage.getItem("verso.sourceMode") === "1",
+  );
+  const toggleSourceMode = useCallback(() => {
+    setSourceMode((v) => {
+      localStorage.setItem("verso.sourceMode", v ? "0" : "1");
+      return !v;
+    });
+  }, []);
+
   // 大纲跟着**正文**走而不是跟着磁盘上的文件走：新敲的标题必须立刻出现在
   // 大纲里，等自动保存那 800ms 才更新的话，它就成了个滞后的东西
   const headings = useMemo(() => parseHeadings(body), [body]);
@@ -397,6 +414,10 @@ export default function App() {
         } else {
           pickView("search");
         }
+      } else if (mod && e.key.toLowerCase() === "e" && !e.shiftKey) {
+        // Obsidian 用 Ctrl+E 在源码与预览之间切，沿用它的肌肉记忆
+        e.preventDefault();
+        toggleSourceMode();
       } else if (mod && e.shiftKey && e.key.toLowerCase() === "o") {
         // VS Code 的 Ctrl+Shift+O 是「跳转到符号」，笔记里的符号就是标题
         e.preventDefault();
@@ -407,7 +428,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
     // pickView 依赖当前视图状态，漏掉的话 Ctrl+Shift+F 会用到旧的闭包，
     // 表现是切过一次视图之后快捷键就不灵了
-  }, [pickView, sidebarOpen, sidebarView, setTermOpen]);
+  }, [pickView, sidebarOpen, sidebarView, setTermOpen, toggleSourceMode]);
 
   // 点任意位置关掉右键菜单
   useEffect(() => {
@@ -495,6 +516,13 @@ export default function App() {
         group: "外观",
         label: sidebarOpen ? "收起侧栏" : "展开侧栏",
         run: () => pickView(sidebarView),
+      },
+      {
+        id: "view.sourceMode",
+        group: "外观",
+        label: sourceMode ? "退出源码模式" : "源码模式",
+        keys: keyLabel("Mod+E"),
+        run: toggleSourceMode,
       },
       {
         id: "view.tocFloat",
@@ -586,6 +614,8 @@ export default function App() {
     sidebarView,
     tocFloat,
     toggleTocFloat,
+    sourceMode,
+    toggleSourceMode,
     pickView,
     createAndOpen,
     saveNow,
@@ -728,6 +758,7 @@ export default function App() {
               setRevision((v) => v + 1);
             }}
             customSnippets={settings.customSnippets}
+            sourceMode={sourceMode}
           />
         ) : (
           // 空状态是「顺便教一下快捷键」最自然的位置 —— 不做插件系统的软件，
@@ -776,6 +807,18 @@ export default function App() {
       <footer className="status">
         <span className={`dot dot-${saveState}`} />
         {{ saved: "已保存", dirty: "未保存", saving: "保存中…", error: "保存失败" }[saveState]}
+        {sourceMode && (
+          // 光看正文分不清「现在是源码模式」和「这篇笔记本来就没排版」，
+          // 状态栏挂一条。做成按钮而不是文字：这是退出这个模式最直接的入口，
+          // 也是不用键盘的那条路（§1.2）
+          <button
+            className="status-mode"
+            onClick={toggleSourceMode}
+            title={`退出源码模式 (${keyLabel("Mod+E")})`}
+          >
+            源码模式
+          </button>
+        )}
         {note && (
           // 显示字数而不是 id：id 是给链接用的内部标识，写东西的人关心的是
           // 写了多少。中文按字符数算才有意义 —— 按空格切词对中文永远是 1

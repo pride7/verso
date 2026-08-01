@@ -3,7 +3,7 @@ import { EditorView } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import { applyCustomSnippets, createExtensions } from "../editor";
+import { applyCustomSnippets, applySourceMode, createExtensions } from "../editor";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { setViewRenderer } from "../editor/viewBlock";
 import { DatabaseView } from "./DatabaseView";
@@ -68,6 +68,8 @@ interface Props {
   onNoteChanged: () => void;
   /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
   customSnippets: string;
+  /** 源码模式：摘掉全部 live preview 装饰，直接看 Markdown 源码 */
+  sourceMode: boolean;
 }
 
 export function Editor({
@@ -82,6 +84,7 @@ export function Editor({
   revision,
   onNoteChanged,
   customSnippets,
+  sourceMode,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -201,6 +204,8 @@ export function Editor({
   // 自定义 snippet 的初值。放 ref 是因为它只在建 view 的那一刻用一次，
   // 之后的变化走下面的 compartment reconfigure，不该让编辑器重建
   const initialSnippets = useRef(customSnippets);
+  /** 同理：只在建 view 那一刻用一次，之后的切换走 compartment */
+  const initialSourceMode = useRef(sourceMode);
 
   // 只在挂载时建一次 view
   useEffect(() => {
@@ -214,6 +219,7 @@ export function Editor({
           onFollowLink: (t) => cb.current.onFollowLink(t),
           getNotes: () => cb.current.getNotes(),
           customSnippets: parseCustomSnippets(initialSnippets.current).specs,
+          sourceMode: initialSourceMode.current,
         }),
       }),
       parent: host.current,
@@ -234,6 +240,15 @@ export function Editor({
     initialSnippets.current = customSnippets;
     applyCustomSnippets(view, customSnippets);
   }, [customSnippets]);
+
+  // 切源码模式：同样只重配 compartment。光标、选区、撤销历史、滚动位置
+  // 全都留在原处 —— 切一次就把这些丢光的开关，没人会切第二次
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || sourceMode === initialSourceMode.current) return;
+    initialSourceMode.current = sourceMode;
+    applySourceMode(view, sourceMode);
+  }, [sourceMode]);
 
   // 切换笔记 / 从磁盘重载时，整篇换掉内容
   useEffect(() => {

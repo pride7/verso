@@ -61,6 +61,7 @@ function mountEditor() {
       revision={0}
       onNoteChanged={() => {}}
       customSnippets=""
+      sourceMode={false}
     />,
   );
   return { scroller, handleRef };

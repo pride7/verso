@@ -1946,3 +1946,21 @@ textarea:focus-visible {
     display: none;
   }
 }
+
+/* ---------- 状态栏里的源码模式标记 ---------- */
+
+/* 做成一枚淡色的小徽章，不是一行灰字 —— 它是「当前处在某个模式」的提示，
+   和旁边「已保存」那种状态描述不是一回事，看着必须能分开。
+   点它就退出，所以给了按钮的悬停反馈 */
+.status-mode {
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 13%, transparent);
+  transition: background var(--t-fast);
+}
+.status-mode:hover {
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+}

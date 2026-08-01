@@ -35,6 +35,30 @@ export { mathContextAt, type MathContext } from "./mathContext";
  */
 const snippetCompartment = new Compartment();
 
+/**
+ * 实时预览的全部装饰。**源码模式就是把这一组整个摘掉。**
+ *
+ * 顺序有讲究，和它们原来在 `createExtensions` 里的先后一致：
+ * `viewBlocks` 替换整个代码块，优先级必须高于代码块自身的高亮；
+ * `tables` 同理。
+ *
+ * 高亮（`versoHighlighting`）**不在这一组里** —— 源码模式要看的是
+ * Markdown 源码，不是纯文本。标题仍然大、代码仍然是等宽，只是 `##`、
+ * `**` 这些标记不再被藏起来，公式和表格也不再被渲染成最终形态。
+ */
+const PREVIEW: Extension = [livePreview, viewBlocks, tables];
+
+/**
+ * 预览装饰单独放一个 compartment，理由和 snippet 那个一样：
+ * 切一次模式就丢光标、丢撤销历史、丢滚动位置的话，这个开关只会被用一次。
+ */
+const previewCompartment = new Compartment();
+
+/** 切源码模式。`on` 为真时摘掉全部 live preview 装饰 */
+export function applySourceMode(view: EditorView, on: boolean) {
+  view.dispatch({ effects: previewCompartment.reconfigure(on ? [] : PREVIEW) });
+}
+
 /** 设置里的自定义 snippet 变了之后调它。返回解析过程中的错误，供设置界面显示 */
 export function applyCustomSnippets(view: EditorView, text: string): string[] {
   const { specs, errors } = parseCustomSnippets(text);
@@ -58,6 +82,8 @@ export interface EditorCallbacks {
   getNotes: () => NoteRef[];
   /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
   customSnippets?: SnippetSpec[];
+  /** 建 view 时是不是源码模式。之后的切换走 `applySourceMode` */
+  sourceMode?: boolean;
 }
 
 /** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
@@ -102,12 +128,8 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     versoTheme,
     versoHighlighting,
-    livePreview,
-    // §2.6 database 视图。必须排在 livePreview 之后 —— 它替换整个代码块，
-    // 优先级要高于代码块自身的高亮
-    viewBlocks,
-    // §2.4 GFM 表格。整块替换，同样只能来自 StateField
-    tables,
+    // live preview（含 §2.6 database 视图与 §2.4 表格）。整组可摘 —— 见 PREVIEW
+    previewCompartment.of(cb.sourceMode ? [] : PREVIEW),
     linkClickHandler(cb.onFollowLink),
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
