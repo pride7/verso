@@ -2,7 +2,7 @@ import { keyLabel } from "../lib/platform";
 import { Icon, type IconName } from "./Icon";
 
 /** 侧栏当前显示哪个面板 */
-export type SidebarView = "tree" | "search" | "tags";
+export type SidebarView = "tree" | "search" | "tags" | "outline";
 
 interface Props {
   view: SidebarView;
@@ -20,6 +20,8 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; keys?: string }[]
   { id: "tree", icon: "tree", label: "文档树" },
   { id: "search", icon: "search", label: "搜索", keys: keyLabel("Mod+Shift+F") },
   { id: "tags", icon: "tag", label: "标签" },
+  // 大纲是「当前这篇」的视图，排在三个跨文档视图后面
+  { id: "outline", icon: "outline", label: "大纲", keys: keyLabel("Mod+Shift+O") },
 ];
 
 /**

@@ -5,6 +5,7 @@ import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { Icon } from "./components/Icon";
 import { Editor, type EditorHandle } from "./components/Editor";
+import { OutlineFloat, OutlineView, useActiveHeading } from "./components/Outline";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -12,6 +13,7 @@ import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
+import { parseHeadings, type Heading } from "./lib/outline";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -94,6 +96,21 @@ export default function App() {
     const saved = Number(localStorage.getItem("verso.termHeight"));
     return Number.isFinite(saved) && saved >= 120 ? saved : 280;
   });
+
+  /** 浮动大纲开不开。和终端面板一样跨会话保留 —— 嫌它挡事的人不想每次启动再关一遍 */
+  const [tocFloat, setTocFloat] = useState(() => localStorage.getItem("verso.tocFloat") !== "0");
+  const toggleTocFloat = useCallback(() => {
+    setTocFloat((v) => {
+      localStorage.setItem("verso.tocFloat", v ? "0" : "1");
+      return !v;
+    });
+  }, []);
+
+  // 大纲跟着**正文**走而不是跟着磁盘上的文件走：新敲的标题必须立刻出现在
+  // 大纲里，等自动保存那 800ms 才更新的话，它就成了个滞后的东西
+  const headings = useMemo(() => parseHeadings(body), [body]);
+  const activeHeadingIdx = useActiveHeading(headings, editorRef);
+  const gotoHeading = useCallback((h: Heading) => editorRef.current?.gotoLine(h.line), []);
 
   // 「磁盘上这份文件最后一次由我们写入时的 mtime」。
   // 放 ref 不放 state：焦点事件的闭包里要读最新值，state 会拿到旧值。
@@ -380,6 +397,10 @@ export default function App() {
         } else {
           pickView("search");
         }
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === "o") {
+        // VS Code 的 Ctrl+Shift+O 是「跳转到符号」，笔记里的符号就是标题
+        e.preventDefault();
+        pickView("outline");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -457,6 +478,13 @@ export default function App() {
         run: () => pickView("tags"),
       },
       {
+        id: "note.outline",
+        group: "笔记",
+        label: "大纲",
+        keys: keyLabel("Mod+Shift+O"),
+        run: () => pickView("outline"),
+      },
+      {
         id: "view.tree",
         group: "外观",
         label: "文档树",
@@ -467,6 +495,12 @@ export default function App() {
         group: "外观",
         label: sidebarOpen ? "收起侧栏" : "展开侧栏",
         run: () => pickView(sidebarView),
+      },
+      {
+        id: "view.tocFloat",
+        group: "外观",
+        label: tocFloat ? "隐藏浮动大纲" : "显示浮动大纲",
+        run: toggleTocFloat,
       },
       {
         id: "note.save",
@@ -550,6 +584,8 @@ export default function App() {
     settings.theme,
     sidebarOpen,
     sidebarView,
+    tocFloat,
+    toggleTocFloat,
     pickView,
     createAndOpen,
     saveNow,
@@ -588,6 +624,7 @@ export default function App() {
     tree: "文档",
     search: "搜索",
     tags: "标签",
+    outline: "大纲",
   };
 
   return (
@@ -649,6 +686,16 @@ export default function App() {
           {sidebarView === "tags" && (
             <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
           )}
+          {sidebarView === "outline" &&
+            (note ? (
+              <OutlineView
+                headings={headings}
+                activeIndex={activeHeadingIdx}
+                onPick={gotoHeading}
+              />
+            ) : (
+              <p className="side-empty">先打开一篇笔记。</p>
+            ))}
         </aside>
       )}
 
@@ -704,6 +751,14 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* 浮动目录压在编辑区右侧：它和 <main> 占同一个 grid area（网格项
+          本来就可以重叠），于是侧栏收起、终端打开时它自己会跟着挪，
+          不需要任何 JS 参与布局。
+          只有一条标题时不显示 —— 那不叫目录，只是一块挡视线的东西 */}
+      {note && tocFloat && headings.length >= 2 && (
+        <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
+      )}
 
       {termOpen && (
         <TerminalPanel

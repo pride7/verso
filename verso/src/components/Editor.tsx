@@ -14,6 +14,30 @@ import { Properties } from "./Properties";
 /** 让 App 能往编辑器里塞内容（符号面板要用） */
 export interface EditorHandle {
   insert: (text: string) => void;
+  /** 跳到第 `line` 行（1 起）并把它顶到可视区上沿。大纲点击用 */
+  gotoLine: (line: number) => void;
+  /** 可视区上沿落在第几行（1 起）。大纲判断「当前在哪一节」用 */
+  topLine: () => number;
+}
+
+/** 跳转后标题距上沿留的空隙，也是 `topLine` 的取样点 */
+const TOP_MARGIN = 12;
+
+/**
+ * 找到真正在滚动的那个祖先。
+ *
+ * 编辑器自己不滚 —— `.editor-host` 是 `flex: 1`，滚的是外面的 `.main`
+ * （见 styles.css「编辑区」一节）。但把 `.main` 写死在这里，编辑器就绑死
+ * 在某一套布局上了；往上找第一个能滚的元素既准确又不产生这份耦合。
+ */
+function scrollParent(el: HTMLElement): HTMLElement {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const overflow = getComputedStyle(p).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && p.scrollHeight > p.clientHeight + 1) {
+      return p;
+    }
+  }
+  return document.documentElement;
 }
 
 /**
@@ -124,6 +148,28 @@ export function Editor({
           scrollIntoView: true,
         });
         view.focus();
+      },
+      gotoLine: (line: number) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const doc = view.state.doc;
+        const target = doc.line(Math.min(Math.max(1, line), doc.lines));
+        view.dispatch({
+          // 光标也跟过去：这是编辑器，「跳到某一节」的下一个动作通常是改它
+          selection: { anchor: target.from },
+          effects: EditorView.scrollIntoView(target.from, { y: "start", yMargin: TOP_MARGIN }),
+        });
+        view.focus();
+      },
+      topLine: () => {
+        const view = viewRef.current;
+        if (!view) return 1;
+        // `documentTop` 是文档首行在窗口坐标里的 y，减掉它就换算成
+        // 「相对文档顶部的高度」。CM6 的高度图对**没渲染**的部分也有估算，
+        // 所以整篇都问得出来，不受可视区渲染范围限制
+        const y =
+          scrollParent(view.dom).getBoundingClientRect().top + TOP_MARGIN - view.documentTop;
+        return view.state.doc.lineAt(view.lineBlockAtHeight(y).from).number;
       },
     };
     return () => {

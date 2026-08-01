@@ -1749,3 +1749,195 @@ textarea:focus-visible {
 .cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon {
   display: none;
 }
+
+/* ---------- 大纲：侧栏面板 + 右侧浮动目录 ---------- */
+
+/* 行距比文档树紧一档：一篇长文的标题数远多于文档树的节点数，
+   照文档树的行高排下来，一屏只剩十几行 */
+.outline-list {
+  padding-bottom: 10px;
+}
+
+.outline-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  /* 左内边距由组件按层级覆写，这里只给最浅那一级的值 */
+  padding: 4px 8px 4px 10px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.outline-row:hover {
+  background: var(--hover-bg);
+}
+/* 选中态与文档树同款实心条 —— 侧栏里所有列表的选中必须长一个样 */
+.outline-row.is-active,
+.outline-row.is-active:hover {
+  background: var(--selected-bg);
+}
+.outline-row.is-active .outline-text {
+  color: var(--selected-text);
+  font-weight: 500;
+}
+
+.outline-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text);
+}
+/* 层级不能只靠缩进：侧栏只有 252px，一级差 13px 缩进，二级和三级
+   扫一眼分不出来。再叠一档字号和明度，和正文里标题的层次同一个道理 */
+.outline-text.lv-0 {
+  font-weight: 500;
+}
+.outline-text.lv-1 {
+  font-size: 12.5px;
+}
+.outline-text.lv-2 {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.outline-text.lv-3 {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---- 浮动目录 ----
+
+   和 <main> 占同一个 grid area（网格项本来就可以重叠），所以侧栏收起、
+   终端打开时它自己会跟着挪，布局里没有一行 JS。
+
+   容器不吃鼠标事件，只有条目吃 —— 否则正文右侧一整条都点不进去了。 */
+.toc-float {
+  grid-area: main;
+  align-self: center;
+  justify-self: end;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  max-height: 100%;
+  padding: 8px 6px;
+}
+
+.toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  /* 条目必须等宽（stretch），否则展开后每一行只有自己文字那么宽，
+     缩进就全被吃掉了 —— 一列右对齐的标题看不出任何层级 */
+  align-items: stretch;
+  gap: 2px;
+  pointer-events: auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 目录滚到底之后不要接着滚正文 —— 那会让人以为点错了地方 */
+  overscroll-behavior: contain;
+  border-radius: var(--r-md);
+  /* 收起时不画板子：一排短横线本身已经够低调，加个底就成了第二个侧栏 */
+  background: transparent;
+  box-shadow: none;
+  transition: background var(--t-base), box-shadow var(--t-base);
+}
+.toc-list:hover,
+.toc-list:focus-within {
+  background: var(--raised);
+  box-shadow: var(--shadow-md);
+}
+
+.toc-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 0;
+  color: var(--muted);
+  transition: color var(--t-fast);
+  /* 收起态那根短横线的长度，展开时归零 */
+  --dash: 16px;
+  /* 展开后的缩进。右侧空间比侧栏更紧，比侧栏收一点 */
+  --indent: 0px;
+}
+.toc-item.lv-1 {
+  --dash: 12px;
+  --indent: 11px;
+}
+.toc-item.lv-2 {
+  --dash: 9px;
+  --indent: 22px;
+}
+.toc-item.lv-3 {
+  --dash: 6px;
+  --indent: 31px;
+}
+.toc-item:not(.is-active):hover {
+  color: var(--text);
+}
+.toc-item.is-active {
+  color: var(--accent);
+}
+
+.toc-dash {
+  flex: none;
+  width: var(--dash);
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.5;
+  transition: width var(--t-base), opacity var(--t-base);
+}
+.toc-item.is-active .toc-dash {
+  opacity: 1;
+}
+.toc-item:hover .toc-dash {
+  opacity: 0.85;
+}
+
+/* 文字用 max-width 收到 0，不用 display:none —— 后者做不了过渡，
+   而这个展开动作正好落在视线中央，跳变最扎眼。
+   flex:1 让所有条目等宽，于是展开后是一列左对齐的目录，缩进才看得出层级。 */
+.toc-label {
+  flex: 1;
+  min-width: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding-left: var(--indent);
+  font-size: 12.5px;
+  /* 收起时连行高一起收掉：留着 1.6 的话每条要占 20px，九条标题拉出
+     一条一百八十像素长的虚线，"一眼看出结构"就无从谈起了。
+     行高是可过渡的，所以展开时高度也是平滑长开的 */
+  line-height: 0;
+  transition: max-width var(--t-base), opacity var(--t-base), line-height var(--t-base);
+}
+.toc-item.lv-0 .toc-label {
+  font-weight: 500;
+}
+.toc-list:hover .toc-label,
+.toc-list:focus-within .toc-label {
+  max-width: 15rem;
+  opacity: 1;
+  line-height: 1.65;
+}
+/* 展开后短横线让位给文字 */
+.toc-list:hover .toc-dash,
+.toc-list:focus-within .toc-dash {
+  width: 0;
+  opacity: 0;
+}
+
+/* 窗口太窄时正文两侧本来就没有余量，浮动目录会直接压在字上。
+   这时候还有侧栏里的大纲面板可用，不必硬留着它 */
+@media (max-width: 900px) {
+  .toc-float {
+    display: none;
+  }
+}
