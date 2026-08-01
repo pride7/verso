@@ -70,6 +70,7 @@ function mountEditor() {
       onNoteChanged={() => {}}
       customSnippets=""
       sourceMode={false}
+      onSaveFrontmatter={async () => {}}
     />,
   );
   return { scroller, handleRef };

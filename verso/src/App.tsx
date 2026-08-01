@@ -190,6 +190,31 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * 源码模式里手改的 frontmatter 落盘。
+   *
+   * **先把正文冲掉再写。** 两条写入路径各写文件的一半，都是「读文件 → 换掉
+   * 自己那一半 → 整篇写回」；同时飞的话，后写的那个是拿改动前的另一半算出来的，
+   * 会把先写的那次盖掉。串起来就没有这个缝。
+   *
+   * 写完重读一遍：Rust 会补上 `updated:` 时间戳、把键序规整一遍，界面上得
+   * 是文件里真实的样子。YAML 没通过解析时 `writeFrontmatter` 抛错、文件没被动，
+   * 错误交给输入框自己显示 —— 那里离出错的地方最近。
+   */
+  const saveFrontmatter = useCallback(
+    async (yaml: string) => {
+      const n = noteRef.current;
+      if (!n) return;
+      if (dirtyRef.current) await saveNow();
+      savedMtime.current = await api.writeFrontmatter(n.path, yaml);
+      const content = await api.readNote(n.path);
+      setNote(content);
+      await refresh();
+      setRevision((v) => v + 1);
+    },
+    [saveNow, refresh],
+  );
+
   const openPath = useCallback(
     async (path: string) => {
       if (noteRef.current && dirtyRef.current) await saveNow();
@@ -553,6 +578,28 @@ export default function App() {
         run: () => void reloadFromDisk(),
       },
       {
+        id: "fold.toggle",
+        group: "标题",
+        label: "折叠／展开当前小节",
+        keys: keyLabel("Mod+Shift+["),
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFold(),
+      },
+      {
+        id: "fold.all",
+        group: "标题",
+        label: "折叠全部标题",
+        enabled: hasNote,
+        run: () => editorRef.current?.foldAll(),
+      },
+      {
+        id: "fold.none",
+        group: "标题",
+        label: "展开全部标题",
+        enabled: hasNote,
+        run: () => editorRef.current?.unfoldAll(),
+      },
+      {
         id: "formula.symbols",
         group: "公式",
         label: "符号面板",
@@ -756,11 +803,16 @@ export default function App() {
             handleRef={editorRef}
             revision={revision}
             onNoteChanged={() => {
+              // 属性条和 database 视图都会改 frontmatter，改完必须**重读
+              // 这篇笔记**，否则界面上还是旧的属性值。正文没变，所以
+              // 编辑器里的光标和撤销历史不会被打断
+              void reloadFromDisk();
               void refresh();
               setRevision((v) => v + 1);
             }}
             customSnippets={settings.customSnippets}
             sourceMode={sourceMode}
+            onSaveFrontmatter={saveFrontmatter}
           />
         ) : (
           // 空状态是「顺便教一下快捷键」最自然的位置 —— 不做插件系统的软件，

@@ -1,10 +1,11 @@
 /**
- * 源码模式下 frontmatter 也要退回源码。
+ * 源码模式下的 frontmatter —— 在真实 Chromium 里跑。
  *
- * 放浏览器测试而不是纯 Node：这一条要验的是**编辑器整体在两种模式下渲染出
- * 什么**，得把真的 `Editor` 挂起来（它内部有 CodeMirror、有 widget 里的
- * React root），happy-dom 里那些都不会真的建起来。
+ * 要验的是**编辑器整体在两种模式下渲染出什么**，得把真的 `Editor` 挂起来
+ * （它内部有 CodeMirror、有 widget 里的 React root）；而输入、失焦这些
+ * 也得有真实的焦点系统才走得通，happy-dom 里两样都没有。
  */
+import { userEvent } from "vitest/browser";
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(note: NoteContent) {
+function mount(note: NoteContent, onSaveFrontmatter: (yaml: string) => Promise<void> = async () => {}) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -60,12 +61,15 @@ function mount(note: NoteContent) {
         onNoteChanged: () => {},
         customSnippets: "",
         sourceMode,
+        onSaveFrontmatter,
       }),
     );
   return { host, render };
 }
 
-const settle = () => new Promise((r) => setTimeout(r, 400));
+const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+
+const yamlBox = (host: HTMLElement) => host.querySelector<HTMLTextAreaElement>(".fm-yaml")!;
 
 describe("源码模式下的 frontmatter", () => {
   it("预览模式给属性条，源码模式给两道 --- 之间的原文", async () => {
@@ -80,7 +84,80 @@ describe("源码模式下的 frontmatter", () => {
     await settle();
     expect(host.querySelector(".props")).toBeNull();
     // 一字不差地照抄文件里的那几行 —— 键序和注释都在
-    expect(host.querySelector(".fm-source")?.textContent).toBe(`---\n${FM_TEXT}---`);
+    expect(yamlBox(host).value).toBe(FM_TEXT);
+    // `---` 在输入框外面：它们是边界不是内容，不该能被删掉
+    expect([...host.querySelectorAll(".fm-fence")].map((f) => f.textContent)).toEqual([
+      "---",
+      "---",
+    ]);
+  });
+
+  it("改完失焦就落盘，交出去的是改后的全文", async () => {
+    const saved: string[] = [];
+    const { host, render } = mount(NOTE, async (yaml) => {
+      saved.push(yaml);
+    });
+    render(true);
+    await settle();
+
+    const box = yamlBox(host);
+    box.focus();
+    await userEvent.fill(box, "status: 读完了\n");
+    box.blur();
+    await settle();
+
+    expect(saved).toEqual(["status: 读完了\n"]);
+  });
+
+  it("手不离开也会存：停手 800ms 自动落盘", async () => {
+    const saved: string[] = [];
+    const { host, render } = mount(NOTE, async (yaml) => {
+      saved.push(yaml);
+    });
+    render(true);
+    await settle();
+
+    const box = yamlBox(host);
+    box.focus();
+    await userEvent.fill(box, "status: 在读\n");
+    // 一直不失焦。没有这条自动保存的话，改完直接切走的人会丢东西
+    await settle(1400);
+
+    expect(saved).toEqual(["status: 在读\n"]);
+  });
+
+  it("没改过就失焦，不写", async () => {
+    const saved: string[] = [];
+    const { host, render } = mount(NOTE, async (yaml) => {
+      saved.push(yaml);
+    });
+    render(true);
+    await settle();
+
+    yamlBox(host).focus();
+    yamlBox(host).blur();
+    await settle();
+
+    expect(saved).toEqual([]);
+  });
+
+  it("YAML 写错：报错挂在下面，用户敲的东西原样留着", async () => {
+    // 这一条是这个功能最要紧的性质。存不进去的时候把文本回滚掉，
+    // 等于替用户把他刚写的东西删了
+    const { host, render } = mount(NOTE, async () => {
+      throw new Error("YAML 解析失败：mapping values are not allowed here");
+    });
+    render(true);
+    await settle();
+
+    const box = yamlBox(host);
+    box.focus();
+    await userEvent.fill(box, "status: [没关上\n");
+    box.blur();
+    await settle();
+
+    expect(host.querySelector(".fm-error")?.textContent).toContain("YAML 解析失败");
+    expect(yamlBox(host).value).toBe("status: [没关上\n");
   });
 
   it("没有 frontmatter 的笔记，源码模式下不凭空造一个空的出来", async () => {

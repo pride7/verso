@@ -41,6 +41,12 @@ export const api = {
   createNote: (parentDoc: string | null, title: string) =>
     call<NoteMeta>("note_create", { parentDoc, title }),
   statNote: (path: string) => call<number>("note_stat", { path }),
+  /**
+   * 源码模式里手改 frontmatter。只换 frontmatter，正文由 `writeNote` 各写各的。
+   * YAML 解析不过会抛错，那时文件没被动过。返回写入后的 mtime。
+   */
+  writeFrontmatter: (path: string, yaml: string) =>
+    call<number>("frontmatter_write", { path, yaml }),
 
   /** 全量清单，快速切换器在本地做模糊匹配 */
   listNotes: () => call<NoteRef[]>("note_list"),
@@ -83,6 +89,9 @@ export const api = {
   /** 改写 frontmatter 属性。`value` 为 null 表示删除 */
   propSet: (path: string, key: string, value: string | null) =>
     call<void>("prop_set", { path, key, value }),
+  /** 属性改名。保留原值和原位置 —— 不是删旧建新 */
+  propRename: (path: string, from: string, to: string) =>
+    call<void>("prop_rename", { path, from, to }),
 
   // —— §6 用户设置 ——
   getSettings: () => call<Settings>("settings_get"),

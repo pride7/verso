@@ -297,6 +297,34 @@ describe("视觉工作台", () => {
     alive();
   });
 
+  it("浅色 · 属性条展开", async () => {
+    render();
+    await settle(700);
+    document.querySelector<HTMLElement>(".props-toggle")?.click();
+    // 放大看细节 —— 属性表的问题都在几个像素的量级上
+    document.documentElement.style.zoom = "2";
+    await shot("11-light-props");
+    document.documentElement.style.zoom = "";
+    alive();
+  });
+
+  it("浅色 · 折叠箭头（悬停态）", async () => {
+    render();
+    await settle(700);
+    // 用 :hover 的样式没法在截图里体现，直接把那一行的箭头点亮，
+    // 好确认它的位置、大小、和标题的对齐
+    const style = document.createElement("style");
+    style.textContent = ".cm-fold-arrow { opacity: .5 !important }";
+    document.head.appendChild(style);
+    document.documentElement.style.zoom = "2";
+    const main = document.querySelector<HTMLElement>(".main");
+    if (main) main.scrollTop = 0;
+    await shot("12-light-fold");
+    document.documentElement.style.zoom = "";
+    style.remove();
+    alive();
+  });
+
   it("浅色 · 搜索", async () => {
     render();
     await settle(400);

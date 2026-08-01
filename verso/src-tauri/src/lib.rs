@@ -144,6 +144,14 @@ fn note_write(state: State<'_, AppState>, path: String, body: String) -> Result<
     Ok(mtime)
 }
 
+/// 源码模式里手改 frontmatter。正文不经过这条路，见 `Vault::write_frontmatter`
+#[tauri::command]
+fn frontmatter_write(state: State<'_, AppState>, path: String, yaml: String) -> Result<i64> {
+    let mtime = state.with_vault(|v| v.write_frontmatter(&path, &yaml))?;
+    state.reindex(&path);
+    Ok(mtime)
+}
+
 #[tauri::command]
 fn note_create(
     state: State<'_, AppState>,
@@ -231,6 +239,14 @@ fn view_query(state: State<'_, AppState>, source: String) -> Result<index::view:
 
 /// 在表格里改一个单元格 → 改对应笔记的 frontmatter → 文件落盘。
 /// §2.6：「必须可写 —— 这是它好不好用的分水岭」。
+/// 属性改名。保留原值和原位置 —— 见 `Vault::rename_prop` 的说明。
+#[tauri::command]
+fn prop_rename(state: State<'_, AppState>, path: String, from: String, to: String) -> Result<()> {
+    state.with_vault(|v| v.rename_prop(&path, &from, &to))?;
+    state.reindex(&path);
+    Ok(())
+}
+
 #[tauri::command]
 fn prop_set(
     state: State<'_, AppState>,
@@ -377,6 +393,7 @@ pub fn run() {
             tree_list,
             note_read,
             note_write,
+            frontmatter_write,
             note_create,
             note_stat,
             note_list,
@@ -397,6 +414,7 @@ pub fn run() {
             index_rebuild,
             view_query,
             prop_set,
+            prop_rename,
             settings_get,
             settings_set,
         ])

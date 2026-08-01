@@ -142,9 +142,15 @@ class TableWidget extends WidgetType {
     return wrap;
   }
 
-  /** 表格里要能选中文字复制，事件不该被编辑器吞掉 */
+  /**
+   * **必须让事件交给编辑器处理**（返回 false，也就是默认行为）。
+   *
+   * 返回 true 的话点击到不了 CodeMirror，光标就永远进不了表格 —— 表格
+   * 写完即锁死，再也改不了。代价是没法在渲染态里拖选文字复制，但
+   * 「能改」显然比「能选」重要得多。
+   */
   ignoreEvent() {
-    return true;
+    return false;
   }
 }
 
@@ -183,8 +189,15 @@ const tableField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-export const tables: Extension = [
-  parseRefresh,
-  tableField,
-  EditorView.atomicRanges.of((view) => view.state.field(tableField, false) ?? Decoration.none),
-];
+/**
+ * 有意**不注册 `atomicRanges`**。
+ *
+ * 注册了的话方向键会整块跳过表格，键盘用户永远进不去 —— 而 §1.2 那条
+ * 「交互不能假设有键盘」反过来同样成立：也不能假设有鼠标。
+ *
+ * 不注册时，光标一移进表格范围，`touched()` 就为真、渲染态自动换回源码，
+ * 于是方向键"走进表格"这件事是自然发生的，不需要额外做什么。database
+ * 视图那边保留 atomicRanges 是因为它的 widget 本身可交互（点单元格改属性），
+ * 光标没有进去的必要。
+ */
+export const tables: Extension = [parseRefresh, tableField];

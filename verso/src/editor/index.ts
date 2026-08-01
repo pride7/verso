@@ -16,6 +16,7 @@ import type { NoteRef } from "../types";
 
 import { autoFence } from "./autoFence";
 import { completion } from "./completion";
+import { headingFolding } from "./fold";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
 import { snippetEngine } from "./snippets";
@@ -128,6 +129,11 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     versoTheme,
     versoHighlighting,
+
+    // §4 标题折叠。**不放进 PREVIEW** —— 源码模式下折叠仍然有用，
+    // 那时正是在长文里找东西的时候
+    headingFolding,
+
     // live preview（含 §2.6 database 视图与 §2.4 表格）。整组可摘 —— 见 PREVIEW
     previewCompartment.of(cb.sourceMode ? [] : PREVIEW),
     linkClickHandler(cb.onFollowLink),

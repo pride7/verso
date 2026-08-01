@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { applyCustomSnippets, applySourceMode, createExtensions } from "../editor";
+import { foldAllHeadings, toggleHeadingFold, unfoldAllHeadings } from "../editor/fold";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { setViewRenderer } from "../editor/viewBlock";
 import { DatabaseView } from "./DatabaseView";
@@ -17,6 +18,10 @@ export interface EditorHandle {
   insert: (text: string) => void;
   /** 跳到第 `line` 行（1 起）并把它顶到可视区上沿。大纲点击用 */
   gotoLine: (line: number) => void;
+  /** 折叠／展开光标所在的小节 */
+  toggleFold: () => void;
+  foldAll: () => void;
+  unfoldAll: () => void;
   /** 可视区上沿落在第几行（1 起）。大纲判断「当前在哪一节」用 */
   topLine: () => number;
 }
@@ -71,6 +76,8 @@ interface Props {
   customSnippets: string;
   /** 源码模式：摘掉全部 live preview 装饰，直接看 Markdown 源码 */
   sourceMode: boolean;
+  /** 源码模式下手改了 frontmatter。抛错 = YAML 没通过解析，文件没被动 */
+  onSaveFrontmatter: (yaml: string) => Promise<void>;
 }
 
 export function Editor({
@@ -86,6 +93,7 @@ export function Editor({
   onNoteChanged,
   customSnippets,
   sourceMode,
+  onSaveFrontmatter,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -165,6 +173,26 @@ export function Editor({
         });
         view.focus();
       },
+      // 折叠命令都先聚焦：它们作用于「光标所在的小节」，而从命令面板
+      // 调用时焦点在面板上，不聚焦回来的话作用点会是上一次的位置
+      toggleFold: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.focus();
+        toggleHeadingFold(view);
+      },
+      foldAll: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.focus();
+        foldAllHeadings(view);
+      },
+      unfoldAll: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.focus();
+        unfoldAllHeadings(view);
+      },
       topLine: () => {
         const view = viewRef.current;
         if (!view) return 1;
@@ -190,6 +218,7 @@ export function Editor({
     getNotes,
     onNavigate,
     onChanged: onNoteChanged,
+    onSaveFrontmatter,
     revision,
   });
   cb.current = {
@@ -199,6 +228,7 @@ export function Editor({
     getNotes,
     onNavigate,
     onChanged: onNoteChanged,
+    onSaveFrontmatter,
     revision,
   };
 
@@ -285,9 +315,19 @@ export function Editor({
       {/* 属性条是 frontmatter 的渲染结果，和正文里的表格公式是一回事：
           源码模式下正文都退回源码了，它也得跟着退 */}
       {sourceMode ? (
-        <FrontmatterSource text={note.frontmatterText} />
+        <FrontmatterSource
+          text={note.frontmatterText}
+          path={note.path}
+          onSave={(yaml) => cb.current.onSaveFrontmatter(yaml)}
+        />
       ) : (
-        <Properties frontmatter={note.frontmatter} />
+        <Properties
+          frontmatter={note.frontmatter}
+          path={note.path}
+          // 改完属性要重读这篇笔记 —— 正文没变，所以编辑器里的光标和
+          // 撤销历史都不会被打断
+          onChanged={() => cb.current.onChanged()}
+        />
       )}
 
       <div className="editor-host" ref={host} />

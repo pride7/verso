@@ -212,6 +212,50 @@ impl Vault {
     /// 「必须可写，这是它好不好用的分水岭」。
     ///
     /// `value` 为 None 表示删除该属性。
+    /// 源码模式（§4.2）里手改 frontmatter：用一段 YAML 原文换掉文件里那一段，
+    /// **正文一个字节都不动**。
+    ///
+    /// 三条保险，都是为了「改坏了也不能吃掉东西」：
+    ///
+    /// 1. **解析不通过就不写。** YAML 缩进错一格是常事，那一刻文件里的旧内容
+    ///    仍然是好的 —— 报错让人自己改，比写进去一个空 frontmatter 强得多。
+    /// 2. **`id` / `created` 从旧值继承。** 用户在源码里把 `id` 删了，我们要
+    ///    补回原来那个而不是生成新的：换个 id 等于换了这篇笔记的身份。
+    /// 3. **正文来自磁盘**，不从前端传。正文有它自己的保存路径（`write_note`），
+    ///    两边各写各的一半，谁也不会盖掉谁。
+    pub fn write_frontmatter(&self, rel: &str, yaml: &str) -> Result<i64> {
+        let abs = self.resolve(rel)?;
+        let raw = self.fs.read_to_string(&abs)?;
+        let (old, body) = note::parse_frontmatter(&raw);
+
+        let mut fm = if yaml.trim().is_empty() {
+            Mapping::new()
+        } else {
+            match serde_yaml::from_str::<serde_yaml::Value>(yaml) {
+                Ok(serde_yaml::Value::Mapping(m)) => m,
+                Ok(_) => return Err(Error::Vault("frontmatter 必须是「键: 值」的形式".into())),
+                Err(e) => return Err(Error::Vault(format!("YAML 解析失败：{e}"))),
+            }
+        };
+
+        // 内部字段被删掉就补回旧值（第 2 条）。用户显式改成了别的值也不拦 ——
+        // 源码模式的前提就是「我知道我在做什么」，只是不能因为**手滑删掉**
+        // 而丢身份
+        for key in ["id", "created"] {
+            let k = serde_yaml::Value::String(key.to_string());
+            if !fm.contains_key(&k) {
+                if let Some(v) = old.get(&k) {
+                    fm.insert(k, v.clone());
+                }
+            }
+        }
+
+        note::ensure_identity(&mut fm, &stem_of(rel));
+        note::touch_updated(&mut fm);
+        self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
+        Ok(self.fs.metadata(&abs)?.mtime_ms)
+    }
+
     pub fn set_prop(&self, rel: &str, key: &str, value: Option<&str>) -> Result<()> {
         // 这几个是内部字段，不能让 database 视图改掉 —— 改了 id 就等于
         // 把这篇笔记的身份换了，所有指向它的链接都会断
@@ -256,6 +300,59 @@ impl Vault {
         note::ensure_identity(&mut fm, &stem_of(rel));
         note::touch_updated(&mut fm);
         self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
+        Ok(())
+    }
+
+    /// 给属性改名，**保留原值和原位置**。
+    ///
+    /// 不能用「删旧键 + 建新键」凑：
+    ///
+    /// 1. `set_prop` 只收字符串，新键没有原值可参考，`tags: [a, b]` 会被
+    ///    压成字符串 `"a、b"` —— 类型丢了。
+    /// 2. 删完再插，键会跑到 frontmatter 末尾。用户手写的顺序是有意义的，
+    ///    重排会在 git diff 里显示成一大片改动。
+    ///
+    /// 所以这里整个重建 mapping，逐项搬过去，只把那一个键换掉。
+    pub fn rename_prop(&self, rel: &str, from: &str, to: &str) -> Result<()> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err(Error::Vault("属性名不能为空".into()));
+        }
+        if from == to {
+            return Ok(());
+        }
+        for k in [from, to] {
+            if matches!(k, "id" | "created") {
+                return Err(Error::Vault(format!("{k} 是内部字段，不能修改")));
+            }
+        }
+
+        let abs = self.resolve(rel)?;
+        let raw = self.fs.read_to_string(&abs)?;
+        let (fm, body) = note::parse_frontmatter(&raw);
+
+        let from_key = serde_yaml::Value::String(from.to_string());
+        let to_key = serde_yaml::Value::String(to.to_string());
+        if !fm.contains_key(&from_key) {
+            return Err(Error::Vault(format!("没有属性 {from}")));
+        }
+        // 覆盖等于悄悄删掉另一个属性 —— 宁可报错让用户自己决定
+        if fm.contains_key(&to_key) {
+            return Err(Error::Vault(format!("已经有一个属性叫 {to} 了")));
+        }
+
+        let mut next = serde_yaml::Mapping::new();
+        for (k, v) in fm {
+            if k == from_key {
+                next.insert(to_key.clone(), v);
+            } else {
+                next.insert(k, v);
+            }
+        }
+
+        note::ensure_identity(&mut next, &stem_of(rel));
+        note::touch_updated(&mut next);
+        self.fs.write_atomic(&abs, &note::serialize_note(&next, &body)?)?;
         Ok(())
     }
 
@@ -309,6 +406,96 @@ mod tests {
         assert_eq!(v.resolve("./a.md").unwrap(), Path::new("/vault").join("a.md"));
     }
 
+    /// 建一个临时 vault，写入一篇带 frontmatter 的笔记
+    fn vault_with(front: &str) -> (std::path::PathBuf, Vault) {
+        let dir = std::env::temp_dir().join(format!("verso-prop-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), format!("---
+{front}---
+
+正文
+")).unwrap();
+        let v = vault_at(&dir);
+        (dir, v)
+    }
+
+    #[test]
+    fn rename_prop_keeps_value_type_and_position() {
+        // 「删旧键 + 建新键」会把数组压成字符串、还把键挪到末尾。
+        // 这两点正是这个命令存在的理由
+        let (dir, v) = vault_with("id: 01AAAAAAAAAAAAAAAAAAAAAAAA
+tags: [甲, 乙]
+难度: 4
+status: 在读
+");
+        v.rename_prop("a.md", "难度", "评分").unwrap();
+
+        let raw = std::fs::read_to_string(dir.join("a.md")).unwrap();
+        assert!(raw.contains("评分: 4"), "值和类型都要保留，实际：
+{raw}");
+        assert!(!raw.contains("难度"), "旧键要没了");
+        // 顺序：tags 在前、评分在中、status 在后
+        let t = raw.find("tags").unwrap();
+        let r = raw.find("评分").unwrap();
+        let st = raw.find("status").unwrap();
+        assert!(t < r && r < st, "键的顺序不该被打乱：
+{raw}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_prop_keeps_arrays_as_arrays() {
+        let (dir, v) = vault_with("id: 01AAAAAAAAAAAAAAAAAAAAAAAA
+tags: [甲, 乙]
+");
+        v.rename_prop("a.md", "tags", "标签").unwrap();
+        let raw = std::fs::read_to_string(dir.join("a.md")).unwrap();
+        assert!(raw.contains("甲") && raw.contains("乙"), "{raw}");
+        assert!(!raw.contains("甲、乙"), "数组不能被压成一个字符串：
+{raw}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_prop_refuses_to_overwrite() {
+        // 覆盖等于悄悄删掉另一个属性
+        let (dir, v) = vault_with("id: 01AAAAAAAAAAAAAAAAAAAAAAAA
+甲: 1
+乙: 2
+");
+        assert!(v.rename_prop("a.md", "甲", "乙").is_err());
+        let raw = std::fs::read_to_string(dir.join("a.md")).unwrap();
+        assert!(raw.contains("甲: 1") && raw.contains("乙: 2"), "失败时不能动文件");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_prop_refuses_internal_fields() {
+        let (dir, v) = vault_with("id: 01AAAAAAAAAAAAAAAAAAAAAAAA
+created: 2026-01-01T00:00:00+08:00
+甲: 1
+");
+        // 改掉 id 等于换掉这篇笔记的身份，所有指向它的链接都会断
+        assert!(v.rename_prop("a.md", "id", "标识").is_err());
+        assert!(v.rename_prop("a.md", "created", "建于").is_err());
+        // 也不能把别的属性改**成** id
+        assert!(v.rename_prop("a.md", "甲", "id").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_prop_rejects_missing_or_empty() {
+        let (dir, v) = vault_with("id: 01AAAAAAAAAAAAAAAAAAAAAAAA
+甲: 1
+");
+        assert!(v.rename_prop("a.md", "不存在", "乙").is_err());
+        assert!(v.rename_prop("a.md", "甲", "   ").is_err());
+        // 改成自己是无操作，不该报错
+        assert!(v.rename_prop("a.md", "甲", "甲").is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn atomic_write_then_read_roundtrip() {
         let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
@@ -354,6 +541,56 @@ mod tests {
         // 前端靠它决定「要不要显示这一块」
         std::fs::write(dir.join("没属性.md"), "光秃秃的正文\n").unwrap();
         assert!(v.read_note("没属性.md").unwrap().frontmatter_text.is_none());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 源码模式下手改 frontmatter：正文不能动，改坏了不能吃掉东西。
+    #[test]
+    fn write_frontmatter_replaces_only_the_front_matter() {
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        let meta = v.create_note(None, "笔记").unwrap();
+        v.write_note(&meta.path, "正文第一行\n\n正文第二行\n").unwrap();
+
+        v.write_frontmatter(&meta.path, "status: 在读\ntags:\n  - 甲\n  - 乙\n")
+            .unwrap();
+
+        let read = v.read_note(&meta.path).unwrap();
+        // 正文一个字节都没动
+        assert_eq!(read.body, "正文第一行\n\n正文第二行\n");
+        assert_eq!(read.frontmatter["status"], "在读");
+        assert_eq!(read.frontmatter["tags"][1], "乙");
+        // id 是笔记的身份，用户没写也要留着
+        assert_eq!(read.id.as_deref(), Some(meta.id.as_str()));
+
+        // 把 id 显式删掉也要补回原来那个，不能换一个新的
+        v.write_frontmatter(&meta.path, "status: 读完了\n").unwrap();
+        assert_eq!(v.read_note(&meta.path).unwrap().id.as_deref(), Some(meta.id.as_str()));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// YAML 写错是常事。那一刻文件里的旧内容还是好的 —— 报错，别写。
+    #[test]
+    fn broken_yaml_leaves_the_file_alone() {
+        let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        let meta = v.create_note(None, "笔记").unwrap();
+        v.write_note(&meta.path, "别弄丢我\n").unwrap();
+        v.write_frontmatter(&meta.path, "status: 在读\n").unwrap();
+        let before = std::fs::read_to_string(dir.join(&meta.path)).unwrap();
+
+        // 冒号后面缺空格、缩进也乱
+        assert!(v.write_frontmatter(&meta.path, "status: [在读\n  tags: 甲\n").is_err());
+        // 不是键值映射
+        assert!(v.write_frontmatter(&meta.path, "- 只是一个列表\n").is_err());
+
+        assert_eq!(std::fs::read_to_string(dir.join(&meta.path)).unwrap(), before);
 
         std::fs::remove_dir_all(&dir).ok();
     }

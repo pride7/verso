@@ -591,6 +591,10 @@ button {
 .editor-host {
   flex: 1;
   min-height: 0;
+  /* 抵消 .cm-content 为折叠箭头留出的左内边距，让正文和上面的面包屑、
+     属性条保持左对齐。用外边距而不是改 .editor 的 padding —— 后者会把
+     面包屑一起挪走 */
+  margin-left: -26px;
 }
 
 /* ---------- frontmatter 属性条（§2.3） ---------- */
@@ -612,8 +616,12 @@ button {
   background: color-mix(in oklch, var(--muted) 10%, transparent);
 }
 .props-caret {
-  font-size: 9px;
+  display: inline-flex;
   opacity: 0.7;
+  transition: transform var(--t-fast);
+}
+.props-caret.is-open {
+  transform: rotate(90deg);
 }
 .props-summary {
   display: flex;
@@ -632,22 +640,115 @@ button {
 .props-count {
   opacity: 0.65;
 }
+/* 属性表读起来应当像**内容**，不像一张表单：键是淡的、值是正常文字、
+   平时没有任何框线。只有把鼠标放上去才提示"这里可以点"。 */
 .props-list {
-  margin: 4px 0 0;
-  padding: 8px 10px;
-  border-left: 2px solid var(--border);
+  margin: 2px 0 0;
+  padding: 2px 0 0 20px;
 }
 .props-row {
   display: flex;
-  gap: 12px;
-  padding: 2px 0;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  border-radius: var(--r-sm);
 }
+/* **不要在这里裁剪。** 省略号交给 .props-key 自己管 ——
+   dt 上的 overflow:hidden 会把编辑态那个带边框的输入框切掉一圈
+   （它还有 -7px 的负边距，探到列外面去了） */
 .props-row dt {
-  min-width: 5.5em;
+  flex: none;
+  width: 6.5em;
   color: var(--muted);
 }
+/* 不给 flex:1 的话这一列塌成 min-content，中文会被挤成每行一个字 */
 .props-row dd {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+}
+
+.props-value {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 7px;
+  margin-left: -7px;
+  border-radius: var(--r-xs);
+  font: inherit;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--t-fast);
+}
+.props-value:hover {
+  background: var(--hover-bg);
+}
+.props-empty {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+/* 输入框平时和文字一样朴素，聚焦才显出边框 —— 常驻的蓝框会比真正的
+   属性还抢眼，那正是第一版看着丑的原因 */
+.props-input {
+  width: 100%;
+  padding: 3px 7px;
+  margin-left: -7px;
+  font: inherit;
+  color: var(--text);
+  background: var(--hover-bg);
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  outline: none;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.props-input:focus {
+  background: var(--raised);
+  border-color: var(--accent);
+}
+
+/* 删除按钮平时藏起来 —— 每行都挂一个叉会让属性表看着像待办清单 */
+.props-del {
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+.props-row:hover .props-del {
+  opacity: 1;
+}
+.props-del:hover {
+  color: var(--danger);
+  background: var(--hover-bg);
+}
+
+/* 「添加属性」是偶尔才用一次的动作，平时只是一行淡文字 */
+.props-new {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 0 -7px;
+  padding: 4px 7px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.72;
+  transition: opacity var(--t-fast), background var(--t-fast);
+}
+.props-new:hover {
+  opacity: 1;
+  background: var(--hover-bg);
+}
+
+.props-error {
+  margin: 6px 0 0 -7px;
+  color: var(--danger);
+  font-size: 11.5px;
 }
 
 /* ---------- 浮层：快速切换器、搜索、符号面板、命令面板、设置共用 ----------
@@ -1947,6 +2048,8 @@ textarea:focus-visible {
   }
 }
 
+
+
 /* ---------- 状态栏里的源码模式标记 ---------- */
 
 /* 做成一枚淡色的小徽章，不是一行灰字 —— 它是「当前处在某个模式」的提示，
@@ -1965,14 +2068,34 @@ textarea:focus-visible {
   background: color-mix(in oklch, var(--accent) 22%, transparent);
 }
 
+/* 属性名也可点（改名）。和值一样：平时是纯文字，悬停才提示 */
+.props-key {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 7px;
+  margin-left: -7px;
+  border-radius: var(--r-xs);
+  font: inherit;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.props-key:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
 /* ---------- 源码模式下的 frontmatter ---------- */
 
-/* 只读，所以要一眼看出「这块和下面的正文不是一回事」：淡底 + 左侧细条 +
-   降一档明度。字号跟着正文字号缩放，不写死 —— 设置里把正文调大之后，
-   只有这一块还是小字会很突兀。 */
+/* 可编辑，所以不能做成"另一块界面"：字号、行高、颜色都跟正文源码走，
+   只用一层极淡的底色和左侧细条说明「这一段和正文是两半，各存各的」。
+   字号跟着正文字号缩放 —— 设置里把正文调大之后，只有这一块还是小字会很突兀。 */
 .fm-source {
   margin: 0 0 14px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   border-radius: var(--r-sm);
   border-left: 2px solid var(--border);
   background: color-mix(in oklch, var(--muted) 7%, transparent);
@@ -1980,10 +2103,40 @@ textarea:focus-visible {
   font-size: calc(var(--body-font-size) * 0.85);
   line-height: 1.6;
   color: var(--muted);
-  /* 长的 YAML 值要能换行，不要横向滚 —— 这块只是给人看的 */
-  white-space: pre-wrap;
-  word-break: break-word;
-  /* 能选中复制。只读不等于连拿都拿不走 */
-  user-select: text;
-  cursor: text;
 }
+
+/* 两道 `---` 是边界不是内容，所以在输入框外面 */
+.fm-fence {
+  display: block;
+  opacity: 0.6;
+  user-select: none;
+}
+
+/* 输入框要完全消失在这块背景里：去掉边框、底色、内边距和默认字体，
+   只留下光标。留着 textarea 的默认样式就成了"表单里的一个控件" */
+.fm-yaml {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  /* 行高必须和外面一致，否则 rows 算出来的高度对不上，底下会空一截 */
+  line-height: inherit;
+}
+
+/* YAML 写错时的提示。就挂在出错的那段下面 —— 状态栏离得太远，
+   而这条错误是"你刚敲的那一下没存进去"，必须当场看见 */
+.fm-error {
+  margin: 4px 0 0;
+  color: var(--danger);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+

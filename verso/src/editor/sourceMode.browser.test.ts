@@ -137,7 +137,9 @@ describe("源码模式", () => {
     const line = [...view.dom.querySelectorAll<HTMLElement>(".cm-line")].find((l) =>
       l.textContent?.startsWith("# 标题"),
     )!;
-    const span = line.querySelector("span") ?? line;
+    // 跳过折叠箭头 —— 它是插在行首的 widget，会抢到"第一个 span"的位置，
+    // 而它用的是正文字号
+    const span = line.querySelector("span:not(.cm-fold-arrow)") ?? line;
     const body = parseFloat(getComputedStyle(view.contentDOM).fontSize);
     expect(parseFloat(getComputedStyle(span).fontSize)).toBeGreaterThan(body * 1.5);
   });

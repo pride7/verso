@@ -61,6 +61,7 @@ describe("Editor 里的 database 视图", () => {
           onNoteChanged: () => {},
           customSnippets: "",
           sourceMode: false,
+          onSaveFrontmatter: async () => {},
         }),
       ),
     );

@@ -26,8 +26,22 @@ export const versoTheme = EditorView.theme({
     // 底部留白：写到最后一行时不用贴着窗口底
     paddingBottom: "40vh",
   },
-  ".cm-content": { padding: "0", caretColor: "var(--accent)" },
-  ".cm-line": { padding: "0" },
+  // 左边留出一条**内边距**给折叠箭头。
+  //
+  // 箭头是绝对定位在 left:-1.15em 的，如果 .cm-content 没有左内边距，
+  // 它就落在盒子外面、被 .cm-scroller 整个裁掉 —— 表现是"箭头全程不显示"。
+  // 这和之前 callout 竖线消失是同一类问题（见 AGENTS.md 那条）。
+  //
+  // 正文的视觉位置不变：.editor-host 用等量的负外边距抵消回去
+  // （那是普通 div，不是 .cm-line，不影响 CodeMirror 的高度图）。
+  // 用 px 而不是 em：箭头是界面元素，不该跟着正文字号缩放，而且 em 在
+  // 这里的基准很容易算错 —— 内边距按 .cm-content 的字号算、箭头的
+  // left 按它自己的字号算，两边对不上就会把箭头挤出盒子被裁掉
+  ".cm-content": { padding: "0 0 0 26px", caretColor: "var(--accent)" },
+  // `position: relative` 是折叠箭头的定位基准（绝对定位要有个 positioned 祖先）。
+  // 必须和 padding 写在**同一条**规则里 —— 这是 JS 对象字面量，
+  // 同名键后面的会把前面的整个覆盖掉，分开写会悄悄丢掉一个
+  ".cm-line": { padding: "0", position: "relative" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "color-mix(in oklch, var(--accent) 22%, transparent)",
@@ -81,7 +95,8 @@ export const versoTheme = EditorView.theme({
 
   // ---- GFM 表格 ----
   ".cm-table": {
-    margin: "0.9em 0",
+    // 同样避开纵向 margin（见上面那条注释），块级 widget 也进高度图
+    padding: "0.5em 0",
     overflowX: "auto",
     borderRadius: "var(--r-lg)",
     border: "1px solid var(--hairline)",
@@ -112,6 +127,57 @@ export const versoTheme = EditorView.theme({
     padding: "1px 5px",
   },
 
+  // ---- 标题折叠 ----
+  //
+  // 箭头是**绝对定位**的，不占位、不推挤文字，所以正文左边缘保持干净。
+  // 平时完全不显示，鼠标移到**那一行**才浮现 —— 常显的箭头列会让笔记
+  // 看起来像代码编辑器（§4）。
+  ".cm-fold-arrow": {
+    position: "absolute",
+    left: "-22px",
+    // 撑满整行再让内容居中，**不要用固定的 top 偏移**：
+    // 这个 span 是 .cm-line 的直接子元素，它的 em 相对的是正文字号，
+    // 而标题行的字号是 1.85em、行高也更大 —— 固定偏移必然偏上。
+    top: 0,
+    bottom: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "16px",
+    color: "var(--muted)",
+    opacity: 0,
+    cursor: "pointer",
+    transition: "opacity 120ms ease-out, color 120ms ease-out",
+  },
+  // 只在这一行被悬停时出现
+  ".cm-line:hover .cm-fold-arrow": { opacity: 0.5 },
+  ".cm-fold-arrow:hover": { opacity: 1, color: "var(--accent)" },
+  // 展开态朝下、折叠态朝右，和文档树一致。
+  //
+  // **旋转 svg，不要旋转容器。** 容器是 16px 宽、跟行等高的一条，旋转
+  // 90° 之后它的包围盒会变成"行高那么宽"，向左多探出小十个像素 ——
+  // 视觉上看不出来，但它会真的伸到内容盒外面被裁掉
+  ".cm-fold-arrow:not(.is-closed) svg": { transform: "rotate(90deg)" },
+  ".cm-fold-arrow svg": { transition: "transform 120ms ease-out" },
+  // 已折叠的**始终可见** —— 那是状态指示，藏起来会让人找不到自己收走的内容
+  ".cm-fold-arrow.is-closed": { opacity: 0.85 },
+
+  ".cm-fold-placeholder": {
+    display: "inline-block",
+    margin: "0 0.35em",
+    padding: "0 0.45em",
+    borderRadius: "var(--r-xs)",
+    background: "color-mix(in oklch, var(--muted) 16%, transparent)",
+    color: "var(--muted)",
+    fontSize: "0.85em",
+    cursor: "pointer",
+    border: "none",
+  },
+  ".cm-fold-placeholder:hover": {
+    background: "color-mix(in oklch, var(--accent) 20%, transparent)",
+    color: "var(--accent)",
+  },
+
   // ---- 围栏代码块 ----
   ".cm-code": {
     padding: "0 14px",
@@ -120,16 +186,14 @@ export const versoTheme = EditorView.theme({
     fontSize: "0.88em",
   },
   ".cm-code.is-open": {
-    paddingTop: "0.55em",
+    paddingTop: "0.8em",
     borderTopLeftRadius: "var(--r-lg)",
     borderTopRightRadius: "var(--r-lg)",
-    marginTop: "0.8em",
   },
   ".cm-code.is-close": {
-    paddingBottom: "0.55em",
+    paddingBottom: "0.8em",
     borderBottomLeftRadius: "var(--r-lg)",
     borderBottomRightRadius: "var(--r-lg)",
-    marginBottom: "0.8em",
   },
   // 围栏行淡化但不隐藏 —— 藏了就改不了语言标注，
   // 而且光标停进去时会看到行数对不上
@@ -161,17 +225,21 @@ export const versoTheme = EditorView.theme({
     borderLeft: "3px solid var(--callout, var(--accent))",
     background: "color-mix(in oklch, var(--callout, var(--muted)) 7%, transparent)",
   },
+  // ⚠️ 行装饰**绝不能用纵向 margin**。
+  //
+  // CodeMirror 用高度图缓存每一行的位置，它测的是元素**盒高**，margin
+  // 不计入其中 —— 于是 `posAtCoords` 整体偏移，点文字会落到下一行，
+  // 表现是"点了光标不在，只有点左边空白才行"。用 padding 代替，
+  // padding 算在盒高里。
   ".cm-callout.is-open": {
-    paddingTop: "0.5em",
+    paddingTop: "0.75em",
     borderTopLeftRadius: "var(--r-lg)",
     borderTopRightRadius: "var(--r-lg)",
-    marginTop: "0.7em",
   },
   ".cm-callout.is-close": {
-    paddingBottom: "0.5em",
+    paddingBottom: "0.75em",
     borderBottomLeftRadius: "var(--r-lg)",
     borderBottomRightRadius: "var(--r-lg)",
-    marginBottom: "0.7em",
   },
 
   // 普通引用：只有竖线，没有底色 —— 那是它和 callout 的区别。
@@ -183,8 +251,8 @@ export const versoTheme = EditorView.theme({
     borderLeft: "3px solid color-mix(in oklch, var(--muted) 85%, transparent)",
     color: "var(--muted)",
   },
-  ".cm-quote.is-open": { paddingTop: "0.4em", marginTop: "0.7em" },
-  ".cm-quote.is-close": { paddingBottom: "0.4em", marginBottom: "0.7em" },
+  ".cm-quote.is-open": { paddingTop: "0.5em" },
+  ".cm-quote.is-close": { paddingBottom: "0.5em" },
 
   ".cm-callout-info": { "--callout": "var(--accent)" },
   ".cm-callout-tip": { "--callout": "oklch(62% 0.15 152)" },

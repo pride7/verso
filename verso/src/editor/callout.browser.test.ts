@@ -216,3 +216,155 @@ describe("块不能撑出正文栏", () => {
     );
   });
 });
+
+describe("表格必须能改", () => {
+  const DOC = "正文\n\n| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n\n结尾";
+
+  it("渲染成表格", async () => {
+    const v = mount(DOC);
+    await settle();
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+  });
+
+  // 这是这个功能的底线：渲染完还能改回去。第一版注册了 atomicRanges
+  // 又让 widget 吞掉事件，结果表格写完就锁死了
+  it("点一下就回到源码", async () => {
+    const v = mount(DOC);
+    await settle();
+    const cell = v.dom.querySelector<HTMLElement>(".cm-table td")!;
+    // 必须带真实坐标 —— CodeMirror 靠 clientX/clientY 反查文档位置，
+    // 不给的话按 (0,0) 算，落在表格外面，光标根本没进来
+    const box = cell.getBoundingClientRect();
+    cell.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        button: 0,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+    await settle();
+    expect(v.dom.querySelector(".cm-table")).toBeNull();
+    expect(v.dom.textContent).toContain("|---|---|");
+  });
+
+  it("方向键也能走进去 —— 不能只有鼠标进得去", async () => {
+    const v = mount(DOC);
+    await settle();
+    // 把光标放到表格正中间那一行，模拟"方向键走进来"
+    v.dispatch({ selection: { anchor: DOC.indexOf("|---|") + 2 } });
+    await settle();
+    expect(v.dom.querySelector(".cm-table")).toBeNull();
+  });
+
+  it("光标移开又渲染回去", async () => {
+    const v = mount(DOC);
+    await settle();
+    v.dispatch({ selection: { anchor: DOC.indexOf("|---|") + 2 } });
+    await settle();
+    expect(v.dom.querySelector(".cm-table")).toBeNull();
+
+    v.dispatch({ selection: { anchor: 0 } });
+    await settle();
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+  });
+});
+
+describe("点击进入源码", () => {
+  /** 在元素中心派发一次带真实坐标的 mousedown */
+  function clickAt(el: Element) {
+    const box = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new MouseEvent("mousedown", {
+        bubbles: true,
+        button: 0,
+        clientX: box.left + box.width / 2,
+        clientY: box.top + box.height / 2,
+      }),
+    );
+  }
+
+  it("点普通引用的文字，露出 `>`", async () => {
+    const v = mount("正文\n\n> 只是一句引用\n\n结尾");
+    await settle();
+    const line = v.dom.querySelector<HTMLElement>(".cm-quote")!;
+    clickAt(line);
+    await settle();
+    expect(v.dom.textContent).toContain("> 只是一句引用");
+  });
+
+  it("点 callout 的正文，露出 `[!note]`", async () => {
+    const v = mount("正文\n\n> [!note] 提示\n> 内容\n\n结尾");
+    await settle();
+    const lines = v.dom.querySelectorAll<HTMLElement>(".cm-callout");
+    clickAt(lines[lines.length - 1]);
+    await settle();
+    expect(v.dom.textContent).toContain("[!note]");
+  });
+
+  it("点代码块，光标进得去", async () => {
+    const v = mount("正文\n\n```rust\nfn main() {}\n```\n\n结尾");
+    await settle();
+    const line = v.dom.querySelectorAll<HTMLElement>(".cm-code")[1];
+    clickAt(line);
+    await settle();
+    // 验的是光标落进了代码块内部，而不是某个精确行号 —— 行盒有 padding，
+    // 点"中心"落到相邻行是正常的，钉死行号只会让这条测试很脆
+    const head = v.state.selection.main.head;
+    const lineNo = v.state.doc.lineAt(head).number;
+    expect(lineNo).toBeGreaterThanOrEqual(3);
+    expect(lineNo).toBeLessThanOrEqual(5);
+  });
+});
+
+describe("坐标反查落点", () => {
+  /**
+   * 直接验 `posAtCoords` —— CodeMirror 真正用来把鼠标坐标换成文档位置的入口。
+   *
+   * **不要用合成 MouseEvent 验点击。** 试过，它给出的是假象：合成事件走不完
+   * 浏览器的默认选区流程，结果既可能假阳性也可能假阴性。真正能测的是坐标
+   * 到位置的映射，那才是"点哪儿光标去哪儿"的实质。
+   */
+  function textRect(root: Element, text: string): DOMRect {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const i = n.textContent?.indexOf(text) ?? -1;
+      if (i < 0) continue;
+      const r = document.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, i + text.length);
+      return r.getBoundingClientRect();
+    }
+    throw new Error(`找不到文本「${text}」`);
+  }
+
+  const centerOf = (b: DOMRect) => ({ x: b.left + b.width / 2, y: b.top + b.height / 2 });
+
+  it("引用：点文字的位置反查到该行", async () => {
+    const v = mount("正文\n\n> 只是一句引用\n\n结尾");
+    await settle();
+    const line = v.dom.querySelector<HTMLElement>(".cm-quote")!;
+    const pos = v.posAtCoords(centerOf(textRect(line, "只是一句")));
+    expect(pos).not.toBeNull();
+    expect(v.state.doc.lineAt(pos!).number).toBe(3);
+  });
+
+  it("callout：点正文的位置反查到该行", async () => {
+    const v = mount("正文\n\n> [!note] 提示\n> 内容在这里\n\n结尾");
+    await settle();
+    const lines = v.dom.querySelectorAll<HTMLElement>(".cm-callout");
+    const last = lines[lines.length - 1];
+    const pos = v.posAtCoords(centerOf(textRect(last, "内容在这里")));
+    expect(pos).not.toBeNull();
+    expect(v.state.doc.lineAt(pos!).number).toBe(4);
+  });
+
+  it("代码块：点代码的位置反查到该行", async () => {
+    const v = mount("正文\n\n```rust\nfn main() {}\n```\n\n结尾");
+    await settle();
+    const host = v.dom.querySelector<HTMLElement>(".cm-content")!;
+    const pos = v.posAtCoords(centerOf(textRect(host, "fn main")));
+    expect(pos).not.toBeNull();
+    expect(v.state.doc.lineAt(pos!).number).toBe(4);
+  });
+});
