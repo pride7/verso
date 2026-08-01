@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../api";
 import { Icon } from "./Icon";
@@ -59,6 +59,12 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   const [panel, setPanel] = useState<Panel>(null);
   /** 用户指定的类型和选项（`.verso-props.json`）。读不到就退回按值推断 */
   const [schema, setSchema] = useState<PropSchema>({});
+  /** 正在拖的那张卡片，以及鼠标停在哪一列上 */
+  const [dragging, setDragging] = useState<string | null>(null);
+  /** 同一份信息再放一个 ref：`drop` 和 `dragstart` 之间可能没有重渲染，
+      只读 state 的话拿到的还是 null（拖了等于没拖） */
+  const draggingRef = useRef<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api
@@ -116,11 +122,13 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
    *
    * 建在 `from:` 指的那个范围里，否则建完它不在表里，等于什么都没发生。
    */
-  const addRow = async () => {
+  const addRow = async (preset?: { key: string; value: string }) => {
     const title = window.prompt("新建笔记", "未命名");
     if (!title) return;
     try {
       const meta = await api.createNote(newNoteParent(source), title);
+      // 在看板某一列里新建：那一列的值直接写上，否则它建完会掉进「未设置」
+      if (preset) await api.propSet(meta.path, preset.key, preset.value);
       onChanged();
       load();
       onOpen(meta.path);
@@ -338,26 +346,134 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   };
 
   if (result.view === "board" && result.groupBy) {
+    const by = result.groupBy;
+    const UNSET = "（未设置）";
+    // 列的顺序：schema 里声明过选项就照那个顺序 —— 「未读/在读/已读」是有
+    // 先后的，按出现次序排会让看板每次刷新都换个样子
+    const declared = schema[by]?.options ?? [];
     const groups = new Map<string, ViewRow[]>();
+    for (const o of declared) groups.set(o, []);
     for (const r of result.rows) {
-      const g = r.props[result.groupBy] || "（未设置）";
+      const g = r.props[by] || UNSET;
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push(r);
     }
+
+    /** 卡片上显示哪些属性：除了分组那一列（整列都一样，写出来是废话） */
+    const cardCols = result.columns.filter((c) => c !== "title" && c !== by);
+
+    const drop = async (to: string) => {
+      const path = draggingRef.current;
+      draggingRef.current = null;
+      setDragging(null);
+      setOver(null);
+      if (!path) return;
+      const row = result.rows.find((r) => r.path === path);
+      if (!row || (row.props[by] || UNSET) === to) return;
+      // 拖到另一列 = 改那篇笔记的这个属性。看板不是另一份数据，
+      // 它就是 frontmatter 的一种画法（§2.6）
+      await commitValue(path, by, to === UNSET ? "" : to);
+    };
+
     return (
       <div className="dbview">
+        <div className="dbview-bar">
+          <span className="dbview-kind">
+            <Icon name="table" size={14} />
+            看板 · {by}
+          </span>
+          {onPatch && (
+            <>
+              <button
+                className="dbview-tool"
+                onClick={() => setPanel(panel === "settings" ? null : "settings")}
+                title="视图设置"
+                aria-label="视图设置"
+              >
+                <Icon name="settings" size={14} />
+              </button>
+              <button className="dbview-new" onClick={() => void addRow()}>
+                新建
+              </button>
+            </>
+          )}
+          {panel === "settings" && onPatch && (
+            <ViewSettings
+              source={source}
+              properties={result.properties ?? []}
+              onPatch={(y) => onPatch(y)}
+              onClose={() => setPanel(null)}
+            />
+          )}
+        </div>
+
         <div className="dbview-board">
           {[...groups].map(([name, rows]) => (
-            <div className="dbview-col" key={name}>
-              <div className="dbview-col-head">
-                {name} <span className="dbview-count">{rows.length}</span>
-              </div>
+            <section
+              className={`dbview-col${over === name ? " is-over" : ""}`}
+              key={name}
+              onDragOver={(e) => {
+                // 不 preventDefault 就收不到 drop —— HTML5 拖放的老坑
+                e.preventDefault();
+                setOver(name);
+              }}
+              onDragLeave={() => setOver((o) => (o === name ? null : o))}
+              onDrop={(e) => {
+                e.preventDefault();
+                void drop(name);
+              }}
+            >
+              <header className="dbview-col-head">
+                <span className="dbview-tag">{name}</span>
+                <span className="dbview-count">{rows.length}</span>
+              </header>
+
               {rows.map((r) => (
-                <button key={r.path} className="dbview-card" onClick={() => onOpen(r.path)}>
-                  {r.title}
-                </button>
+                <article
+                  key={r.path}
+                  className={`dbview-card${dragging === r.path ? " is-dragging" : ""}`}
+                  draggable
+                  onDragStart={(e) => {
+                    draggingRef.current = r.path;
+                    setDragging(r.path);
+                    e.dataTransfer.effectAllowed = "move";
+                    // 必须塞点东西，否则某些平台上根本不认这是一次拖拽
+                    e.dataTransfer.setData("text/plain", r.path);
+                  }}
+                  onDragEnd={() => {
+                    draggingRef.current = null;
+                    setDragging(null);
+                    setOver(null);
+                  }}
+                >
+                  <button className="dbview-card-title" onClick={() => onOpen(r.path)}>
+                    {r.title}
+                  </button>
+                  {cardCols.length > 0 && (
+                    <dl className="dbview-card-props">
+                      {cardCols.map((c) =>
+                        r.props[c] ? (
+                          <div key={c}>
+                            <dt>{c}</dt>
+                            <dd>{typeOf(c) === "date" ? formatDate(r.props[c]) : r.props[c]}</dd>
+                          </div>
+                        ) : null,
+                      )}
+                    </dl>
+                  )}
+                </article>
               ))}
-            </div>
+
+              {onPatch && (
+                <button
+                  className="dbview-col-add"
+                  onClick={() => void addRow(name === UNSET ? undefined : { key: by, value: name })}
+                  title={`在「${name}」里新建一篇`}
+                >
+                  <Icon name="plus" size={12} /> 新建
+                </button>
+              )}
+            </section>
           ))}
         </div>
         <div className="dbview-foot">{result.rows.length} 条</div>
@@ -384,7 +500,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             >
               <Icon name="settings" size={14} />
             </button>
-            <button className="dbview-new" onClick={addRow}>
+            <button className="dbview-new" onClick={() => void addRow()}>
               新建
             </button>
           </>
@@ -524,7 +640,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
         </table>
       </div>
       {onPatch && (
-        <button className="dbview-add" onClick={addRow} title="新建一篇笔记并加进这个视图">
+        <button className="dbview-add" onClick={() => void addRow()} title="新建一篇笔记并加进这个视图">
           <Icon name="plus" size={13} />
           添加条目
         </button>

@@ -547,3 +547,107 @@ describe("表格宽度（§2.6）", () => {
     expect(Math.abs(w.bar - w.table)).toBeLessThan(2);
   });
 });
+
+describe("看板（§2.6）", () => {
+  const BOARD = 'from: "论文/*"\nview: board\ngroup-by: status';
+
+  function boardMock() {
+    viewMock = {
+      columns: ["title", "status", "作者"],
+      rows: [
+        { path: "论文/甲.md", title: "甲", props: { status: "在读", 作者: "Golub" } },
+        { path: "论文/乙.md", title: "乙", props: { status: "未读", 作者: "张三" } },
+        { path: "论文/丙.md", title: "丙", props: {} },
+      ],
+      view: "board",
+      groupBy: "status",
+      properties: [{ key: "status", type: "string" }],
+    };
+    schemaMock = { status: { type: "select", options: ["未读", "在读", "已读"] } };
+  }
+
+  it("按 schema 里的选项顺序列出所有列，空列也在", async () => {
+    // 「未读/在读/已读」是有先后的；按出现次序排会让看板每次刷新换个样子，
+    // 而空列消失意味着你没法把卡片拖进一个还没人用的状态
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const cols = [...view.dom.querySelectorAll(".dbview-col-head .dbview-tag")].map(
+      (t) => t.textContent,
+    );
+    expect(cols.slice(0, 3)).toEqual(["未读", "在读", "已读"]);
+    // 没写这个属性的落进「未设置」
+    expect(cols).toContain("（未设置）");
+  });
+
+  it("拖到另一列 = 改那篇笔记的分组属性", async () => {
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const card = [...view.dom.querySelectorAll<HTMLElement>(".dbview-card")].find((c) =>
+      c.textContent?.includes("甲"),
+    )!;
+    const target = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")].find((c) =>
+      c.querySelector(".dbview-tag")?.textContent === "已读",
+    )!;
+
+    const dt = new DataTransfer();
+    card.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+    target.dispatchEvent(new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    target.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "已读");
+  });
+
+  it("拖回原来那一列什么都不做 —— 别为一次没有变化的拖动改文件", async () => {
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const card = [...view.dom.querySelectorAll<HTMLElement>(".dbview-card")].find((c) =>
+      c.textContent?.includes("甲"),
+    )!;
+    const same = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")].find((c) =>
+      c.querySelector(".dbview-tag")?.textContent === "在读",
+    )!;
+
+    const dt = new DataTransfer();
+    card.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+    same.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+    await settle();
+
+    expect(propSet).not.toHaveBeenCalled();
+  });
+
+  it("卡片上显示别的属性，但不显示分组那一列（整列都一样）", async () => {
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const card = [...view.dom.querySelectorAll<HTMLElement>(".dbview-card")].find((c) =>
+      c.textContent?.includes("甲"),
+    )!;
+    expect(card.textContent).toContain("Golub");
+    expect(card.querySelector(".dbview-card-props")?.textContent).not.toContain("status");
+  });
+
+  it("在某一列里新建，那一列的值直接写上 —— 否则建完掉进「未设置」", async () => {
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("丁");
+
+    const target = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")].find((c) =>
+      c.querySelector(".dbview-tag")?.textContent === "已读",
+    )!;
+    await userEvent.click(target.querySelector<HTMLElement>(".dbview-col-add")!);
+    await settle();
+
+    expect(createNote).toHaveBeenCalled();
+    expect(propSet).toHaveBeenCalledWith("论文/丙.md", "status", "已读");
+    prompt.mockRestore();
+  });
+});
