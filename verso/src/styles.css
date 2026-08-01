@@ -245,7 +245,9 @@ button {
   /* `1fr` 实际是 `minmax(auto, 1fr)`，那个 auto 最小值 = 内容的 min-content，
      会被编辑区的 max-width 撑破容器 —— 横向把内容顶出窗口，
      纵向把状态栏挤到屏幕外。`minmax(0, 1fr)` 显式取消这个最小值。 */
-  grid-template-columns: 44px 252px minmax(0, 1fr);
+  /* 侧栏宽度由 App 通过内联的 --sidebar-w 给（可拖、跨会话保留）。
+     这里的 252px 只是它还没算出来时的兜底 */
+  grid-template-columns: 44px var(--sidebar-w, 252px) minmax(0, 1fr);
   /* 终端行是 auto：面板不渲染时该行高度为 0，自动折叠 */
   grid-template-rows: minmax(0, 1fr) auto auto;
   /* 图标栏和侧栏都通高，终端只占编辑区下方 —— 与 VS Code 一致 */
@@ -325,21 +327,29 @@ button {
   /* 唯一一条竖向分隔线，而且用 hairline（约 7% 黑）而不是 border ——
      侧栏和正文区的明度差已经把两边分开了，线只是收个边 */
   border-right: 1px solid var(--hairline);
-  overflow-y: auto;
-  padding-bottom: 16px;
+  /* 滚的是中间那段 .sidebar-body，不是整条侧栏 —— 头部和底部的 vault
+     那一条要钉住。`position: relative` 是给右边缘那根拖杆当包含块 */
+  overflow: hidden;
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
 }
 
 .sidebar-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 8px 10px 14px;
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-  z-index: 1;
+  gap: 4px;
+  padding: 11px 6px 9px 14px;
+  flex: none;
 }
 .side-title {
   font-weight: 600;
@@ -347,34 +357,138 @@ button {
   letter-spacing: 0.02em;
   color: var(--muted);
   flex: none;
-}
-/* vault 名靠右、可点击换库。它本来就是「当前在哪个库」的指示 */
-.vault-name {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--muted);
-  padding: 2px 5px;
-  border-radius: var(--r-xs);
+  /* 标题和动作之间靠这个撑开，不用把 auto 挂在动作那一侧 ——
+     那样头部每多一个元素就得重新想一遍谁该带 auto */
+  margin-right: auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 头部动作：一律 24px 见方的图标按钮，不放文字控件。
+   之前那个原生 <select> 一个人就吃掉小一半宽度，这是「挤成一团」的主因 */
+.side-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.side-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+  border-radius: var(--r-sm);
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.side-act:hover,
+.side-act.is-on {
+  color: var(--accent);
+  background: var(--border);
+}
+
+/* ---------- 头部的下拉菜单（排序） ---------- */
+
+.side-menu-wrap {
+  position: relative;
+}
+.side-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 148px;
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+  /* 和右键菜单同一套材质 —— 界面上只该有一种「浮层」的样子 */
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+.side-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+}
+.side-menu button:hover {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+.side-menu button.is-current {
+  color: var(--accent);
+}
+/* 勾始终占位 —— 不然选中那一项的文字会比别的往右挪一格 */
+.side-menu-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex: none;
+}
+
+/* ---------- 底部：当前在哪个库 ---------- */
+
+.sidebar-foot {
+  flex: none;
+  padding: 6px 8px 8px;
+  border-top: 1px solid var(--hairline);
+}
+/* 换库是低频操作，所以放这儿、也画得很轻。它主要的职责是「告诉你在哪」 */
+.vault-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
   min-width: 0;
   transition: color var(--t-fast), background var(--t-fast);
+}
+.vault-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-name svg {
+  flex: none;
 }
 .vault-name:hover {
   color: var(--text);
   background: var(--border);
 }
-.side-add {
-  flex: none;
-  color: var(--muted);
-  padding: 0 4px;
-  border-radius: var(--r-sm);
-  line-height: 1;
+
+/* ---------- 拖右边缘调宽度 ---------- */
+
+/* 骑在分隔线上：视觉上仍是那条 1px 的 hairline，手感上是 7px 的热区。
+   窄了拖不中，宽了会盖住树最右边那一列（悬停出现的「新建子文档」按钮） */
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -3px;
+  width: 7px;
+  z-index: 10;
+  cursor: col-resize;
 }
-.side-add:hover {
-  color: var(--accent);
-  background: var(--border);
+.sidebar-resizer:hover {
+  background: color-mix(in oklch, var(--accent) 30%, transparent);
+}
+/* 拖的时候整页禁选，否则鼠标划过正文会把文字一路选中 */
+body.is-resizing {
+  user-select: none;
+  cursor: col-resize;
 }
 
 /* ---------- 侧栏视图（搜索 / 标签）共用的骨架 ---------- */
@@ -2188,24 +2302,6 @@ textarea:focus-visible {
 
 /* 排序方式。做成朴素的下拉而不是图标菜单 —— 它有五个选项、要显示
    当前选中项，原生 select 在这几点上都更省事也更好用 */
-.side-sort {
-  flex: none;
-  max-width: 6.5em;
-  padding: 2px 4px;
-  font: inherit;
-  font-size: 11px;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-  transition: color var(--t-fast), border-color var(--t-fast);
-}
-.side-sort:hover {
-  color: var(--text);
-  border-color: var(--border);
-}
-
 /* ---------- 图片（§4.2 / §4.3） ---------- */
 
 /* 整块图片是「一个东西」：inline-block 而不是行内元素，

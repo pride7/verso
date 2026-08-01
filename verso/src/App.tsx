@@ -26,6 +26,20 @@ import "./styles.css";
 
 const AUTOSAVE_MS = 800; // §2.7 保存策略
 
+/** 侧栏默认宽度，和双击复位的目标值 */
+const DEFAULT_SIDEBAR_W = 252;
+
+/**
+ * 侧栏宽度的上下限。
+ *
+ * 下限是「最短的文件名还看得出是什么」；上限按窗口的一半算而不是写死一个
+ * 像素值 —— 小窗口里 480px 的侧栏会把正文挤没。
+ */
+function clampSidebar(w: number): number {
+  const max = Math.max(200, Math.round(window.innerWidth / 2));
+  return Math.min(Math.max(Math.round(w), 180), max);
+}
+
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
 interface Menu {
@@ -78,6 +92,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("verso.sidebarOpen") !== "0",
   );
+  /** 排序菜单开着没有。做成菜单而不是原生 select —— 后者在头部占一大截宽度 */
+  const [sortMenu, setSortMenu] = useState(false);
+  // 侧栏宽度。和终端高度一样记在 localStorage：调好一次就别再调第二次
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("verso.sidebarWidth"));
+    return clampSidebar(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_SIDEBAR_W);
+  });
   const [menu, setMenu] = useState<Menu | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -413,6 +434,50 @@ export default function App() {
     const t = setTimeout(() => setSortNotice(false), 6000);
     return () => clearTimeout(t);
   }, [sortNotice]);
+
+  /** 拖侧栏右边缘。宽度落 localStorage，下次启动还是这么宽 */
+  const startSidebarDrag = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = sidebarWidth;
+      // 拖的时候整页禁选，否则鼠标划过正文会把文字一路选中
+      document.body.classList.add("is-resizing");
+      const onMove = (ev: MouseEvent) => setSidebarWidth(clampSidebar(startW + ev.clientX - startX));
+      const onUp = () => {
+        document.body.classList.remove("is-resizing");
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [sidebarWidth],
+  );
+
+  useEffect(() => {
+    localStorage.setItem("verso.sidebarWidth", String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  // 窗口变窄时上限会跟着变小，宽度得重新夹一次，否则侧栏能把正文挤没
+  useEffect(() => {
+    const onResize = () => setSidebarWidth((w) => clampSidebar(w));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // 点别处关掉排序菜单。菜单自己 stopPropagation，所以点菜单里不会关
+  useEffect(() => {
+    if (!sortMenu) return;
+    const close = () => setSortMenu(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSortMenu(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [sortMenu]);
 
   /** `[[链接]]` 跳转。目标不存在时按名字新建 —— 这正是 wiki 式写作的用法。 */
   const followLink = useCallback(
@@ -803,7 +868,10 @@ export default function App() {
   };
 
   return (
-    <div className={`app${sidebarOpen ? "" : " sidebar-collapsed"}`}>
+    <div
+      className={`app${sidebarOpen ? "" : " sidebar-collapsed"}`}
+      style={{ "--sidebar-w": `${sidebarWidth}px` } as React.CSSProperties}
+    >
       <ActivityBar
         view={sidebarView}
         onView={pickView}
@@ -821,81 +889,119 @@ export default function App() {
 
       {sidebarOpen && (
         <aside className="sidebar">
+          {/* 头部只留「这是哪个视图」和这个视图的动作。vault 名挪到了底部 ——
+              换库是低频操作，不该占着头部的黄金位置，那正是之前挤成一团的原因 */}
           <header className="sidebar-head">
             <span className="side-title">{VIEW_TITLE[sidebarView]}</span>
-            {/* vault 名做成按钮：它本来就是「当前在哪个库」的指示，
-                点它换库比多一个图标更自然 */}
+            {sidebarView === "tree" && (
+              <div className="side-actions">
+                <div className="side-menu-wrap">
+                  <button
+                    className={`side-act${sortMenu ? " is-on" : ""}`}
+                    // 关菜单靠 window 上的 mousedown。不拦下这一发的话，点按钮
+                    // 会先被关掉再被 onClick 打开，看起来就是「点了没反应」
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => setSortMenu((v) => !v)}
+                    title="排序方式。直接拖动文件也会切到手动排序"
+                    aria-label="排序方式"
+                    aria-expanded={sortMenu}
+                  >
+                    <Icon name="sort" size={15} />
+                  </button>
+                  {sortMenu && (
+                    <ul className="side-menu" onMouseDown={(e) => e.stopPropagation()}>
+                      {(Object.keys(SORT_LABELS) as TreeSort[]).map((k) => (
+                        <li key={k}>
+                          <button
+                            className={settings.treeSort === k ? "is-current" : ""}
+                            onClick={() => {
+                              setSortNotice(false);
+                              setSortMenu(false);
+                              updateSettings({ treeSort: k });
+                            }}
+                          >
+                            {/* 勾始终占位，不然选中项的文字会比别的往右挪一格 */}
+                            <span className="side-menu-check">
+                              {settings.treeSort === k && <Icon name="check" size={12} />}
+                            </span>
+                            {SORT_LABELS[k]}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <button
+                  className="side-act"
+                  onClick={() => createAndOpen(null, "新建文档")}
+                  title="新建文档"
+                  aria-label="新建文档"
+                >
+                  <Icon name="plus" size={15} />
+                </button>
+              </div>
+            )}
+          </header>
+
+          {/* 视图本体单独滚，好让 vault 那一条钉在底部 */}
+          <div className="sidebar-body">
+            {sortNotice && sidebarView === "tree" && (
+              <p className="hint">已切换到手动排序。想换回按名称排，用上面的排序按钮</p>
+            )}
+
+            {vault.createdRepo && (
+              <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
+            )}
+            {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
+
+            {sidebarView === "tree" && (
+              <Tree
+                nodes={sortedTree}
+                activePath={note?.path ?? null}
+                onOpen={(n) => openPath(n.path)}
+                onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
+                onMenu={(node, x, y) => setMenu({ node, x, y })}
+                onMove={moveNode}
+                onReorder={reorder}
+              />
+            )}
+            {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
+            {sidebarView === "tags" && (
+              <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
+            )}
+            {sidebarView === "outline" &&
+              (note ? (
+                <OutlineView
+                  headings={headings}
+                  activeIndex={activeHeadingIdx}
+                  onPick={gotoHeading}
+                />
+              ) : (
+                <p className="side-empty">先打开一篇笔记。</p>
+              ))}
+          </div>
+
+          {/* 当前在哪个库 —— 常驻底部，点它换库。和 Obsidian 一个位置 */}
+          <footer className="sidebar-foot">
             <button
               className="vault-name"
               title={`${vault.root}\n点击切换 vault`}
               onClick={openVault}
             >
-              {vault.name}
+              <Icon name="vault" size={13} />
+              <span>{vault.name}</span>
             </button>
-            {sidebarView === "tree" && (
-              <select
-                className="side-sort"
-                value={settings.treeSort}
-                onChange={(e) => {
-                  setSortNotice(false);
-                  updateSettings({ treeSort: e.target.value as TreeSort });
-                }}
-                title="排序方式。直接拖动文件也会切到手动排序"
-                aria-label="排序方式"
-              >
-                {(Object.keys(SORT_LABELS) as TreeSort[]).map((k) => (
-                  <option key={k} value={k}>
-                    {SORT_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            )}
-            {sidebarView === "tree" && (
-              <button
-                className="side-add"
-                onClick={() => createAndOpen(null, "新建文档")}
-                title="新建文档"
-                aria-label="新建文档"
-              >
-                <Icon name="plus" />
-              </button>
-            )}
-          </header>
+          </footer>
 
-          {sortNotice && sidebarView === "tree" && (
-            <p className="hint">已切换到手动排序。想回到按名称排，用上面的下拉框</p>
-          )}
-
-          {vault.createdRepo && (
-            <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
-          )}
-          {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
-
-          {sidebarView === "tree" && (
-            <Tree
-              nodes={sortedTree}
-              activePath={note?.path ?? null}
-              onOpen={(n) => openPath(n.path)}
-              onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
-              onMenu={(node, x, y) => setMenu({ node, x, y })}
-              onMove={moveNode}
-              onReorder={reorder}
-            />
-          )}
-          {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
-          {sidebarView === "tags" && (
-            <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
-          )}
-          {sidebarView === "outline" &&
-            (note ? (
-              <OutlineView
-                headings={headings}
-                activeIndex={activeHeadingIdx}
-                onPick={gotoHeading}
-              />
-            ) : (
-              <p className="side-empty">先打开一篇笔记。</p>
-            ))}
+          {/* 拖右边缘调宽度。双击回默认 */}
+          <div
+            className="sidebar-resizer"
+            onMouseDown={startSidebarDrag}
+            onDoubleClick={() => setSidebarWidth(DEFAULT_SIDEBAR_W)}
+            title="拖动调整宽度，双击复位"
+            role="separator"
+            aria-orientation="vertical"
+          />
         </aside>
       )}
 
