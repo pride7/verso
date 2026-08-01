@@ -210,6 +210,12 @@ fn all_tags(state: State<'_, AppState>) -> Result<Vec<(String, i64)>> {
     state.with_index(|i| i.all_tags())
 }
 
+/// 带某个标签的笔记。标签面板点一下就列出来（含嵌套子标签）。
+#[tauri::command]
+fn notes_by_tag(state: State<'_, AppState>, tag: String) -> Result<Vec<NoteRef>> {
+    state.with_index(|i| i.notes_by_tag(&tag))
+}
+
 // ------------------------------------------------------ database 视图（§2.6）
 
 /// 执行一个 `folio-view` 代码块。`source` 是代码块里的原文（YAML）。
@@ -387,6 +393,7 @@ pub fn run() {
             backlinks,
             dangling_links,
             all_tags,
+            notes_by_tag,
             index_rebuild,
             view_query,
             prop_set,

@@ -317,3 +317,77 @@ fn indexing_is_fast_enough() {
     assert!(!hits.is_empty());
     assert!(ms < 50, "搜索用了 {ms}ms，超过 50ms 的验收线");
 }
+
+// ---------------------------------------------------------------- 按标签查
+
+#[test]
+fn notes_by_tag_finds_both_frontmatter_and_inline_tags() {
+    let (_t, _v, idx) = sample();
+    // 「数学」来自 frontmatter，「矩阵论」来自正文里的 #矩阵论
+    let math: Vec<_> = idx
+        .notes_by_tag("数学")
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(math, vec!["奇异值分解", "线性代数"]);
+
+    let inline: Vec<_> = idx
+        .notes_by_tag("矩阵论")
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(inline, vec!["线性代数"]);
+}
+
+#[test]
+fn notes_by_tag_ignores_tags_inside_code_blocks() {
+    // 特征值.md 的代码块里有 #假标签。一篇讲 Markdown 语法的笔记
+    // 不该把自己的示例全变成标签
+    let (_t, _v, idx) = sample();
+    assert!(idx.notes_by_tag("假标签").unwrap().is_empty());
+}
+
+#[test]
+fn notes_by_tag_includes_nested_children() {
+    // §2.4 的 #嵌套/标签。点父标签要能看到子标签下的笔记，
+    // 否则父标签永远是空的，嵌套就白分了
+    let (_t, _v, idx) = setup(&[
+        ("a.md", "---\nid: 01AAAAAAAAAAAAAAAAAAAAAAAA\ntitle: 甲\ntags: [项目/写作]\n---\n\n正文\n"),
+        ("b.md", "---\nid: 01BBBBBBBBBBBBBBBBBBBBBBBB\ntitle: 乙\ntags: [项目]\n---\n\n正文\n"),
+        ("c.md", "---\nid: 01CCCCCCCCCCCCCCCCCCCCCCCC\ntitle: 丙\ntags: [项目管理]\n---\n\n正文\n"),
+    ]);
+    let names: Vec<_> = idx
+        .notes_by_tag("项目")
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    // 「项目管理」是另一个标签，不是「项目」的子标签 —— 前缀匹配必须
+    // 带上分隔符，否则会把它误收进来
+    assert_eq!(names, vec!["乙", "甲"]);
+}
+
+#[test]
+fn notes_by_tag_escapes_like_wildcards() {
+    // 标签是用户写的。含 % 或 _ 时不转义，LIKE 会把它当通配符，
+    // 于是点一个标签列出一堆无关笔记
+    let (_t, _v, idx) = setup(&[
+        ("a.md", "---\nid: 01AAAAAAAAAAAAAAAAAAAAAAAA\ntitle: 甲\ntags: [\"a_b/x\"]\n---\n\n正文\n"),
+        ("b.md", "---\nid: 01BBBBBBBBBBBBBBBBBBBBBBBB\ntitle: 乙\ntags: [\"axb/y\"]\n---\n\n正文\n"),
+    ]);
+    let names: Vec<_> = idx
+        .notes_by_tag("a_b")
+        .unwrap()
+        .into_iter()
+        .map(|n| n.name)
+        .collect();
+    assert_eq!(names, vec!["甲"]);
+}
+
+#[test]
+fn notes_by_tag_returns_empty_for_unknown_tag() {
+    let (_t, _v, idx) = sample();
+    assert!(idx.notes_by_tag("不存在的标签").unwrap().is_empty());
+}

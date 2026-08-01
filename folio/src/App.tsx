@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, onVaultChanged, pickVaultFolder } from "./api";
+import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
-import { SearchPanel } from "./components/SearchPanel";
 import { Editor, type EditorHandle } from "./components/Editor";
 import { QuickSwitcher } from "./components/QuickSwitcher";
+import { SearchView } from "./components/SearchView";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
+import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { keyLabel } from "./lib/platform";
@@ -58,7 +60,14 @@ export default function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [symbolOpen, setSymbolOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  // 侧栏显示哪个视图、以及展不展开。都跨会话保留 —— 收起侧栏是为了把
+  // 编辑区拉宽，每次启动又弹回来就没意义了
+  const [sidebarView, setSidebarView] = useState<SidebarView>(
+    () => (localStorage.getItem("folio.sidebarView") as SidebarView | null) ?? "tree",
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem("folio.sidebarOpen") !== "0",
+  );
   const [menu, setMenu] = useState<Menu | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -97,6 +106,29 @@ export default function App() {
   noteRef.current = note;
   dirtyRef.current = saveState === "dirty";
   noteListRef.current = noteList;
+
+  /**
+   * 点侧栏图标。点当前那个 = 收起侧栏（VS Code 的行为），点别的 = 切过去。
+   *
+   * 搜索视图要顺手把焦点给输入框 —— 它是常驻面板，不能像弹窗那样自动
+   * 抢焦点（会把正在正文里打字的人踢出去），所以只在**主动切过去**时聚焦。
+   */
+  const pickView = useCallback(
+    (v: SidebarView) => {
+      const closing = sidebarOpen && v === sidebarView;
+      setSidebarOpen(!closing);
+      setSidebarView(v);
+      localStorage.setItem("folio.sidebarOpen", closing ? "0" : "1");
+      localStorage.setItem("folio.sidebarView", v);
+      if (!closing && v === "search") {
+        // 等这一轮渲染把面板挂上去
+        requestAnimationFrame(() =>
+          document.getElementById("folio-search-input")?.focus(),
+        );
+      }
+    },
+    [sidebarOpen, sidebarView],
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -340,12 +372,20 @@ export default function App() {
       } else if (mod && e.shiftKey && e.key.toLowerCase() === "f") {
         // §2.2 全文搜索。沿用 VS Code 的 Ctrl+Shift+F
         e.preventDefault();
-        setSearchOpen(true);
+        // 已经在搜索视图时不要收起侧栏 —— 再按一次的意图是「回到搜索框」，
+        // 不是「关掉搜索」。pickView 的 toggle 语义只对点图标成立
+        if (sidebarOpen && sidebarView === "search") {
+          document.getElementById("folio-search-input")?.focus();
+        } else {
+          pickView("search");
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    // pickView 依赖当前视图状态，漏掉的话 Ctrl+Shift+F 会用到旧的闭包，
+    // 表现是切过一次视图之后快捷键就不灵了
+  }, [pickView, sidebarOpen, sidebarView, setTermOpen]);
 
   // 点任意位置关掉右键菜单
   useEffect(() => {
@@ -407,7 +447,25 @@ export default function App() {
         group: "笔记",
         label: "全文搜索",
         keys: keyLabel("Mod+Shift+F"),
-        run: () => setSearchOpen(true),
+        run: () => pickView("search"),
+      },
+      {
+        id: "note.tags",
+        group: "笔记",
+        label: "标签面板",
+        run: () => pickView("tags"),
+      },
+      {
+        id: "view.tree",
+        group: "外观",
+        label: "文档树",
+        run: () => pickView("tree"),
+      },
+      {
+        id: "view.sidebar",
+        group: "外观",
+        label: sidebarOpen ? "收起侧栏" : "展开侧栏",
+        run: () => pickView(sidebarView),
       },
       {
         id: "note.save",
@@ -489,6 +547,9 @@ export default function App() {
     note,
     tree,
     settings.theme,
+    sidebarOpen,
+    sidebarView,
+    pickView,
     createAndOpen,
     saveNow,
     renameNode,
@@ -522,64 +583,72 @@ export default function App() {
         }))
     : [];
 
+  const VIEW_TITLE: Record<SidebarView, string> = {
+    tree: "文档",
+    search: "搜索",
+    tags: "标签",
+  };
+
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <header className="sidebar-head">
-          <span className="vault-name" title={vault.root}>
-            {vault.name}
-          </span>
-          <div className="sidebar-actions">
-            <button onClick={() => createAndOpen(null, "新建文档")} title="新建文档">
-              ＋
-            </button>
-            <button onClick={() => setSwitcherOpen(true)} title={`快速跳转 (${keyLabel("Mod+P")})`}>
-              ⌕
-            </button>
-            <button onClick={() => setSearchOpen(true)} title={`全文搜索 (${keyLabel("Mod+Shift+F")})`}>
-              ⌗
-            </button>
-            <button
-              className={termOpen ? "is-on" : undefined}
-              onClick={() => setTermOpen((v) => !v)}
-              onContextMenu={(e) => {
-                // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
-                e.preventDefault();
-                api.openTerminal(null).catch((err) => setError((err as Error).message));
-              }}
-              title={`终端 (${keyLabel("Mod+`")})　右键：在系统终端中打开`}
-            >
-              ▤
-            </button>
-            <button
-              onClick={() => setPaletteOpen(true)}
-              title={`命令面板 (${keyLabel("Mod+Shift+P")})`}
-            >
-              ⌘
-            </button>
-            <button onClick={() => setSettingsOpen(true)} title={`设置 (${keyLabel("Mod+,")})`}>
-              ⚙
-            </button>
-            <button onClick={openVault} title="切换 vault">
-              ⤢
-            </button>
-          </div>
-        </header>
+    <div className={`app${sidebarOpen ? "" : " sidebar-collapsed"}`}>
+      <ActivityBar
+        view={sidebarView}
+        onView={pickView}
+        sidebarOpen={sidebarOpen}
+        termOpen={termOpen}
+        onToggleTerm={() => setTermOpen((v) => !v)}
+        onSystemTerminal={() =>
+          api.openTerminal(null).catch((err) => setError((err as Error).message))
+        }
+        onPalette={() => setPaletteOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+      />
 
-        {vault.createdRepo && (
-          <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
-        )}
-        {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
+      {sidebarOpen && (
+        <aside className="sidebar">
+          <header className="sidebar-head">
+            <span className="side-title">{VIEW_TITLE[sidebarView]}</span>
+            {/* vault 名做成按钮：它本来就是「当前在哪个库」的指示，
+                点它换库比多一个图标更自然 */}
+            <button
+              className="vault-name"
+              title={`${vault.root}\n点击切换 vault`}
+              onClick={openVault}
+            >
+              {vault.name}
+            </button>
+            {sidebarView === "tree" && (
+              <button
+                className="side-add"
+                onClick={() => createAndOpen(null, "新建文档")}
+                title="新建文档"
+              >
+                ＋
+              </button>
+            )}
+          </header>
 
-        <Tree
-          nodes={tree}
-          activePath={note?.path ?? null}
-          onOpen={(n) => openPath(n.path)}
-          onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
-          onMenu={(node, x, y) => setMenu({ node, x, y })}
-          onMove={moveNode}
-        />
-      </aside>
+          {vault.createdRepo && (
+            <p className="hint">已初始化为 git 仓库（分支 main），并写入 .gitignore</p>
+          )}
+          {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
+
+          {sidebarView === "tree" && (
+            <Tree
+              nodes={tree}
+              activePath={note?.path ?? null}
+              onOpen={(n) => openPath(n.path)}
+              onAddChild={(n) => createAndOpen(n.path, `在「${n.name}」下新建子文档`)}
+              onMenu={(node, x, y) => setMenu({ node, x, y })}
+              onMove={moveNode}
+            />
+          )}
+          {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
+          {sidebarView === "tags" && (
+            <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
+          )}
+        </aside>
+      )}
 
       <main className="main">
         {externalChange && (
@@ -659,16 +728,6 @@ export default function App() {
         )}
         {error && <span className="error">{error}</span>}
       </footer>
-
-      {searchOpen && (
-        <SearchPanel
-          onPick={(p) => {
-            setSearchOpen(false);
-            void openPath(p);
-          }}
-          onClose={() => setSearchOpen(false)}
-        />
-      )}
 
       {symbolOpen && (
         <SymbolPanel

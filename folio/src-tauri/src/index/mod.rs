@@ -13,7 +13,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::{Error, Result};
-use crate::vault::{note, tree::NodeKind, Vault};
+use crate::vault::{note, tree::NodeKind, NoteRef, Vault};
 
 pub struct Index {
     conn: Connection,
@@ -271,9 +271,41 @@ impl Index {
         Ok(out?)
     }
 
+    /// 带某个标签的笔记。标签面板点一下就列出来。
+    ///
+    /// 嵌套标签（§2.4 的 `#嵌套/标签`）要连子标签一起算：点「数学」应当
+    /// 也看到「数学/线性代数」下的笔记，否则父标签点开永远是空的，
+    /// 嵌套就白分了。
+    ///
+    /// `LIKE` 的模式串里 `%` `_` 要转义 —— 标签是用户写的，含这两个字符时
+    /// 不转义会匹配到无关的标签。
+    pub fn notes_by_tag(&self, tag: &str) -> Result<Vec<NoteRef>> {
+        let prefix = format!("{}/", escape_like(tag));
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT n.path, n.title
+             FROM tags t JOIN notes n ON n.id = t.note_id
+             WHERE t.tag = ?1 OR t.tag LIKE ?2 ESCAPE '\\'
+             ORDER BY n.title",
+        )?;
+        let mapped = stmt.query_map(params![tag, format!("{prefix}%")], |r| {
+            Ok(NoteRef {
+                path: r.get(0)?,
+                name: r.get(1)?,
+            })
+        })?;
+        let out: std::result::Result<Vec<_>, _> = mapped.collect();
+        Ok(out?)
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
+}
+
+/// `LIKE` 的通配符转义。与 `schema::escape_fts` 同一类东西，
+/// 都是「用户输入要进 SQL 的特殊语法位置」时的必要处理。
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 // --------------------------------------------------------------------------

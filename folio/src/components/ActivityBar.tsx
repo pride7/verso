@@ -1,0 +1,93 @@
+import { keyLabel } from "../lib/platform";
+
+/** 侧栏当前显示哪个面板 */
+export type SidebarView = "tree" | "search" | "tags";
+
+interface Props {
+  view: SidebarView;
+  onView: (v: SidebarView) => void;
+  /** 侧栏是否展开。点当前已选中的图标会收起它 */
+  sidebarOpen: boolean;
+  termOpen: boolean;
+  onToggleTerm: () => void;
+  onSystemTerminal: () => void;
+  onPalette: () => void;
+  onSettings: () => void;
+}
+
+const VIEWS: { id: SidebarView; icon: string; label: string; keys?: string }[] = [
+  { id: "tree", icon: "▤", label: "文档树" },
+  { id: "search", icon: "⌕", label: "搜索", keys: keyLabel("Mod+Shift+F") },
+  { id: "tags", icon: "#", label: "标签" },
+];
+
+/**
+ * 最左边那一竖条。VS Code 的 activity bar。
+ *
+ * 分成两组，中间用 `margin-top: auto` 撑开：
+ *
+ * - **上组切换侧栏显示什么**（文档树 / 搜索 / 标签）。这是 §6.3 里
+ *   「文档树/搜索/标签 ｜ 编辑区 ｜ 大纲/反向链接」那一栏的落地方式 ——
+ *   三栏挤在窄屏上放不下，改成一栏三视图。
+ * - **下组是直接执行的动作**（终端 / 命令面板 / 设置），不改变侧栏。
+ *
+ * 两组必须在视觉上分得开，否则用户点了「设置」会预期侧栏变成设置面板。
+ * 这里靠留白和一条分隔线区分，选中态只给上组。
+ */
+export function ActivityBar({
+  view,
+  onView,
+  sidebarOpen,
+  termOpen,
+  onToggleTerm,
+  onSystemTerminal,
+  onPalette,
+  onSettings,
+}: Props) {
+  return (
+    <nav className="rail" aria-label="侧栏视图">
+      {VIEWS.map((v) => (
+        <button
+          key={v.id}
+          className={`rail-btn${sidebarOpen && view === v.id ? " is-on" : ""}`}
+          // 点已经选中的那个就收起侧栏 —— 和 VS Code 一致，也是唯一能
+          // 把编辑区拉到最宽的办法
+          onClick={() => onView(v.id)}
+          title={v.keys ? `${v.label} (${v.keys})` : v.label}
+          aria-pressed={sidebarOpen && view === v.id}
+        >
+          {v.icon}
+        </button>
+      ))}
+
+      <div className="rail-gap" />
+
+      <button
+        className={`rail-btn rail-action${termOpen ? " is-on" : ""}`}
+        onClick={onToggleTerm}
+        onContextMenu={(e) => {
+          // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
+          e.preventDefault();
+          onSystemTerminal();
+        }}
+        title={`终端 (${keyLabel("Mod+`")})　右键：在系统终端中打开`}
+      >
+        ▣
+      </button>
+      <button
+        className="rail-btn rail-action"
+        onClick={onPalette}
+        title={`命令面板 (${keyLabel("Mod+Shift+P")})`}
+      >
+        ⌘
+      </button>
+      <button
+        className="rail-btn rail-action"
+        onClick={onSettings}
+        title={`设置 (${keyLabel("Mod+,")})`}
+      >
+        ⚙
+      </button>
+    </nav>
+  );
+}

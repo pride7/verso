@@ -73,6 +73,8 @@ export const api = {
   /** 指向不存在笔记的链接，用来发现打错的名字 */
   danglingLinks: () => call<[string, string][]>("dangling_links"),
   allTags: () => call<[string, number][]>("all_tags"),
+  /** 带某个标签的笔记，含嵌套子标签 */
+  notesByTag: (tag: string) => call<NoteRef[]>("notes_by_tag", { tag }),
   rebuildIndex: () => call<IndexStats>("index_rebuild"),
 
   // —— §2.6 database 视图 ——

@@ -142,23 +142,88 @@ button {
   filter: brightness(1.08);
 }
 
-/* ---------- 布局：§6.3 三栏，M0 先做两栏 ---------- */
+/* ---------- 布局：§6.3 ---------- */
 
 .app {
   height: 100vh;
   overflow: hidden;
   display: grid;
   /* `1fr` 实际是 `minmax(auto, 1fr)`，那个 auto 最小值 = 内容的 min-content，
-     会被编辑区的 max-width:42rem 撑破容器 —— 横向把内容顶出窗口，
+     会被编辑区的 max-width 撑破容器 —— 横向把内容顶出窗口，
      纵向把状态栏挤到屏幕外。`minmax(0, 1fr)` 显式取消这个最小值。 */
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 44px 252px minmax(0, 1fr);
   /* 终端行是 auto：面板不渲染时该行高度为 0，自动折叠 */
   grid-template-rows: minmax(0, 1fr) auto auto;
-  /* 终端只占编辑区下方，侧栏保持通高 —— 与 VS Code 一致 */
+  /* 图标栏和侧栏都通高，终端只占编辑区下方 —— 与 VS Code 一致 */
   grid-template-areas:
-    "sidebar main"
-    "sidebar term"
+    "rail sidebar main"
+    "rail sidebar term"
+    "status status status";
+}
+
+/* 侧栏收起时那一列整个消失，编辑区顺势变宽。
+   收起靠的是不渲染 .sidebar，所以这里必须同时把轨道去掉，
+   否则会留下 252px 的空白。 */
+.app.sidebar-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas:
+    "rail main"
+    "rail term"
     "status status";
+}
+
+/* ---------- 最左的图标栏 ---------- */
+
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 10px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+/* 把下半组动作推到底部。上组=切视图、下组=执行动作，两组在视觉上
+   必须分得开，否则点「设置」会让人预期侧栏变成设置面板 */
+.rail-gap {
+  margin-top: auto;
+}
+
+.rail-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.rail-btn:hover {
+  color: var(--text);
+  background: var(--border);
+}
+.rail-btn.is-on {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 15%, transparent);
+}
+
+/* 选中的视图在最左边有一条竖标 —— VS Code 的做法。
+   只有上组有，这是区分「切视图」和「执行动作」的第二个信号 */
+.rail-btn.is-on:not(.rail-action)::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 .sidebar {
@@ -167,41 +232,108 @@ button {
   border-right: 1px solid var(--border);
   overflow-y: auto;
   padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 10px 8px 14px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 8px 8px 14px;
   position: sticky;
   top: 0;
   background: var(--surface);
+  z-index: 1;
 }
-.vault-name {
+.side-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  flex: none;
+}
+/* vault 名靠右、可点击换库。它本来就是「当前在哪个库」的指示 */
+.vault-name {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+  padding: 2px 5px;
+  border-radius: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  transition: color var(--t-fast), background var(--t-fast);
 }
-.sidebar-actions {
-  display: flex;
-  gap: 2px;
+.vault-name:hover {
+  color: var(--text);
+  background: var(--border);
 }
-.sidebar-actions button {
+.side-add {
+  flex: none;
   color: var(--muted);
-  padding: 2px 6px;
+  padding: 0 4px;
   border-radius: 5px;
   line-height: 1;
 }
-.sidebar-actions button:hover {
-  background: var(--border);
-  color: var(--text);
-}
-.sidebar-actions button.is-on {
+.side-add:hover {
   color: var(--accent);
-  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  background: var(--border);
+}
+
+/* ---------- 侧栏视图（搜索 / 标签）共用的骨架 ---------- */
+
+.side-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.side-head {
+  padding: 0 10px 8px;
+}
+.side-input {
+  width: 100%;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color var(--t-fast);
+}
+.side-input:focus {
+  border-color: var(--accent);
+}
+.side-count {
+  margin: 0;
+  padding: 4px 14px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.side-empty {
+  margin: 0;
+  padding: 16px 14px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.side-empty code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.side-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .hint {
@@ -637,8 +769,13 @@ button {
 
 /* ---------- 全文搜索（§2.2） ---------- */
 
+/* 搜索结果现在在侧栏里，宽度只有 250px 左右 —— 三行信息全部改成
+   块级并各自省略，否则标题和路径会横向溢出把侧栏撑破 */
 .search-item {
-  padding: 8px 10px;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -646,11 +783,16 @@ button {
   background: color-mix(in oklch, var(--accent) 16%, transparent);
 }
 .search-title {
-  font-size: 13.5px;
+  display: block;
+  font-size: 12.5px;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .search-snippet {
-  font-size: 12px;
+  display: block;
+  font-size: 11.5px;
   color: var(--muted);
   line-height: 1.55;
   margin-top: 2px;
@@ -667,10 +809,81 @@ button {
   padding: 0 1px;
 }
 .search-path {
-  font-size: 11px;
+  display: block;
+  font-size: 10.5px;
   color: var(--muted);
   opacity: 0.7;
   margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 标签面板 ---------- */
+
+.tag-tree,
+.tag-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tag-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 6px 1px;
+  padding-right: 6px;
+  border-radius: 5px;
+}
+.tag-row:hover {
+  background: var(--border);
+}
+.tag-row.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+}
+.tag-label {
+  flex: 1;
+  text-align: left;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-count {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 选中标签后列出的笔记。用一条上边界与标签树分开 —— 两段都是可点的
+   列表，不分开会看成一段 */
+.tag-notes {
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.tag-note {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-note:hover {
+  background: var(--border);
+}
+.tag-note.is-active {
+  background: color-mix(in oklch, var(--accent) 16%, transparent);
+  font-weight: 500;
 }
 
 /* ---------- 反向链接（§2.2） ---------- */
