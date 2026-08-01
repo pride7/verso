@@ -39,7 +39,8 @@ export interface NoteContent {
 
 export interface NoteMeta {
   path: string;
-  id: string;
+  /** 新建的笔记没有 id —— frontmatter 里有什么全由用户决定（§2.3） */
+  id: string | null;
   title: string;
 }
 

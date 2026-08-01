@@ -35,7 +35,8 @@ pub struct VaultInfo {
 #[serde(rename_all = "camelCase")]
 pub struct NoteMeta {
     pub path: String,
-    pub id: String,
+    /// 新建的笔记没有 id —— frontmatter 里有什么全由用户决定（§2.3）
+    pub id: Option<String>,
     pub title: String,
 }
 
@@ -153,9 +154,8 @@ impl Vault {
         } else {
             Mapping::new()
         };
-        // 外来的 .md 通常没有 frontmatter，首次保存时补上 id，
-        // 否则这篇笔记没有稳定标识，重命名后链接会断。
-        note::ensure_identity(&mut fm, &stem_of(rel));
+        // 只维护文件里**已经有**的字段，不补任何东西 —— 一篇没写过
+        // frontmatter 的笔记，保存一百次也还是纯正文（§2.3）
         note::touch_updated(&mut fm);
 
         let out = note::serialize_note(&fm, body)?;
@@ -193,40 +193,33 @@ impl Vault {
             return Err(Error::Vault(format!("已存在同名文档: {rel}")));
         }
 
-        let fm = note::new_frontmatter(title);
-        let id = note::get_str(&fm, "id").unwrap_or_default();
-        self.fs
-            .write_atomic(&abs, &note::serialize_note(&fm, "")?)?;
+        // 空文件。§2.3：新建一篇笔记不该先替用户写好五行他没要求的 YAML
+        self.fs.write_atomic(&abs, "")?;
 
         Ok(NoteMeta {
             path: rel,
-            id,
+            id: None,
             title: title.to_string(),
         })
     }
 
-    /// 改写一条 frontmatter 属性。DESIGN.md §2.6
-    ///
-    /// **这是 database 视图「可写」的实现基础** —— 在表格里改一个单元格
-    /// 就是走这条路径改对应笔记的 frontmatter，然后文件落盘。设计文档说
-    /// 「必须可写，这是它好不好用的分水岭」。
-    ///
-    /// `value` 为 None 表示删除该属性。
     /// 源码模式（§4.2）里手改 frontmatter：用一段 YAML 原文换掉文件里那一段，
     /// **正文一个字节都不动**。
     ///
-    /// 三条保险，都是为了「改坏了也不能吃掉东西」：
+    /// 两条保险：
     ///
     /// 1. **解析不通过就不写。** YAML 缩进错一格是常事，那一刻文件里的旧内容
     ///    仍然是好的 —— 报错让人自己改，比写进去一个空 frontmatter 强得多。
-    /// 2. **`id` / `created` 从旧值继承。** 用户在源码里把 `id` 删了，我们要
-    ///    补回原来那个而不是生成新的：换个 id 等于换了这篇笔记的身份。
-    /// 3. **正文来自磁盘**，不从前端传。正文有它自己的保存路径（`write_note`），
+    /// 2. **正文来自磁盘**，不从前端传。正文有它自己的保存路径（`write_note`），
     ///    两边各写各的一半，谁也不会盖掉谁。
+    ///
+    /// 交回一段空 YAML = **把整块删干净**，文件里连 `---` 都不留。以前这里会
+    /// 把 `id` / `created` 补回来，现在不补了：frontmatter 里有什么由用户决定
+    /// （§2.3）。
     pub fn write_frontmatter(&self, rel: &str, yaml: &str) -> Result<i64> {
         let abs = self.resolve(rel)?;
         let raw = self.fs.read_to_string(&abs)?;
-        let (old, body) = note::parse_frontmatter(&raw);
+        let (_, body) = note::parse_frontmatter(&raw);
 
         let mut fm = if yaml.trim().is_empty() {
             Mapping::new()
@@ -238,24 +231,18 @@ impl Vault {
             }
         };
 
-        // 内部字段被删掉就补回旧值（第 2 条）。用户显式改成了别的值也不拦 ——
-        // 源码模式的前提就是「我知道我在做什么」，只是不能因为**手滑删掉**
-        // 而丢身份
-        for key in ["id", "created"] {
-            let k = serde_yaml::Value::String(key.to_string());
-            if !fm.contains_key(&k) {
-                if let Some(v) = old.get(&k) {
-                    fm.insert(k, v.clone());
-                }
-            }
-        }
-
-        note::ensure_identity(&mut fm, &stem_of(rel));
         note::touch_updated(&mut fm);
         self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
         Ok(self.fs.metadata(&abs)?.mtime_ms)
     }
 
+    /// 改写一条 frontmatter 属性。DESIGN.md §2.6
+    ///
+    /// **这是 database 视图「可写」的实现基础** —— 在表格里改一个单元格
+    /// 就是走这条路径改对应笔记的 frontmatter，然后文件落盘。设计文档说
+    /// 「必须可写，这是它好不好用的分水岭」。
+    ///
+    /// `value` 为 None 表示删除该属性。
     pub fn set_prop(&self, rel: &str, key: &str, value: Option<&str>) -> Result<()> {
         // 这几个是内部字段，不能让 database 视图改掉 —— 改了 id 就等于
         // 把这篇笔记的身份换了，所有指向它的链接都会断
@@ -297,7 +284,6 @@ impl Vault {
             }
         }
 
-        note::ensure_identity(&mut fm, &stem_of(rel));
         note::touch_updated(&mut fm);
         self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
         Ok(())
@@ -350,7 +336,6 @@ impl Vault {
             }
         }
 
-        note::ensure_identity(&mut next, &stem_of(rel));
         note::touch_updated(&mut next);
         self.fs.write_atomic(&abs, &note::serialize_note(&next, &body)?)?;
         Ok(())
@@ -504,17 +489,19 @@ created: 2026-01-01T00:00:00+08:00
 
         let meta = v.create_note(None, "测试笔记").unwrap();
         assert_eq!(meta.path, "测试笔记.md");
-        assert_eq!(meta.id.len(), 26);
+        // §2.3：新建的笔记是一个空文件，不替用户写任何 frontmatter
+        assert!(meta.id.is_none());
+        assert_eq!(std::fs::read_to_string(dir.join("测试笔记.md")).unwrap(), "");
 
         v.write_note(&meta.path, "$$E = mc^2$$\n").unwrap();
         let read = v.read_note(&meta.path).unwrap();
         assert_eq!(read.body, "$$E = mc^2$$\n");
+        // 没有 title 就回落到文件名
         assert_eq!(read.title, "测试笔记");
-        assert_eq!(read.id.as_deref(), Some(meta.id.as_str()));
 
-        // 保存不能丢掉 frontmatter 里的 id —— 丢了链接就断了
+        // 保存一百次也不该冒出 frontmatter
         let raw = std::fs::read_to_string(dir.join("测试笔记.md")).unwrap();
-        assert!(raw.contains(&meta.id));
+        assert_eq!(raw, "$$E = mc^2$$\n", "保存不能凭空加 frontmatter");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -563,20 +550,17 @@ created: 2026-01-01T00:00:00+08:00
         assert_eq!(read.body, "正文第一行\n\n正文第二行\n");
         assert_eq!(read.frontmatter["status"], "在读");
         assert_eq!(read.frontmatter["tags"][1], "乙");
-        // id 是笔记的身份，用户没写也要留着
-        assert_eq!(read.id.as_deref(), Some(meta.id.as_str()));
+        // 交回什么就是什么，不会多出用户没写的键
+        assert!(read.frontmatter.get("id").is_none());
 
-        // 把 id 显式删掉也要补回原来那个，不能换一个新的
-        v.write_frontmatter(&meta.path, "status: 读完了\n").unwrap();
-        assert_eq!(v.read_note(&meta.path).unwrap().id.as_deref(), Some(meta.id.as_str()));
-
-        // 源码模式下把整块选中删掉 = 交回一段空 YAML。自定义属性清空，
-        // 但身份字段留着：没有 id 的笔记没有稳定标识，重命名后链接会断
+        // 源码模式下把整块选中删掉 = 交回一段空 YAML。文件里连 `---` 都不该剩
         v.write_frontmatter(&meta.path, "").unwrap();
         let bare = v.read_note(&meta.path).unwrap();
-        assert_eq!(bare.id.as_deref(), Some(meta.id.as_str()));
-        assert!(bare.frontmatter.get("status").is_none());
-        assert_eq!(bare.body, "正文第一行\n\n正文第二行\n");
+        assert!(bare.frontmatter_text.is_none(), "整块删干净就该是干净的");
+        assert_eq!(
+            std::fs::read_to_string(dir.join(&meta.path)).unwrap(),
+            "正文第一行\n\n正文第二行\n"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -604,9 +588,10 @@ created: 2026-01-01T00:00:00+08:00
     }
 
     /// 从 Obsidian vault / git clone / AI 生成来的 .md 通常没有 frontmatter。
-    /// 首次保存必须补上 id，否则这篇笔记没有稳定标识，重命名后链接就断了。
+    /// **保存之后它仍然没有** —— §2.3：Verso 不往用户的文件里塞他没要求的东西。
+    /// 这条以前是反的（首次保存补 id），v0.5.12 起改成现在这样。
     #[test]
-    fn foreign_note_gets_an_id_on_first_save() {
+    fn foreign_note_stays_frontmatter_free() {
         let dir = std::env::temp_dir().join(format!("verso-test-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let v = vault_at(&dir);
@@ -618,13 +603,13 @@ created: 2026-01-01T00:00:00+08:00
         v.write_note("外来.md", "别处拿来的笔记，改了一下\n").unwrap();
 
         let after = v.read_note("外来.md").unwrap();
-        let id = after.id.expect("首次保存后必须有 id");
-        assert_eq!(id.len(), 26);
+        assert!(after.id.is_none(), "保存不该给它塞一个 id");
+        assert!(after.frontmatter_text.is_none(), "文件里不该冒出 frontmatter");
         assert_eq!(after.body, "别处拿来的笔记，改了一下\n");
 
-        // 再存一次，id 必须保持不变
+        // 再存一次也一样 —— 文件里始终只有那一行正文
         v.write_note("外来.md", "再改一次\n").unwrap();
-        assert_eq!(v.read_note("外来.md").unwrap().id.as_deref(), Some(id.as_str()));
+        assert_eq!(std::fs::read_to_string(dir.join("外来.md")).unwrap(), "再改一次\n");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -632,9 +617,10 @@ created: 2026-01-01T00:00:00+08:00
     /// 时间戳不该带 9 位小数 —— 每次保存都会在 git diff 里制造一行噪音
     #[test]
     fn timestamps_are_second_precision() {
-        let fm = note::new_frontmatter("甲");
-        let created = note::get_str(&fm, "created").unwrap();
-        assert!(!created.contains('.'), "不该有小数秒: {created}");
+        let (mut fm, _) = note::parse_frontmatter("---\nupdated: 旧\n---\n");
+        note::touch_updated(&mut fm);
+        let updated = note::get_str(&fm, "updated").unwrap();
+        assert!(!updated.contains('.'), "不该有小数秒: {updated}");
     }
 
     #[test]

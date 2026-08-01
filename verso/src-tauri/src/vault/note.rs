@@ -62,36 +62,23 @@ fn now_rfc3339() -> String {
     Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
 }
 
-/// 新笔记的初始 frontmatter。
+/// 刷新 `updated` —— **只在这个键已经存在时**。
 ///
-/// `id` 用 ULID：重命名/移动后链接不断，且按时间有序、索引局部性好。
-/// 时间戳带时区，不依赖文件系统 mtime —— 同步工具会破坏 mtime。
-pub fn new_frontmatter(title: &str) -> Mapping {
-    let mut m = Mapping::new();
-    ensure_identity(&mut m, title);
-    touch_updated(&mut m);
-    m
-}
-
-/// 补齐 `id` / `title` / `created`，已有的不动。
+/// ## 为什么不主动加
 ///
-/// 从别处拿来的 `.md`（Obsidian vault、git clone、AI 生成的文件）通常没有
-/// frontmatter。首次保存时必须补上 `id`，否则这篇笔记没有稳定标识，
-/// 一重命名链接就断了 —— 这正是 §2.3 用 ULID 的理由。
-pub fn ensure_identity(frontmatter: &mut Mapping, fallback_title: &str) {
-    if !frontmatter.contains_key("id") {
-        frontmatter.insert("id".into(), ulid::Ulid::new().to_string().into());
-    }
-    if !frontmatter.contains_key("title") {
-        frontmatter.insert("title".into(), fallback_title.into());
-    }
-    if !frontmatter.contains_key("created") {
-        frontmatter.insert("created".into(), now_rfc3339().into());
-    }
-}
-
+/// Verso 不往用户的文件里塞任何他没要求的东西（§2.3）。以前每次保存都会补齐
+/// `id` / `title` / `created` / `updated`，于是一篇只写了两行字的笔记，文件头上
+/// 永远顶着五行 YAML —— 而这些字段里真正被用到的只有排序，`id` 连链接解析都
+/// 没走它（那条「按历史 id 自动修链」至今没实现）。
+///
+/// 现在的规则一句话：**文件里已经有的字段照常维护，没有的不添。** 想要时间戳
+/// 就自己写一行 `updated:`，之后每次保存它都会刷新；不想要就删掉，删了不再长
+/// 回来。文档树按时间排序在没有这些字段时回落到文件系统 mtime。
 pub fn touch_updated(frontmatter: &mut Mapping) {
-    frontmatter.insert("updated".into(), now_rfc3339().into());
+    let key: Value = "updated".into();
+    if frontmatter.contains_key(&key) {
+        frontmatter.insert(key, now_rfc3339().into());
+    }
 }
 
 pub fn get_str(frontmatter: &Mapping, key: &str) -> Option<String> {
@@ -179,11 +166,32 @@ mod tests {
         assert_eq!(body2, body);
     }
 
+    /// §2.3：Verso 不往用户文件里塞他没要求的字段。
+    /// `updated` 只在已经存在时刷新，不存在就不添。
     #[test]
-    fn new_note_has_ulid_and_timestamps() {
-        let fm = new_frontmatter("测试");
-        assert_eq!(get_str(&fm, "id").unwrap().len(), 26); // ULID 固定 26 字符
-        assert_eq!(get_str(&fm, "title").as_deref(), Some("测试"));
-        assert!(fm.contains_key("created") && fm.contains_key("updated"));
+    fn touch_updated_only_refreshes_an_existing_key() {
+        let mut bare = Mapping::new();
+        touch_updated(&mut bare);
+        assert!(bare.is_empty(), "没有 updated 就不该凭空造一个");
+
+        let (mut fm, _) = parse_frontmatter("---
+updated: 2020-01-01T00:00:00+08:00
+---
+");
+        touch_updated(&mut fm);
+        assert_ne!(
+            get_str(&fm, "updated").as_deref(),
+            Some("2020-01-01T00:00:00+08:00"),
+            "已经有的要刷新"
+        );
+    }
+
+    /// 空 frontmatter 序列化出来必须是**纯正文**，一道 `---` 都不留 ——
+    /// 「源码模式里把整块删干净」最终落到这里
+    #[test]
+    fn empty_frontmatter_serializes_to_bare_body() {
+        assert_eq!(serialize_note(&Mapping::new(), "只有正文
+").unwrap(), "只有正文
+");
     }
 }
