@@ -75,7 +75,7 @@ afterEach(() => {
 });
 
 /** 照 Editor.tsx 的做法把 widget 容器渲染成 React 组件 */
-function mount() {
+function mount(spec?: string) {
   setViewRenderer({
     mount: (el, source, patch) => {
       const root = createRoot(el);
@@ -96,7 +96,7 @@ function mount() {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const view = new EditorView({
-    doc: DOC,
+    doc: spec ? ["正文", "", "```verso-view", spec, "```", ""].join("\n") : DOC,
     parent,
     extensions: createExtensions({
       onChange: () => {},
@@ -507,5 +507,29 @@ describe("文件自己的时间（内置列）", () => {
     await settle(200);
     expect(view.dom.querySelector(".dbview-input")).toBeNull();
     expect(propSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("表格宽度（§2.6）", () => {
+  it("默认按内容宽，不铺满 —— 三列的小表格拉满正文栏中间是一片空白", async () => {
+    const view = mount();
+    await settle();
+    const table = view.dom.querySelector<HTMLElement>(".dbview-table")!;
+    const box = view.dom.querySelector<HTMLElement>(".dbview")!;
+    expect(table.getBoundingClientRect().width).toBeLessThan(
+      box.getBoundingClientRect().width - 20,
+    );
+  });
+
+  it("`width: full` 才铺满，而且是「至少铺满」不是「压进去」", async () => {
+    // 用 width:100% 的话，长标题会被压成一排省略号 —— 作者要的是
+    // 「仅针对显示得下的」
+    const view = mount('from: "论文/*"\nview: table\nwidth: full');
+    await settle();
+    const table = view.dom.querySelector<HTMLElement>(".dbview-table")!;
+    const box = view.dom.querySelector<HTMLElement>(".dbview")!;
+    expect(table.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+      box.getBoundingClientRect().width - 1,
+    );
   });
 });

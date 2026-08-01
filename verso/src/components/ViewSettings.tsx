@@ -152,6 +152,26 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
       </div>
 
       <label className="vset-row">
+        <span className="vset-label">宽度</span>
+        <span className="vset-seg">
+          <button
+            className={readKey(source, "width") !== "full" ? "is-on" : undefined}
+            onClick={() => onPatch(writeKey(source, "width", null))}
+            title="按内容宽度，用不着的地方不占位"
+          >
+            自适应
+          </button>
+          <button
+            className={readKey(source, "width") === "full" ? "is-on" : undefined}
+            onClick={() => onPatch(writeKey(source, "width", "full"))}
+            title="铺满正文栏；内容比栏还宽时照旧横向滚动，不会把列挤扁"
+          >
+            全宽
+          </button>
+        </span>
+      </label>
+
+      <label className="vset-row">
         <span className="vset-label">上限</span>
         <input
           className="vset-input vset-num"

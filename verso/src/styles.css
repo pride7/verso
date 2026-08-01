@@ -3286,3 +3286,28 @@ textarea:focus-visible {
   color: var(--muted);
   opacity: 0.8;
 }
+
+/* ---------- 表格宽度（§2.6） ---------- */
+
+/* 默认**按内容**，不是拉满。三列的小表格铺满 42rem 的正文栏，中间是一大片
+   空白，看着像没做完；而列宽被平均分掉之后，短列（难度、状态）反倒比长列
+   还宽。`max-content` 让每列取自己需要的宽度。 */
+.dbview-table {
+  width: max-content;
+  max-width: 100%;
+  table-layout: auto;
+}
+
+/* 「全宽」是 `min-width: 100%` 而不是 `width: 100%` —— 前者只保证**至少**
+   铺满，内容更宽时照旧撑出去然后横向滚；后者会把列压缩到栏宽以内，长标题
+   全变成省略号。作者要的正是「仅针对显示得下的」。 */
+.dbview.is-full .dbview-table {
+  min-width: 100%;
+  width: max-content;
+}
+
+/* 装不下就横向滚，别把整个界面撑宽（外壳那条「页面永远不滚」靠这个成立） */
+.dbview {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}

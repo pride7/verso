@@ -16,6 +16,7 @@ import {
   newNoteParent,
   nextSort,
   readColumns,
+  readKey,
   readSort,
   toDateInput,
   writeColumns,
@@ -364,8 +365,10 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
     );
   }
 
+  const full = readKey(source, "width") === "full";
+
   return (
-    <div className="dbview">
+    <div className={`dbview${full ? " is-full" : ""}`}>
       <div className="dbview-bar">
         <span className="dbview-kind">
           <Icon name="table" size={14} />
