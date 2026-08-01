@@ -19,7 +19,7 @@ import { mathContextAt } from "./mathContext";
  * 笔记清单用 getter 拿而不是当参数传死 —— 新建/删除笔记后清单会变，
  * 传死的话得重建整个编辑器，光标和撤销历史全没了。
  */
-function wikiLinkSource(getNotes: () => NoteRef[]) {
+export function wikiLinkSource(getNotes: () => NoteRef[]) {
   return (ctx: CompletionContext): CompletionResult | null => {
     // `[[` 之后、`]]` 之前的部分。不允许跨行和嵌套 `[`
     const m = ctx.matchBefore(/\[\[[^\]\n[]*/);
@@ -95,17 +95,20 @@ const BLOCKS: Block[] = [
   },
 ];
 
-function slashSource(ctx: CompletionContext): CompletionResult | null {
+export function slashSource(ctx: CompletionContext): CompletionResult | null {
   const m = ctx.matchBefore(/\/[一-龥a-zA-Z]*/);
   if (!m) return null;
 
   // 公式里的 `/` 是除号或 `\frac` 的触发词，绝不能弹菜单
   if (mathContextAt(ctx.state, ctx.pos) !== null) return null;
 
-  const line = ctx.state.doc.lineAt(m.from);
-  const before = ctx.state.doc.sliceString(line.from, m.from);
-  // 只在行首或空白之后触发。否则写 `a/b`、URL 里的 `/` 都会弹出来
-  if (before.trim().length > 0) return null;
+  // 只看**紧邻的前一个字符**是不是空白或行首。
+  //
+  // 别要求「整行都是空的」—— 那样在段落中间或行尾打 `/` 就不触发了，
+  // 而那正是最常见的用法（Notion 里任何位置都能用）。只挡住 `a/b`、
+  // URL 里的 `/` 就够了。
+  const prev = m.from > 0 ? ctx.state.doc.sliceString(m.from - 1, m.from) : "";
+  if (prev && !/\s/.test(prev)) return null;
 
   const query = m.text.slice(1);
   return {

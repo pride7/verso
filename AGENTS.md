@@ -172,30 +172,44 @@ $env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
    `$`，语法树里根本没有 InlineMath 节点。见 `src/editor/mathContext.ts`
    的注释和 DESIGN.md §5.2。
 
-## 块级 decoration 的一个时序坑（已解决，别再踩）
+## ⚠️ 未解决：database 视图打开时不渲染，点一下才出来
 
-块级 decoration（跨行公式、database 视图）只能来自 StateField（§4.2 的 CM6
-硬约束）。而 StateField 有个致命时序问题：
+`src/editor/viewBlock.ts`。作者的原话是「每次点进去还是不渲染，**点一下就会渲染**」。
 
-| 时刻 | 发生什么 |
-|---|---|
-| `EditorState.create` | field 的 `create()` 跑 —— 但 view 还不存在、文档**尚未解析**，拿到空树 |
-| `new EditorView()` | 解析完成 |
-| ViewPlugin 构造 | 树已是最终形态，**此后再也不会「变化」** |
+### 已经确定的事实（别再重复验证）
 
-症状：打开笔记看到的是源码，**随便点一下就渲染出来**了。
+1. **匹配逻辑是对的。** `viewBlock.test.ts` 里 4 个测试证明 `build()` 在
+   **新建的 EditorState** 上能找到全部视图块 —— 正则、语法树、`touched()`
+   判断都没问题。
+2. **Rust 侧没问题。** `view_query` / `prop_set` 有测试覆盖，表格渲染出来时
+   数据和筛选都正确。
+3. **扩展装上了。** `viewBlocks` 在 `createExtensions` 的数组里。
+4. **`toDOM()` 没被调用** —— widget 里放过占位文字，也不显示。
+5. 不是 HMR 的锅，完全重启 dev server 一样。
 
-解法在 `src/editor/parseRefresh.ts`：ViewPlugin 在**构造时无条件派发一次**
-`parseAdvanced` effect，StateField 收到就重算；之后再靠比较语法树捕捉
-增量解析。只比较不无条件刷新是不够的 —— 那正是当初没修好的原因。
+### 已证伪的四条思路，不要重走
 
-**两条已证伪的思路，不要重走**：
 1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
-2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析
+2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析整篇
+   —— 上面两条会让视图**彻底消失**而不是晚出现：StateField 更新顺序不保证
+   语言字段已就绪，读到空树就等于每次算出空的 decoration 集
+3. ViewPlugin 构造时刷新一次（`parseRefresh.ts`）—— 曾经验证成功过一次，
+   但不可靠，多半是碰上了合适的时机
+4. 在 microtask / rAF / 60ms / 300ms 各刷一次 —— 仍然不行
 
-StateField 的更新顺序不保证语言字段已就绪，这两处读到的都是空树，
-结果是每次算出**空的** decoration 集 —— 视图不是晚出现而是彻底消失。
-必须在 ViewPlugin 里读语法树，那里才可靠。
+### 下一步该怎么查
+
+事实 1 和 4 是矛盾的：`build()` 明明能找到节点，`field.create()` 却像是
+没产出 decoration。**下一个人应该先解决这个矛盾**，而不是继续调时机。
+
+建议在 `Editor.tsx` 里加一个临时诊断组件，每 500ms 把
+`viewBlockCount(view.state)`（直接调 build）和 `view.state.field(viewBlockField)`
+里实际的 decoration 数**同时**打到界面上。两个数不一致的地方就是真相所在。
+（这个诊断我写过，被撤掉了 —— 见 git 历史。）
+
+另一个未排除的嫌疑：`livePreview` 的 inline plugin 会对 `CodeMark`（``` 围栏）
+加 `hideMark` replace decoration，而那正落在 viewBlock 要整体替换的范围**内部**。
+两个 replace decoration 嵌套时 CM6 的行为值得查一下。
 
 ## 当前状态
 

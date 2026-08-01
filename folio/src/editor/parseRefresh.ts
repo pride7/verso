@@ -36,24 +36,39 @@ import type { Tree } from "@lezer/common";
 /** 语法树推进了。块级 decoration 的 StateField 应当在收到它时重算。 */
 export const parseAdvanced = StateEffect.define<null>();
 
+/**
+ * 在几个时间点各刷一次，覆盖「解析还没开始」到「解析早就完成」之间的
+ * 所有可能。刷新本身极轻（只是让一个 StateField 重算），多刷几次无所谓。
+ */
+function scheduleRefresh(view: EditorView) {
+  const fire = () => {
+    if (view.dom.isConnected) view.dispatch({ effects: parseAdvanced.of(null) });
+  };
+  queueMicrotask(fire);
+  requestAnimationFrame(fire);
+  setTimeout(fire, 60);
+  setTimeout(fire, 300);
+}
+
 export const parseRefresh: Extension = ViewPlugin.fromClass(
   class {
     tree: Tree;
 
     constructor(view: EditorView) {
       this.tree = syntaxTree(view.state);
-      // **构造时必须无条件刷新一次。**
+      // **构造时必须主动刷新，而且要重试几次。**
       //
       // 时序是这样的：`EditorState.create` 先跑，那时 view 还不存在、
       // 文档尚未解析，StateField 的 `create()` 拿到空树、算不出任何
-      // decoration；等 view 建好、解析完成，ViewPlugin 才被构造 —— 此时
-      // 树已经是最终形态，之后再也不会「变化」，只靠比较就永远不会触发。
+      // decoration。等 view 建好，CM6 才**异步**开始解析。
+      //
+      // 只在构造时刷一次是不够的 —— 那一刻解析可能还没开始，刷了也是空的；
+      // 而如果解析恰好已经完成，树此后就不再「变化」，靠比较也永远不会触发。
+      // 两头都可能落空，所以在几个时间点各补一次，直到看到树真的有内容。
       //
       // 症状正是：打开笔记看到的是源码，随便点一下（产生选区变化）
       // 才突然渲染出来。
-      queueMicrotask(() => {
-        if (view.dom.isConnected) view.dispatch({ effects: parseAdvanced.of(null) });
-      });
+      scheduleRefresh(view);
     }
 
     update(update: ViewUpdate) {

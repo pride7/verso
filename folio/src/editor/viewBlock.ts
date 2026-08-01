@@ -98,8 +98,20 @@ const viewBlockField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/** 测试/诊断用 */
+export const viewBlockFieldForDebug = viewBlockField;
+
 export const viewBlocks: Extension = [
   parseRefresh,
   viewBlockField,
   EditorView.atomicRanges.of((view) => view.state.field(viewBlockField, false) ?? Decoration.none),
 ];
+
+/** 测试用：数一数当前 state 会产出多少个视图 decoration */
+export function viewBlockCount(state: EditorState): number {
+  let n = 0;
+  build(state).between(0, state.doc.length, () => {
+    n++;
+  });
+  return n;
+}
