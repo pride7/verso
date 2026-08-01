@@ -2105,13 +2105,6 @@ textarea:focus-visible {
   color: var(--muted);
 }
 
-/* 两道 `---` 是边界不是内容，所以在输入框外面 */
-.fm-fence {
-  display: block;
-  opacity: 0.6;
-  user-select: none;
-}
-
 /* 输入框要完全消失在这块背景里：去掉边框、底色、内边距和默认字体，
    只留下光标。留着 textarea 的默认样式就成了"表单里的一个控件" */
 .fm-yaml {

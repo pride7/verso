@@ -83,13 +83,10 @@ describe("源码模式下的 frontmatter", () => {
     render(true);
     await settle();
     expect(host.querySelector(".props")).toBeNull();
-    // 一字不差地照抄文件里的那几行 —— 键序和注释都在
-    expect(yamlBox(host).value).toBe(FM_TEXT);
-    // `---` 在输入框外面：它们是边界不是内容，不该能被删掉
-    expect([...host.querySelectorAll(".fm-fence")].map((f) => f.textContent)).toEqual([
-      "---",
-      "---",
-    ]);
+    // 一字不差地照抄文件里的那几行 —— 键序和注释都在。
+    // 两道 `---` 也在框里：整块要能一次选中、一次删掉
+    expect(yamlBox(host).value).toBe(`---
+${FM_TEXT}---`);
   });
 
   it("改完失焦就落盘，交出去的是改后的全文", async () => {
@@ -102,11 +99,31 @@ describe("源码模式下的 frontmatter", () => {
 
     const box = yamlBox(host);
     box.focus();
-    await userEvent.fill(box, "status: 读完了\n");
+    // 连围栏一起改 —— 编辑框里就是整块，交出去的应当是剥掉围栏的 YAML
+    await userEvent.fill(box, "---\nstatus: 读完了\n---");
     box.blur();
     await settle();
 
     expect(saved).toEqual(["status: 读完了\n"]);
+  });
+
+  it("整块选中删掉：交出去的是空 YAML（= 清掉全部自定义属性）", async () => {
+    // 作者报的就是这个 —— 围栏放在框外面时整块选不中、删不掉
+    const saved: string[] = [];
+    const { host, render } = mount(NOTE, async (yaml) => {
+      saved.push(yaml);
+    });
+    render(true);
+    await settle();
+
+    const box = yamlBox(host);
+    box.focus();
+    box.setSelectionRange(0, box.value.length);
+    await userEvent.keyboard("{Delete}");
+    box.blur();
+    await settle();
+
+    expect(saved).toEqual([""]);
   });
 
   it("手不离开也会存：停手 800ms 自动落盘", async () => {

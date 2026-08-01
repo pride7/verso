@@ -9,6 +9,36 @@ interface Props {
   onSave: (yaml: string) => Promise<void>;
 }
 
+/** 把文件里的 YAML 原文拼成编辑框里看到的整块 */
+export function blockOf(text: string | null): string {
+  if (text == null) return "";
+  // 原文一律以换行结尾（`split_frontmatter` 切出来就是这样），少一个也补上。
+  // 空 frontmatter 例外：补了会多出一个空行，两道围栏就不贴着了
+  const body = text === "" || text.endsWith("\n") ? text : `${text}\n`;
+  return `---\n${body}---`;
+}
+
+/**
+ * 把编辑框里的整块还原成纯 YAML —— 去掉首尾那两道 `---`。
+ *
+ * **对写坏的围栏要宽容**：只收掉了尾巴那一道、或者两道都删了，也照样把中间
+ * 那段交给 YAML 解析器。围栏是显示时加的边界，用户不该为它的完整性负责；
+ * 而真正写错的 YAML 反正会在 Rust 侧被挡住，不会写进文件。
+ */
+export function stripFences(block: string): string {
+  const lines = block.split("\n");
+  if (lines[0]?.trim() === "---") lines.shift();
+  // 从后往前找收尾围栏，跳过末尾的空行
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const t = lines[i].trim();
+    if (t === "") continue;
+    if (t === "---" || t === "...") lines.splice(i, 1);
+    break;
+  }
+  const yaml = lines.join("\n").replace(/\s+$/, "");
+  return yaml === "" ? "" : `${yaml}\n`;
+}
+
 /**
  * 源码模式下的 frontmatter，可编辑。
  *
@@ -17,7 +47,11 @@ interface Props {
  * 自相矛盾的东西。
  *
  * 显示的是文件里的**原文**而不是把解析后的映射再拼回去：后者会丢掉键序、
- * 缩进和注释，那就不叫源码了。
+ * 缩进和注释，那就不叫源码了。**两道 `---` 也在编辑框里** —— 它们在文件里
+ * 就是那么写的，放在框外面的话整块选不中、也删不掉，那就不是"能改源码"。
+ *
+ * 整块删光是允许的，效果是「清掉全部自定义属性」：`id`、`title`、`created`
+ * 由 Rust 侧补回来（§2.3 —— 没有 id 的笔记没有稳定标识，重命名后链接会断）。
  *
  * ## 为什么是 textarea 而不是并进 CodeMirror 的文档
  *
@@ -34,7 +68,7 @@ interface Props {
  * 用户刚敲的东西回滚掉是最糟的处理。
  */
 export function FrontmatterSource({ text, path, onSave }: Props) {
-  const [draft, setDraft] = useState(text ?? "");
+  const [draft, setDraft] = useState(() => blockOf(text));
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -50,7 +84,7 @@ export function FrontmatterSource({ text, path, onSave }: Props) {
   // 那份"文件里真实的样子"要等手离开这个框才换上来，否则这一段就名不副实了。
   useEffect(() => {
     if (focused || dirty.current) return;
-    setDraft(text ?? "");
+    setDraft(blockOf(text));
     setError(null);
   }, [text, path, focused]);
 
@@ -58,7 +92,7 @@ export function FrontmatterSource({ text, path, onSave }: Props) {
     if (!dirty.current || saving.current) return;
     saving.current = true;
     try {
-      await onSave(draft);
+      await onSave(stripFences(draft));
       // **存进去了才算干净。** 提前清掉的话，写盘这段时间里 dirty 是假的，
       // 上面那个 effect 会以为没人在改，把用户刚敲的东西换成文件里的旧内容
       dirty.current = false;
@@ -79,18 +113,13 @@ export function FrontmatterSource({ text, path, onSave }: Props) {
 
   if (text == null && !dirty.current && draft === "") return null;
 
-  const rows = Math.max(1, draft.split("\n").length - (draft.endsWith("\n") ? 1 : 0));
-
   return (
     <div className="fm-source">
-      {/* 两道 `---` 不进输入框：它们是 frontmatter 的边界不是内容，
-          让人能删掉边界只会换来一个"我的属性怎么全没了" */}
-      <span className="fm-fence">---</span>
       <textarea
         ref={ref}
         className="fm-yaml"
         value={draft}
-        rows={rows}
+        rows={Math.max(1, draft.split("\n").length)}
         spellCheck={false}
         aria-label="frontmatter 源码"
         onChange={(e) => {
@@ -110,7 +139,6 @@ export function FrontmatterSource({ text, path, onSave }: Props) {
           }
         }}
       />
-      <span className="fm-fence">---</span>
       {error && <p className="fm-error">{error}</p>}
     </div>
   );

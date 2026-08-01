@@ -570,6 +570,14 @@ created: 2026-01-01T00:00:00+08:00
         v.write_frontmatter(&meta.path, "status: 读完了\n").unwrap();
         assert_eq!(v.read_note(&meta.path).unwrap().id.as_deref(), Some(meta.id.as_str()));
 
+        // 源码模式下把整块选中删掉 = 交回一段空 YAML。自定义属性清空，
+        // 但身份字段留着：没有 id 的笔记没有稳定标识，重命名后链接会断
+        v.write_frontmatter(&meta.path, "").unwrap();
+        let bare = v.read_note(&meta.path).unwrap();
+        assert_eq!(bare.id.as_deref(), Some(meta.id.as_str()));
+        assert!(bare.frontmatter.get("status").is_none());
+        assert_eq!(bare.body, "正文第一行\n\n正文第二行\n");
+
         std::fs::remove_dir_all(&dir).ok();
     }
 
