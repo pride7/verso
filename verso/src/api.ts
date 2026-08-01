@@ -11,6 +11,8 @@ import type {
   SearchHit,
   TreeNode,
   VaultInfo,
+  PropDef,
+  PropSchema,
   ViewResult,
 } from "./types";
 import type { Settings } from "./settings";
@@ -95,6 +97,14 @@ export const api = {
   /** 改写 frontmatter 属性。`value` 为 null 表示删除 */
   propSet: (path: string, key: string, value: string | null) =>
     call<void>("prop_set", { path, key, value }),
+  /** 属性 schema（类型、单选的选项）。存在 vault 根的 `.verso-props.json` */
+  propSchema: () => call<PropSchema>("prop_schema"),
+  /** `def` 为 null = 删掉这条定义，回到按值推断 */
+  propDefSet: (key: string, def: PropDef | null) => call<void>("prop_def_set", { key, def }),
+  /** 一个属性出现在多少篇笔记里。重命名前要拿它问用户 */
+  propCount: (key: string) => call<number>("prop_count", { key }),
+  /** **全库**重命名一个属性，返回改了多少篇。调之前必须先确认过 */
+  propRenameAll: (from: string, to: string) => call<number>("prop_rename_all", { from, to }),
   /** 属性改名。保留原值和原位置 —— 不是删旧建新 */
   propRename: (path: string, from: string, to: string) =>
     call<void>("prop_rename", { path, from, to }),

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api";
 import { Icon } from "./Icon";
-import { ColumnPicker, propIcon, ViewSettings } from "./ViewSettings";
+import { ColumnPicker, propIcon, TYPES, ViewSettings } from "./ViewSettings";
 import { newNoteParent, nextSort, readColumns, readSort, writeColumns, writeSort } from "../lib/viewSpec";
-import type { ViewResult, ViewRow } from "../types";
+import type { PropDef, PropSchema, ViewResult, ViewRow } from "../types";
 
 interface Props {
   /** `verso-view` 代码块里的原文（YAML） */
@@ -35,6 +35,8 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   const [draft, setDraft] = useState("");
   /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
   const [panel, setPanel] = useState<null | "settings" | "columns" | { col: string }>(null);
+  /** 用户指定的类型和选项（`.verso-props.json`）。读不到就退回按值推断 */
+  const [schema, setSchema] = useState<PropSchema>({});
 
   const load = useCallback(() => {
     api
@@ -47,6 +49,18 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   }, [source]);
 
   useEffect(load, [load, revision]);
+
+  // 用 try 包住而不是 .catch：命令不存在时是**同步抛**的，那会让整个视图
+  // 白屏 —— schema 只是 UI 提示，缺了该退化成按值推断，不该拖垮表格
+  useEffect(() => {
+    void (async () => {
+      try {
+        setSchema(await api.propSchema());
+      } catch {
+        setSchema({});
+      }
+    })();
+  }, [revision]);
 
   // 点别处关掉浮层。浮层自己 stopPropagation，所以点里面不会关 ——
   // 少了这一条，开过设置面板之后它会一直挂在那儿挡住表格
@@ -116,8 +130,45 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
   }
   if (!result) return <div className="dbview dbview-loading">查询中…</div>;
 
+  /** schema 里写死的类型优先；没写就用索引按值推断的那个 */
   const typeOf = (key: string) =>
-    result.properties?.find((p) => p.key === key)?.type ?? "string";
+    schema[key]?.type ?? result.properties?.find((p) => p.key === key)?.type ?? "string";
+
+  const define = async (key: string, def: PropDef | null) => {
+    try {
+      await api.propDefSet(key, def);
+      setSchema(await api.propSchema());
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /**
+   * 重命名一列 = 改**所有**带这个键的笔记。
+   *
+   * 属性是 vault 级的概念（类型也存在 vault 根），只改「这个视图收到的那些」
+   * 会留下两个同义的键，比不改还乱。真在动用户的文件，所以改之前先数一遍
+   * 并问一句 —— Notion 点一下就悄悄改掉几百个文件，这里不学。
+   */
+  const renameColumn = async (col: string) => {
+    setPanel(null);
+    const next = window.prompt(`把属性「${col}」改成什么？`, col)?.trim();
+    if (!next || next === col) return;
+    try {
+      const n = await api.propCount(col);
+      if (n > 0 && !window.confirm(`这会修改 ${n} 篇笔记的 frontmatter，继续？`)) return;
+      await api.propRenameAll(col, next);
+      // 视图里点名的列也要跟着改，否则这一列会变成空的
+      if (onPatch) {
+        const cols = readColumns(source) ?? result.columns;
+        onPatch(writeColumns(source, cols.map((c) => (c === col ? next : c))));
+      }
+      onChanged();
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const cell = (row: ViewRow, col: string) => {
     const value = row.props[col] ?? "";
@@ -231,6 +282,7 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             shown={result.columns}
             properties={result.properties ?? []}
             onPatch={(y) => onPatch(y)}
+            onDefine={(k, d) => void define(k, d)}
             onClose={() => setPanel(null)}
           />
         )}
@@ -272,6 +324,28 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
                           <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "desc" })); setPanel(null); }}>
                             降序
                           </button>
+                        </li>
+                        <li>
+                          <button onClick={() => renameColumn(c)}>重命名…</button>
+                        </li>
+                        <li className="dbview-menu-sub">
+                          <span>类型</span>
+                          <span className="dbview-types">
+                            {TYPES.map((t) => (
+                              <button
+                                key={t.id}
+                                className={schema[c]?.type === t.id ? "is-on" : undefined}
+                                title={t.label}
+                                aria-label={t.label}
+                                onClick={() => {
+                                  void define(c, { type: t.id, options: schema[c]?.options });
+                                  setPanel(null);
+                                }}
+                              >
+                                <Icon name={t.icon} size={13} />
+                              </button>
+                            ))}
+                          </span>
                         </li>
                         <li>
                           <button onClick={() => hideColumn(c)}>隐藏这一列</button>

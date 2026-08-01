@@ -4,6 +4,7 @@ pub mod git;
 pub mod note;
 pub mod order;
 pub mod ops;
+pub mod schema;
 pub mod tree;
 
 use std::path::{Component, Path, PathBuf};
@@ -236,6 +237,48 @@ impl Vault {
         note::touch_updated(&mut fm);
         self.fs.write_atomic(&abs, &note::serialize_note(&fm, &body)?)?;
         Ok(self.fs.metadata(&abs)?.mtime_ms)
+    }
+
+    /// 一个属性在多少篇笔记里出现过。重命名前要拿它去问用户
+    pub fn count_prop(&self, key: &str) -> Result<usize> {
+        let mut n = 0;
+        for rel in self.note_list()?.into_iter().map(|n| n.path) {
+            let abs = self.resolve(&rel)?;
+            let raw = self.fs.read_to_string(&abs)?;
+            if note::parse_frontmatter(&raw)
+                .0
+                .contains_key(serde_yaml::Value::String(key.to_string()))
+            {
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
+    /// **全库**重命名一个属性，返回改了多少篇。
+    ///
+    /// 属性是 vault 级的概念（类型也存在 vault 根的 `.verso-props.json`），
+    /// 只改「当前视图收到的那些」会留下两个同义的键，比不改还乱。
+    ///
+    /// 真在动用户的文件，所以：前端必须先确认；这里逐篇走 `rename_prop`，
+    /// 它保留原值、原类型、原位置（不是删旧建新）。中途某篇失败就停下并
+    /// 把已改的篇数报回去 —— 说不清改到哪了是最糟的。
+    pub fn rename_prop_everywhere(&self, from: &str, to: &str) -> Result<usize> {
+        let mut n = 0;
+        for rel in self.note_list()?.into_iter().map(|n| n.path) {
+            let abs = self.resolve(&rel)?;
+            let raw = self.fs.read_to_string(&abs)?;
+            if !note::parse_frontmatter(&raw)
+                .0
+                .contains_key(serde_yaml::Value::String(from.to_string()))
+            {
+                continue;
+            }
+            self.rename_prop(&rel, from, to)?;
+            n += 1;
+        }
+        self.rename_prop_def(from, to)?;
+        Ok(n)
     }
 
     /// 改写一条 frontmatter 属性。DESIGN.md §2.6

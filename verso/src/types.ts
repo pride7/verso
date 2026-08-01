@@ -87,6 +87,18 @@ export interface ViewResult {
   properties: PropMeta[];
 }
 
+/** 用户指定的属性类型。存在 vault 根的 `.verso-props.json`（见 vault/schema.rs） */
+export type PropType = "text" | "number" | "date" | "checkbox" | "select" | "multi" | "url";
+
+export interface PropDef {
+  type: PropType | null;
+  /** 单选 / 多选的候选值 */
+  options?: string[];
+}
+
+/** 属性名 → 定义 */
+export type PropSchema = Record<string, PropDef>;
+
 export interface PropMeta {
   key: string;
   type: "string" | "number" | "bool" | "date" | "list";

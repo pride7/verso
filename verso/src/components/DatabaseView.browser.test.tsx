@@ -13,12 +13,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const propSet = vi.fn(async () => {});
 const createNote = vi.fn(async () => ({ path: "论文/丙.md", id: null, title: "丙" }));
+const propDefSet = vi.fn(async () => {});
+const propRenameAll = vi.fn(async () => 3);
 
 vi.mock("../api", () => ({
   api: {
     backlinks: vi.fn(async () => []),
     propSet,
     createNote: createNote,
+    propSchema: async () => ({ status: { type: "select", options: ["未读", "在读", "已读"] } }),
+    propDefSet: propDefSet,
+    propCount: async () => 3,
+    propRenameAll: propRenameAll,
     viewQuery: vi.fn(async () => ({
       columns: ["title", "status"],
       rows: [
@@ -52,6 +58,8 @@ afterEach(() => {
   document.body.innerHTML = "";
   propSet.mockClear();
   createNote.mockClear();
+  propDefSet.mockClear();
+  propRenameAll.mockClear();
 });
 
 /** 照 Editor.tsx 的做法把 widget 容器渲染成 React 组件 */
@@ -196,17 +204,82 @@ describe("列与设置（§2.6）", () => {
     expect(view.state.doc.toString()).toContain("columns: [title, status, 难度]");
   });
 
-  it("起个新名字也能加列 —— 属性是填值那一刻才写进笔记的", async () => {
+  it("新建一列：先挑类型，再改默认名 —— 属性是填值那一刻才写进笔记的", async () => {
     const view = mount();
     await settle();
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
     await settle(200);
 
-    await userEvent.fill(view.dom.querySelector<HTMLInputElement>(".vset-newcol input")!, "读完日期");
+    // 先选类型（Notion / 思源都是这个顺序）
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".vset-types button")].find((b) =>
+        b.textContent?.includes("日期"),
+      )!,
+    );
+    await settle(200);
+
+    // 默认名先给出来，可以当场改
+    const input = view.dom.querySelector<HTMLInputElement>(".vset-newcol input")!;
+    expect(input.value).toBe("属性");
+    await userEvent.fill(input, "读完日期");
     await userEvent.click(view.dom.querySelector<HTMLElement>(".vset-newcol button")!);
     await settle();
 
+    // 类型进 schema，列进代码块，**这一刻不动任何笔记**
+    expect(propDefSet).toHaveBeenCalledWith("读完日期", { type: "date" });
     expect(view.state.doc.toString()).toContain("读完日期");
+    expect(propSet).not.toHaveBeenCalled();
+  });
+
+  it("重命名一列会先问一句，再改所有带这个键的笔记", async () => {
+    const view = mount();
+    await settle();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+      t.textContent?.includes("status"),
+    )!;
+    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await settle(200);
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
+        b.textContent?.includes("重命名"),
+      )!,
+    );
+    await settle();
+
+    // 问过了才改 —— 真在动几十个文件，不该点一下就悄悄发生
+    expect(confirm).toHaveBeenCalled();
+    expect(propRenameAll).toHaveBeenCalledWith("status", "阅读状态");
+    // 视图点名的那一列也要跟着改，否则这一列会变成空的
+    expect(view.state.doc.toString()).toContain("阅读状态");
+
+    prompt.mockRestore();
+    confirm.mockRestore();
+  });
+
+  it("确认框点取消就什么都不做", async () => {
+    const view = mount();
+    await settle();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+      t.textContent?.includes("status"),
+    )!;
+    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await settle(200);
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
+        b.textContent?.includes("重命名"),
+      )!,
+    );
+    await settle();
+
+    expect(propRenameAll).not.toHaveBeenCalled();
+    prompt.mockRestore();
+    confirm.mockRestore();
   });
 
   it("隐藏一列只改 columns，绝不动任何笔记的 frontmatter", async () => {

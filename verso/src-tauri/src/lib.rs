@@ -234,6 +234,45 @@ fn attachment_write(state: State<'_, AppState>, name: String, data: String) -> R
     state.with_vault(|v| v.write_attachment(&name, &bytes))
 }
 
+/// 属性 schema（`.verso-props.json`）。见 `vault::schema`
+#[tauri::command]
+fn prop_schema(state: State<'_, AppState>) -> Result<vault::schema::Schema> {
+    state.with_vault(|v| Ok(v.prop_schema()))
+}
+
+#[tauri::command]
+fn prop_def_set(
+    state: State<'_, AppState>,
+    key: String,
+    def: Option<vault::schema::PropDef>,
+) -> Result<()> {
+    state.with_vault(|v| v.set_prop_def(&key, def.clone()))
+}
+
+/// 一个属性在多少篇笔记里出现过。重命名前拿它去问用户
+#[tauri::command]
+fn prop_count(state: State<'_, AppState>, key: String) -> Result<usize> {
+    state.with_vault(|v| v.count_prop(&key))
+}
+
+/// **全库**重命名一个属性，返回改了多少篇。前端必须先确认过再调
+#[tauri::command]
+fn prop_rename_all(state: State<'_, AppState>, from: String, to: String) -> Result<usize> {
+    let n = state.with_vault(|v| v.rename_prop_everywhere(&from, &to))?;
+    // 改的是全库，逐篇 reindex 不如整重建一次；失败也不该让重命名本身失败 ——
+    // 索引是派生数据，最坏是下次打开时重来
+    {
+        let vault = state.vault.lock().unwrap();
+        if let Some(v) = vault.as_ref() {
+            let mut index = state.index.lock().unwrap();
+            if let Some(i) = index.as_mut() {
+                let _ = i.rebuild(v);
+            }
+        }
+    }
+    Ok(n)
+}
+
 #[tauri::command]
 fn note_create(
     state: State<'_, AppState>,
@@ -516,6 +555,10 @@ pub fn run() {
             index_rebuild,
             view_query,
             prop_set,
+            prop_schema,
+            prop_def_set,
+            prop_count,
+            prop_rename_all,
             prop_rename,
             notes_reorder,
             settings_get,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import {
   OPS,
   readColumns,
@@ -11,7 +11,7 @@ import {
   writeWhere,
   type Condition,
 } from "../lib/viewSpec";
-import type { PropMeta } from "../types";
+import type { PropDef, PropMeta, PropType } from "../types";
 
 interface Props {
   /** 代码块里的 YAML 原文 */
@@ -175,26 +175,93 @@ interface ColumnPickerProps {
   shown: string[];
   properties: PropMeta[];
   onPatch: (yaml: string) => void;
+  /** 新列的类型写进 schema（`.verso-props.json`） */
+  onDefine: (key: string, def: PropDef) => void;
   onClose: () => void;
 }
 
+/** 能选的类型。**只做 Markdown 装得下的那几种** —— 关联关系、函数、汇总
+    要一套表达式引擎和跨笔记引用，那超出「纯 .md 文件」能承载的范围 */
+export const TYPES: { id: PropType; label: string; icon: IconName }[] = [
+  { id: "text", label: "文本", icon: "text" },
+  { id: "number", label: "数字", icon: "hash" },
+  { id: "select", label: "单选", icon: "chevron" },
+  { id: "multi", label: "多选", icon: "tag" },
+  { id: "date", label: "日期", icon: "clock" },
+  { id: "checkbox", label: "复选框", icon: "check" },
+  { id: "url", label: "网址", icon: "code" },
+];
+
+/** `属性`、`属性 2`、`属性 3`…… 和 Notion 一样先给个默认名，回头再改 */
+function defaultName(taken: string[]): string {
+  if (!taken.includes("属性")) return "属性";
+  for (let i = 2; ; i++) {
+    if (!taken.includes(`属性 ${i}`)) return `属性 ${i}`;
+  }
+}
+
 /**
- * 「加一列」。
+ * 「加一列」。两条路：
  *
- * 两种加法：勾一个已有的属性，或者**起一个新名字**。后者不会立刻改任何笔记
- * —— 属性是在你往某个格子里填值时才写进那篇笔记的 frontmatter 的（§2.6：
- * 数据来源就是 frontmatter，没有另一份 schema）。
+ * - **挑一个已有属性** —— 只是把它显示出来，不动任何文件
+ * - **选一个类型新建** —— 给个默认名（可以当场改），类型写进 schema。
+ *   新属性此刻不会写进任何笔记：它是你往某个格子里填值那一刻才进那篇
+ *   frontmatter 的（§2.6：数据来源就是 frontmatter，没有另一份 schema
+ *   决定谁有哪些字段）
  */
-export function ColumnPicker({ source, shown, properties, onPatch, onClose }: ColumnPickerProps) {
+export function ColumnPicker({
+  source,
+  shown,
+  properties,
+  onPatch,
+  onDefine,
+  onClose,
+}: ColumnPickerProps) {
+  const [picked, setPicked] = useState<PropType | null>(null);
   const [name, setName] = useState("");
   const rest = properties.filter((p) => !shown.includes(p.key));
 
-  const add = (key: string) => {
-    const k = key.trim();
-    if (!k || shown.includes(k)) return;
-    onPatch(writeColumns(source, [...(readColumns(source) ?? shown), k]));
+  const addColumn = (key: string) =>
+    onPatch(writeColumns(source, [...(readColumns(source) ?? shown), key]));
+
+  const create = () => {
+    const k = name.trim();
+    if (!k || !picked || shown.includes(k)) return;
+    onDefine(k, { type: picked });
+    addColumn(k);
     onClose();
   };
+
+  if (picked) {
+    const t = TYPES.find((x) => x.id === picked)!;
+    return (
+      <div className="vset vset-cols" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="vset-head">
+          <button className="vset-back" onClick={() => setPicked(null)} aria-label="返回">
+            ‹
+          </button>
+          <span>
+            新建{t.label}列
+          </span>
+          <button className="vset-x" onClick={onClose} aria-label="关闭">
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+        <form
+          className="vset-newcol"
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
+          }}
+        >
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          <button type="submit" disabled={!name.trim()}>
+            添加
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="vset vset-cols" onMouseDown={(e) => e.stopPropagation()}>
@@ -206,35 +273,42 @@ export function ColumnPicker({ source, shown, properties, onPatch, onClose }: Co
       </div>
 
       {rest.length > 0 && (
-        <ul className="vset-list">
-          {rest.map((p) => (
-            <li key={p.key}>
-              <button onClick={() => add(p.key)}>
-                <Icon name={propIcon(p.type)} size={13} />
-                {p.key}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className="vset-sub">已有的属性</p>
+          <ul className="vset-list">
+            {rest.map((p) => (
+              <li key={p.key}>
+                <button
+                  onClick={() => {
+                    addColumn(p.key);
+                    onClose();
+                  }}
+                >
+                  <Icon name={propIcon(p.type)} size={13} />
+                  {p.key}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
 
-      <form
-        className="vset-newcol"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add(name);
-        }}
-      >
-        <input
-          value={name}
-          placeholder="新属性名"
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-        <button type="submit" disabled={!name.trim()}>
-          添加
-        </button>
-      </form>
+      <p className="vset-sub">新建</p>
+      <ul className="vset-types">
+        {TYPES.map((t) => (
+          <li key={t.id}>
+            <button
+              onClick={() => {
+                setPicked(t.id);
+                setName(defaultName([...shown, ...properties.map((p) => p.key)]));
+              }}
+            >
+              <Icon name={t.icon} size={13} />
+              {t.label}
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
