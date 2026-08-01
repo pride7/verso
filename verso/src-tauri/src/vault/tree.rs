@@ -248,6 +248,9 @@ mod tests {
         fn write_atomic(&self, _: &Path, _: &str) -> Result<()> {
             unimplemented!()
         }
+        fn write_bytes(&self, _: &Path, _: &[u8]) -> Result<()> {
+            unimplemented!()
+        }
         fn create_dir_all(&self, _: &Path) -> Result<()> {
             unimplemented!()
         }

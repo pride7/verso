@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { convertFileSrc } from "@tauri-apps/api/core";
+
 import { api, onVaultChanged, pickVaultFolder } from "./api";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -224,6 +226,33 @@ export default function App() {
       setRevision((v) => v + 1);
     },
     [saveNow, refresh],
+  );
+
+  /**
+   * 粘贴进来的图片存进 vault（§4.3）。返回相对路径，编辑器据此插入 `![[]]`。
+   */
+  const saveImage = useCallback(
+    (name: string, dataBase64: string) => api.writeAttachment(name, dataBase64),
+    [],
+  );
+
+  /**
+   * `![[图.png]]` 的目标名 → webview 能显示的 URL。
+   *
+   * 本地文件必须过 Tauri 的 asset 协议（`convertFileSrc`），而作用域在打开
+   * vault 时只放行了 vault 根，所以越界的路径到不了浏览器那一步；这里再挡一次
+   * `..`，让它连试都不用试。
+   *
+   * 只带文件名的（`![[图.png]]`）按 §2.3 的约定去 `attachments/` 找 ——
+   * 粘贴插入的是完整相对路径，手写的通常只有名字，两种都要认。
+   */
+  const imageSrc = useCallback(
+    (target: string) => {
+      if (!vault || !target || target.includes("..")) return null;
+      const rel = target.includes("/") ? target : `attachments/${target}`;
+      return convertFileSrc(`${vault.root}/${rel}`);
+    },
+    [vault],
   );
 
   const openPath = useCallback(
@@ -908,6 +937,9 @@ export default function App() {
             customSnippets={settings.customSnippets}
             sourceMode={sourceMode}
             onSaveFrontmatter={saveFrontmatter}
+            onSaveImage={saveImage}
+            imageSrc={imageSrc}
+            onError={setError}
           />
         ) : (
           // 空状态是「顺便教一下快捷键」最自然的位置 —— 不做插件系统的软件，

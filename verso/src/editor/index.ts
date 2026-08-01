@@ -20,6 +20,7 @@ import { completion } from "./completion";
 import { headingFolding } from "./fold";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
+import { imagePaste, type SaveImage } from "./paste";
 import { snippetEngine } from "./snippets";
 import { tables } from "./table";
 import { parseCustomSnippets } from "./snippets/custom";
@@ -86,6 +87,10 @@ export interface EditorCallbacks {
   customSnippets?: SnippetSpec[];
   /** 建 view 时是不是源码模式。之后的切换走 `applySourceMode` */
   sourceMode?: boolean;
+  /** 粘贴图片时把它存进 vault，返回相对路径（§4.3）。不给就不接管粘贴 */
+  saveImage?: SaveImage;
+  /** 存图失败时报给用户 —— 粘贴没反应是最难自查的一类问题 */
+  onError?: (msg: string) => void;
 }
 
 /** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
@@ -138,6 +143,13 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // live preview（含 §2.6 database 视图与 §2.4 表格）。整组可摘 —— 见 PREVIEW
     previewCompartment.of(cb.sourceMode ? [] : PREVIEW),
     linkClickHandler(cb.onFollowLink),
+
+    // §4.3 粘贴图片。用 getter 取回调 —— 和 getNotes 同理，App 那边每次
+    // 渲染都是新函数，直接闭包进来会让编辑器跟着重建
+    imagePaste(
+      () => cb.saveImage,
+      (m) => cb.onError?.(m),
+    ),
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
     // 处理要先于「插入缩进」拿到这个键

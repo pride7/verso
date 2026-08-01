@@ -71,6 +71,9 @@ function mountEditor() {
       customSnippets=""
       sourceMode={false}
       onSaveFrontmatter={async () => {}}
+      onSaveImage={async () => "attachments/x.png"}
+      imageSrc={() => null}
+      onError={() => {}}
     />,
   );
   return { scroller, handleRef };

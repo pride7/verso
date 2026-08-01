@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { applyCustomSnippets, applySourceMode, createExtensions } from "../editor";
 import { foldAllHeadings, toggleHeadingFold, unfoldAllHeadings } from "../editor/fold";
 import { parseCustomSnippets } from "../editor/snippets/custom";
+import { setImageResolver } from "../editor/image";
 import { setViewRenderer } from "../editor/viewBlock";
 import { DatabaseView } from "./DatabaseView";
 import type { NoteContent, NoteRef } from "../types";
@@ -78,6 +79,11 @@ interface Props {
   sourceMode: boolean;
   /** 源码模式下手改了 frontmatter。抛错 = YAML 没通过解析，文件没被动 */
   onSaveFrontmatter: (yaml: string) => Promise<void>;
+  /** 粘贴进来的图片存盘，返回 vault 相对路径（§4.3） */
+  onSaveImage: (name: string, dataBase64: string) => Promise<string>;
+  /** `![[图.png]]` 的目标名 → 能显示的 URL。null = 显示不了 */
+  imageSrc: (target: string) => string | null;
+  onError: (msg: string) => void;
 }
 
 export function Editor({
@@ -94,6 +100,9 @@ export function Editor({
   customSnippets,
   sourceMode,
   onSaveFrontmatter,
+  onSaveImage,
+  imageSrc,
+  onError,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -134,6 +143,13 @@ export function Editor({
         queueMicrotask(() => root.unmount());
       },
     });
+  });
+
+  // 图片 URL 的解析器。同样每次渲染都重新注册 —— 换 vault 之后
+  // 拼出来的路径要跟着变，而热更新会把模块整个换掉
+  useEffect(() => {
+    setImageResolver((target) => cb.current.imageSrc(target));
+    return () => setImageResolver(null);
   });
 
   // 编辑器销毁时把残留的 React root 一起清掉，否则内存泄漏
@@ -219,6 +235,9 @@ export function Editor({
     onNavigate,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
+    onSaveImage,
+    onError,
+    imageSrc,
     revision,
   });
   cb.current = {
@@ -229,6 +248,9 @@ export function Editor({
     onNavigate,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
+    onSaveImage,
+    onError,
+    imageSrc,
     revision,
   };
 
@@ -251,6 +273,8 @@ export function Editor({
           getNotes: () => cb.current.getNotes(),
           customSnippets: parseCustomSnippets(initialSnippets.current).specs,
           sourceMode: initialSourceMode.current,
+          saveImage: (name, data) => cb.current.onSaveImage(name, data),
+          onError: (m) => cb.current.onError(m),
         }),
       }),
       parent: host.current,

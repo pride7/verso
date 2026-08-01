@@ -42,6 +42,12 @@ export const api = {
     call<NoteMeta>("note_create", { parentDoc, title }),
   statNote: (path: string) => call<number>("note_stat", { path }),
   /**
+   * 粘贴板里的图片落盘到 `attachments/`，返回 vault 相对路径。
+   * `data` 是 base64 —— IPC 传大字节数组极慢。
+   */
+  writeAttachment: (name: string, data: string) =>
+    call<string>("attachment_write", { name, data }),
+  /**
    * 源码模式里手改 frontmatter。只换 frontmatter，正文由 `writeNote` 各写各的。
    * YAML 解析不过会抛错，那时文件没被动过。返回写入后的 mtime。
    */

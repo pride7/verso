@@ -64,6 +64,14 @@ impl AppState {
 fn activate(app: &AppHandle, state: &AppState, v: Vault) {
     let root = v.root.clone();
 
+    // 图片要走 Tauri 的 asset 协议才能在 webview 里显示。**只放行当前这个
+    // vault**：笔记可以来自分享（§2.9），`![[../../秘密.png]]` 不该能读到
+    // vault 外面去。换 vault 时这里会再放行新的那个，旧的留着无妨 ——
+    // 作用域只是「允许读」，真正的路径检查仍在 `Vault::resolve`
+    if let Err(e) = app.asset_protocol_scope().allow_directory(&root, true) {
+        let _ = app.emit("index:error", format!("图片显示可能不可用：{e}"));
+    }
+
     match index::Index::open(&root).and_then(|mut i| i.rebuild(&v).map(|_| i)) {
         Ok(i) => *state.index.lock().unwrap() = Some(i),
         Err(e) => {
@@ -200,6 +208,17 @@ fn frontmatter_write(state: State<'_, AppState>, path: String, yaml: String) -> 
     let mtime = state.with_vault(|v| v.write_frontmatter(&path, &yaml))?;
     state.reindex(&path);
     Ok(mtime)
+}
+
+/// 粘贴板里的图片落盘。`data` 是 base64（IPC 传大字节数组极慢，终端那边
+/// 也是这么传的），返回 vault 相对路径供前端拼 `![[]]`。
+#[tauri::command]
+fn attachment_write(state: State<'_, AppState>, name: String, data: String) -> Result<String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| Error::Vault(format!("附件数据不是合法的 base64: {e}")))?;
+    state.with_vault(|v| v.write_attachment(&name, &bytes))
 }
 
 #[tauri::command]
@@ -462,6 +481,7 @@ pub fn run() {
             tree_list,
             note_read,
             note_write,
+            attachment_write,
             frontmatter_write,
             note_create,
             note_stat,

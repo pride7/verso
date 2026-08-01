@@ -33,6 +33,8 @@ pub trait VaultFs: Send + Sync {
     /// DESIGN.md §2.7 —— 断电或崩溃时绝不能留下半个文件。笔记软件丢数据
     /// 只要发生一次，用户就再也不会信任它了。
     fn write_atomic(&self, path: &Path, contents: &str) -> Result<()>;
+    /// 附件用。和 `write_atomic` 同样的落盘保证，只是内容是字节
+    fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<()>;
 
     fn create_dir_all(&self, path: &Path) -> Result<()>;
     fn read_dir(&self, path: &Path) -> Result<Vec<DirEntry>>;
@@ -70,6 +72,10 @@ impl VaultFs for DesktopFs {
     }
 
     fn write_atomic(&self, path: &Path, contents: &str) -> Result<()> {
+        self.write_bytes(path, contents.as_bytes())
+    }
+
+    fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<()> {
         if let Some(sw) = &self.self_writes {
             sw.mark(path);
         }
@@ -84,7 +90,7 @@ impl VaultFs for DesktopFs {
 
         {
             let mut f = fs::File::create(&tmp)?;
-            f.write_all(contents.as_bytes())?;
+            f.write_all(contents)?;
             // fsync 之后才 rename。少了这步，崩溃后可能 rename 已生效
             // 但内容还在页缓存里没落盘，得到一个长度为 0 的文件。
             f.sync_all()?;

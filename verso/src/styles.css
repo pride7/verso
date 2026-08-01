@@ -2176,3 +2176,69 @@ textarea:focus-visible {
   color: var(--text);
   border-color: var(--border);
 }
+
+/* ---------- 图片（§4.2 / §4.3） ---------- */
+
+/* 整块图片是「一个东西」：inline-block 而不是行内元素，
+   这样它下面的把手能贴着图片的右边缘，而不是贴着那一行文字 */
+.cm-img {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0; /* 去掉行内图片底部那几像素的基线空隙 */
+  vertical-align: top;
+}
+.cm-img img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-md);
+  /* 深色主题下白底图会刺眼，压一点点 */
+  box-shadow: var(--shadow-sm);
+}
+
+/* 拖宽度的把手。平时不显示 —— 正文里挂一排小方块会很吵 */
+.cm-img-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 10px;
+  height: 100%;
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.cm-img-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 4px;
+  height: 36px;
+  max-height: 60%;
+  transform: translateY(-50%);
+  border-radius: 99px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px var(--bg);
+}
+.cm-img:hover .cm-img-handle {
+  opacity: 1;
+}
+
+/* 找不到的图片：退化成一行能读懂的提示，而不是浏览器那个碎图标 ——
+   用户得知道是哪个文件没找到 */
+.cm-img.is-missing img {
+  display: none;
+}
+.cm-img.is-missing::before {
+  content: "图片找不到：" attr(data-name);
+  display: inline-block;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  font-size: 0.85em;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.cm-img.is-missing .cm-img-handle {
+  display: none;
+}

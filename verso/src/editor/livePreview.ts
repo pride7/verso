@@ -18,6 +18,7 @@
  *   - ViewPlugin：行内的一切。只扫可视区，长文档里每次按键都不卡。
  */
 import { syntaxTree } from "@codemirror/language";
+import type { SyntaxNode } from "@lezer/common";
 import {
   type EditorState,
   type Extension,
@@ -37,6 +38,7 @@ import {
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
+import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
 import { BulletWidget, CalloutWidget, MathWidget, TaskWidget } from "./widgets";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
@@ -68,6 +70,12 @@ function mathSource(state: EditorState, from: number, to: number, display: boole
   const raw = state.doc.sliceString(from, to);
   const delim = display ? 2 : 1;
   return raw.slice(delim, raw.length - delim).trim();
+}
+
+/** 取语法子节点的文本。`![[图.png|300]]` 的目标和别名都靠它拿 */
+function childText(state: EditorState, node: SyntaxNode, name: string): string | null {
+  const child = node.getChild(name);
+  return child ? state.doc.sliceString(child.from, child.to) : null;
 }
 
 function spansLines(state: EditorState, from: number, to: number) {
@@ -148,6 +156,22 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
           case "WikiLink":
           case "Embed": {
             if (touched(state, from, to)) return false;
+            // `![[图.png]]` 换成真图。别名段是宽度（§4.2），解析在 image.ts
+            if (name === "Embed") {
+              const target = childText(state, node.node, "WikiLinkTarget");
+              if (target && looksLikeImage(target)) {
+                const src = imageSrc(target);
+                if (src) {
+                  const alias = childText(state, node.node, "WikiLinkAlias");
+                  marks.push(
+                    Decoration.replace({
+                      widget: new ImageWidget(src, target, parseWidth(alias), from, to),
+                    }).range(from, to),
+                  );
+                  return false;
+                }
+              }
+            }
             marks.push((name === "Embed" ? styleMarks.embed : styleMarks.wikiLink).range(from, to));
             return; // 继续进入子节点，好把 [[ ]] 藏掉
           }
