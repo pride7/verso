@@ -906,3 +906,30 @@ describe("视觉：三种新视图", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("列表视图的版式", () => {
+  it("属性和标题在同一行，而且在标题右边", async () => {
+    // 属性曾经摆在标题下面，一条占两行 —— 而列表存在的理由恰恰是密度
+    viewMock = {
+      columns: ["title", "status", "作者"],
+      rows: [{ path: "论文/甲.md", title: "甲", props: { status: "在读", 作者: "Golub" } }],
+      view: "list",
+      groupBy: null,
+      properties: [
+        { key: "status", type: "string" },
+        { key: "作者", type: "string" },
+      ],
+    };
+    const v = mount('from: "论文/*"\nview: list\ncolumns: [title, status, 作者]');
+    await settle();
+
+    const title = v.dom.querySelector<HTMLElement>(".dbv-list-title")!.getBoundingClientRect();
+    const chips = v.dom.querySelector<HTMLElement>(".dbv-chips")!.getBoundingClientRect();
+
+    // 同一行：垂直方向有重叠
+    expect(chips.top).toBeLessThan(title.bottom);
+    expect(chips.bottom).toBeGreaterThan(title.top);
+    // 在右边
+    expect(chips.left).toBeGreaterThan(title.left);
+  });
+});

@@ -43,11 +43,22 @@ function shown(value: string, type: string): string {
   return type === "date" ? formatDate(value) : value;
 }
 
-function Chips({ row, cols, typeOf }: { row: ViewRow; cols: string[]; typeOf: (k: string) => string }) {
+function Chips({
+  row,
+  cols,
+  typeOf,
+  inline,
+}: {
+  row: ViewRow;
+  cols: string[];
+  typeOf: (k: string) => string;
+  /** 摆在标题**右边**（列表视图）而不是下面（画廊瓦片） */
+  inline?: boolean;
+}) {
   const filled = cols.filter((c) => row.props[c]);
   if (filled.length === 0) return null;
   return (
-    <dl className="dbv-chips">
+    <dl className={`dbv-chips${inline ? " is-inline" : ""}`}>
       {filled.map((c) => (
         <div key={c}>
           <dt>{c}</dt>
@@ -61,11 +72,14 @@ function Chips({ row, cols, typeOf }: { row: ViewRow; cols: string[]; typeOf: (k
 // ---------------------------------------------------------------- 列表
 
 /**
- * 列表：一行一篇，标题在左、属性在右。
+ * 列表：一行一篇，**标题在左、属性在右，同一行**（Notion 的列表视图就是
+ * 这个样子）。
+ *
+ * 属性曾经摆在标题下面，一条占两行 —— 十几条就要滚一屏，而列表存在的理由
+ * 恰恰是密度。挪到右边之后一条一行，一屏能多看一倍。
  *
  * 和表格的区别不在样式而在**取舍**：表格保证每一列都对齐（好比较），列表
- * 放弃对齐换来更高的密度和更长的标题（好浏览）。所以这里不画表格线、
- * 不给每行等高，标题也不截断成一列的宽度。
+ * 放弃对齐换密度和更长的标题（好浏览）。所以这里不画表格线、不给每行等高。
  */
 export function ListView({ rows, cols, typeOf, onOpen }: Common) {
   return (
@@ -76,7 +90,7 @@ export function ListView({ rows, cols, typeOf, onOpen }: Common) {
             <Icon name="doc" size={13} />
             <span>{r.title}</span>
           </button>
-          <Chips row={r} cols={cols} typeOf={typeOf} />
+          <Chips row={r} cols={cols} typeOf={typeOf} inline />
         </li>
       ))}
     </ul>

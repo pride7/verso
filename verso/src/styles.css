@@ -3755,15 +3755,39 @@ textarea:focus-visible {
   color: var(--text);
 }
 
-/* 列表：一行一篇。**不画表格线也不等高** —— 那正是它和表格的分工，
-   表格保证对齐（好比较），列表换取密度和完整的标题（好浏览） */
+/* 挨着标题右边的那一版：不换行、右对齐、放不下就整体截断。
+   **属性让位给标题** —— 一行里真正要读的是标题，属性是辅助信息 */
+.dbv-chips.is-inline {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 0;
+  overflow: hidden;
+  /* 属性最多占一半多一点。窄栏里没有这一条的话，三四个属性会把标题挤成
+     几个字加省略号 —— 而一行里真正要读的是标题 */
+  max-width: 55%;
+}
+.dbv-chips.is-inline > div {
+  flex: none;
+  max-width: 12em;
+}
+
+/* 列表：一行一篇，**标题在左、属性在右，同一行**（Notion 的列表视图）。
+   属性曾经摆在标题下面，一条占两行 —— 而列表存在的理由恰恰是密度。
+
+   不画表格线也不等高：表格保证对齐（好比较），列表换取密度和完整的标题
+   （好浏览），这是它俩的分工 */
 .dbv-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .dbv-list > li {
-  padding: 7px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 5px 8px;
   border-radius: var(--r-sm);
   transition: background var(--t-fast);
 }
@@ -3777,11 +3801,18 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 100%;
+  /* 标题吃掉剩下的宽度，属性挤在右边。`min-width: 0` 是省略号能生效的前提 */
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   font-size: 13.5px;
   color: var(--text);
   line-height: 1.5;
+}
+.dbv-list-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dbv-list-title svg {
   flex: none;
