@@ -62,8 +62,16 @@ export function wikiLinkSource(getNotes: () => NoteRef[]) {
 interface Block {
   label: string;
   detail: string;
-  /** `|` 标出插入后光标应当停的位置 */
-  template: string;
+  /** `|` 标出插入后光标应当停的位置。有 `action` 的条目不用它 */
+  template?: string;
+  /**
+   * 不插文本，而是让 App 做一件事（目前只有「插入模板」）。
+   *
+   * 为什么放进 `/` 菜单而不是只做成命令：`/` 是写作过程中手不离键盘的
+   * 入口，而插入模板恰恰发生在写作中途。只藏在命令面板里的功能，
+   * 不知道它存在的人永远不会用到（§4.3 里 `/` 菜单存在的同一个理由）。
+   */
+  action?: "template";
 }
 
 /**
@@ -93,7 +101,22 @@ const BLOCKS: Block[] = [
     detail: "按属性筛选笔记的表格",
     template: '```verso-view\nfrom: "|"\nview: table\ncolumns: [title]\n```',
   },
+  // 排在最后：它开的是一个浮层，和上面那些「插一段文本」不是一类动作
+  { label: "插入模板", detail: "template", action: "template" },
 ];
+
+/**
+ * `/` 菜单里的动作项要交回给 App 执行。
+ *
+ * 用一个模块级的回调而不是把它一路传进来：补全来源是在建 EditorView 时
+ * 固化进扩展里的，而 App 的回调每次渲染都是新函数 —— 传进来会导致每次
+ * 渲染都重建整个编辑器（和 `getNotes` 用 getter 是同一个理由）。
+ */
+let onAction: ((id: "template") => void) | null = null;
+
+export function setSlashAction(fn: ((id: "template") => void) | null) {
+  onAction = fn;
+}
 
 export function slashSource(ctx: CompletionContext): CompletionResult | null {
   const m = ctx.matchBefore(/\/[一-龥a-zA-Z]*/);
@@ -133,8 +156,15 @@ export function slashSource(ctx: CompletionContext): CompletionResult | null {
       detail: b.detail,
       type: "keyword",
       apply: (view, _c, from, to) => {
-        const caret = b.template.indexOf("|");
-        const text = b.template.replace("|", "");
+        if (b.action) {
+          // 先把 `/关键词` 那几个字删掉再交出去 —— 模板文本是随后异步
+          // 插进来的，留着它会变成插入内容的一部分
+          view.dispatch({ changes: { from, to }, userEvent: "input.slash" });
+          onAction?.(b.action);
+          return;
+        }
+        const caret = b.template!.indexOf("|");
+        const text = b.template!.replace("|", "");
         view.dispatch({
           changes: { from, to, insert: text },
           selection: { anchor: from + (caret < 0 ? text.length : caret) },

@@ -18,6 +18,9 @@ import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
+import { TemplatePicker } from "./components/TemplatePicker";
+import { setSlashAction } from "./editor/completion";
+import { expandTemplate, pickTemplates } from "./lib/template";
 import { parseHeadings, type Heading } from "./lib/outline";
 import {
   activePath,
@@ -135,6 +138,13 @@ export default function App() {
     return clampSidebar(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_SIDEBAR_W);
   });
   const [menu, setMenu] = useState<Menu | null>(null);
+  /**
+   * 模板选择器开着做什么：插进当前笔记，还是用它新建一篇（`parent` 是父文档）。
+   * null = 没开。
+   */
+  const [templateFor, setTemplateFor] = useState<
+    null | { mode: "insert" } | { mode: "new"; parent: string | null }
+  >(null);
   /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -571,6 +581,84 @@ export default function App() {
     [refresh, loadNote, retagTabs],
   );
 
+  // ---------------------------------------------------------------- 模板（§4.6）
+
+  /** 模板就是模板目录下的普通 `.md`，从已有的笔记清单里挑，不另开一条 IPC */
+  const templates = useMemo(
+    () => pickTemplates(noteList, settings.templateDir),
+    [noteList, settings.templateDir],
+  );
+
+  /** 读一个模板并展开变量。`title`/`path` 按**目标笔记**算，不是模板自己 */
+  const renderTemplate = useCallback(
+    async (tplPath: string, target: { title: string; path: string }) => {
+      const tpl = await api.readNote(tplPath);
+      return expandTemplate(tpl.body, {
+        ...target,
+        selection: editorRef.current?.selectedText() ?? "",
+        now: new Date(),
+      });
+    },
+    [],
+  );
+
+  const insertTemplate = useCallback(
+    async (tplPath: string) => {
+      const cur = noteRef.current;
+      if (!cur) return;
+      try {
+        const { text, cursor } = await renderTemplate(tplPath, {
+          title: cur.title,
+          path: cur.path,
+        });
+        editorRef.current?.insert(text, cursor ?? undefined);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [renderTemplate],
+  );
+
+  /**
+   * 用模板新建一篇。
+   *
+   * 建的仍然是一篇「未命名」并进改名态 —— 和普通新建同一条路径（v0.5.22
+   * 那条：别在写之前先逼人想标题）。模板只决定内容。
+   *
+   * 正文和 frontmatter **分两次写**：它们在 Rust 侧是两条各写各的路径
+   * （§4.2），各自都会从磁盘读另一半，顺序无所谓，但不能塞进一次调用。
+   */
+  const createFromTemplate = useCallback(
+    async (tplPath: string, parentDoc: string | null) => {
+      try {
+        const meta = await api.createUntitled(parentDoc);
+        const { text } = await renderTemplate(tplPath, {
+          title: meta.title,
+          path: meta.path,
+        });
+        await api.writeNote(meta.path, text);
+        // 模板自己的 frontmatter 也带过去 —— 「读书笔记」这类模板的价值
+        // 一半在那几个属性上（status、评分、作者）
+        const tpl = await api.readNote(tplPath);
+        if (tpl.frontmatterText) await api.writeFrontmatter(meta.path, tpl.frontmatterText);
+        await refresh();
+        await openPath(meta.path);
+        setRenaming(meta.path);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [renderTemplate, refresh, openPath],
+  );
+
+  /** `/` 菜单里的「插入模板」交回到这儿开浮层（见 editor/completion.ts） */
+  useEffect(() => {
+    setSlashAction((id) => {
+      if (id === "template") setTemplateFor({ mode: "insert" });
+    });
+    return () => setSlashAction(null);
+  }, []);
+
   /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
   const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
 
@@ -895,6 +983,21 @@ export default function App() {
         label: "快速跳转",
         defaultKeys: "Mod+P",
         run: () => setSwitcherOpen(true),
+      },
+      {
+        id: "note.template",
+        group: "笔记",
+        label: "插入模板",
+        // 默认不绑键位：模板是低频到中频的操作，而好按的组合键已经不多了。
+        // `/` 菜单里有它，命令面板里也有，想要键位的人去设置里绑
+        enabled: hasNote,
+        run: () => setTemplateFor({ mode: "insert" }),
+      },
+      {
+        id: "note.newFromTemplate",
+        group: "笔记",
+        label: "用模板新建文档",
+        run: () => setTemplateFor({ mode: "new", parent: null }),
       },
       {
         id: "tab.close",
@@ -1494,6 +1597,21 @@ export default function App() {
         />
       )}
 
+      {templateFor && (
+        <TemplatePicker
+          templates={templates}
+          dir={settings.templateDir}
+          title={templateFor.mode === "insert" ? "插入模板…" : "用哪个模板新建…"}
+          onPick={(t) => {
+            const what = templateFor;
+            setTemplateFor(null);
+            if (what.mode === "insert") void insertTemplate(t.path);
+            else void createFromTemplate(t.path, what.parent);
+          }}
+          onClose={() => setTemplateFor(null)}
+        />
+      )}
+
       {menu && (
         <ul className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
           {/* Ctrl/⌘+点 和中键都要键盘或三键鼠标。这一条是它们的等价入口 ——
@@ -1518,6 +1636,17 @@ export default function App() {
               }}
             >
               新建子文档
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                const parent = menu.node.path;
+                setMenu(null);
+                setTemplateFor({ mode: "new", parent });
+              }}
+            >
+              用模板新建子文档…
             </button>
           </li>
           <li>

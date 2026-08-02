@@ -1,0 +1,260 @@
+/**
+ * 模板：挑一个 → 插进当前笔记 / 用它新建一篇。DESIGN.md §4.6
+ *
+ * 变量展开本身在 `lib/template.test.ts` 里用纯函数测干净了。这一层测的是
+ * 它接进 App 之后还成不成立：模板列表是不是真从模板目录里挑的、插入是不是
+ * 落在编辑器里、用模板新建有没有把正文和 frontmatter 都写下去。
+ *
+ * 必须是 browser 测试：插入走的是真实 `EditorView` 的 dispatch，纯 Node 里
+ * 连编辑器都建不起来（AGENTS.md「什么时候必须写 browser 测试」）。
+ */
+import { userEvent } from "vitest/browser";
+import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+
+const VAULT: VaultInfo = {
+  root: "D:/Notes/vault",
+  name: "test-vault",
+  createdRepo: false,
+  createdGitignore: false,
+  renamedBranch: false,
+};
+
+const doc = (name: string, path: string): TreeNode => ({
+  name,
+  path,
+  kind: "document",
+  children: [],
+  childDir: null,
+  order: null,
+  created: null,
+  updated: null,
+});
+
+const TPL_BODY = "# {{title}}\n\n日期：{{date}}\n\n## 待办\n- {{cursor}}\n";
+
+let tree: TreeNode[] = [
+  doc("甲", "甲.md"),
+  doc("会议纪要", "templates/会议纪要.md"),
+  doc("日记", "templates/日记.md"),
+];
+
+const bodies: Record<string, string> = {
+  "甲.md": "原有正文\n",
+  "templates/会议纪要.md": TPL_BODY,
+  "templates/日记.md": "今天：{{date:YYYY年M月D日}}\n",
+};
+const fronts: Record<string, string | null> = {
+  "templates/会议纪要.md": "status: 草稿\n",
+};
+
+const createUntitled = vi.fn(async () => {
+  tree = [...tree, doc("未命名", "未命名.md")];
+  bodies["未命名.md"] = "";
+  return { path: "未命名.md", id: null, title: "未命名" };
+});
+const writeNote = vi.fn(async (path: string, body: string) => {
+  bodies[path] = body;
+  return 0;
+});
+const writeFrontmatter = vi.fn(async () => 0);
+
+vi.mock("./api", () => ({
+  api: {
+    reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
+    openVault: async () => VAULT,
+    tree: async () => tree,
+    listNotes: async () => tree.map((n) => ({ path: n.path, name: n.name })) as NoteRef[],
+    readNote: async (path: string) =>
+      ({
+        path,
+        id: null,
+        title: path.replace(/\.md$/, "").split("/").pop()!,
+        frontmatter: {},
+        frontmatterText: fronts[path] ?? null,
+        body: bodies[path] ?? "",
+        mtimeMs: 0,
+      }) as NoteContent,
+    writeNote: (p: string, b: string) => writeNote(p, b),
+    statNote: async () => 0,
+    createNote: async () => ({ path: "x.md", id: null, title: "x" }),
+    createUntitled: () => createUntitled(),
+    renameNote: async () => "",
+    moveNote: async () => "",
+    deleteNote: async () => {},
+    search: async () => [],
+    backlinks: async () => [],
+    allTags: async () => [],
+    notesByTag: async () => [],
+    viewQuery: async () => ({ columns: [], rows: [], view: "table", groupBy: null }),
+    propSet: async () => {},
+    propRename: async () => {},
+    propSchema: async () => ({}),
+    reorder: async () => {},
+    writeAttachment: async () => "",
+    writeFrontmatter: () => writeFrontmatter(),
+    workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
+    workspaceSet: async () => {},
+    getSettings: async () => ({}),
+    setSettings: async (s: unknown) => s,
+    openTerminal: async () => {},
+    rebuildIndex: async () => ({}),
+    ptyOpen: async () => "1",
+    ptyWrite: async () => {},
+    ptyResize: async () => {},
+    ptyClose: async () => {},
+  },
+  onVaultChanged: async () => () => {},
+  onPtyData: async () => () => {},
+  onPtyExit: async () => () => {},
+  pickVaultFolder: async () => null,
+}));
+
+const { default: App } = await import("./App");
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let root: Root | null = null;
+const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
+
+beforeEach(() => {
+  localStorage.clear();
+  tree = [
+    doc("甲", "甲.md"),
+    doc("会议纪要", "templates/会议纪要.md"),
+    doc("日记", "templates/日记.md"),
+  ];
+  bodies["甲.md"] = "原有正文\n";
+  createUntitled.mockClear();
+  writeNote.mockClear();
+  writeFrontmatter.mockClear();
+});
+
+afterEach(() => {
+  root?.unmount();
+  root = null;
+  document.body.innerHTML = "";
+});
+
+async function mountApp() {
+  const host = document.createElement("div");
+  host.id = "root";
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => {
+    root!.render(<App />);
+    await settle(600);
+  });
+}
+
+/** 从命令面板跑一条命令 —— 和用户真正的路径一致 */
+async function runCommand(label: string) {
+  await act(async () => {
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+    await settle(200);
+  });
+  const item = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
+    (b) => b.querySelector(".palette-label")?.textContent === label,
+  )!;
+  expect(item, `命令面板里该有「${label}」`).toBeTruthy();
+  await act(async () => {
+    item.click();
+    await settle(300);
+  });
+}
+
+const picker = () => document.querySelector<HTMLElement>(".modal");
+const items = () => [...document.querySelectorAll<HTMLElement>(".qs-item .qs-name")];
+
+async function pick(name: string) {
+  const hit = items().find((i) => i.textContent === name)!;
+  expect(hit, `模板列表里该有「${name}」`).toBeTruthy();
+  await act(async () => {
+    hit.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await settle(400);
+  });
+}
+
+describe("插入模板", () => {
+  it("列表里只有模板目录下的笔记", async () => {
+    await mountApp();
+    await runCommand("插入模板");
+
+    expect(picker()).not.toBeNull();
+    const names = items().map((i) => i.textContent);
+    expect(names).toEqual(["会议纪要", "日记"]);
+    // 普通笔记不该混进来
+    expect(names).not.toContain("甲");
+  });
+
+  it("选中一个就把展开后的内容插进正文", async () => {
+    await mountApp();
+    await runCommand("插入模板");
+    await pick("日记");
+
+    const text = document.querySelector(".cm-content")!.textContent ?? "";
+    // 变量已经展开：不该还留着 {{ }}
+    expect(text).not.toContain("{{");
+    expect(text).toMatch(/今天：\d{4}年\d{1,2}月\d{1,2}日/);
+    // 原有正文还在 —— 插入是插入，不是覆盖
+    expect(text).toContain("原有正文");
+  });
+
+  it("{{cursor}} 决定插完光标停在哪", async () => {
+    await mountApp();
+    await runCommand("插入模板");
+    await pick("会议纪要");
+
+    // live preview 会把 `#` 藏起来，所以这里看到的是渲染后的文字
+    expect(document.querySelector(".cm-content")!.textContent).toContain("待办");
+
+    // **光标落在哪，只能靠敲一个字看它出现在哪。** 直接读 selection
+    // 验不出「用户接着打字会打在哪儿」，而那才是 {{cursor}} 的全部意义
+    await act(async () => {
+      await userEvent.keyboard("补材料");
+      await settle(200);
+    });
+    expect(document.querySelector(".cm-content")!.textContent).toContain("- 补材料");
+  });
+});
+
+describe("用模板新建", () => {
+  it("建一篇未命名，正文是展开后的模板，frontmatter 也带过去", async () => {
+    await mountApp();
+    await runCommand("用模板新建文档");
+    await pick("会议纪要");
+
+    expect(createUntitled).toHaveBeenCalledTimes(1);
+    expect(writeNote).toHaveBeenCalled();
+    const calls = writeNote.mock.calls;
+    const [path, body] = calls[calls.length - 1];
+    expect(path).toBe("未命名.md");
+    // {{title}} 按**新建出来的那篇**算，不是模板自己的名字
+    expect(body).toContain("# 未命名");
+    expect(body).not.toContain("{{");
+    // 模板的属性也带过去 —— 「读书笔记」这类模板一半价值在那几个属性上
+    expect(writeFrontmatter).toHaveBeenCalled();
+  });
+
+  it("建完进改名态 —— 和普通新建同一条路", async () => {
+    await mountApp();
+    await runCommand("用模板新建文档");
+    await pick("日记");
+
+    expect(document.querySelector(".tree-rename")).not.toBeNull();
+  });
+});
+
+describe("一个模板都没有时", () => {
+  it("说清楚该往哪儿放，而不是空着", async () => {
+    tree = [doc("甲", "甲.md")];
+    await mountApp();
+    await runCommand("插入模板");
+
+    const empty = document.querySelector(".modal-empty")?.textContent ?? "";
+    expect(empty).toContain("templates/");
+  });
+});

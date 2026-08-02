@@ -14,9 +14,15 @@ import { Backlinks } from "./Backlinks";
 import { FrontmatterSource } from "./FrontmatterSource";
 import { Properties } from "./Properties";
 
-/** 让 App 能往编辑器里塞内容（符号面板要用） */
+/** 让 App 能往编辑器里塞内容（符号面板、模板要用） */
 export interface EditorHandle {
-  insert: (text: string) => void;
+  /**
+   * 在光标处插入。`cursorOffset` 是插入后光标相对这段文本开头的位置，
+   * 不给就落在末尾 —— 模板里的 `{{cursor}}` 靠它落点（§4.6）
+   */
+  insert: (text: string, cursorOffset?: number) => void;
+  /** 当前选中的文字，没选就是空串。模板的 `{{selection}}` 用 */
+  selectedText: () => string;
   /** 跳到第 `line` 行（1 起）并把它顶到可视区上沿。大纲点击用 */
   gotoLine: (line: number) => void;
   /** 折叠／展开光标所在的小节 */
@@ -178,17 +184,26 @@ export function Editor({
   useEffect(() => {
     if (!handleRef) return;
     handleRef.current = {
-      insert: (text: string) => {
+      insert: (text: string, cursorOffset?: number) => {
         const view = viewRef.current;
         if (!view) return;
         const sel = view.state.selection.main;
+        const at = cursorOffset ?? text.length;
         view.dispatch({
           changes: { from: sel.from, to: sel.to, insert: text },
-          selection: { anchor: sel.from + text.length },
+          // 夹一下：模板算出来的偏移来自展开后的文本，理论上一定在范围内，
+          // 但越界的 anchor 会让 CM6 直接抛错、整个编辑器白屏
+          selection: { anchor: sel.from + Math.min(Math.max(at, 0), text.length) },
           userEvent: "input.symbol",
           scrollIntoView: true,
         });
         view.focus();
+      },
+      selectedText: () => {
+        const view = viewRef.current;
+        if (!view) return "";
+        const sel = view.state.selection.main;
+        return view.state.doc.sliceString(sel.from, sel.to);
       },
       gotoLine: (line: number) => {
         const view = viewRef.current;

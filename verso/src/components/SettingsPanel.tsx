@@ -295,6 +295,14 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
 
           {tab === "editor" && (
             <>
+              <TextRow
+                label="模板目录"
+                hint="这个目录下的每篇 .md 就是一个模板。留空 = 关掉模板功能"
+                value={settings.templateDir}
+                placeholder="templates"
+                onChange={(v) => onChange({ templateDir: v })}
+              />
+
               <div className="set-row">
                 <div className="set-label">
                   <span>点侧栏文件时</span>

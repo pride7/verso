@@ -30,6 +30,13 @@ export interface Settings {
   /** 文档树排序方式 */
   treeSort: TreeSort;
   /**
+   * 模板放在 vault 的哪个目录（§4.6）。
+   *
+   * 是 vault 相对路径，默认 `templates`。设成空串等于关掉模板功能 ——
+   * 「插入模板」会说一个都没有，而不是把整个 vault 当模板列出来。
+   */
+  templateDir: string;
+  /**
    * 点侧栏里的文件时开新标签还是替换当前标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
@@ -68,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13.5,
   terminalFont: "",
   treeSort: "name",
+  templateDir: "templates",
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
@@ -153,6 +161,8 @@ export function sanitize(s: Settings): Settings {
       ? s.treeSort
       : "name",
     tabOpen: (["new", "replace"] as const).includes(s.tabOpen) ? s.tabOpen : "new",
+    // 手改的设置文件里可能是数字、null。当成「没设」而不是让界面崩掉
+    templateDir: typeof s.templateDir === "string" ? s.templateDir : DEFAULT_SETTINGS.templateDir,
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)

@@ -31,6 +31,11 @@ fn default_tab_open() -> String {
     "new".into()
 }
 
+/// 模板目录（vault 相对路径）。§4.6
+fn default_template_dir() -> String {
+    "templates".into()
+}
+
 /// 主题色的色相与鲜艳度。默认是应用图标上那点青绿。
 ///
 /// **明度不开放**：深浅两套主题各自需要不同的明度才看得清，让用户调它
@@ -97,6 +102,14 @@ pub struct Settings {
     #[serde(default = "default_tab_open")]
     pub tab_open: String,
 
+    /// 模板放在 vault 的哪个目录。空串 = 关掉模板功能。
+    ///
+    /// 是**每个 vault 都一样**的一个名字，不是每库一份配置：设置整体存在
+    /// 应用配置目录里（见文件头），而「模板放 templates/」这种约定跨库
+    /// 保持一致才顺手。真要每库不同，改一下这个值即可。
+    #[serde(default = "default_template_dir")]
+    pub template_dir: String,
+
     /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
     /// 链接、焦点环、选中标记这些「重音」上
     #[serde(default = "default_accent_hue")]
@@ -138,6 +151,7 @@ impl Default for Settings {
             terminal_font: String::new(),
             tree_sort: default_tree_sort(),
             tab_open: default_tab_open(),
+            template_dir: default_template_dir(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
@@ -179,6 +193,11 @@ impl Settings {
         self.content_width = clamp(self.content_width, 24.0, 80.0, default_content_width());
         self.ui_font_size = clamp(self.ui_font_size, 11.0, 20.0, default_ui_font_size());
         self.terminal_font_size = clamp(self.terminal_font_size, 9.0, 24.0, default_terminal_font_size());
+        // 模板目录是路径的一段，`..` 会被 `Vault::resolve` 挡下来，但那时
+        // 报的是「路径越界」这种看不懂的错。这里直接规整掉，行为是「当成没设」
+        if self.template_dir.contains("..") {
+            self.template_dir = default_template_dir();
+        }
         // 键位写法由前端管，这边只挡住明显是垃圾的：手改的文件里塞进来一段
         // 长文本，会让设置界面里那一行铺满整个面板
         self.keybindings
@@ -282,6 +301,38 @@ mod tests {
         .sanitized();
         assert_eq!(s.body_font_size, 16.5);
         assert_eq!(s.line_height, 1.75);
+    }
+
+    /// 模板目录默认是 `templates`，老设置文件里没有这个键也要回落到它 ——
+    /// 缺一个键就让整份设置解析失败，用户连改回去的界面都打不开
+    #[test]
+    fn template_dir_defaults_and_survives_old_files() {
+        assert_eq!(Settings::default().template_dir, "templates");
+        let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(s.template_dir, "templates");
+    }
+
+    /// `..` 会被 `Vault::resolve` 挡下来，但那时报的是「路径越界」这种
+    /// 看不懂的错。在这儿就规整掉，行为是「当成没设」
+    #[test]
+    fn template_dir_rejects_traversal() {
+        let s = Settings {
+            template_dir: "../../机密".into(),
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(s.template_dir, "templates");
+    }
+
+    /// 空串是**有意义的值**：等于关掉模板功能，不能被当成「没填」补回默认
+    #[test]
+    fn empty_template_dir_is_kept() {
+        let s = Settings {
+            template_dir: String::new(),
+            ..Default::default()
+        }
+        .sanitized();
+        assert_eq!(s.template_dir, "");
     }
 
     #[test]
