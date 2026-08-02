@@ -4,6 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import type {
   Backlink,
+  CommitInfo,
+  GitStatus,
   IndexStats,
   NoteContent,
   NoteMeta,
@@ -123,6 +125,12 @@ export const api = {
    * `paths` 要是**完整的一组**，不是只有被拖的那一个
    */
   reorder: (parent: string, paths: string[]) => call<void>("notes_reorder", { parent, paths }),
+
+  // —— §2.8 本地版本历史 ——
+  /** 仓库有多少改动。不是 git 仓库时返回 `enabled: false`，不报错 */
+  gitStatus: () => call<GitStatus>("git_status"),
+  /** 提交全部改动。没有改动时返回 null，不产生空提交 */
+  gitCommit: (message?: string) => call<CommitInfo | null>("git_commit", { message }),
 
   // —— §2.1 每个 vault 的界面状态：标签页 ——
   /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */

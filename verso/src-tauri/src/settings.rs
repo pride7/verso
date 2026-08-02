@@ -41,6 +41,11 @@ fn default_journal_keep() -> f64 {
     3.0
 }
 
+/// 停手多少分钟之后自动记一个版本。§2.8
+fn default_auto_commit_idle() -> f64 {
+    5.0
+}
+
 /// 主题色的色相与鲜艳度。默认是应用图标上那点青绿。
 ///
 /// **明度不开放**：深浅两套主题各自需要不同的明度才看得清，让用户调它
@@ -123,6 +128,13 @@ pub struct Settings {
     #[serde(default = "default_journal_keep")]
     pub journal_keep: f64,
 
+    /// 停手多少分钟之后自动记一个版本（§2.8）。0 = 不自动记。
+    ///
+    /// **按时间窗聚合**：保存是停手 800ms 就发生的，每次保存都提交的话
+    /// 一小时能造出上百个提交，历史反而没法用。
+    #[serde(default = "default_auto_commit_idle")]
+    pub auto_commit_idle_min: f64,
+
     /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
     /// 链接、焦点环、选中标记这些「重音」上
     #[serde(default = "default_accent_hue")]
@@ -175,6 +187,7 @@ impl Default for Settings {
             tab_open: default_tab_open(),
             template_dir: default_template_dir(),
             journal_keep: default_journal_keep(),
+            auto_commit_idle_min: default_auto_commit_idle(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
@@ -227,6 +240,9 @@ impl Settings {
         self.slash_hidden.retain(|name| name.len() <= 64);
         // 上限 50：再多等于没折叠。手滑打成 500 会让「只看最新」悄悄失效
         self.journal_keep = clamp(self.journal_keep, 0.0, 50.0, default_journal_keep()).round();
+        // 上限两小时：再长就等于没开
+        self.auto_commit_idle_min =
+            clamp(self.auto_commit_idle_min, 0.0, 120.0, default_auto_commit_idle()).round();
         // 键位写法由前端管，这边只挡住明显是垃圾的：手改的文件里塞进来一段
         // 长文本，会让设置界面里那一行铺满整个面板
         self.keybindings

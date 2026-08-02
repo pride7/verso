@@ -322,6 +322,17 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
           {tab === "editor" && (
             <>
               <Slider
+                label="自动记版本"
+                hint="停手这么久之后，把改动记成一个版本。0 = 不自动记"
+                value={settings.autoCommitIdleMin}
+                min={0}
+                max={60}
+                step={1}
+                suffix=" 分钟"
+                fallback={DEFAULT_SETTINGS.autoCommitIdleMin}
+                onChange={(v) => onChange({ autoCommitIdleMin: v })}
+              />
+              <Slider
                 label="打开时展开最近几条进展"
                 hint="项目日志（## 2026-08-01 14:30）旧的自动折叠起来。0 = 不折叠"
                 value={settings.journalKeep}

@@ -518,6 +518,23 @@ fn open_terminal(state: State<'_, AppState>, path: Option<String>) -> Result<()>
 // —— 每个 vault 的界面状态：标签页（§2.1）——
 
 /// 读不出来就返回空 —— 见 `workspace.rs`，这份状态丢了只是少开几个页签
+/// 仓库现在有多少改动。状态栏那个点每隔一会儿问一次（§2.8）
+#[tauri::command]
+fn git_status(state: State<'_, AppState>) -> Result<vault::git::GitStatus> {
+    state.with_vault(|v| Ok(vault::git::status(&v.root)))
+}
+
+/// 把工作区的改动提交掉。没有改动时返回 null，**不产生空提交**。
+///
+/// 只做本地历史，不碰远端 —— 完整的 pull/push 与冲突解决仍在 M5 的后半段。
+#[tauri::command]
+fn git_commit(
+    state: State<'_, AppState>,
+    message: Option<String>,
+) -> Result<Option<vault::git::CommitInfo>> {
+    state.with_vault(|v| vault::git::commit_all(&v.root, message.as_deref()))
+}
+
 #[tauri::command]
 fn workspace_get(state: State<'_, AppState>) -> Result<workspace::Workspace> {
     state.with_vault(|v| Ok(workspace::load(v.fs.as_ref(), &v.root)))
@@ -585,6 +602,8 @@ pub fn run() {
             prop_rename_all,
             prop_rename,
             notes_reorder,
+            git_status,
+            git_commit,
             workspace_get,
             workspace_set,
             settings_get,

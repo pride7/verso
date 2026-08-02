@@ -104,6 +104,26 @@ export interface PropMeta {
   type: "string" | "number" | "bool" | "date" | "list";
 }
 
+/** §2.8 仓库现在的样子。和 Rust 的 `vault::git::GitStatus` 一一对应 */
+export interface GitStatus {
+  /** 是不是个能用的 git 仓库。用户手动删掉 `.git` 之后就不是了 */
+  enabled: boolean;
+  added: number;
+  modified: number;
+  deleted: number;
+  /** 三者之和 —— 状态栏显示的就是它 */
+  dirty: number;
+  lastMessage: string | null;
+  /** unix 秒 */
+  lastAt: number | null;
+}
+
+export interface CommitInfo {
+  id: string;
+  message: string;
+  files: number;
+}
+
 export interface IndexStats {
   notes: number;
   links: number;

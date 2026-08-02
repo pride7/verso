@@ -4385,3 +4385,28 @@ textarea:focus-visible {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* ---------- 状态栏上的版本记录点（§2.8） ----------
+
+   **只说「有几个改动」**，不出现 commit / branch / push 这些字眼 ——
+   §2.8：对用户隐藏 git。有改动时它是个能点的按钮（点一下记一个版本），
+   干净时就是一句静态的「已记录」。 */
+.status-git {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.status-git:disabled {
+  cursor: default;
+}
+.status-git.is-dirty {
+  color: var(--text);
+}
+.status-git.is-dirty:hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+}

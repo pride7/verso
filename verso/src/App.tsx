@@ -44,7 +44,7 @@ import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/tre
 import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
-import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { GitStatus, NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -655,6 +655,72 @@ export default function App() {
     },
     [renderTemplate, refresh, openPath],
   );
+
+  // ---------------------------------------------------------------- 版本历史（§2.8）
+  //
+  // M5 的第一块：**只做本地提交**，不碰远端也不处理冲突。有了逐次提交，
+  // 用 AI 改完一整篇也能一眼 diff、一键回退 —— 那是这个软件最容易丢数据的
+  // 路径（§7.4）。
+
+  const [git, setGit] = useState<GitStatus | null>(null);
+  /** 正在提交。挡住重入：自动提交和手动点可能撞在一起 */
+  const committing = useRef(false);
+
+  const refreshGit = useCallback(() => {
+    // **用 try 包住而不是只挂 .catch**：命令不存在时（老版本的后端、
+    // 或者测试里的桩）是**同步抛**的，那会让整个 App 崩在这一句上。
+    // 这只是状态栏上的一个点，不该有这种权力（和 DatabaseView 读 schema
+    // 那处是同一个坑）
+    try {
+      void api.gitStatus().then(setGit).catch(() => setGit(null));
+    } catch {
+      setGit(null);
+    }
+  }, []);
+
+  /**
+   * 提交一次。
+   *
+   * **先把正文冲盘再提交** —— 不然刚敲的那几行还在内存里，提交上去的是
+   * 上一版，而状态栏立刻显示「已提交」，最误导。
+   */
+  const commitNow = useCallback(
+    async (message?: string) => {
+      if (committing.current) return;
+      committing.current = true;
+      try {
+        await saveNow();
+        await api.gitCommit(message);
+        // 反馈就是状态栏那个点自己变成「已记录」—— 再弹一个提示条是噪音，
+        // 而这件事本来就该悄悄发生
+        refreshGit();
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        committing.current = false;
+      }
+    },
+    [saveNow, refreshGit],
+  );
+
+  // 打开 vault 后先问一次，之后每次改动（revision）也跟着更新。
+  // vault 可能还没打开（首屏是「选个目录」），那时不问
+  useEffect(refreshGit, [refreshGit, vault?.root, revision]);
+
+  /**
+   * 自动提交：**停手一段时间之后才提交一次**（§2.8「按时间窗聚合」）。
+   *
+   * 不能每次保存都提交 —— 保存是停手 800ms 就发生的，那样一小时能造出
+   * 上百个提交，历史就成了一片噪音，反而没法从里面找回任何东西。
+   */
+  useEffect(() => {
+    const minutes = settings.autoCommitIdleMin;
+    if (minutes <= 0 || !git?.enabled || git.dirty === 0) return;
+    const t = setTimeout(() => void commitNow(), minutes * 60_000);
+    return () => clearTimeout(t);
+    // 依赖里带上 dirty：每次有新改动都把这个计时器重新拨一遍，
+    // 「停手」才算得准
+  }, [settings.autoCommitIdleMin, git?.enabled, git?.dirty, commitNow]);
 
   // ---------------------------------------------------------------- 项目日志（§2.10）
 
@@ -1296,6 +1362,14 @@ export default function App() {
         run: () => void openVault(),
       },
       {
+        id: "vault.commit",
+        group: "vault",
+        label: "提交当前改动",
+        // 不绑默认键位：它是低频的兜底操作，日常靠自动提交
+        enabled: !!git?.enabled && (git?.dirty ?? 0) > 0,
+        run: () => void commitNow(),
+      },
+      {
         id: "vault.reindex",
         group: "vault",
         label: "重建索引",
@@ -1322,6 +1396,8 @@ export default function App() {
     pickView,
     createAndOpen,
     addJournal,
+    commitNow,
+    git,
     saveNow,
     renameNode,
     reloadFromDisk,
@@ -1677,6 +1753,25 @@ export default function App() {
             title={hint("退出源码模式", keyOf("view.sourceMode"))}
           >
             源码模式
+          </button>
+        )}
+        {git?.enabled && (
+          // 版本历史的状态点。**只说「有几个改动」**，不出现 commit / branch
+          // 这些字眼 —— §2.8：对用户隐藏 git
+          <button
+            className={`status-git${git.dirty > 0 ? " is-dirty" : ""}`}
+            onClick={() => void commitNow()}
+            disabled={git.dirty === 0}
+            title={
+              git.dirty > 0
+                ? `点一下立刻记一个版本（新增 ${git.added} · 更新 ${git.modified} · 删除 ${git.deleted}）`
+                : git.lastMessage
+                  ? `最近一次：${git.lastMessage}`
+                  : "还没有版本记录"
+            }
+          >
+            <Icon name="history" size={13} />
+            {git.dirty > 0 ? `${git.dirty} 个改动` : "已记录"}
           </button>
         )}
         {note && (

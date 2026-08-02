@@ -44,6 +44,13 @@ export interface Settings {
    */
   journalKeep: number;
   /**
+   * 停手多少分钟之后自动记一个版本（§2.8）。0 = 不自动记。
+   *
+   * **按时间窗聚合**，不是每次保存都记 —— 保存是停手 800ms 就发生的，
+   * 那样一小时能造出上百个提交，历史反而没法用。
+   */
+  autoCommitIdleMin: number;
+  /**
    * 点侧栏里的文件时开新标签还是替换当前标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
@@ -93,6 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
   treeSort: "name",
   templateDir: "templates",
   journalKeep: 3,
+  autoCommitIdleMin: 5,
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
@@ -190,6 +198,9 @@ export function sanitize(s: Settings): Settings {
     // 上限 50：再多就等于没折叠，而一个手滑打成 500 的值会让「只看最新」
     // 悄悄失效，比报错更难查
     journalKeep: Math.round(num(s.journalKeep, 0, 50, DEFAULT_SETTINGS.journalKeep)),
+    autoCommitIdleMin: Math.round(
+      num(s.autoCommitIdleMin, 0, 120, DEFAULT_SETTINGS.autoCommitIdleMin),
+    ),
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)
