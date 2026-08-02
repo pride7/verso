@@ -35,10 +35,10 @@ let dirty = 0;
 /** 调用顺序 —— 「先保存再提交」全靠它验 */
 const calls: string[] = [];
 
-const gitCommit = vi.fn(async () => {
+const gitCommit = vi.fn(async (_message?: string) => {
   calls.push("commit");
   dirty = 0;
-  return { id: "abc", message: "更新 1 个", files: 1 };
+  return { id: "abc", message: "更新「甲」", files: 1 };
 });
 
 vi.mock("./api", () => ({
@@ -87,7 +87,7 @@ vi.mock("./api", () => ({
       lastMessage: dirty === 0 ? "更新 1 个" : null,
       lastAt: 1_754_000_000,
     }),
-    gitCommit: () => gitCommit(),
+    gitCommit: (message?: string) => gitCommit(message),
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
     getSettings: async () => ({}),
@@ -189,7 +189,47 @@ describe("版本记录点", () => {
       await settle(200);
     });
     const labels = [...document.querySelectorAll(".palette-label")].map((b) => b.textContent);
-    expect(labels).toContain("提交当前改动");
+    expect(labels).toContain("记一个版本");
+  });
+
+  it("能自己写说明 —— 自动生成的只说动了哪几篇，说不出为什么", async () => {
+    dirty = 1;
+    await mount();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("整理了一遍");
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+      await settle(200);
+    });
+    const item = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
+      (b) => b.querySelector(".palette-label")?.textContent === "记一个版本并写说明…",
+    )!;
+    await act(async () => {
+      item.click();
+      await settle(400);
+    });
+
+    expect(gitCommit).toHaveBeenCalledWith("整理了一遍");
+    prompt.mockRestore();
+  });
+
+  it("说明留空就当作没按 —— 不该记下一个空说明的版本", async () => {
+    dirty = 1;
+    await mount();
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("   ");
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+      await settle(200);
+    });
+    const item = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
+      (b) => b.querySelector(".palette-label")?.textContent === "记一个版本并写说明…",
+    )!;
+    await act(async () => {
+      item.click();
+      await settle(300);
+    });
+
+    expect(gitCommit).not.toHaveBeenCalled();
+    prompt.mockRestore();
   });
 
   it("没有改动时那条命令不出现 —— 面板只列当前能用的", async () => {
@@ -199,6 +239,6 @@ describe("版本记录点", () => {
       await settle(200);
     });
     const labels = [...document.querySelectorAll(".palette-label")].map((b) => b.textContent);
-    expect(labels).not.toContain("提交当前改动");
+    expect(labels).not.toContain("记一个版本");
   });
 });

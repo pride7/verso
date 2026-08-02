@@ -1364,10 +1364,22 @@ export default function App() {
       {
         id: "vault.commit",
         group: "vault",
-        label: "提交当前改动",
-        // 不绑默认键位：它是低频的兜底操作，日常靠自动提交
+        label: "记一个版本",
+        // 不绑默认键位：它是低频的兜底操作，日常靠自动记
         enabled: !!git?.enabled && (git?.dirty ?? 0) > 0,
         run: () => void commitNow(),
+      },
+      {
+        id: "vault.commitNamed",
+        group: "vault",
+        label: "记一个版本并写说明…",
+        // 自动生成的说明只说「动了哪几篇」，说不出「为什么」。
+        // 做完一件完整的事时，自己写一句在历史里价值大得多
+        enabled: !!git?.enabled && (git?.dirty ?? 0) > 0,
+        run: () => {
+          const msg = window.prompt("这一版做了什么？", "")?.trim();
+          if (msg) void commitNow(msg);
+        },
       },
       {
         id: "vault.reindex",

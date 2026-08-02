@@ -228,6 +228,24 @@ pub struct CommitInfo {
     pub files: usize,
 }
 
+/// 一处改动。`path` 是 vault 相对路径
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Added,
+    Modified,
+    Deleted,
+}
+
+impl Kind {
+    fn verb(self) -> &'static str {
+        match self {
+            Kind::Added => "新增",
+            Kind::Modified => "更新",
+            Kind::Deleted => "删除",
+        }
+    }
+}
+
 fn status_opts() -> git2::StatusOptions {
     let mut opts = git2::StatusOptions::new();
     // 未跟踪的文件也要算 —— 新建一篇笔记就是一个未跟踪文件，
@@ -238,6 +256,31 @@ fn status_opts() -> git2::StatusOptions {
         .include_ignored(false)
         .include_unmodified(false);
     opts
+}
+
+/// 逐个列出改动。计数和提交说明都从它来 —— 两处各扫一遍迟早会对不上。
+fn changes(repo: &git2::Repository) -> Vec<(Kind, String)> {
+    let Ok(statuses) = repo.statuses(Some(&mut status_opts())) else {
+        return Vec::new();
+    };
+    let mut out: Vec<(Kind, String)> = statuses
+        .iter()
+        .filter_map(|e| {
+            let s = e.status();
+            let kind = if s.is_wt_new() || s.is_index_new() {
+                Kind::Added
+            } else if s.is_wt_deleted() || s.is_index_deleted() {
+                Kind::Deleted
+            } else {
+                Kind::Modified
+            };
+            Some((kind, e.path()?.to_string()))
+        })
+        .collect();
+    // 排个序再返回：git 给的顺序不保证稳定，而这个顺序会进提交说明 ——
+    // 同样两个文件、两次提交写出不一样的说明，会让人以为记错了
+    out.sort_by(|a, b| a.1.cmp(&b.1));
+    out
 }
 
 /// 数一数有多少改动。仓库打不开时返回 `enabled: false` 而不是报错 ——
@@ -251,19 +294,15 @@ pub fn status(root: &Path) -> GitStatus {
         ..Default::default()
     };
 
-    if let Ok(statuses) = repo.statuses(Some(&mut status_opts())) {
-        for e in statuses.iter() {
-            let s = e.status();
-            if s.is_wt_new() || s.is_index_new() {
-                out.added += 1;
-            } else if s.is_wt_deleted() || s.is_index_deleted() {
-                out.deleted += 1;
-            } else {
-                out.modified += 1;
-            }
+    let list = changes(&repo);
+    for (kind, _) in &list {
+        match kind {
+            Kind::Added => out.added += 1,
+            Kind::Modified => out.modified += 1,
+            Kind::Deleted => out.deleted += 1,
         }
     }
-    out.dirty = out.added + out.modified + out.deleted;
+    out.dirty = list.len();
 
     if let Ok(head) = repo.head().and_then(|h| h.peel_to_commit()) {
         out.last_message = head.summary().map(str::to_string);
@@ -272,23 +311,74 @@ pub fn status(root: &Path) -> GitStatus {
     out
 }
 
-/// 自动生成的提交说明。§2.8：「commit message 自动生成（`更新 3 篇笔记`）」
-fn auto_message(s: &GitStatus) -> String {
-    let mut parts = Vec::new();
-    if s.added > 0 {
-        parts.push(format!("新增 {} 个", s.added));
-    }
-    if s.modified > 0 {
-        parts.push(format!("更新 {} 个", s.modified));
-    }
-    if s.deleted > 0 {
-        parts.push(format!("删除 {} 个", s.deleted));
-    }
-    if parts.is_empty() {
-        "保存改动".to_string()
+/// 一条改动的显示名：笔记用标题（去掉目录和 `.md`），别的文件用原路径。
+///
+/// 用标题而不是路径：`更新「线性代数」` 一眼看得懂，
+/// `更新 数学/线性代数.md` 要在脑子里再翻译一次。完整路径留给正文那几行。
+fn display_name(path: &str) -> String {
+    // git 的 status 一律给正斜杠，这里仍然把反斜杠也切掉：以后要是有别的
+    // 来源塞进 Windows 路径，不至于把整段路径当成文件名
+    let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    file.strip_suffix(".md").unwrap_or(file).to_string()
+}
+
+/// 全是 `.md` 时量词用「篇」，混了附件就退回「个」
+fn unit(list: &[(Kind, String)]) -> &'static str {
+    if list.iter().all(|(_, p)| p.ends_with(".md")) {
+        "篇"
     } else {
-        parts.join("、")
+        "个"
     }
+}
+
+/// 自动生成的提交说明。§2.8：「commit message 自动生成（`更新 3 篇笔记`）」
+///
+/// **改动少的时候直接报名字。** 一屏 `git log` 全是「更新 1 个」等于没记 ——
+/// 而人回头翻历史，找的正是「哪一篇」。三条以内列名字，再多就报数目。
+fn auto_message(list: &[(Kind, String)]) -> String {
+    if list.is_empty() {
+        return "保存改动".to_string();
+    }
+
+    // 同一类且不超过三条：直接把名字列出来
+    let first = list[0].0;
+    if list.len() <= 3 && list.iter().all(|(k, _)| *k == first) {
+        let names = list
+            .iter()
+            .map(|(_, p)| format!("「{}」", display_name(p)))
+            .collect::<Vec<_>>()
+            .join("");
+        return format!("{}{}", first.verb(), names);
+    }
+
+    let u = unit(list);
+    let mut parts = Vec::new();
+    for kind in [Kind::Added, Kind::Modified, Kind::Deleted] {
+        let n = list.iter().filter(|(k, _)| *k == kind).count();
+        if n > 0 {
+            parts.push(format!("{} {n} {u}", kind.verb()));
+        }
+    }
+    parts.join("、")
+}
+
+/// 提交说明的正文：逐行列出动了哪些文件。
+///
+/// 摘要那一行只能放三个名字，而「到底动了哪些」才是回头翻历史时要看的。
+/// 写成正文之后，任何 git 工具里都读得到。
+const BODY_MAX: usize = 20;
+
+fn body(list: &[(Kind, String)]) -> String {
+    let mut lines: Vec<String> = list
+        .iter()
+        .take(BODY_MAX)
+        .map(|(k, p)| format!("{}  {p}", k.verb()))
+        .collect();
+    if list.len() > BODY_MAX {
+        lines.push(format!("…… 还有 {} 个", list.len() - BODY_MAX));
+    }
+    lines.join("
+")
 }
 
 /// 提交作者。
@@ -321,10 +411,16 @@ pub fn commit_all(root: &Path, message: Option<&str>) -> Result<Option<CommitInf
     index.write()?;
     let tree = repo.find_tree(index.write_tree()?)?;
 
+    let list = changes(&repo);
     let sig = signature(&repo)?;
-    let msg = message
-        .map(str::to_string)
-        .unwrap_or_else(|| auto_message(&st));
+    // 自己写的说明也配上文件清单 —— 「整理了一遍」同样需要知道动了哪些
+    let msg = format!(
+        "{}
+
+{}",
+        message.map(str::to_string).unwrap_or_else(|| auto_message(&list)),
+        body(&list)
+    );
     let parents = match repo.head().and_then(|h| h.peel_to_commit()) {
         Ok(c) => vec![c],
         // 第一次提交没有父 —— 空仓库里 HEAD 指向一个还不存在的分支
@@ -340,8 +436,9 @@ pub fn commit_all(root: &Path, message: Option<&str>) -> Result<Option<CommitInf
     )?;
 
     Ok(Some(CommitInfo {
+        // 只把摘要那一行报给界面：正文是给 git log 看的
         id: id.to_string(),
-        message: msg,
+        message: msg.lines().next().unwrap_or_default().to_string(),
         files: st.dirty,
     }))
 }
@@ -405,22 +502,100 @@ mod commit_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **一屏 `git log` 全是「更新 1 个」等于没记。** 三条以内直接报名字，
+    /// 再多才报数目 —— 人回头翻历史，找的正是「哪一篇」。
     #[test]
-    fn message_says_what_happened() {
+    fn message_names_the_notes_when_there_are_few() {
         let dir = temp_vault();
         std::fs::write(dir.join("甲.md"), "一").unwrap();
+        assert_eq!(commit_all(&dir, None).unwrap().unwrap().message, "新增「甲」");
+
         std::fs::write(dir.join("乙.md"), "二").unwrap();
-        let c = commit_all(&dir, None).unwrap().unwrap();
-        assert_eq!(c.message, "新增 2 个");
-        assert_eq!(c.files, 2);
+        std::fs::write(dir.join("丙.md"), "三").unwrap();
+        // 顺序按路径排，两次提交写出来的说明才是稳定的
+        assert_eq!(
+            commit_all(&dir, None).unwrap().unwrap().message,
+            "新增「丙」「乙」"
+        );
 
         std::fs::write(dir.join("甲.md"), "改了").unwrap();
-        assert_eq!(commit_all(&dir, None).unwrap().unwrap().message, "更新 1 个");
+        assert_eq!(commit_all(&dir, None).unwrap().unwrap().message, "更新「甲」");
 
-        // 自己写的说明优先
-        std::fs::write(dir.join("甲.md"), "又改了").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 超过三条、或者动作不止一种时报数目，量词跟着内容走
+    #[test]
+    fn message_counts_when_there_are_many() {
+        let dir = temp_vault();
+        for n in ["甲", "乙", "丙", "丁"] {
+            std::fs::write(dir.join(format!("{n}.md")), "x").unwrap();
+        }
+        assert_eq!(commit_all(&dir, None).unwrap().unwrap().message, "新增 4 篇");
+
+        // 混了动作就分开说
+        // 动作不止一种时分开说，哪怕只有两个文件 —— 「更新 1 篇、删除 1 篇」
+        // 比硬凑成一句「改了 2 篇」准确
+        std::fs::write(dir.join("甲.md"), "改了").unwrap();
+        std::fs::remove_file(dir.join("乙.md")).unwrap();
+        assert_eq!(
+            commit_all(&dir, None).unwrap().unwrap().message,
+            "更新 1 篇、删除 1 篇"
+        );
+
+        // 混进非笔记文件、且多到要报数目时，量词退回「个」
+        std::fs::create_dir_all(dir.join("attachments")).unwrap();
+        std::fs::write(dir.join("attachments/图.png"), "x").unwrap();
+        for n in ["戊", "己", "庚"] {
+            std::fs::write(dir.join(format!("{n}.md")), "x").unwrap();
+        }
+        assert_eq!(commit_all(&dir, None).unwrap().unwrap().message, "新增 4 个");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 摘要那一行放不下几个名字，**正文逐行列出动了哪些文件** ——
+    /// 那才是回头翻历史时真正要看的
+    #[test]
+    fn body_lists_every_file() {
+        let dir = temp_vault();
+        std::fs::create_dir_all(dir.join("数学")).unwrap();
+        std::fs::write(dir.join("数学/线性代数.md"), "一").unwrap();
+        std::fs::write(dir.join("甲.md"), "二").unwrap();
+        std::fs::write(dir.join("乙.md"), "三").unwrap();
+        std::fs::write(dir.join("丙.md"), "四").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        let repo = git2::Repository::open(&dir).unwrap();
+        let full = repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .message()
+            .unwrap()
+            .to_string();
+
+        assert!(full.starts_with("新增 4 篇"));
+        assert!(full.contains("新增  数学/线性代数.md"), "正文要带完整路径：
+{full}");
+        assert!(full.contains("新增  甲.md"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 自己写的说明优先，但**文件清单照样附上**
+    #[test]
+    fn custom_message_still_gets_the_file_list() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "一").unwrap();
         let c = commit_all(&dir, Some("整理了一遍")).unwrap().unwrap();
-        assert_eq!(c.message, "整理了一遍");
+        assert_eq!(c.message, "整理了一遍", "报给界面的只有摘要那一行");
+
+        let repo = git2::Repository::open(&dir).unwrap();
+        let full = repo.head().unwrap().peel_to_commit().unwrap().message().unwrap().to_string();
+        assert!(full.starts_with("整理了一遍"));
+        assert!(full.contains("新增  甲.md"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
