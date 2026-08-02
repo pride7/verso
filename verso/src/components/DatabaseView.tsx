@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { CalendarView, canMoveDates, GalleryView, ListView } from "./DbViews";
 import { Icon } from "./Icon";
+import { RenameInput } from "./Tree";
 import {
   ColumnPicker,
   OptionPicker,
@@ -77,6 +78,15 @@ export function DatabaseView({
   const [result, setResult] = useState<ViewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ path: string; key: string } | null>(null);
+  /**
+   * 正在就地改名的那一行。
+   *
+   * §2.6 的「加一行」原来先弹一个 `prompt` 问名字 —— 而 Obsidian、思源都是
+   * **先把东西建出来，再改名**。差别不只是少一个弹窗：弹窗那一步会逼人在
+   * 什么都还没有的时候先想好名字，而在一张表里加一行的时候，名字往往是
+   * 填完别的格子才定得下来的。取消弹窗还会让人以为「没建成」。
+   */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
   const [panel, setPanel] = useState<Panel>(null);
@@ -219,15 +229,30 @@ export function DatabaseView({
    * 建在 `from:` 指的那个范围里，否则建完它不在表里，等于什么都没发生。
    */
   const addRow = async (preset?: { key: string; value: string }) => {
-    const title = window.prompt("新建笔记", "未命名");
-    if (!title) return;
     try {
-      const meta = await api.createNote(newNoteParent(source), title);
+      const meta = await api.createUntitled(newNoteParent(source));
       // 在看板某一列里新建：那一列的值直接写上，否则它建完会掉进「未设置」
       if (preset) await api.propSet(meta.path, preset.key, preset.value);
       onChanged();
       load();
-      onOpen(meta.path);
+      // 行先出现，名字就地改（和文档树里新建一样）。**不跳走** —— 在表里
+      // 加一行的人正在整理这张表，把他弹进那篇笔记会打断这件事
+      setRenaming(meta.path);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /** 改名 = 改文件名，不是写 frontmatter 的 title。空着或者没改就当没发生 */
+  const commitRename = async (path: string, title: string) => {
+    setRenaming(null);
+    const next = title.trim();
+    const old = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+    if (!next || next === old) return;
+    try {
+      await api.renameNote(path, next);
+      onChanged();
+      load();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -307,6 +332,17 @@ export function DatabaseView({
 
     // 标题列是笔记本身，点它应当跳转而不是编辑
     if (col === "title") {
+      // 刚建出来的那一行：名字就地改
+      if (renaming === row.path) {
+        return (
+          <RenameInput
+            name={row.title}
+            className="dbview-rename"
+            onSubmit={(v) => void commitRename(row.path, v)}
+            onCancel={() => setRenaming(null)}
+          />
+        );
+      }
       return (
         <button className="dbview-link" onClick={() => onOpen(row.path)}>
           {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}

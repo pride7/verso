@@ -209,12 +209,15 @@ function TreeItem({
  * 失焦按「确定」处理，和 Obsidian 一致：改完名点到别处，本意显然是要这个名字，
  * 那时候丢掉刚敲的字最让人恼火。
  */
-function RenameInput({
+export function RenameInput({
   name,
+  className = "tree-rename",
   onSubmit,
   onCancel,
 }: {
   name: string;
+  /** database 视图里也用它（§2.6 加一行），那边有自己的一套格子样式 */
+  className?: string;
   onSubmit: (v: string) => void;
   onCancel: () => void;
 }) {
@@ -237,7 +240,7 @@ function RenameInput({
   return (
     <input
       ref={ref}
-      className="tree-rename"
+      className={className}
       defaultValue={name}
       spellCheck={false}
       onKeyDown={(e) => {

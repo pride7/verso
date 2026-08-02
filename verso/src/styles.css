@@ -3026,6 +3026,20 @@ textarea:focus-visible {
   outline: none;
 }
 
+/* database 表格里就地改名。和标题那一格对齐 —— 进入改名态时
+   整行不该跳一下高度，也不该左右挪位 */
+.dbview-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  font: inherit;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  outline: none;
+}
+
 /* ---------- 设置里的主题色色板 ---------- */
 
 .swatches {

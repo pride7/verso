@@ -13,6 +13,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const propSet = vi.fn(async () => {});
 const createNote = vi.fn(async () => ({ path: "论文/丙.md", id: null, title: "丙" }));
+/** 加一行不再问名字，直接建一篇「未命名」再就地改（和文档树一致） */
+const createUntitled = vi.fn(async (_parent: string | null) => {
+  // 后端建完之后，下一次 viewQuery 就该看得见这一行 —— 就地改名要改的
+  // 正是它，行不出现的话输入框根本没地方挂
+  viewMock = { ...viewMock, rows: [...viewMock.rows, NEW_ROW] };
+  return { path: NEW_ROW.path, id: null, title: NEW_ROW.title };
+});
+const renameNote = vi.fn(async (_path: string, _title: string) => "论文/丙.md");
+const NEW_ROW = { path: "论文/未命名.md", title: "未命名", props: {} };
 const propDefSet = vi.fn(async () => {});
 /** 每条测试自己决定 schema —— 没声明类型时单元格是文本框（推断类型） */
 let schemaMock: Record<string, { type: string; options?: string[] }> = {};
@@ -43,6 +52,8 @@ vi.mock("../api", () => ({
     backlinks: vi.fn(async () => []),
     propSet,
     createNote: createNote,
+    createUntitled: (parent: string | null) => createUntitled(parent),
+    renameNote: (path: string, title: string) => renameNote(path, title),
     propSchema: async () => schemaMock,
     propDefSet: propDefSet,
     propCount: async () => 3,
@@ -68,6 +79,8 @@ afterEach(() => {
   document.body.innerHTML = "";
   propSet.mockClear();
   createNote.mockClear();
+  createUntitled.mockClear();
+  renameNote.mockClear();
   propDefSet.mockClear();
   schemaMock = {};
   viewMock = DEFAULT_VIEW;
@@ -224,17 +237,58 @@ describe("视图本身能操作（§2.6）", () => {
     expect(doc).toContain("view: table");
   });
 
-  it("新建一行 = 在 from 指的范围里建一篇笔记", async () => {
+  /**
+   * **不弹窗问名字**（v0.6.4）。Obsidian、思源都是先把东西建出来再改名 ——
+   * 弹窗那一步逼人在什么都还没有的时候先想好名字，而在一张表里加一行时，
+   * 名字往往是填完别的格子才定得下来的。
+   */
+  it("新建一行：直接建，名字在行里就地改", async () => {
     const view = mount();
     await settle();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("丙");
+    const prompt = vi.spyOn(window, "prompt");
 
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-add")!);
     await settle();
 
+    expect(prompt, "不该再弹窗问名字").not.toHaveBeenCalled();
     // 建完不在表里等于什么都没发生，所以父文档要跟着 `from` 走
-    expect(createNote).toHaveBeenCalledWith("论文.md", "丙");
+    expect(createUntitled).toHaveBeenCalledWith("论文.md");
+
+    // 那一行的标题格变成输入框，而且内容是选中的（打字直接覆盖）
+    const input = view.dom.querySelector<HTMLInputElement>(".dbview-rename")!;
+    expect(input).toBeTruthy();
+    expect(input.value).toBe("未命名");
+
+    input.value = "丙";
+    await userEvent.keyboard("{Enter}");
+    await settle();
+    expect(renameNote).toHaveBeenCalledWith("论文/未命名.md", "丙");
     prompt.mockRestore();
+  });
+
+  it("改名框里没改就按回车 = 保留「未命名」，不白跑一次改名", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-add")!);
+    await settle();
+
+    await userEvent.keyboard("{Enter}");
+    await settle();
+    expect(renameNote).not.toHaveBeenCalled();
+    expect(view.dom.querySelector(".dbview-rename"), "回车之后要退出改名态").toBeNull();
+  });
+
+  /** Esc = 我就叫「未命名」。**笔记已经建出来了**，取消的只是改名这一步 */
+  it("按 Esc 只是不改名，不会把刚建的那篇删掉", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-add")!);
+    await settle();
+
+    await userEvent.keyboard("{Escape}");
+    await settle();
+    expect(renameNote).not.toHaveBeenCalled();
+    expect(createUntitled).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -678,17 +732,14 @@ describe("看板（§2.6）", () => {
     boardMock();
     const view = mount(BOARD);
     await settle();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("丁");
-
     const target = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")].find((c) =>
       c.querySelector(".dbview-tag")?.textContent === "已读",
     )!;
     await userEvent.click(target.querySelector<HTMLElement>(".dbview-col-add")!);
     await settle();
 
-    expect(createNote).toHaveBeenCalled();
-    expect(propSet).toHaveBeenCalledWith("论文/丙.md", "status", "已读");
-    prompt.mockRestore();
+    expect(createUntitled).toHaveBeenCalled();
+    expect(propSet).toHaveBeenCalledWith("论文/未命名.md", "status", "已读");
   });
 });
 
