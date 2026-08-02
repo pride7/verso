@@ -285,6 +285,15 @@ fn tree_list(state: State<'_, AppState>) -> Result<Vec<TreeNode>> {
         fill_times(&mut tree, &map);
     }
 
+    // 图标同理，索引没就绪就先不显示 —— 树本身不该因为少一个装饰打不开
+    if let Ok(icons) = state.with_index(|i| i.icons()) {
+        let mut map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for (path, icon) in icons {
+            map.entry(path).or_insert(icon);
+        }
+        fill_icons(&mut tree, &map);
+    }
+
     // 手动顺序来自 vault 根的 .verso-order.json（见 vault/order.rs
     // 里为什么不放 .verso/ 也不放 frontmatter）
     let order = state.with_vault(|v| Ok(order::load(v.fs.as_ref(), &v.root)))?;
@@ -302,6 +311,13 @@ fn fill_times(nodes: &mut [TreeNode], map: &Times) {
             n.updated = updated.clone();
         }
         fill_times(&mut n.children, map);
+    }
+}
+
+fn fill_icons(nodes: &mut [TreeNode], map: &std::collections::HashMap<String, String>) {
+    for n in nodes {
+        n.icon = map.get(&n.path).cloned();
+        fill_icons(&mut n.children, map);
     }
 }
 

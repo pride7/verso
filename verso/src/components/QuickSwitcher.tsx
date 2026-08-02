@@ -5,6 +5,13 @@ import type { NoteRef } from "../types";
 
 interface Props {
   notes: NoteRef[];
+  /**
+   * 路径 → 文档图标（§2.3）。
+   *
+   * §2.2 说「熟练用户九成的跳转靠它」—— 图标要是只出现在文档树里，就恰好
+   * 缺席了用得最多的那个地方
+   */
+  icons?: Record<string, string>;
   onPick: (path: string) => void;
   onClose: () => void;
 }
@@ -34,7 +41,7 @@ function Highlighted({ text, positions }: { text: string; positions: number[] })
  * 「熟练用户九成的跳转靠它，文件树只是偶尔浏览用」，所以它的优先级
  * 高于文件树，M1 必须有。
  */
-export function QuickSwitcher({ notes, onPick, onClose }: Props) {
+export function QuickSwitcher({ notes, icons, onPick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -91,6 +98,11 @@ export function QuickSwitcher({ notes, onPick, onClose }: Props) {
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={() => onPick(r.item.path)}
               >
+                {icons?.[r.item.path] && (
+                  <span className="qs-icon emoji" aria-hidden>
+                    {icons[r.item.path]}
+                  </span>
+                )}
                 <span className="qs-name">
                   <Highlighted text={r.item.name} positions={r.namePositions} />
                 </span>

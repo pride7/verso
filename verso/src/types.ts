@@ -14,6 +14,13 @@ export interface TreeNode {
   order: number | null;
   created: string | null;
   updated: string | null;
+  /**
+   * frontmatter 里的 `icon` —— 一个字符（通常是 emoji）。没设过则为 null。
+   *
+   * 可选是为了让一堆只关心别的行为的测试夹具不必每个都补一行；Rust 侧
+   * 永远给这个字段（`Option<String>` → `null`）
+   */
+  icon?: string | null;
   children: TreeNode[];
 }
 

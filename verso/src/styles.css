@@ -970,13 +970,19 @@ body.is-resizing {
   opacity: 0;
 }
 
+/* 图标和名字在按钮**里面**排成一行，所以它自己得是 flex 容器 ——
+   名字那一格靠 `min-width: 0` 才截得断（flex 项默认不肯小于内容宽度，
+   长名字会把整行顶出侧栏） */
 .tree-label {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
   text-align: left;
   padding: 5px 2px;
   font-size: 13px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tree-row.is-folder .tree-label {
@@ -1731,6 +1737,192 @@ body.is-resizing {
   border-radius: var(--r-xs);
   padding: 1px 5px;
   flex: none;
+}
+
+/* ---------- 文档图标（§2.3 的 frontmatter `icon`） ---------- */
+
+/* emoji 由**系统字体**画，必须显式点名。不点名的话它会落到 UI 字体上，
+   缺字时浏览器逐个字符去找后备字体 —— 同一排图标于是来自不同字体，
+   大小和基线各不相同，正是 Icon.tsx 开头说的那种「一眼看出是凑的」。
+
+   `font-variant-emoji: emoji` 让 ⭐ ❤️ 这类「既有文字形也有彩色形」的字符
+   固定走彩色形。不写的话它们在有些平台上会画成黑白的线条字，混在一排
+   彩色 emoji 里显得像没加载出来。 */
+.emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", var(--font-ui);
+  font-variant-emoji: emoji;
+  font-style: normal;
+  line-height: 1;
+}
+
+/* 树上的图标位。**每一行都占**，没设图标的画一个很淡的默认图标 ——
+   只给设过的行加图标会让名字参差成两列，而参差比多一个淡图标显眼得多 */
+.tree-icon {
+  flex: none;
+  width: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.tree-icon.is-default {
+  color: var(--muted);
+  opacity: 0.42;
+}
+/* 选中/悬停时默认图标跟着亮一点，否则那一行看着像半截是灰的 */
+.tree-row:hover .tree-icon.is-default,
+.tree-row.is-active .tree-icon.is-default {
+  opacity: 0.7;
+}
+/* 名字要能被省略号截断，所以它得是独立的一格（`.tree-label` 是 flex 容器）。
+   `min-width: 0` 缺不得，理由见上面 */
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-icon {
+  flex: none;
+  font-size: 12px;
+}
+.qs-icon {
+  flex: none;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+/* 面包屑最前面那个 —— 设图标的主入口。没设过时是一个很淡的占位，
+   鼠标移上去才明显起来：平时不该有个图标在标题行上抢戏，
+   但要找它的时候必须在那儿 */
+.crumb-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -3px;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  opacity: 0.45;
+  font-size: 15px;
+  transition: opacity var(--t-fast), background var(--t-fast);
+}
+.crumb-icon:hover {
+  opacity: 1;
+  background: var(--hover-bg);
+}
+.crumb-icon.has-icon {
+  opacity: 1;
+  font-size: 17px;
+}
+
+/* ---------- 图标选择器 ---------- */
+
+/* `position: fixed`：两个入口都长在滚动容器里，绝对定位会被祖先的
+   overflow 裁掉（AGENTS.md 里那条「裁剪不改变 getBoundingClientRect」） */
+.icon-picker {
+  position: fixed;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.icon-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+.icon-search {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 9px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+}
+.icon-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.icon-clear {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+.icon-clear:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--danger);
+}
+.icon-clear:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.icon-picker-body {
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+}
+.icon-section h4 {
+  margin: 8px 2px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  gap: 1px;
+}
+.icon-cell {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.icon-cell:hover {
+  background: var(--hover-bg);
+}
+/* 当前用着的那个：淡彩底 + 一圈同色描边。只加底色的话，和鼠标悬停
+   分不出来 —— 而「我现在用的是哪个」正是打开这个面板最先想知道的事 */
+.icon-cell.is-current {
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+/* 搜不到时的出路：把输入的字符本身当图标 */
+.icon-literal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.icon-empty {
+  margin: 0;
+  padding: 18px 4px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 
 /* ---------- 右键菜单 ---------- */

@@ -19,7 +19,9 @@ import { setImageResolver } from "../editor/image";
 import { setSlashConfig } from "../editor/completion";
 import { setViewRenderer } from "../editor/viewBlock";
 import { parseSlashCustom } from "../lib/slash";
+import { normalizeIcon } from "../lib/emoji";
 import { DatabaseView } from "./DatabaseView";
+import { Icon } from "./Icon";
 import type { NoteContent, NoteRef } from "../types";
 import { Backlinks } from "./Backlinks";
 import { FrontmatterSource } from "./FrontmatterSource";
@@ -109,6 +111,13 @@ interface Props {
   /** `[[` 补全的候选来源。用 getter 保证清单变化时不必重建编辑器 */
   getNotes: () => NoteRef[];
   breadcrumb: { name: string; path: string | null }[];
+  /**
+   * 点面包屑最前面那个图标（§2.3 的 frontmatter `icon`）。给屏幕坐标，
+   * 由 App 在那里弹出选择器。
+   *
+   * 可选：只关心编辑行为的测试不必为它准备一个回调
+   */
+  onPickIcon?: (at: { x: number; y: number }) => void;
   onNavigate: (path: string) => void;
   handleRef?: React.MutableRefObject<EditorHandle | null>;
   /** vault 变化时递增，反向链接与 database 视图靠它重查 */
@@ -156,6 +165,7 @@ export function Editor({
   onFollowLink,
   getNotes,
   breadcrumb,
+  onPickIcon,
   onNavigate,
   handleRef,
   revision,
@@ -536,9 +546,33 @@ ${insert}` },
     });
   }, [note.path, note.body]);
 
+  // frontmatter 是用户手写的，`icon:` 完全可能是一整句话或者一个数组 ——
+  // 收敛成一个字符，否则面包屑会被撑成一行文字（见 lib/emoji）
+  const icon =
+    note.frontmatter?.icon === undefined || note.frontmatter?.icon === null
+      ? null
+      : normalizeIcon(String(note.frontmatter.icon));
+
   return (
     <div className="editor">
       <nav className="breadcrumb">
+        {/* 图标的主入口。摆在这里而不是只放右键菜单里：这一行就是这篇文档的
+            «标题栏»，Notion / 思源 都在这个位置改图标，而右键菜单是要先想到
+            「去哪儿找」才用得上的。没设过图标时画一个淡的占位，它同时也是
+            「这里可以设图标」的唯一提示 */}
+        {onPickIcon && (
+          <button
+            className={`crumb-icon${icon ? " has-icon" : ""}`}
+            onClick={(e) => {
+              const box = e.currentTarget.getBoundingClientRect();
+              onPickIcon({ x: box.left, y: box.bottom + 6 });
+            }}
+            title={icon ? "换个图标" : "给这篇设个图标"}
+            aria-label="设置文档图标"
+          >
+            {icon ? <span className="emoji">{icon}</span> : <Icon name="image" size={14} />}
+          </button>
+        )}
         {breadcrumb.map((seg, i) => (
           <span key={i}>
             {i > 0 && <span className="breadcrumb-sep">/</span>}

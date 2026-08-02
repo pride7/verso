@@ -49,6 +49,12 @@ pub struct TreeNode {
     pub order: Option<f64>,
     pub created: Option<String>,
     pub updated: Option<String>,
+
+    /// frontmatter 里的 `icon`（§2.3）—— 一个 emoji，用来在树上一眼认出这篇。
+    ///
+    /// 和上面几个一样由 `tree_list` 从索引补：扫目录时不读文件内容，
+    /// 为了一个图标去打开每一篇笔记，大 vault 里会让侧栏卡住。
+    pub icon: Option<String>,
 }
 
 /// 递归扫描目录，产出合并后的树。
@@ -104,6 +110,7 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             order: None,
             created: None,
             updated: None,
+            icon: None,
         });
     }
 
@@ -123,6 +130,7 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             order: None,
             created: None,
             updated: None,
+            icon: None,
         });
     }
 

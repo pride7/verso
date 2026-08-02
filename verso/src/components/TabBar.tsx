@@ -10,6 +10,11 @@ interface Props {
   pinnedCount: number;
   /** 有未保存改动的那一个（同一时刻至多一个 —— 切页会先落盘） */
   dirtyPath?: string | null;
+  /**
+   * 路径 → 文档图标（§2.3）。标签是等宽的，名字先被截断，
+   * 图标恰好是这时候还认得出「哪一页是哪一页」的东西
+   */
+  icons?: Record<string, string>;
   onPick: (index: number) => void;
   onClose: (index: number) => void;
   onCloseOthers: (index: number) => void;
@@ -39,6 +44,7 @@ export function TabBar({
   active,
   pinnedCount,
   dirtyPath,
+  icons,
   onPick,
   onClose,
   onCloseOthers,
@@ -144,6 +150,13 @@ export function TabBar({
             {/* 固定标记放在名字左边。放右边会和 × 抢位置，而 × 是每个标签
                 都要有的 */}
             {i < pinnedCount && <Icon name="pin" size={11} className="tab-pin" />}
+            {/* 图标只在设过的时候出现。标签栏一共就 168px，给每一页都留一个
+                空位换不来对齐（图钉已经让左边缘参差了），只会更挤 */}
+            {icons?.[path] && (
+              <span className="tab-icon emoji" aria-hidden>
+                {icons[path]}
+              </span>
+            )}
             <span className="tab-name">{labels[i]}</span>
             {/* × 常驻。标签现在等宽，右边本来就留着这块地方 —— 藏起来只
                 换来一个"要先猜它在哪"的按钮。没在当前页时压暗一档，不抢视线。

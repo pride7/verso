@@ -28,6 +28,8 @@ import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { journalInsert } from "./lib/journal";
+import { normalizeIcon, pushRecentIcon } from "./lib/emoji";
+import { IconPicker } from "./components/IconPicker";
 import { parseHeadings, type Heading } from "./lib/outline";
 import {
   activePath,
@@ -190,6 +192,15 @@ export default function App() {
   >(null);
   /** 思维导图铺在正文上（§4.7）。它不是浮层，是同一篇笔记的另一种编辑视图 */
   const [mindmapOpen, setMindmapOpen] = useState(false);
+  /**
+   * 图标选择器开在哪篇笔记上（§2.3 的 frontmatter `icon`）。null = 没开。
+   *
+   * `at` 是弹出坐标；命令面板那条入口没有可以贴的坐标，给 null 就居中弹
+   */
+  const [iconFor, setIconFor] = useState<null | {
+    path: string;
+    at: { x: number; y: number } | null;
+  }>(null);
   /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -305,6 +316,20 @@ export default function App() {
    * 唯一会写文件的是手动排序，那是用户显式拖拽触发的
    */
   const sortedTree = useMemo(() => sortTree(tree, settings.treeSort), [tree, settings.treeSort]);
+
+  /**
+   * 路径 → 文档图标。标签栏和快速切换器都按路径查，摊平成一张表最省事。
+   *
+   * 树本身用 `node.icon`，不走这张表 —— 那边已经拿着节点了。
+   */
+  const iconMap = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const n of tree.flatMap(flatten)) {
+      const ch = n.icon ? normalizeIcon(n.icon) : null;
+      if (ch) out[n.path] = ch;
+    }
+    return out;
+  }, [tree]);
 
 
   /** 立即落盘。切笔记、失焦、Ctrl+S 都走这里。 */
@@ -954,6 +979,7 @@ export default function App() {
   /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
   const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
 
+
   const deleteNode = useCallback(
     async (node: TreeNode) => {
       const n = node.children.length;
@@ -1295,6 +1321,32 @@ export default function App() {
   }, [refresh]);
 
   /**
+   * 设置/去掉一篇笔记的图标（§2.3）。`icon` 为 null = 去掉。
+   *
+   * 走的是 `prop_set` —— 和属性条、database 视图**同一条写入路径**。图标
+   * 说到底就是 frontmatter 里的一个普通字段，不给它开第二条写文件的路：
+   * 那条路迟早会在类型保持、`updated` 刷新、索引更新上和这条分叉。
+   */
+  const setNoteIcon = useCallback(
+    async (path: string, icon: string | null) => {
+      setIconFor(null);
+      try {
+        await api.propSet(path, "icon", icon);
+        if (icon) pushRecentIcon(icon);
+        // 改的正好是当前这篇时要重读 —— 面包屑上的图标和属性条都来自
+        // `note.frontmatter`，不重读的话屏幕上还是旧的那个。
+        // `reloadFromDisk` 自己会刷新文档树
+        if (noteRef.current?.path === path) await reloadFromDisk();
+        else await refresh();
+        setRevision((v) => v + 1);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [refresh, reloadFromDisk],
+  );
+
+  /**
    * 命令表。**全局快捷键、命令面板、设置里那份键位清单都从这里来**。
    *
    * 每条带一个 `defaultKeys` 默认键位，用户在设置里改过的会盖掉它。以前
@@ -1340,6 +1392,15 @@ export default function App() {
         defaultKeys: "Mod+Shift+N",
         enabled: hasNote,
         run: () => createAndOpen(cur),
+      },
+      {
+        id: "note.icon",
+        group: "笔记",
+        label: "设置文档图标",
+        // 默认不绑键位。面包屑上那个图标是主入口，这一条是给「手不想离开
+        // 键盘」的人留的路，以及命令面板本身的可发现性
+        enabled: hasNote,
+        run: () => cur && setIconFor({ path: cur, at: null }),
       },
       {
         id: "note.template",
@@ -1881,6 +1942,7 @@ export default function App() {
         active={tabState.active}
         pinnedCount={tabState.pinnedCount}
         dirtyPath={saveState === "dirty" ? (note?.path ?? null) : null}
+        icons={iconMap}
         onPick={(i) => void applyTabs(gotoTab(tabsRef.current, i))}
         onClose={closeTabAt}
         onCloseOthers={closeOtherTabs}
@@ -1930,6 +1992,7 @@ export default function App() {
             onFollowLink={followLink}
             getNotes={() => noteListRef.current}
             breadcrumb={breadcrumb}
+            onPickIcon={(at) => setIconFor({ path: note.path, at })}
             onNavigate={openPath}
             handleRef={editorRef}
             revision={revision}
@@ -2101,11 +2164,21 @@ export default function App() {
       {switcherOpen && (
         <QuickSwitcher
           notes={noteList}
+          icons={iconMap}
           onPick={(p) => {
             setSwitcherOpen(false);
             void openPath(p);
           }}
           onClose={() => setSwitcherOpen(false)}
+        />
+      )}
+
+      {iconFor && (
+        <IconPicker
+          current={iconMap[iconFor.path] ?? null}
+          anchor={iconFor.at}
+          onPick={(ch) => void setNoteIcon(iconFor.path, ch)}
+          onClose={() => setIconFor(null)}
         />
       )}
 
@@ -2171,6 +2244,21 @@ export default function App() {
               重命名
             </button>
           </li>
+          {/* 纯文件夹没有同名 .md，也就没有能放 `icon:` 的 frontmatter ——
+              §0 第 1 条要求图标跟着用户的文件走，不另建一份索引外的状态 */}
+          {menu.node.kind === "document" && (
+            <li>
+              <button
+                onClick={() => {
+                  const { node, x, y } = menu;
+                  setMenu(null);
+                  setIconFor({ path: node.path, at: { x, y } });
+                }}
+              >
+                {menu.node.icon ? "换个图标…" : "设置图标…"}
+              </button>
+            </li>
+          )}
           <li>
             <button
               onClick={() => {

@@ -335,6 +335,25 @@ impl Index {
         Ok(out?)
     }
 
+    /// 每篇笔记的 `icon`（§2.3）。路径 → 图标。
+    ///
+    /// 和 `sort_keys` 同样的理由走索引：图标要显示在树的**每一行**上，
+    /// 逐篇读 frontmatter 等于刷新一次树就把整个 vault 读一遍。
+    ///
+    /// frontmatter 是用户手写的，`icon` 完全可能是个数组（`icon: [a, b]`），
+    /// 那样 props 表里会有多行 —— 取第一行，不报错。图标是装饰，为它弹一个
+    /// 错误框只会让人莫名其妙。
+    pub fn icons(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT n.path, p.value FROM props p
+             JOIN notes n ON n.id = p.note_id
+             WHERE p.key = 'icon' AND p.value <> ''",
+        )?;
+        let mapped = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let out: std::result::Result<Vec<_>, _> = mapped.collect();
+        Ok(out?)
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

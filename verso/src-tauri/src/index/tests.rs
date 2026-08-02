@@ -418,3 +418,27 @@ fn notes_by_tag_returns_empty_for_unknown_tag() {
     let (_t, _v, idx) = sample();
     assert!(idx.notes_by_tag("不存在的标签").unwrap().is_empty());
 }
+
+/// 文档树上的图标走索引（§2.3 的 `icon`），不逐篇读 frontmatter
+#[test]
+fn icons_come_from_frontmatter() {
+    let (_t, _v, idx) = setup(&[
+        ("甲.md", "---\nicon: 📘\n---\n\n正文\n"),
+        ("乙.md", "---\ntitle: 乙\n---\n\n正文\n"),
+    ]);
+    let icons = idx.icons().unwrap();
+    assert_eq!(icons, vec![("甲.md".to_string(), "📘".to_string())]);
+}
+
+/// `icon:` 被写成空串或数组时不能让树少一行、更不能报错 —— 图标是装饰
+#[test]
+fn icons_tolerate_odd_values() {
+    let (_t, _v, idx) = setup(&[
+        ("空.md", "---\nicon: \"\"\n---\n\n正文\n"),
+        ("多.md", "---\nicon: [📘, 📗]\n---\n\n正文\n"),
+    ]);
+    let icons = idx.icons().unwrap();
+    assert!(!icons.iter().any(|(p, _)| p == "空.md"), "空值不该算图标");
+    let multi: Vec<_> = icons.iter().filter(|(p, _)| p == "多.md").collect();
+    assert!(!multi.is_empty(), "数组至少要给出一个值，由调用方取第一个");
+}

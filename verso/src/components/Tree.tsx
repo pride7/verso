@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { TreeNode } from "../types";
+import { normalizeIcon } from "../lib/emoji";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -135,11 +136,15 @@ function TreeItem({
         </button>
 
         {renaming ? (
-          <RenameInput
-            name={node.name}
-            onSubmit={(v) => onRenameSubmit(node.path, v)}
-            onCancel={onRenameCancel}
-          />
+          <>
+            {/* 改名时图标照样占着位 —— 少了它整行会横向跳一下 */}
+            <NodeIcon node={node} />
+            <RenameInput
+              name={node.name}
+              onSubmit={(v) => onRenameSubmit(node.path, v)}
+              onCancel={onRenameCancel}
+            />
+          </>
         ) : (
           <button
             className="tree-label"
@@ -160,7 +165,11 @@ function TreeItem({
             disabled={!isDoc}
             title={isDoc ? node.path : `${node.path}（纯文件夹，没有同名文档）`}
           >
-            {node.name}
+            {/* 图标在按钮**里面**：点它等于点这一行的名字，都是「打开这篇」。
+                改图标走右键菜单 —— 在这里再插一个可点的小目标，误触的代价
+                （弹出一个面板）比它省下的一次右键大 */}
+            <NodeIcon node={node} />
+            <span className="tree-name">{node.name}</span>
           </button>
         )}
 
@@ -196,6 +205,31 @@ function TreeItem({
         />
       )}
     </li>
+  );
+}
+
+/**
+ * 一行前面的图标（§2.3 的 frontmatter `icon`）。
+ *
+ * **没设图标的行也占这个位置**，画一个很淡的默认图标。只给设过的行加图标
+ * 的话，名字会参差成两列，而参差比多一个淡图标显眼得多；留着位置，设过的
+ * 那几行才真的「一眼跳出来」—— 用户要的就是这个（§6.2：颜色只做重音）。
+ */
+function NodeIcon({ node }: { node: TreeNode }) {
+  // 收敛成一个字符：`icon:` 是用户手写的 YAML，写成一整句话时整棵树都会被
+  // 撑开（见 lib/emoji 的 normalizeIcon）
+  const ch = node.icon ? normalizeIcon(node.icon) : null;
+  if (ch) {
+    return (
+      <span className="tree-icon emoji" aria-hidden>
+        {ch}
+      </span>
+    );
+  }
+  return (
+    <span className="tree-icon is-default" aria-hidden>
+      <Icon name={node.kind === "document" ? "doc" : "vault"} size={13} />
+    </span>
   );
 }
 
