@@ -55,6 +55,15 @@ const HISTORY = [
 ];
 const gitRestore = vi.fn(async (_commit: string, _path: string) => {});
 
+/** 后端拦下关窗之后发来的那个事件，测试里手动触发 */
+let fireClosing: (() => void) | null = null;
+const closeNow = vi.fn(async () => {
+  calls.push("close");
+  return null;
+});
+/** 每条测试自己覆盖，`getSettings` 读它 */
+let settingsPatch: Record<string, unknown> = {};
+
 const gitCommit = vi.fn(async (_message?: string) => {
   calls.push("commit");
   dirty = 0;
@@ -112,7 +121,8 @@ vi.mock("./api", () => ({
     gitRestoreFile: (commit: string, path: string) => gitRestore(commit, path),
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
-    getSettings: async () => ({}),
+    closeNow: () => closeNow(),
+    getSettings: async () => settingsPatch,
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},
     rebuildIndex: async () => ({}),
@@ -122,6 +132,12 @@ vi.mock("./api", () => ({
     ptyClose: async () => {},
   },
   onVaultChanged: async () => () => {},
+  onAppClosing: async (cb: () => void) => {
+    fireClosing = cb;
+    return () => {
+      fireClosing = null;
+    };
+  },
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
   pickVaultFolder: async () => null,
@@ -329,5 +345,51 @@ describe("侧栏里的版本历史", () => {
     });
     expect(gitRestore).toHaveBeenCalledWith("aaa", "甲.md");
     yes.mockRestore();
+  });
+});
+
+describe("关窗之前", () => {
+  /** 触发 Rust 那边的 `app:closing`，并等收尾跑完 */
+  async function close() {
+    await act(async () => {
+      fireClosing?.();
+      await settle(300);
+    });
+  }
+
+  it("先记一个版本，再放行关窗", async () => {
+    dirty = 2;
+    await mount();
+    calls.length = 0;
+    await close();
+
+    expect(gitCommit).toHaveBeenCalled();
+    expect(closeNow).toHaveBeenCalled();
+    // 顺序反了的话，提交会被销毁的窗口切断
+    expect(calls.indexOf("commit")).toBeLessThan(calls.indexOf("close"));
+  });
+
+  it("关掉这一档就只放行，不记版本", async () => {
+    dirty = 2;
+    settingsPatch = { autoCommitOnClose: false };
+    await mount();
+    calls.length = 0;
+    await close();
+
+    expect(gitCommit).not.toHaveBeenCalled();
+    expect(closeNow).toHaveBeenCalled();
+  });
+
+  /**
+   * **收尾失败也必须放行。** 漏掉 `closeNow` 的话，用户看到的是「点 X 没反应」
+   * —— Rust 那边虽然有 5 秒兜底，但干等 5 秒和坏掉没区别。
+   */
+  it("提交失败也照样关得掉", async () => {
+    dirty = 2;
+    gitCommit.mockRejectedValueOnce(new Error("仓库上锁了"));
+    await mount();
+    await close();
+
+    expect(closeNow).toHaveBeenCalled();
   });
 });

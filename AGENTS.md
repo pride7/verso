@@ -435,6 +435,21 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
    也挂不上去 —— 整个渲染函数直接崩。老测试里的 mock api 不会有新命令，
    于是加一个后端命令能把五个不相干的测试打挂。包住整个调用点，别只包 await。
 
+**顺带一条不限于 git 的：给 `src/api.ts` 加一个具名导出（不是往 `api` 对象里
+加方法），所有 App 级 browser 测试会当场挂掉**，报的是
+`does not provide an export named 'x'` —— 因为它们的 `vi.mock("./api", …)` 是
+工厂形式，工厂没返回的具名导出在 ESM 链接期就不存在了。加一个就得去那八九个
+mock 里各补一行。所以能挂在 `api` 对象上的就别单独导出；确实要单独导出的
+（`onXxx` 这类事件监听），改完记得 `pnpm test:browser` 全跑一遍。
+
+### 关窗流程（改动前先读）
+
+Rust 侧 `on_window_event` 拦下 `CloseRequested` → 发 `app:closing` → 前端落盘、
+按设置提交 → 调 `close_now`（用 `destroy` 而不是 `close`，后者会再触发一次
+`CloseRequested`）。两道保险缺一不可：**前端那边 `closeNow` 必须在 `finally`
+里**，Rust 那边 5 秒后无论如何 `destroy`。任何一道漏掉，用户遇到的都是
+「点 X 关不掉」—— 而那比丢一次自动提交严重得多。第二次点 X 直接放行。
+
 ## 当前状态
 
 **v0.5.45 — M3 索引与 database 已完成；M5 的本地版本历史已完成。**

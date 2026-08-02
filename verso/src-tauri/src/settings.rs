@@ -143,6 +143,13 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub auto_commit_on_blur: bool,
 
+    /// 关软件之前也记一个版本（§2.8）。
+    ///
+    /// 默认开：合上电脑就走的人，「停手 5 分钟」这一档对他等于不存在 ——
+    /// 他停手的那一刻正是关窗的那一刻。
+    #[serde(default = "default_true")]
+    pub auto_commit_on_close: bool,
+
     /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
     /// 链接、焦点环、选中标记这些「重音」上
     #[serde(default = "default_accent_hue")]
@@ -197,6 +204,7 @@ impl Default for Settings {
             journal_keep: default_journal_keep(),
             auto_commit_idle_min: default_auto_commit_idle(),
             auto_commit_on_blur: default_true(),
+            auto_commit_on_close: default_true(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
@@ -315,6 +323,19 @@ mod tests {
         assert_eq!(s.theme, "dark");
         assert_eq!(s.body_font_size, 16.5);
         assert_eq!(s.custom_snippets, "");
+    }
+
+    /// 三个自动记版本的开关都默认开着。旧版本存下来的设置文件里根本没有
+    /// 这几个键 —— 少一个就当 `false` 的话，用户会以为「关软件不记版本」
+    /// 是个 bug，而设置界面上那一档明明写着「记」
+    #[test]
+    fn commit_switches_default_to_on_for_old_settings_files() {
+        let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(s.auto_commit_on_blur);
+        assert!(s.auto_commit_on_close);
+        // 显式关掉的要留住
+        let s: Settings = serde_json::from_str(r#"{"autoCommitOnClose":false}"#).unwrap();
+        assert!(!s.auto_commit_on_close);
     }
 
     #[test]

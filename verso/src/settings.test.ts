@@ -53,6 +53,19 @@ describe("设置夹紧", () => {
     expect(s.contentWidth).toBe(DEFAULT_SETTINGS.contentWidth);
   });
 
+  // 三个开关都默认开着，读进来的却可能是老版本存的设置文件（那时根本没有
+  // 这几个键）。少一个键就当没开过的话，用户会以为「关软件不记版本」是个 bug
+  it("布尔开关缺了就回默认，不是 false", () => {
+    const s = sanitize({ ...DEFAULT_SETTINGS, autoCommitOnClose: undefined as never });
+    expect(s.autoCommitOnClose).toBe(true);
+    expect(sanitize({ ...DEFAULT_SETTINGS, autoCommitOnClose: "yes" as never }).autoCommitOnClose)
+      .toBe(true);
+    // 显式关掉要留住
+    expect(sanitize({ ...DEFAULT_SETTINGS, autoCommitOnClose: false }).autoCommitOnClose).toBe(
+      false,
+    );
+  });
+
   it("不认识的主题回退到跟随系统", () => {
     const s = sanitize({ ...DEFAULT_SETTINGS, theme: "霓虹" as never });
     expect(s.theme).toBe("system");

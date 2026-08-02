@@ -342,6 +342,27 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
                   </div>
                 </div>
               </div>
+              <div className="set-row">
+                <div className="set-label">
+                  <span>关软件之前记一个版本</span>
+                  <span className="set-hint">
+                    合上电脑就走的话，「停手多久」那一档等于不存在 —— 停手的那一刻就是关窗那一刻
+                  </span>
+                </div>
+                <div className="set-control">
+                  <div className="segmented">
+                    {([true, false] as const).map((v) => (
+                      <button
+                        key={String(v)}
+                        className={settings.autoCommitOnClose === v ? "is-on" : undefined}
+                        onClick={() => onChange({ autoCommitOnClose: v })}
+                      >
+                        {v ? "记" : "不记"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
               <Slider
                 label="自动记版本"
                 hint="停手这么久之后，把改动记成一个版本。0 = 不自动记"

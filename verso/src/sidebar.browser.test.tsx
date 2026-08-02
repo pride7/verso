@@ -80,6 +80,7 @@ vi.mock("./api", () => ({
     ptyClose: async () => {},
   },
   onVaultChanged: async () => () => {},
+  onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
   pickVaultFolder: async () => null,

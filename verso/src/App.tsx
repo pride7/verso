@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { api, onVaultChanged, pickVaultFolder } from "./api";
+import { api, onAppClosing, onVaultChanged, pickVaultFolder } from "./api";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { Icon } from "./components/Icon";
@@ -1042,6 +1042,32 @@ export default function App() {
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
+  }, [saveNow, commitNow]);
+
+  /**
+   * 关窗前的收尾（§2.7 落盘 + §2.8 记一个版本）。
+   *
+   * 点 X 的那一刻，最后敲的几个字可能还在自动保存的 800ms 窗口里 —— 窗口
+   * 一销毁前端连一个 tick 都没有，那几个字就真的没了。所以 Rust 那边先把
+   * 关窗拦下来发这个事件，我们做完再让它关。
+   *
+   * **`closeNow` 必须在 finally 里**：保存失败、提交失败、vault 已经关了 ——
+   * 任何一条岔路上漏掉它，用户看到的都是「点 X 没反应」。Rust 那边虽然有
+   * 5 秒的兜底，但让人干等 5 秒和坏掉没区别。
+   */
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onAppClosing(async () => {
+      try {
+        if (dirtyRef.current) await saveNow();
+        if (settingsRef.current.autoCommitOnClose) await commitNow();
+      } finally {
+        await api.closeNow();
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
   }, [saveNow, commitNow]);
 
   // 全局快捷键。键位不写在这里 —— 全部来自下面那张命令表（`commands`），

@@ -10,6 +10,7 @@ mod winpath;
 mod workspace;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -26,6 +27,8 @@ struct AppState {
     self_writes: std::sync::Arc<watcher::SelfWrites>,
     /// 持有它就是在监听；换 vault 时替换掉，旧的 Drop 里会停线程
     watcher: Mutex<Option<watcher::VaultWatcher>>,
+    /// 已经在走关窗流程了。见 `run()` 里的 `on_window_event`
+    closing: AtomicBool,
 }
 
 impl AppState {
@@ -590,6 +593,24 @@ fn settings_set(app: AppHandle, settings: settings::Settings) -> Result<settings
     Ok(clean)
 }
 
+/// 关窗前给前端的通知。见 `run()` 里的 `on_window_event`
+const CLOSING_EVENT: &str = "app:closing";
+
+/// 前端最多有这么久做收尾。超了就不等了 —— **卡死的收尾不能变成关不掉的窗口**。
+///
+/// 就算真被切断，丢的也只是「关机前那一个版本」而不是内容：收尾的第一步是
+/// 落盘，落盘完才轮到提交。
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 前端收尾做完了，可以真的关了。
+///
+/// 用 `destroy` 而不是 `close`：后者会再发一次 `CloseRequested`，又绕回
+/// 上面那段拦截逻辑。
+#[tauri::command]
+fn close_now(window: tauri::Window) {
+    let _ = window.destroy();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -639,7 +660,31 @@ pub fn run() {
             workspace_set,
             settings_get,
             settings_set,
+            close_now,
         ])
+        .on_window_event(|window, event| {
+            // 点 X 的那一刻，编辑器里最后敲的几个字可能还没落盘（§2.7 的自动
+            // 保存是停手 800ms 才发生的），也还没记成版本（§2.8）。窗口一旦
+            // 销毁，前端连一个 tick 都没有 —— 所以先拦下来，让它把手里的事
+            // 做完，再由 `close_now` 真的关。
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else {
+                return;
+            };
+            let state = window.state::<AppState>();
+            // 第二次点 X = 「我知道它在收尾，但我现在就要走」。直接放行，
+            // 不然一个卡住的前端就等于一个关不掉的窗口
+            if state.closing.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            api.prevent_close();
+            let _ = window.emit(CLOSING_EVENT, ());
+            // 安全网：前端崩了、或者根本没挂上监听（比如白屏），也得能关掉
+            let w = window.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(CLOSE_GRACE);
+                let _ = w.destroy();
+            });
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

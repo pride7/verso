@@ -138,6 +138,9 @@ export const api = {
   gitRestoreFile: (commit: string, path: string) =>
     call<void>("git_restore_file", { commit, path }),
 
+  /** 收尾做完了，可以真的关窗了。见 `onAppClosing` */
+  closeNow: () => call<null>("close_now"),
+
   // —— §2.1 每个 vault 的界面状态：标签页 ——
   /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */
   workspaceGet: () => call<Workspace>("workspace_get"),
@@ -152,6 +155,16 @@ export const api = {
 /** 外部程序（AI CLI、git、别的编辑器）改了 vault 里的文件（§2.7） */
 export const onVaultChanged = (cb: (paths: string[]) => void): Promise<UnlistenFn> =>
   listen<{ paths: string[] }>("vault:changed", (ev) => cb(ev.payload.paths));
+
+/**
+ * 窗口要关了，但还没关。
+ *
+ * Rust 那边拦下了关窗、发来这个事件，然后**只等 5 秒**。收到之后要做的事
+ * 就两件：落盘、按设置记一个版本；做完（或者出错）都必须调 `closeNow`，
+ * 不然用户得再点一次 X。见 `lib.rs` 的 `on_window_event`。
+ */
+export const onAppClosing = (cb: () => void): Promise<UnlistenFn> =>
+  listen("app:closing", () => cb());
 
 /** PTY 输出。`data` 是 base64 的原始字节，交给 xterm 自己解 UTF-8。 */
 export const onPtyData = (cb: (e: { id: string; data: string }) => void): Promise<UnlistenFn> =>

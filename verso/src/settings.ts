@@ -57,6 +57,13 @@ export interface Settings {
    */
   autoCommitOnBlur: boolean;
   /**
+   * 关软件之前也记一个版本（§2.8）。
+   *
+   * 默认开：合上电脑就走的人，「停手 N 分钟」那一档对他等于不存在 ——
+   * 他停手的那一刻正是关窗的那一刻。
+   */
+  autoCommitOnClose: boolean;
+  /**
    * 点侧栏里的文件时开新标签还是替换当前标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
@@ -108,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   journalKeep: 3,
   autoCommitIdleMin: 5,
   autoCommitOnBlur: true,
+  autoCommitOnClose: true,
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
@@ -210,6 +218,10 @@ export function sanitize(s: Settings): Settings {
     ),
     autoCommitOnBlur:
       typeof s.autoCommitOnBlur === "boolean" ? s.autoCommitOnBlur : DEFAULT_SETTINGS.autoCommitOnBlur,
+    autoCommitOnClose:
+      typeof s.autoCommitOnClose === "boolean"
+        ? s.autoCommitOnClose
+        : DEFAULT_SETTINGS.autoCommitOnClose,
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)
