@@ -31,6 +31,16 @@ try {
 
     if (-not (Test-Path $so)) { throw ".so 没编出来：$so" }
 
+    # `tauri android init` **不认 src-tauri/icons/android/**，会自己塞一套
+    # Tauri 默认 logo 进去。每次打包都覆盖回真图标，免得哪天重新 init 之后
+    # 又变回那个青黄配色的默认图案
+    $icons = Join-Path $root 'src-tauri\icons\android'
+    $res = Join-Path $root 'src-tauri\gen\android\app\src\main\res'
+    if (Test-Path $icons) {
+        Copy-Item "$icons\mipmap-*" $res -Recurse -Force
+        Copy-Item "$icons\values\*" (Join-Path $res 'values') -Force
+    }
+
     Write-Host '== 拷 .so 到 jniLibs ==' -ForegroundColor Cyan
     New-Item -ItemType Directory -Force $jni | Out-Null
     Copy-Item $so (Join-Path $jni 'libverso_lib.so') -Force

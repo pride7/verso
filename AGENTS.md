@@ -179,6 +179,12 @@ app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动
 你以为的那个元素。查 z-index、查类名、看截图，三者都会告诉你「没问题」。
 `mobile.browser.test.tsx` 里有一条照着写。
 
+### `tauri android init` 会无视 `src-tauri/icons/android/`
+
+它自己塞一套 Tauri 默认 logo（青黄那个双圈）进 `gen/android/.../res/mipmap-*`，
+而真图标一直好好地躺在 `src-tauri/icons/android/` 里（`tauri icon` 生成的）。
+`scripts/android-apk.ps1` 每次打包都覆盖一遍，重新 init 也不会退回去。
+
 ### 真机上调界面：连 WebView 的 devtools，别截屏
 
 debug 包的 WebView 开着远程调试，可以直接在手机上跑的页面里执行 JS：
