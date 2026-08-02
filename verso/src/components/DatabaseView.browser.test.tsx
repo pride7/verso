@@ -1298,3 +1298,34 @@ describe("列宽拖杆的位置", () => {
     }
   });
 });
+
+describe("表头和下面的单元格对齐", () => {
+  it("列头那一块和下面的行等宽、左边对齐", async () => {
+    // `th` 的内边距在格子上、`td` 的在里面的按钮上 —— 两边用的不是同一套盒子，
+    // 表头那块就只有文字那么宽，hover 底色只包住「标题」两个字
+    const view = mount(
+      ['from: "论文/*"', "view: table", "columns: [title, status]", "widths: title=220, status=90"].join("\n"),
+    );
+    await settle();
+
+    const th = view.dom.querySelector<HTMLElement>('th[data-col="title"] .dbview-th')!;
+    const cell = view.dom.querySelector<HTMLElement>(".dbview-link")!;
+    const a = th.getBoundingClientRect();
+    const b = cell.getBoundingClientRect();
+
+    expect(Math.abs(a.left - b.left), "左边没对齐").toBeLessThan(1.5);
+    expect(Math.abs(a.width - b.width), "宽度不一样").toBeLessThan(1.5);
+  });
+
+  it("列名和下面的标题文字起点一致", async () => {
+    const view = mount(
+      ['from: "论文/*"', "view: table", "columns: [title, status]", "widths: title=220, status=90"].join("\n"),
+    );
+    await settle();
+    const headIcon = view.dom
+      .querySelector<HTMLElement>('th[data-col="title"] .dbview-th svg')!
+      .getBoundingClientRect();
+    const rowIcon = view.dom.querySelector<HTMLElement>(".dbview-rowicon")!.getBoundingClientRect();
+    expect(Math.abs(headIcon.left - rowIcon.left)).toBeLessThan(1.5);
+  });
+});

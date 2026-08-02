@@ -2883,12 +2883,21 @@ textarea:focus-visible {
 /* 表头做成按钮，但要看着还是表头 —— 不是一排控件 */
 .dbview-th {
   /* **整块列头就是「打开这一列的菜单」**，所以要有 hover 反馈 ——
-     没有的话它看着像一段静止的文字，没人会想到去点 */
-  display: inline-flex;
+     没有的话它看着像一段静止的文字，没人会想到去点。
+
+     **它要和下面的单元格一样宽、左边一样齐。** `td` 的内边距是 0、
+     由里面的 `.dbview-link` 自己带 8px；表头这边内边距在 `th` 上，
+     所以用负外边距把它抵消掉，改由这个按钮自己带 —— 两边这才用上
+     同一套盒子，hover 底色也就和下面的行等宽了 */
+  display: flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 5px;
-  margin: 0 -3px;
+  /* `flex: none` 是必须的：它比父容器宽 16px（要盖住 th 的内边距），
+     而 flex 子项默认会被压回容器宽度 —— 那 16px 就白加了 */
+  flex: none;
+  width: calc(100% + 16px);
+  margin: -6px -8px;
+  padding: 6px 8px;
   font: inherit;
   color: inherit;
   border-radius: var(--r-xs);
@@ -3010,9 +3019,9 @@ textarea:focus-visible {
 
 /* 列头：名字 + ⋮，⋮ 平时不显示 */
 .dbview-thwrap {
-  /* 拖杆是绝对定位的，得有个 positioned 祖先 */
-  position: relative;
-  display: inline-flex;
+  /* **flex 而不是 inline-flex**：inline-flex 只有内容那么宽，里面的按钮
+     再怎么 100% 也撑不到整列，hover 底色就只包住「标题」两个字 */
+  display: flex;
   align-items: center;
   gap: 2px;
 }
@@ -3687,7 +3696,8 @@ textarea:focus-visible {
    全绿（裁剪不改变 getBoundingClientRect）。要截断就截里面那个按钮。 */
 .dbview-table.is-sized .dbview-th {
   overflow: hidden;
-  max-width: 100%;
+  /* **不要 `max-width: 100%`。** 这个按钮有意比容器宽 16px（要盖住 th 的
+     内边距，好和下面的单元格等宽），max-width 会把那 16px 又剪回去 */
 }
 /* 定宽之后标题也得能截断，否则一个长标题会把那一格顶出去 */
 .dbview-table.is-sized .dbview-th,
