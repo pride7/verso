@@ -26,11 +26,6 @@ ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 
-# §2.8 的底座。M5b 打开了网络特性：
-# - https：走系统 TLS，**不引入 openssl**（vendored-openssl 会让 Windows
-#   构建变成一场噩梦，而系统 TLS 用的本来就是用户已经信任的那套根证书）
-# - ssh：libssh2，配合 ssh-agent 或 ~/.ssh 下的默认密钥
-git2 = { version = "0.20", default-features = false, features = ["https"] }
 # 同步用的访问令牌存进系统钥匙串（Windows 凭据管理器 / macOS 钥匙串），
 # **不进设置文件**：那是明文 JSON，会被备份、会被同步、会被顺手贴给别人看。
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
@@ -48,3 +43,26 @@ portable-pty = "0.9"
 # PTY 输出是原始字节，一个多字节 UTF-8 字符可能被读取边界切开。
 # 用 base64 原样传给前端、由 xterm 自己解码，中文输出才不会变乱码。
 base64 = "0.22"
+
+# §2.8 的底座。M5b 打开了网络特性：
+# - https：走系统 TLS，**不引入 openssl**（vendored-openssl 会让 Windows
+#   构建变成一场噩梦，而系统 TLS 用的本来就是用户已经信任的那套根证书）
+# - ssh：libssh2，配合 ssh-agent 或 ~/.ssh 下的默认密钥
+#
+# **`https` 只给桌面开。** Android 上 libgit2 的 https 后端是 OpenSSL
+# （Windows 走 schannel、macOS 走 Security.framework，都不需要额外的东西），
+# 而系统里没有可链接的 OpenSSL，只能 vendored 从源码编 —— 那条路在 Windows
+# 主机上要一个「产生 Unix 风格路径、且 core 模块齐全」的 perl，git 自带的
+# MSYS perl 被精简过（缺 Locale::Maketext::Simple、ExtUtils::MakeMaker…），
+# Strawberry 又被 OpenSSL 的 Configure 以「路径风格不对」当场拒掉。
+#
+# 补模块是打地鼠，而且补出来的东西 `scoop update git` 一次就冲掉。**更重要的是
+# 这份功夫大概率是白费的**：安卓上的正解是给 libgit2 注册一个用 rustls 的
+# 自定义传输层（`git2::transport`），那样连 OpenSSL 都不需要，包也更小。
+# 在那之前，安卓包里 https 仓库同步不了 —— `sync()` 会明确报出这一点，
+# 而不是抛一句 libgit2 的 "unsupported URL protocol"。
+[target.'cfg(not(target_os = "android"))'.dependencies]
+git2 = { version = "0.20", default-features = false, features = ["https"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+git2 = { version = "0.20", default-features = false }

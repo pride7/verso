@@ -179,6 +179,38 @@ webview 里的 `dragstart` / `drop` 根本收不到。tauri-utils 的 `config.rs
 **所有页面级的溢出问题都会被完整屏蔽**。这条踩过：整个界面能被顶出视口，而
 诊断测试一路全绿。照着 `index.html` 来：`<div id="root">`，别的什么都不加。
 
+### Android 构建：踩过的四个坑，按顺序
+
+工具链是 scoop 装的，**不需要 Android Studio**：
+`scoop install java/openjdk17 android-clt perl` + `sdkmanager` 装
+platform-tools / platforms;android-34 / build-tools;34.0.0 / ndk;27.2.12479018。
+环境变量 `ANDROID_HOME`、`NDK_HOME`、`JAVA_HOME` 三个都要有（scoop 只会自动设
+前面两个里的一个，`NDK_HOME` 得自己补）。
+
+1. **别用裸 `cargo build --target aarch64-linux-android`。** 它不配 NDK 的
+   编译器环境，`libsqlite3-sys` / `blake3` 会报「找不到 aarch64-linux-android-clang」。
+   走 `pnpm tauri android build`，那条命令自己会设 CC/AR/PATH。
+2. **`https` 只给桌面开，安卓那份 git2 不带它**（Cargo.toml 里有整段说明）。
+   安卓上 libgit2 的 https 后端是 OpenSSL，而 vendored 编译在 Windows 主机上
+   要一个「产生 Unix 风格路径**且** core 模块齐全」的 perl —— git 自带的 MSYS
+   perl 被精简过（缺 `Locale::Maketext::Simple`、`ExtUtils::MakeMaker`…），
+   Strawberry Perl 又会被 OpenSSL 的 Configure 以「路径风格不对」当场拒掉。
+   **这是个死结，别再去补 perl 模块**；正解是给 libgit2 注册一个走 rustls 的
+   自定义传输层（`git2::transport`）。
+3. **`[target.'cfg(…)'.dependencies]` 必须放在 Cargo.toml 末尾。** TOML 里那张
+   表一出现，**后面所有的裸依赖行都算进它**。把它插在 `[dependencies]` 中间的
+   话，`rusqlite`、`notify`、`blake3`、`portable-pty` 会一起变成「只有安卓才有」，
+   桌面构建当场报 `unresolved import rusqlite` —— 而错误信息和你刚改的那一行
+   毫无关系。
+4. **最后一步的符号链接需要开发者模式。** Tauri 要把 `.so` 从 target 目录软链
+   到 `gen/android/app/src/main/jniLibs/`，Windows 上非管理员建符号链接要先开
+   「开发者模式」（这台机器没开）。绕法是手动把 `.so` 拷过去，再
+   `gradlew assembleArm64Debug -x rustBuildArm64Debug`（`-x` 跳过那一步，
+   否则它会重跑 cargo 又撞上同一个链接）。
+
+**debug 的 `.so` 有 164 MB**（没 strip），所以 debug APK 172 MB。这不是包大小
+失控，release 会小一个量级。
+
 ### ⚠️ 不要用 `cargo check`
 
 这台机器开着 **Smart App Control**（`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy`

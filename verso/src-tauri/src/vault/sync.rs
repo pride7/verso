@@ -242,6 +242,16 @@ pub fn sync(root: &Path, token: Option<String>) -> Result<SyncOutcome> {
         .find_remote(REMOTE)
         .map_err(|_| Error::Vault("还没配远端，去设置里填一个仓库地址".into()))?;
 
+    // 安卓包里没有 https 后端（Cargo.toml 那段说明写了为什么）。**在这里
+    // 拦下来说人话** —— libgit2 抛的是 "unsupported URL protocol"，那句话
+    // 只会让人以为自己的仓库地址填错了
+    #[cfg(target_os = "android")]
+    if remote.url().map(needs_token).unwrap_or(false) {
+        return Err(Error::Vault(
+            "这一版安卓包还不能同步 https 仓库，正在做（见 §2.8）".into(),
+        ));
+    }
+
     let mut out = SyncOutcome::default();
     // 1. 本地改动先落成一个版本
     out.committed = commit_all(root, None)?;
