@@ -50,6 +50,14 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
 
   const entries = Object.entries(frontmatter ?? {}).filter(([k]) => !INTERNAL.has(k));
   const tags = frontmatter?.tags;
+  const shownTags = Array.isArray(tags) ? tags.filter((t) => String(t).trim()) : [];
+  /**
+   * 折叠态的计数**不含 tags** —— 它们已经以标签的样子摆在旁边了。
+   *
+   * 之前是 `entries.length`，于是一篇只有 `tags: [测试]` 的笔记会显示
+   * 「#测试　1 个属性」，同一个东西数了两遍，看着像还藏着一条没显示的属性。
+   */
+  const restCount = entries.filter(([k]) => k !== "tags").length;
 
   useEffect(() => {
     if (editing !== null) inputRef.current?.focus();
@@ -115,14 +123,14 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
           <span className="props-label">属性</span>
         ) : (
           <span className="props-summary">
-            {Array.isArray(tags) && tags.length > 0
-              ? tags.map((t) => (
-                  <span key={String(t)} className="props-tag">
-                    #{String(t)}
-                  </span>
-                ))
-              : null}
-            <span className="props-count">{entries.length} 个属性</span>
+            {shownTags.map((t) => (
+              <span key={String(t)} className="props-tag">
+                #{String(t)}
+              </span>
+            ))}
+            {/* 一条别的属性都没有时不显示「0 个属性」—— 那是句废话，
+                而且会让人以为有什么东西没显示出来 */}
+            {restCount > 0 && <span className="props-count">{restCount} 个属性</span>}
           </span>
         )}
       </button>

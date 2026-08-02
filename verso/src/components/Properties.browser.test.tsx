@@ -22,18 +22,12 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function render() {
+function render(frontmatter: Record<string, unknown> = { id: "01X", status: "已读", tags: ["深度学习"], 难度: 4 }) {
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;inset:0;padding:40px";
   document.body.appendChild(host);
   root = createRoot(host);
-  root.render(
-    <Properties
-      frontmatter={{ id: "01X", status: "已读", tags: ["深度学习"], 难度: 4 }}
-      path="a.md"
-      onChanged={() => {}}
-    />,
-  );
+  root.render(<Properties frontmatter={frontmatter} path="a.md" onChanged={() => {}} />);
 }
 
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -93,5 +87,41 @@ describe("属性条", () => {
     root.render(<Properties frontmatter={{ id: "01X" }} path="a.md" onChanged={() => {}} />);
     await tick();
     expect(document.querySelector(".props")).toBeNull();
+  });
+});
+
+describe("折叠态的那一行", () => {
+  it("箭头和标签在同一行 —— 不是箭头单独飘在上面", async () => {
+    // 摘要那一块是 flex 盒（要横排标签），而 flex 盒是块级的：外面那个按钮
+    // 不是 flex 的话，它会自己另起一行，箭头就孤零零地浮在标签上方
+    render();
+    await tick();
+    const caret = document.querySelector<HTMLElement>(".props-caret")!.getBoundingClientRect();
+    const summary = document.querySelector<HTMLElement>(".props-summary")!.getBoundingClientRect();
+
+    expect(caret.top).toBeLessThan(summary.bottom);
+    expect(caret.bottom).toBeGreaterThan(summary.top);
+    expect(caret.right).toBeLessThanOrEqual(summary.left + 1);
+  });
+
+  it("计数不含 tags —— 它已经以标签的样子摆在旁边了", async () => {
+    render({ tags: ["测试"] });
+    await tick();
+    expect(document.querySelector(".props-tag")?.textContent).toBe("#测试");
+    // 「#测试　1 个属性」是同一个东西数了两遍
+    expect(document.querySelector(".props-count")).toBeNull();
+  });
+
+  it("除了 tags 还有别的属性时才计数", async () => {
+    render({ tags: ["测试"], status: "已读", 难度: 4 });
+    await tick();
+    expect(document.querySelector(".props-count")?.textContent).toBe("2 个属性");
+  });
+
+  it("空标签不画出来 —— `tags: []` 或者写了个空字符串", async () => {
+    render({ tags: ["", "  "], status: "已读" });
+    await tick();
+    expect(document.querySelector(".props-tag")).toBeNull();
+    expect(document.querySelector(".props-count")?.textContent).toBe("1 个属性");
   });
 });

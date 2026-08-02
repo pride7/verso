@@ -1088,8 +1088,14 @@ body.is-resizing {
   margin: 0 0 14px;
   font-size: 12px;
 }
+/* **必须是 flex。** 里面是「箭头 + 摘要」两个 span，而摘要自己是
+   `display: flex`（要横排标签）—— flex 盒是块级的，跟在行内的箭头后面会
+   自己另起一行，表现就是箭头孤零零地浮在标签上方。这个 bug 一直在，
+   因为两行看起来也「像有那么回事」 */
 .props-toggle {
-  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 2px;
   color: var(--muted);
   border-radius: var(--r-sm);
