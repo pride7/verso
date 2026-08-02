@@ -319,3 +319,68 @@ describe("侧栏里的模板面板", () => {
     expect(empty).toContain("{{title}}");
   });
 });
+
+describe("默认快捷键", () => {
+  /** 命令面板里那一行显示的键位 —— 用户看到的就是这个 */
+  function keyOf(label: string): string | undefined {
+    const row = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
+      (b) => b.querySelector(".palette-label")?.textContent === label,
+    );
+    return row?.querySelector(".palette-keys")?.textContent ?? undefined;
+  }
+
+  async function openPalette() {
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+      await settle(200);
+    });
+  }
+
+  it("三条模板命令都有默认键位", async () => {
+    await mountApp();
+    await openPalette();
+
+    expect(keyOf("插入模板")).toBe("Ctrl+Alt+T");
+    // 和「新建文档」的 Ctrl+N 成一对：多按一个 Alt = 这次带模板
+    expect(keyOf("用模板新建文档")).toBe("Ctrl+Alt+N");
+    expect(keyOf("模板面板")).toBe("Ctrl+Shift+M");
+  });
+
+  /**
+   * **两条命令绑同一个键 = 其中一条是死的**，而界面上不会有任何提示：
+   * 派发时先匹配到谁就跑谁。加一条新命令时最容易犯这个错，所以这条
+   * 测试扫的是整张命令表，不是模板这几条。
+   */
+  it("整张命令表里没有两条命令抢同一个键", async () => {
+    await mountApp();
+    await openPalette();
+
+    const seen = new Map<string, string>();
+    for (const b of document.querySelectorAll<HTMLElement>(".palette-list button")) {
+      const keys = b.querySelector(".palette-keys")?.textContent;
+      const label = b.querySelector(".palette-label")?.textContent ?? "";
+      if (!keys) continue;
+      expect(seen.has(keys), `「${label}」和「${seen.get(keys)}」都绑了 ${keys}`).toBe(false);
+      seen.set(keys, label);
+    }
+    // 命令面板默认只列出可用的命令，扫到的条数得像回事，否则这条测试是空转
+    expect(seen.size).toBeGreaterThan(10);
+  });
+
+  it("按下 Ctrl+Alt+T 就插入 —— 不用先打开面板", async () => {
+    await mountApp();
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyT",
+          ctrlKey: true,
+          altKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await settle(300);
+    });
+    expect(document.querySelector(".modal"), "该弹出模板选择器").not.toBeNull();
+  });
+});

@@ -989,8 +989,9 @@ export default function App() {
         id: "note.template",
         group: "笔记",
         label: "插入模板",
-        // 默认不绑键位：模板是低频到中频的操作，而好按的组合键已经不多了。
-        // `/` 菜单里有它，命令面板里也有，想要键位的人去设置里绑
+        // T = Template。**不用 Mod+Shift+T**，那是标签面板；也不用 Mod+M，
+        // macOS 上 Cmd+M 是系统级的「最小化窗口」，抢不过来
+        defaultKeys: "Mod+Alt+T",
         enabled: hasNote,
         run: () => setTemplateFor({ mode: "insert" }),
       },
@@ -998,6 +999,8 @@ export default function App() {
         id: "note.newFromTemplate",
         group: "笔记",
         label: "用模板新建文档",
+        // 和「新建文档」的 Mod+N 成一对：多按一个 Alt = 这次带模板
+        defaultKeys: "Mod+Alt+N",
         run: () => setTemplateFor({ mode: "new", parent: null }),
       },
       {
@@ -1070,8 +1073,9 @@ export default function App() {
         id: "note.templates",
         group: "笔记",
         label: "模板面板",
-        // 默认不绑键位：好按的组合键不多了，而这个面板本身就在侧栏上有图标。
-        // 命令表是唯一真源，想要键位的人去设置里绑
+        // 侧栏那几个面板都是 Mod+Shift+字母（树 E、搜索 F、标签 T、大纲 O），
+        // 模板取 M
+        defaultKeys: "Mod+Shift+M",
         run: () => pickView("template"),
       },
       {
