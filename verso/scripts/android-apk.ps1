@@ -71,13 +71,19 @@ try {
         Select-String -Pattern 'BUILD|FAILURE|What went wrong' | Select-Object -Last 5
 
     $apk = Join-Path $root "src-tauri\gen\android\app\build\outputs\apk\arm64\$profile_\app-arm64-$profile_.apk"
-    if (Test-Path $apk) {
-        $mb = [math]::Round((Get-Item $apk).Length / 1MB, 1)
-        Write-Host "APK: $apk ($mb MB)" -ForegroundColor Green
-        Write-Host '装到手机：adb install -r "' -NoNewline; Write-Host "$apk`"" -NoNewline; Write-Host ''
-    } else {
-        throw "APK 没生成"
-    }
+    if (-not (Test-Path $apk)) { throw "APK 没生成" }
+
+    # gradle 出来的叫 `app-arm64-release.apk` —— 「app」是模块名，不是软件名。
+    # 改成和桌面安装包一个格式（`Verso_0.6.13_x64-setup.exe`），这样下载下来
+    # 一眼知道是什么、哪个版本
+    $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json).version
+    $suffix = if ($Release) { '' } else { '-debug' }
+    $named = Join-Path (Split-Path $apk) "Verso_${version}_arm64$suffix.apk"
+    Copy-Item $apk $named -Force
+
+    $mb = [math]::Round((Get-Item $named).Length / 1MB, 1)
+    Write-Host "APK: $named ($mb MB)" -ForegroundColor Green
+    Write-Host '装到手机：adb install -r "' -NoNewline; Write-Host "$named`"" -NoNewline; Write-Host ''
 } finally {
     Pop-Location
 }
