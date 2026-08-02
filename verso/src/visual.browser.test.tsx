@@ -444,6 +444,23 @@ describe("视觉工作台", () => {
     alive();
   });
 
+  it("浅色 · 思维导图", async () => {
+    render();
+    await settle(700);
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
+    await shot("15-light-mindmap");
+    alive();
+  });
+
+  it("深色 · 思维导图", async () => {
+    theme = "dark";
+    render();
+    await settle(700);
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
+    await shot("16-dark-mindmap");
+    alive();
+  });
+
   it("浅色 · 模板面板", async () => {
     render();
     await settle(600);

@@ -18,6 +18,9 @@ interface Props {
   sidebarOpen: boolean;
   sourceMode: boolean;
   onToggleSourceMode: () => void;
+  /** 思维导图开着没有。null = 现在没有打开的笔记，这个按钮不该能按 */
+  mindmapOn: boolean | null;
+  onToggleMindmap: () => void;
   termOpen: boolean;
   onToggleTerm: () => void;
   onSystemTerminal: () => void;
@@ -56,6 +59,8 @@ export function ActivityBar({
   sidebarOpen,
   sourceMode,
   onToggleSourceMode,
+  mindmapOn,
+  onToggleMindmap,
   termOpen,
   onToggleTerm,
   onSystemTerminal,
@@ -92,6 +97,19 @@ export function ActivityBar({
         aria-pressed={sourceMode}
       >
         <Icon name="code" />
+      </button>
+      {/* 导图是「当前这篇」的另一种视图，紧挨着源码模式 —— 它俩是一类：
+          都是把同一份内容换个样子看。只能靠快捷键进去的话，不知道它存在的人
+          永远不会用到（§0：不能假设有键盘） */}
+      <button
+        className={`rail-btn rail-action${mindmapOn ? " is-on" : ""}`}
+        onClick={onToggleMindmap}
+        disabled={mindmapOn === null}
+        title={hint("思维导图", keyOf("note.mindmap"))}
+        aria-label="思维导图"
+        aria-pressed={!!mindmapOn}
+      >
+        <Icon name="mindmap" />
       </button>
       <button
         className={`rail-btn rail-action${termOpen ? " is-on" : ""}`}

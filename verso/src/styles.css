@@ -3967,3 +3967,226 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 12.5px;
 }
+
+/* ---------- 思维导图（§4.7） ----------
+
+   和 `.main` 占同一片 grid 区域，铺在它上面。**不是浮层** —— 它是同一篇
+   笔记的另一种编辑视图，所以没有半透明遮罩，也不该让人觉得「后面还有东西
+   等着我关掉」。 */
+.mindmap {
+  grid-area: main;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+  outline: none;
+}
+
+.mm-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: var(--ui-font-size);
+}
+.mm-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mm-title svg {
+  color: var(--muted);
+}
+/* 键位提示常显：这是个不常进来的视图，每次进来都要重新想「怎么加节点」
+   的话，键盘那条路就等于不存在。窄了就先隐藏它，不许把工具挤掉 */
+.mm-tips {
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.mm-tools button {
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  font-size: 12px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.mm-tools button:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
+.mm-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* 拖背景平移，所以整片是可抓的 */
+  cursor: grab;
+  /* 极淡的点阵：没有它的话缩放和平移完全没有参照，手感像在推一片虚空 */
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklch, var(--muted) 22%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+.mm-canvas:active {
+  cursor: grabbing;
+}
+.mm-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.mm-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.mm-links path {
+  fill: none;
+  stroke: color-mix(in oklch, var(--muted) 45%, transparent);
+  stroke-width: 1.5;
+}
+
+.mm-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  cursor: default;
+}
+/* 根是笔记本身，画得重一点 —— 一眼看出这棵树从哪儿长出来 */
+.mm-node.is-root {
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  background: color-mix(in oklch, var(--accent) 10%, var(--raised));
+  font-weight: 600;
+}
+/* 标题和列表要分得开，否则一张图上全是一样的方块，层级只能靠位置猜 */
+.mm-node.is-heading {
+  font-weight: 550;
+}
+.mm-node.is-list,
+.mm-node.is-task {
+  background: var(--bg);
+  font-size: 0.95em;
+}
+.mm-node.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 25%, transparent), var(--shadow-sm);
+}
+.mm-node.is-done .mm-text {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--muted) 55%, transparent);
+}
+
+.mm-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  text-align: left;
+  color: var(--text);
+}
+.mm-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mm-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1.5px solid color-mix(in oklch, var(--muted) 55%, transparent);
+  color: var(--accent);
+}
+.mm-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* 折叠钮挂在节点右边缘外面，不占节点内部的宽度 */
+.mm-fold {
+  position: absolute;
+  right: -11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+}
+.mm-fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* 展开态朝下、折叠态显示数字（还有几个藏着）—— 和文档树一个语汇 */
+.mm-fold:not(.is-closed) svg {
+  transform: rotate(90deg);
+}
+
+.mm-acts {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.mm-node:hover .mm-acts,
+.mm-acts:focus-within {
+  opacity: 1;
+}
+.mm-acts button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+}
+.mm-acts button:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}

@@ -23,6 +23,17 @@ export interface EditorHandle {
   insert: (text: string, cursorOffset?: number) => void;
   /** 当前选中的文字，没选就是空串。模板的 `{{selection}}` 用 */
   selectedText: () => string;
+  /**
+   * 按行替换。思维导图的每一次改动都走它（§4.7）。
+   *
+   * `fromLine > toLine` 表示纯插入（插在第 `toLine` 行之后），`insert` 为空
+   * 表示删掉这几行。都是 1 起、闭区间。
+   *
+   * 走编辑器的 dispatch 而不是「算出一整篇新正文再整体替换」：后者会让
+   * CM6 把光标、选区、滚动位置全部重算，撤销栈里也只剩「换掉了整个文档」
+   * 这么一步 —— 在图上敲错一个字，撤销回去正文就面目全非了
+   */
+  replaceLines: (fromLine: number, toLine: number, insert: string) => void;
   /** 跳到第 `line` 行（1 起）并把它顶到可视区上沿。大纲点击用 */
   gotoLine: (line: number) => void;
   /** 折叠／展开光标所在的小节 */
@@ -204,6 +215,47 @@ export function Editor({
         if (!view) return "";
         const sel = view.state.selection.main;
         return view.state.doc.sliceString(sel.from, sel.to);
+      },
+      replaceLines: (fromLine: number, toLine: number, insert: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const doc = view.state.doc;
+        const clamp = (n: number) => Math.min(Math.max(n, 1), doc.lines);
+
+        if (fromLine > toLine) {
+          // 纯插入。行号可能指到文末之外（往最后一个节点后面加），夹一下
+          const after = Math.min(toLine, doc.lines);
+          if (after <= 0) {
+            view.dispatch({
+              changes: { from: 0, insert: doc.length ? `${insert}
+` : insert },
+              userEvent: "input.mindmap",
+            });
+          } else {
+            const at = doc.line(after).to;
+            view.dispatch({
+              changes: { from: at, insert: `
+${insert}` },
+              userEvent: "input.mindmap",
+            });
+          }
+          return;
+        }
+
+        const a = doc.line(clamp(fromLine));
+        const b = doc.line(clamp(toLine));
+        if (insert === "") {
+          // 连行尾的换行一起删，否则删一个节点会留下一行空白
+          view.dispatch({
+            changes: { from: a.from, to: Math.min(b.to + 1, doc.length) },
+            userEvent: "delete.mindmap",
+          });
+        } else {
+          view.dispatch({
+            changes: { from: a.from, to: b.to, insert },
+            userEvent: "input.mindmap",
+          });
+        }
       },
       gotoLine: (line: number) => {
         const view = viewRef.current;

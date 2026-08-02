@@ -20,6 +20,7 @@ import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { TemplatesView } from "./components/TemplatesView";
+import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { parseHeadings, type Heading } from "./lib/outline";
@@ -146,6 +147,8 @@ export default function App() {
   const [templateFor, setTemplateFor] = useState<
     null | { mode: "insert" } | { mode: "new"; parent: string | null }
   >(null);
+  /** 思维导图铺在正文上（§4.7）。它不是浮层，是同一篇笔记的另一种编辑视图 */
+  const [mindmapOpen, setMindmapOpen] = useState(false);
   /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -905,6 +908,10 @@ export default function App() {
       // 浮层（命令面板、设置、快速跳转）里的按键归浮层自己管。设置里正在
       // 录快捷键时尤其重要：按下的组合键不能顺手把那条命令也执行一遍
       if (target?.closest?.(".overlay")) return;
+      // 思维导图同理：它整片盖住正文，里面的 Enter / Tab / F2 / Delete 都
+      // 有自己的意思（加同级、加子级、改字、删子树）。不挡的话按 F2 会去
+      // 给文档树上的笔记改名 —— 而那时侧栏在导图后面，看都看不见
+      if (target?.closest?.(".mindmap")) return;
       const spec = eventSpec(e);
       if (!spec) return;
       const hit = commandsRef.current.find((c) => c.binding === spec);
@@ -1079,6 +1086,16 @@ export default function App() {
         run: () => pickView("template"),
       },
       {
+        id: "note.mindmap",
+        group: "笔记",
+        label: mindmapOpen ? "回到正文" : "思维导图",
+        // G = Graph。Mod+Shift+D（Diagram）在浏览器里是「添加书签」，
+        // WebView2 未必让给我们
+        defaultKeys: "Mod+Shift+G",
+        enabled: hasNote,
+        run: () => setMindmapOpen((v) => !v),
+      },
+      {
         id: "note.outline",
         group: "笔记",
         label: "大纲",
@@ -1235,6 +1252,9 @@ export default function App() {
     settings.theme,
     sidebarOpen,
     sidebarView,
+    // label 会随它在「思维导图 / 回到正文」之间换 —— 漏掉的话命令面板里
+    // 会一直显示「思维导图」，点它反而是关掉
+    mindmapOpen,
     tocFloat,
     toggleTocFloat,
     sourceMode,
@@ -1315,6 +1335,8 @@ export default function App() {
         sidebarOpen={sidebarOpen}
         sourceMode={sourceMode}
         onToggleSourceMode={toggleSourceMode}
+        mindmapOn={note ? mindmapOpen : null}
+        onToggleMindmap={() => setMindmapOpen((v) => !v)}
         termOpen={termOpen}
         onToggleTerm={() => setTermOpen((v) => !v)}
         onSystemTerminal={() =>
@@ -1470,6 +1492,23 @@ export default function App() {
         // 就是在说「我要多一页」，这时候还去看设置里的默认打开方式没有意义
         onNewTab={() => void createAndOpen(null, { newTab: true })}
       />
+
+      {/* 思维导图铺满编辑区。**放在 main 外面、和它占同一片区域** ——
+          Editor 必须留在 DOM 里：图上的每一次改动都要走它的 dispatch，
+          卸载了就没有编辑器可 dispatch，撤销历史也一并没了（§4.7） */}
+      {note && mindmapOpen && (
+        <MindMap
+          title={note.title}
+          body={body}
+          onEdit={(e) => editorRef.current?.replaceLines(e.fromLine, e.toLine, e.insert)}
+          onGoto={(line) => {
+            setMindmapOpen(false);
+            // 等这一轮渲染把导图撤掉、编辑器重新可见，再跳
+            requestAnimationFrame(() => editorRef.current?.gotoLine(line));
+          }}
+          onClose={() => setMindmapOpen(false)}
+        />
+      )}
 
       <main className="main" ref={mainRef}>
         {externalChange && (
