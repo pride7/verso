@@ -2,6 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 笔记要放在用户看得见的目录里（DESIGN.md §1.2b）。
+         思源笔记走的也是这条：拿到「所有文件访问权限」之后，工作空间就是
+         /storage/emulated/0/Verso 这样的**真实路径** —— Rust 侧的 std::fs、
+         git2、文件监听一行都不用改。
+         Obsidian 走的 SAF 给的是 content:// URI，不是路径，那等于要把整个
+         VaultFs 在安卓上用 JNI 重写一遍，libgit2 也读不了它。
+         代价是用户要在系统设置里手动授权一次。 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 

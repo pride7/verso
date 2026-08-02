@@ -134,13 +134,75 @@ struct Reopened {
     last_note: Option<String>,
 }
 
+/// 移动端的 vault 位置。DESIGN.md §1.2(b)
+///
+/// **手机上不问「选哪个文件夹」。** Tauri 的目录选择器在移动端没有实现，
+/// 点下去毫无反应；而安卓的 scoped storage 下能选的东西本来也有限。既然
+/// 答案基本是唯一的，就别摆一个选择题。
+///
+/// 两个位置，按顺序试：
+///
+/// 1. **`/storage/emulated/0/Verso`** —— 拿到「所有文件访问权限」之后能用
+///    （思源笔记走的也是这条）。它是**真实路径**，所以 `std::fs`、git2、
+///    文件监听一行都不用改；而且文件管理器里看得见、Syncthing 之类同步得了。
+///    Obsidian 走的 SAF 给的是 `content://` URI，那要把整个 `VaultFs` 用 JNI
+///    重写一遍，libgit2 还读不了它
+/// 2. App 私有目录 —— 没授权时的退路。**能用，只是笔记在别处看不见**，
+///    所以只当兜底，不当默认
+///
+/// 判断「能不能用」靠**真的写一个文件**：安卓上 `create_dir_all` 在没权限时
+/// 也可能返回 Ok，而目录建得出来、文件写不进去是最难查的一种坏法。
+#[cfg(mobile)]
+fn default_vault(app: &AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+
+    let shared = std::env::var_os("EXTERNAL_STORAGE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/storage/emulated/0"))
+        .join("Verso");
+    if writable(&shared) {
+        return Some(shared);
+    }
+
+    let fallback = app.path().app_data_dir().ok()?.join("vault");
+    writable(&fallback).then_some(fallback)
+}
+
+/// 建出来并且**真的写得进去**才算数
+#[cfg(mobile)]
+fn writable(dir: &std::path::Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".verso-write-test");
+    let ok = std::fs::write(&probe, b"ok").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
 /// 启动时自动重开上次的 vault 和笔记。目录被删或被移走就静默返回 None，
 /// 让前端回到欢迎页 —— 不该拿一个「上次的路径没了」的报错拦住用户。
+///
+/// **移动端没有欢迎页这一说**：没有上次的记录时就用私有目录里那个默认的
+/// （见 `default_vault`），因为那里根本没有第二个选项可选。
 #[tauri::command]
 fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reopened> {
     let saved = recent::load(&app);
-    let (v, vault) =
-        Vault::open_watched(PathBuf::from(saved.last_vault?), state.self_writes.clone()).ok()?;
+    #[cfg(mobile)]
+    let last = saved.last_vault.map(PathBuf::from).or_else(|| default_vault(&app));
+    #[cfg(not(mobile))]
+    let last = saved.last_vault.map(PathBuf::from);
+
+    let (v, vault) = Vault::open_watched(last?, state.self_writes.clone())
+        .or_else(|e| {
+            // 上次那个路径没了（换了设备、清了数据）时，移动端仍然要能起来
+            #[cfg(mobile)]
+            if let Some(dir) = default_vault(&app) {
+                return Vault::open_watched(dir, state.self_writes.clone());
+            }
+            Err(e)
+        })
+        .ok()?;
 
     // 笔记可能已被删除或改名，存在才恢复
     let last_note = saved
