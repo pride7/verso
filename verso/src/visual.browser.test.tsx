@@ -46,6 +46,11 @@ const node = (
 });
 
 const TREE: TreeNode[] = [
+  node("templates", "templates.md", [
+    node("会议纪要", "templates/会议纪要.md"),
+    node("日记", "templates/日记.md"),
+    node("读书笔记", "templates/读书笔记.md"),
+  ]),
   node("数学", "数学.md", [
     node("线性代数", "数学/线性代数.md", [
       node("奇异值分解", "数学/线性代数/奇异值分解.md"),
@@ -117,6 +122,10 @@ const NOTE: NoteContent = {
 };
 
 const NOTES: NoteRef[] = [
+  // 模板面板从笔记清单里挑（§4.6），所以这几条要在
+  { path: "templates/会议纪要.md", name: "会议纪要" },
+  { path: "templates/日记.md", name: "日记" },
+  { path: "templates/读书笔记.md", name: "读书笔记" },
   { path: "数学/线性代数.md", name: "线性代数" },
   { path: "数学/线性代数/奇异值分解.md", name: "奇异值分解" },
   { path: "论文/Attention Is All You Need.md", name: "Attention Is All You Need" },
@@ -432,6 +441,14 @@ describe("视觉工作台", () => {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     }
     await shot("03-light-search");
+    alive();
+  });
+
+  it("浅色 · 模板面板", async () => {
+    render();
+    await settle(600);
+    clickRail("模板");
+    await shot("14-light-templates");
     alive();
   });
 

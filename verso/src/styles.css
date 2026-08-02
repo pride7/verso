@@ -802,6 +802,70 @@ body.is-resizing {
   line-height: 1.5;
 }
 
+/* ---------- 模板面板（§4.6） ----------
+
+   一行三个动作：整行点下去是插入（最高频），右边两个小按钮是「用它新建」
+   和「改这个模板」。两个小按钮平时不显示 —— 一排常显的图标会让侧栏看起来
+   像个工具箱，而它其实是一份清单（和文档树上的 `+` 是同一条规矩）。 */
+.tpl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tpl-list > li {
+  display: flex;
+  align-items: center;
+  margin: 0 8px 1px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.tpl-list > li:hover {
+  background: var(--hover-bg);
+}
+.tpl-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  text-align: left;
+  color: var(--text);
+}
+.tpl-name svg {
+  flex: none;
+  color: var(--muted);
+}
+.tpl-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tpl-acts {
+  display: flex;
+  gap: 2px;
+  padding-right: 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.tpl-list > li:hover .tpl-acts,
+.tpl-acts:focus-within {
+  opacity: 1;
+}
+.tpl-acts button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+}
+.tpl-acts button:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+
 /* ---------- 文档树（§2.1：X.md 与 X/ 是同一个节点） ---------- */
 
 .tree {

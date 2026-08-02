@@ -258,3 +258,64 @@ describe("一个模板都没有时", () => {
     expect(empty).toContain("templates/");
   });
 });
+
+describe("侧栏里的模板面板", () => {
+  /** 点图标栏上的「模板」 */
+  async function openPanel() {
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="模板"]')!.click();
+      await settle(300);
+    });
+  }
+
+  it("列出所有模板", async () => {
+    await mountApp();
+    await openPanel();
+
+    const names = [...document.querySelectorAll<HTMLElement>(".tpl-name span")].map(
+      (b) => b.textContent,
+    );
+    expect(names).toEqual(["会议纪要", "日记"]);
+  });
+
+  it("点一行 = 插进当前笔记", async () => {
+    await mountApp();
+    await openPanel();
+
+    const row = [...document.querySelectorAll<HTMLElement>(".tpl-name")].find((b) =>
+      b.textContent?.includes("日记"),
+    )!;
+    await act(async () => {
+      row.click();
+      await settle(400);
+    });
+
+    const text = document.querySelector(".cm-content")!.textContent ?? "";
+    expect(text).toMatch(/今天：\d{4}年/);
+    expect(text).toContain("原有正文");
+  });
+
+  it("右边的 + 是「用它新建一篇」", async () => {
+    await mountApp();
+    await openPanel();
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('.tpl-acts button[aria-label="用「日记」新建"]')!.click();
+      await settle(500);
+    });
+
+    expect(createUntitled).toHaveBeenCalledTimes(1);
+    expect(writeNote).toHaveBeenCalled();
+  });
+
+  it("一个模板都没有时，说清楚往哪儿放", async () => {
+    tree = [doc("甲", "甲.md")];
+    await mountApp();
+    await openPanel();
+
+    const empty = document.querySelector(".side-empty")?.textContent ?? "";
+    expect(empty).toContain("templates/");
+    // 顺带把变量写法教了 —— 不知道能写什么的话，模板就只是一段死文本
+    expect(empty).toContain("{{title}}");
+  });
+});

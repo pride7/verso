@@ -19,6 +19,7 @@ import { TerminalPanel } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
+import { TemplatesView } from "./components/TemplatesView";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { parseHeadings, type Heading } from "./lib/outline";
@@ -1066,6 +1067,14 @@ export default function App() {
         run: () => pickView("tags"),
       },
       {
+        id: "note.templates",
+        group: "笔记",
+        label: "模板面板",
+        // 默认不绑键位：好按的组合键不多了，而这个面板本身就在侧栏上有图标。
+        // 命令表是唯一真源，想要键位的人去设置里绑
+        run: () => pickView("template"),
+      },
+      {
         id: "note.outline",
         group: "笔记",
         label: "大纲",
@@ -1286,6 +1295,7 @@ export default function App() {
     tree: "文档",
     search: "搜索",
     tags: "标签",
+    template: "模板",
     outline: "大纲",
   };
 
@@ -1394,6 +1404,16 @@ export default function App() {
             {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
             {sidebarView === "tags" && (
               <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
+            )}
+            {sidebarView === "template" && (
+              <TemplatesView
+                templates={templates}
+                dir={settings.templateDir}
+                hasNote={!!note}
+                onInsert={(t) => void insertTemplate(t.path)}
+                onCreate={(t) => void createFromTemplate(t.path, null)}
+                onOpen={(p) => void openPath(p)}
+              />
             )}
             {sidebarView === "outline" &&
               (note ? (
