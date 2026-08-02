@@ -52,8 +52,18 @@ interface Props {
  * 对应笔记的 frontmatter，文件立刻落盘 —— 设计文档说这是「它好不好用的
  * 分水岭：只能看不能改的表格，价值和一个静态列表差不多」。
  */
-/** 列头菜单开在哪一列上。面板有好几种，这里把类型收窄一下 */
-type Panel = null | "settings" | "columns" | { col: string } | { options: string };
+/**
+ * 列头菜单开在哪一列上。面板有好几种，这里把类型收窄一下。
+ *
+ * 列头菜单还要记下**它该出现在屏幕的哪个位置** —— 它是 `position: fixed`
+ * 的，见下面渲染处那段注释。
+ */
+type Panel =
+  | null
+  | "settings"
+  | "columns"
+  | { col: string; x: number; y: number }
+  | { options: string };
 const colMenu = (p: Panel) => (p && typeof p === "object" && "col" in p ? p.col : null);
 
 export function DatabaseView({
@@ -123,7 +133,13 @@ export function DatabaseView({
     if (!panel) return;
     const close = () => setPanel(null);
     window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
+    // 列头菜单是 fixed 的，页面一滚它会留在原地 —— 滚动时直接关掉，
+    // 比让它飘在半空中好
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("scroll", close, true);
+    };
   }, [panel]);
 
   const sort = readSort(source);
@@ -732,7 +748,11 @@ export function DatabaseView({
                         都是点列头开菜单，这里跟上 */}
                     <button
                       className="dbview-th"
-                      onClick={() => setPanel(colMenu(panel) === c ? null : { col: c })}
+                      onClick={(e) => {
+                        if (colMenu(panel) === c) return setPanel(null);
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setPanel({ col: c, x: r.left, y: r.bottom + 4 });
+                      }}
                       title={`「${propLabel(c)}」这一列`}
                       aria-haspopup="menu"
                       aria-expanded={colMenu(panel) === c}
@@ -761,12 +781,27 @@ export function DatabaseView({
                       aria-orientation="vertical"
                     />
                     {colMenu(panel) === c && (
-                      <ul className="dbview-menu" onMouseDown={(e) => e.stopPropagation()}>
+                      /**
+                       * **`position: fixed`，坐标在打开那一刻算好。**
+                       *
+                       * 表格外面套着一层 `overflow-x: auto` 的滚动容器，而
+                       * CSS 规定：一个轴是 auto，另一个轴的 `visible` 会被
+                       * 强制成 auto —— 所以纵向也会裁。菜单一长，下面几条
+                       * 就被切掉了（「隐藏这一列」直接看不见）。
+                       *
+                       * fixed 不受祖先 overflow 影响，是这里唯一干净的解法。
+                       */
+                      <ul
+                        className="dbview-menu"
+                        style={{ left: (panel as { x: number }).x, top: (panel as { y: number }).y }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
                         <li>
                           <button
                             className={sort?.key === c && sort.dir === "asc" ? "is-current" : undefined}
                             onClick={() => { onPatch(writeSort(source, { key: c, dir: "asc" })); setPanel(null); }}
                           >
+                            <Icon name="arrow-up" size={13} />
                             升序
                           </button>
                         </li>
@@ -775,6 +810,7 @@ export function DatabaseView({
                             className={sort?.key === c && sort.dir === "desc" ? "is-current" : undefined}
                             onClick={() => { onPatch(writeSort(source, { key: c, dir: "desc" })); setPanel(null); }}
                           >
+                            <Icon name="arrow-down" size={13} />
                             降序
                           </button>
                         </li>
@@ -783,23 +819,31 @@ export function DatabaseView({
                         {sort?.key === c && (
                           <li>
                             <button onClick={() => { onPatch(writeSort(source, null)); setPanel(null); }}>
+                              <Icon name="close" size={13} />
                               取消排序
                             </button>
                           </li>
                         )}
                         {!isBuiltin(c) && (
                           <li>
-                            <button onClick={() => renameColumn(c)}>重命名…</button>
+                            <button onClick={() => renameColumn(c)}>
+                              <Icon name="pencil" size={13} />
+                              重命名…
+                            </button>
                           </li>
                         )}
                         {!isBuiltin(c) &&
                           (schema[c]?.type === "select" || schema[c]?.type === "multi") && (
                           <li>
-                              <button onClick={() => setPanel({ options: c })}>选项…</button>
+                              <button onClick={() => setPanel({ options: c })}>
+                                <Icon name="tag" size={13} />
+                                选项…
+                              </button>
                             </li>
                           )}
                         {!isBuiltin(c) && (
                         <li className="dbview-menu-sub">
+                          <Icon name="text" size={13} />
                           <span>类型</span>
                           <span className="dbview-types">
                             {TYPES.map((t) => (
@@ -827,12 +871,16 @@ export function DatabaseView({
                                 setPanel(null);
                               }}
                             >
+                              <Icon name="width" size={13} />
                               宽度复位
                             </button>
                           </li>
                         )}
                         <li>
-                          <button onClick={() => hideColumn(c)}>隐藏这一列</button>
+                          <button onClick={() => hideColumn(c)}>
+                            <Icon name="eye-off" size={13} />
+                            隐藏这一列
+                          </button>
                         </li>
                       </ul>
                     )}

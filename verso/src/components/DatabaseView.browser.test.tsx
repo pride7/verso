@@ -921,6 +921,16 @@ describe("视觉：三种新视图", () => {
     ] as const) {
       viewMock = { columns: ["title", "status", "作者", "读于"], rows, view: kind, groupBy: null, properties };
       const v = mount(spec);
+      // 表格那张顺手把列头菜单打开 —— 菜单里的图标就是靠这张看的。
+      // 先等视图渲染出来：mount 之后表格是异步查出来的
+      await settle(400);
+      if (kind === "table") {
+        const th = [...document.querySelectorAll<HTMLElement>(".dbview-th")].find((b) =>
+          b.textContent?.includes("status"),
+        );
+        th?.click();
+        await settle(200);
+      }
       await shot(name);
       // 画廊塌成一列窄条是最容易复发的毛病（`.dbview` 默认按内容宽），
       // 这里顺手量一下：瓦片不能比声明的最小宽度还窄
@@ -1220,6 +1230,14 @@ describe("定宽表格不能把东西裁掉", () => {
     expect(menu.getBoundingClientRect().bottom).toBeGreaterThan(
       th.getBoundingClientRect().bottom,
     );
+
+    // 而且它是 fixed 的：外面那层横向滚动容器同样会纵向裁，
+    // absolute 的菜单一长就被切掉下半截
+    expect(getComputedStyle(menu).position).toBe("fixed");
+    const scroll = view.dom.querySelector<HTMLElement>(".dbview-scroll")!;
+    expect(menu.getBoundingClientRect().bottom).toBeGreaterThan(
+      scroll.getBoundingClientRect().bottom,
+    );
   });
 
   it("窄列里标题截断而不是断成两行", async () => {
@@ -1233,5 +1251,31 @@ describe("定宽表格不能把东西裁掉", () => {
     // 图标和文字在同一行：断行的话文字会整个跑到图标下面去
     expect(text.top).toBeLessThan(icon.bottom);
     expect(getComputedStyle(link.querySelector("span")!).textOverflow).toBe("ellipsis");
+  });
+});
+
+describe("列头菜单的样子", () => {
+  it("每一条都带图标 —— 一列纯文字要逐行读", async () => {
+    const view = mount(
+      ['from: "论文/*"', "view: table", "sort: status", "columns: [title, status]", "widths: title=160, status=90"].join(
+        "\n",
+      ),
+    );
+    await settle();
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((b) =>
+        b.textContent?.includes("status"),
+      )!,
+    );
+    await settle(200);
+
+    const rows = [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu > li > button")];
+    // 升序、降序、取消排序、重命名、宽度复位、隐藏
+    expect(rows.length).toBeGreaterThanOrEqual(6);
+    for (const r of rows) {
+      expect(r.querySelector("svg"), `「${r.textContent}」没有图标`).not.toBeNull();
+      // 图标在文字左边，而且留出了间距
+      expect(parseFloat(getComputedStyle(r).gap)).toBeGreaterThanOrEqual(6);
+    }
   });
 });

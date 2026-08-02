@@ -3036,12 +3036,13 @@ textarea:focus-visible {
 
 /* 列头菜单 */
 .dbview-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
+  /* **fixed，不是 absolute。** 表格外面套着 `overflow-x: auto` 的滚动容器，
+     而 CSS 规定一个轴是 auto 时另一个轴的 visible 会被强制成 auto ——
+     absolute 的菜单一长，下面几条就被裁掉了。坐标由 JS 在打开那一刻算好 */
+  position: fixed;
   z-index: 20;
-  min-width: 120px;
-  margin: 4px 0 0;
+  min-width: 132px;
+  margin: 0;
   padding: 4px;
   list-style: none;
   background: var(--raised);
@@ -3050,12 +3051,23 @@ textarea:focus-visible {
   font-weight: 400;
 }
 .dbview-menu button {
-  display: block;
+  /* 每一条都带图标：一列文字菜单要逐行读，带图标之后眼睛能直接跳到
+     要找的那条。图标压成 muted，是提示不是主角 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   padding: 5px 8px;
   border-radius: var(--r-sm);
   font-size: 12.5px;
+  color: var(--text);
+}
+.dbview-menu button > svg {
+  flex: none;
+  color: var(--muted);
+}
+.dbview-menu button:hover > svg {
   color: var(--text);
 }
 .dbview-menu button:hover {
