@@ -59,6 +59,9 @@ export function wikiLinkSource(getNotes: () => NoteRef[]) {
   };
 }
 
+/** `/` 菜单里那几条「不插文本、交回给 App 做一件事」的选项 */
+export type SlashAction = "template" | "journal" | "issues";
+
 interface Block {
   label: string;
   detail: string;
@@ -71,7 +74,7 @@ interface Block {
    * 入口，而插入模板恰恰发生在写作中途。只藏在命令面板里的功能，
    * 不知道它存在的人永远不会用到（§4.3 里 `/` 菜单存在的同一个理由）。
    */
-  action?: "template";
+  action?: SlashAction;
 }
 
 /**
@@ -101,8 +104,11 @@ const BLOCKS: Block[] = [
     detail: "按属性筛选笔记的表格",
     template: '```verso-view\nfrom: "|"\nview: table\ncolumns: [title]\n```',
   },
-  // 排在最后：它开的是一个浮层，和上面那些「插一段文本」不是一类动作
+  // 排在最后：这三条开的是浮层或者要问 App 才知道插什么，
+  // 和上面那些「插一段固定文本」不是一类动作
   { label: "插入模板", detail: "template", action: "template" },
+  { label: "进展记录", detail: "带时间戳的一节（§2.10）", action: "journal" },
+  { label: "未关闭的条目", detail: "issue 列表", action: "issues" },
 ];
 
 /**
@@ -112,9 +118,9 @@ const BLOCKS: Block[] = [
  * 固化进扩展里的，而 App 的回调每次渲染都是新函数 —— 传进来会导致每次
  * 渲染都重建整个编辑器（和 `getNotes` 用 getter 是同一个理由）。
  */
-let onAction: ((id: "template") => void) | null = null;
+let onAction: ((id: SlashAction) => void) | null = null;
 
-export function setSlashAction(fn: ((id: "template") => void) | null) {
+export function setSlashAction(fn: ((id: SlashAction) => void) | null) {
   onAction = fn;
 }
 

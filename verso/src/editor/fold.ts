@@ -243,6 +243,26 @@ export const foldAllHeadings: Command = (view) => {
   return true;
 };
 
+/**
+ * 折叠**指定的几行**标题，返回真正折起来的条数。项目日志的「只看最新」用它
+ * （§2.10）。
+ *
+ * 返回条数是给调用方判断「解析好了没有」用的：折叠范围要查语法树，而 CM6
+ * 的解析是建 view 之后异步进行的，太早调用会一条都折不成（见 parseRefresh.ts
+ * 里同一个时序问题）。调用方看到 0 就该过一会儿再试。
+ */
+export function foldHeadingLines(view: EditorView, lines: number[]): number {
+  const effects = [];
+  for (const n of lines) {
+    if (n < 1 || n > view.state.doc.lines) continue;
+    const range = headingFoldRange(view.state, view.state.doc.line(n).from);
+    if (range && !foldedAt(view.state, range.from)) effects.push(foldEffect.of(range));
+  }
+  if (!effects.length) return 0;
+  view.dispatch({ effects });
+  return effects.length;
+}
+
 export const unfoldAllHeadings: Command = (view) => {
   const effects: ReturnType<typeof unfoldEffect.of>[] = [];
   foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {

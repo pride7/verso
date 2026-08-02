@@ -4,7 +4,13 @@ import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { applyCustomSnippets, applySourceMode, createExtensions } from "../editor";
-import { foldAllHeadings, toggleHeadingFold, unfoldAllHeadings } from "../editor/fold";
+import {
+  foldAllHeadings,
+  foldHeadingLines,
+  toggleHeadingFold,
+  unfoldAllHeadings,
+} from "../editor/fold";
+import { foldTargets } from "../lib/journal";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { setImageResolver } from "../editor/image";
 import { setViewRenderer } from "../editor/viewBlock";
@@ -94,6 +100,13 @@ interface Props {
   customSnippets: string;
   /** 源码模式：摘掉全部 live preview 装饰，直接看 Markdown 源码 */
   sourceMode: boolean;
+  /**
+   * 打开这篇时，保持展开的最近日志条数（§2.10）。0 = 不自动折叠。
+   *
+   * 项目笔记写长之后最新状态会被埋在一堆旧记录里，这一条就是它的解药：
+   * 文件一个字节都不改，只是**打开时的默认视图**收起旧的那几节。
+   */
+  journalKeep?: number;
   /** 源码模式下手改了 frontmatter。抛错 = YAML 没通过解析，文件没被动 */
   onSaveFrontmatter: (yaml: string) => Promise<void>;
   /** 粘贴进来的图片存盘，返回 vault 相对路径（§4.3） */
@@ -125,6 +138,9 @@ export function Editor({
   onNoteChanged,
   customSnippets,
   sourceMode,
+  // 默认 0 = 不自动折叠。可选是为了让只关心别的行为的测试不必每个都填一遍；
+  // App 那边是显式传的
+  journalKeep = 0,
   onSaveFrontmatter,
   onSaveImage,
   imageSrc,
@@ -393,7 +409,28 @@ ${insert}` },
       (busy instanceof HTMLElement && busy.isContentEditable && !view.dom.contains(busy));
     if (!typing) view.focus();
 
+    // 「只看最新」：把旧的日志条目折起来（§2.10）。
+    //
+    // **要重试几次。** 折叠范围得查语法树，而 CM6 的解析是建 view 之后异步
+    // 进行的 —— 这一刻调用一条都折不成（和 parseRefresh.ts 里是同一个时序
+    // 问题）。折成功一次就不再试
+    const targets = foldTargets(note.body, journalKeep);
+    const timers: number[] = [];
+    if (targets.length > 0 && !reusable) {
+      let done = false;
+      const attempt = () => {
+        if (done || !view.dom.isConnected) return;
+        done = foldHeadingLines(view, targets) > 0;
+      };
+      timers.push(requestAnimationFrame(attempt));
+      timers.push(window.setTimeout(attempt, 80), window.setTimeout(attempt, 400));
+    }
+
     return () => {
+      if (timers.length) {
+        cancelAnimationFrame(timers[0]);
+        for (const t of timers.slice(1)) clearTimeout(t);
+      }
       cb.current.onStashState?.(view.state);
       view.destroy();
       viewRef.current = null;

@@ -23,6 +23,7 @@ import { TemplatesView } from "./components/TemplatesView";
 import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
+import { journalInsert } from "./lib/journal";
 import { parseHeadings, type Heading } from "./lib/outline";
 import {
   activePath,
@@ -655,13 +656,54 @@ export default function App() {
     [renderTemplate, refresh, openPath],
   );
 
-  /** `/` 菜单里的「插入模板」交回到这儿开浮层（见 editor/completion.ts） */
+  // ---------------------------------------------------------------- 项目日志（§2.10）
+
+  /**
+   * 记一条进展：在最前面插一节 `## 年-月-日 时:分`，光标落在它下面。
+   *
+   * 走编辑器的 dispatch（和思维导图同一条路）—— 撤销、自动保存全都免费正确。
+   */
+  const addJournal = useCallback(() => {
+    const cur = noteRef.current;
+    if (!cur) return;
+    const e = journalInsert(bodyRef.current, new Date());
+    editorRef.current?.replaceLines(e.fromLine, e.toLine, e.insert);
+    // 插完把光标送过去 —— 记一条进展的下一个动作永远是「开始写」
+    requestAnimationFrame(() => editorRef.current?.gotoLine(e.cursorLine));
+  }, []);
+
+  /**
+   * 插一张「未关闭的条目」表：把当前笔记的子文档列出来，滤掉已关闭的。
+   *
+   * `from` 要现算 —— 它是当前这篇笔记的子目录，`/` 菜单里那条静态模板
+   * 填不出来（那正是它做成 action 而不是文本模板的原因）。
+   */
+  const insertIssueView = useCallback(() => {
+    const cur = noteRef.current;
+    if (!cur) return;
+    const dir = cur.path.replace(/\.md$/, "");
+    const yaml = [
+      "```verso-view",
+      `from: "${dir}/**"`,
+      'where: status != 已关闭',
+      "sort: updated desc",
+      "view: list",
+      "columns: [title, status, updated]",
+      "```",
+      "",
+    ].join("\n");
+    editorRef.current?.insert(yaml);
+  }, []);
+
+  /** `/` 菜单里那几条动作交回到这儿（见 editor/completion.ts） */
   useEffect(() => {
     setSlashAction((id) => {
       if (id === "template") setTemplateFor({ mode: "insert" });
+      else if (id === "journal") addJournal();
+      else if (id === "issues") insertIssueView();
     });
     return () => setSlashAction(null);
-  }, []);
+  }, [addJournal, insertIssueView]);
 
   /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
   const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
@@ -993,6 +1035,24 @@ export default function App() {
         run: () => setSwitcherOpen(true),
       },
       {
+        id: "note.journal",
+        group: "笔记",
+        label: "记一条进展",
+        // 和 GitHub 上「提交评论」的 Ctrl+Enter 是同一个语义位置
+        defaultKeys: "Mod+Shift+Enter",
+        enabled: hasNote,
+        run: addJournal,
+      },
+      {
+        id: "note.newChild",
+        group: "笔记",
+        label: "在这篇下面新建子文档",
+        // 项目笔记下面开一个新条目（issue）走的就是它
+        defaultKeys: "Mod+Shift+N",
+        enabled: hasNote,
+        run: () => createAndOpen(cur),
+      },
+      {
         id: "note.template",
         group: "笔记",
         label: "插入模板",
@@ -1261,6 +1321,7 @@ export default function App() {
     toggleSourceMode,
     pickView,
     createAndOpen,
+    addJournal,
     saveNow,
     renameNode,
     reloadFromDisk,
@@ -1544,6 +1605,7 @@ export default function App() {
             }}
             customSnippets={settings.customSnippets}
             sourceMode={sourceMode}
+            journalKeep={settings.journalKeep}
             onSaveFrontmatter={saveFrontmatter}
             onSaveImage={saveImage}
             imageSrc={imageSrc}

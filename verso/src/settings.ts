@@ -37,6 +37,13 @@ export interface Settings {
    */
   templateDir: string;
   /**
+   * 打开笔记时保持展开的最近日志条数（§2.10）。0 = 不自动折叠。
+   *
+   * 项目笔记写长之后，最新状态会被埋在一堆旧记录下面。这一条只改**打开时
+   * 的默认视图**，文件一个字节都不动。
+   */
+  journalKeep: number;
+  /**
    * 点侧栏里的文件时开新标签还是替换当前标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
@@ -76,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFont: "",
   treeSort: "name",
   templateDir: "templates",
+  journalKeep: 3,
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
@@ -163,6 +171,9 @@ export function sanitize(s: Settings): Settings {
     tabOpen: (["new", "replace"] as const).includes(s.tabOpen) ? s.tabOpen : "new",
     // 手改的设置文件里可能是数字、null。当成「没设」而不是让界面崩掉
     templateDir: typeof s.templateDir === "string" ? s.templateDir : DEFAULT_SETTINGS.templateDir,
+    // 上限 50：再多就等于没折叠，而一个手滑打成 500 的值会让「只看最新」
+    // 悄悄失效，比报错更难查
+    journalKeep: Math.round(num(s.journalKeep, 0, 50, DEFAULT_SETTINGS.journalKeep)),
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)

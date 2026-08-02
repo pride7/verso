@@ -5,6 +5,7 @@
  * 只测一件事，但它是整个功能的命脉：**在图上动一下，正文真的跟着变**——
  * 那条路要经过 CM6 的 dispatch，纯 Node 里根本走不到。
  */
+import { userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -32,6 +33,9 @@ const doc = (name: string, path: string): TreeNode => ({
 
 const BODY = ["## 方法", "", "- 甲", "  - 甲一", "- 乙", "", "## 结论", "", "- 收尾"].join("\n");
 
+/** 每条测试自己决定这篇笔记的正文（日志那几条要不同的起点） */
+let body = BODY;
+
 const writeNote = vi.fn(async (_path: string, _body: string) => 0);
 
 vi.mock("./api", () => ({
@@ -47,7 +51,7 @@ vi.mock("./api", () => ({
         title: "论文",
         frontmatter: {},
         frontmatterText: null,
-        body: BODY,
+        body,
         mtimeMs: 0,
       }) as NoteContent,
     writeNote: (p: string, b: string) => writeNote(p, b),
@@ -95,6 +99,7 @@ const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   writeNote.mockClear();
+  body = BODY;
 });
 
 afterEach(() => {
@@ -287,5 +292,94 @@ describe("思维导图", () => {
     await key("F2");
     expect(document.querySelector(".mm-input")).not.toBeNull();
     expect(document.querySelector(".tree-rename")).toBeNull();
+  });
+});
+
+/**
+ * 项目日志（§2.10）。和思维导图共用同一条改动路径（`replaceLines`），
+ * 所以放在一起测 —— 这一层验的是「记一条进展」真的落到了文件里。
+ */
+describe("项目日志", () => {
+  async function run(label: string) {
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+      await settle(200);
+    });
+    const item = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
+      (b) => b.querySelector(".palette-label")?.textContent === label,
+    )!;
+    expect(item, `命令面板里该有「${label}」`).toBeTruthy();
+    await act(async () => {
+      item.click();
+      await settle(300);
+    });
+  }
+
+  async function mount() {
+    const host = document.createElement("div");
+    host.id = "root";
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(<App />);
+      await settle(600);
+    });
+  }
+
+  const LF = String.fromCharCode(10);
+
+  it("已经有记录时，新的插在最前面 —— 打开第一眼就是最新状态", async () => {
+    body = ["项目描述。", "", "## 2026-07-28 09:10", "", "初步方案定了。"].join(LF);
+    await mount();
+    await run("记一条进展");
+    const lines = (await saved()).split(LF);
+
+    expect(lines[0]).toBe("项目描述。");
+    expect(lines[2]).toMatch(/^## \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    // 旧记录原样留在下面
+    expect(lines[4]).toBe("## 2026-07-28 09:10");
+  });
+
+  it("一条记录都没有时排在正文末尾 —— 上面是项目描述", async () => {
+    await mount();
+    await run("记一条进展");
+    const out = await saved();
+    const lines = out.split(LF);
+
+    expect(lines[lines.length - 2]).toMatch(/^## \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    // 原有内容一行都没少
+    expect(out).toContain("## 方法");
+    expect(out).toContain("  - 甲一");
+  });
+
+  it("插完光标就在标题下面 —— 下一个动作永远是开始写", async () => {
+    body = ["## 2026-07-28 09:10", "", "初步方案定了。"].join(LF);
+    await mount();
+    await run("记一条进展");
+    await act(async () => {
+      await userEvent.keyboard("跑通了");
+      await settle(200);
+    });
+    const lines = (await saved()).split(LF);
+    expect(lines[0]).toMatch(/^## \d{4}/);
+    expect(lines[1]).toBe("跑通了");
+  });
+  it("打开笔记时自动折叠旧记录，只留最近三条展开", async () => {
+    // 「文档写太长就看不到最新状态」正是这个功能存在的理由
+    const entry = (d: number) => ["## 2026-08-0" + d + " 09:00", "", "第 " + d + " 天做的事", ""];
+    // 新的在上面，和「记一条进展」插入的方向一致
+    body = [entry(5), entry(4), entry(3), entry(2), entry(1)].flat().join(LF);
+    await mount();
+    await act(async () => {
+      await settle(700);
+    });
+
+    const shown = document.querySelector<HTMLElement>(".cm-content")!.innerText;
+    // 最近三条（5、4、3）的内容看得见
+    for (const d of [5, 4, 3]) expect(shown).toContain("第 " + d + " 天做的事");
+    // 更旧的两条被折起来了 —— 标题还在，内容收走
+    for (const d of [2, 1]) expect(shown).not.toContain("第 " + d + " 天做的事");
+    expect(shown).toContain("2026-08-01 09:00");
+    expect(document.querySelectorAll(".cm-fold-placeholder")).toHaveLength(2);
   });
 });

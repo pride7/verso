@@ -295,6 +295,17 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
 
           {tab === "editor" && (
             <>
+              <Slider
+                label="打开时展开最近几条进展"
+                hint="项目日志（## 2026-08-01 14:30）旧的自动折叠起来。0 = 不折叠"
+                value={settings.journalKeep}
+                min={0}
+                max={12}
+                step={1}
+                suffix=" 条"
+                fallback={DEFAULT_SETTINGS.journalKeep}
+                onChange={(v) => onChange({ journalKeep: v })}
+              />
               <TextRow
                 label="模板目录"
                 hint="这个目录下的每篇 .md 就是一个模板。留空 = 关掉模板功能"

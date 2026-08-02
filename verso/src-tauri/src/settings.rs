@@ -36,6 +36,11 @@ fn default_template_dir() -> String {
     "templates".into()
 }
 
+/// 打开笔记时保持展开的最近日志条数。§2.10
+fn default_journal_keep() -> f64 {
+    3.0
+}
+
 /// 主题色的色相与鲜艳度。默认是应用图标上那点青绿。
 ///
 /// **明度不开放**：深浅两套主题各自需要不同的明度才看得清，让用户调它
@@ -110,6 +115,13 @@ pub struct Settings {
     #[serde(default = "default_template_dir")]
     pub template_dir: String,
 
+    /// 打开笔记时保持展开的最近日志条数（`## 2026-08-01 14:30` 这种标题）。
+    /// 0 = 不自动折叠。只影响**打开时的默认视图**，不改文件。
+    ///
+    /// 存成浮点是为了和别的数值设置一样走同一套夹紧逻辑；前端会取整。
+    #[serde(default = "default_journal_keep")]
+    pub journal_keep: f64,
+
     /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
     /// 链接、焦点环、选中标记这些「重音」上
     #[serde(default = "default_accent_hue")]
@@ -152,6 +164,7 @@ impl Default for Settings {
             tree_sort: default_tree_sort(),
             tab_open: default_tab_open(),
             template_dir: default_template_dir(),
+            journal_keep: default_journal_keep(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
@@ -198,6 +211,8 @@ impl Settings {
         if self.template_dir.contains("..") {
             self.template_dir = default_template_dir();
         }
+        // 上限 50：再多等于没折叠。手滑打成 500 会让「只看最新」悄悄失效
+        self.journal_keep = clamp(self.journal_keep, 0.0, 50.0, default_journal_keep()).round();
         // 键位写法由前端管，这边只挡住明显是垃圾的：手改的文件里塞进来一段
         // 长文本，会让设置界面里那一行铺满整个面板
         self.keybindings
