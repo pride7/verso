@@ -5,6 +5,7 @@ import type { EditorState } from "@codemirror/state";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { api, onAppClosing, onVaultChanged, pickVaultFolder } from "./api";
+import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
 import { Icon } from "./components/Icon";
@@ -141,6 +142,15 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => localStorage.getItem("verso.sidebarOpen") !== "0",
   );
+  /**
+   * 窄屏（§6.1「移动」那一列）。侧栏在这里是抽屉，正文用满宽。
+   *
+   * `openPath` 是个长期存在的 callback，闭包里的 `narrow` 会过期 —— 和
+   * `settingsRef` 同样的道理，读 ref 而不是读那个值
+   */
+  const narrow = useMedia(NARROW);
+  const narrowRef = useRef(narrow);
+  narrowRef.current = narrow;
   /** 排序菜单开着没有。做成菜单而不是原生 select —— 后者在头部占一大截宽度 */
   const [sortMenu, setSortMenu] = useState(false);
   // 侧栏宽度。和终端高度一样记在 localStorage：调好一次就别再调第二次
@@ -372,6 +382,9 @@ export default function App() {
    */
   const openPath = useCallback(
     async (path: string, opts?: { newTab?: boolean }) => {
+      // 窄屏上侧栏是**盖在正文上的抽屉**：点开一篇之后自己收起来。
+      // 不收的话用户还得再关一次，而他刚才那一下表达的正是「我要看这一篇」
+      if (narrowRef.current) setSidebarOpen(false);
       if (noteRef.current && dirtyRef.current) await saveNow();
       // 离开当前页之前记下滚动位置，切回来时还在原处
       const leaving = activePath(tabsRef.current);
@@ -1652,7 +1665,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${sidebarOpen ? "" : " sidebar-collapsed"}`}
+      className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}`}
       style={{ "--sidebar-w": `${sidebarWidth}px` } as React.CSSProperties}
     >
       <ActivityBar
@@ -1673,6 +1686,11 @@ export default function App() {
         onSettings={() => setSettingsOpen(true)}
       />
 
+      {/* 抽屉打开时正文上盖一层，点它就关。窄屏上没有「点旁边空白处」
+          这回事 —— 抽屉几乎占满屏，剩下那点正文正是唯一的出口 */}
+      {narrow && sidebarOpen && (
+        <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      )}
       {sidebarOpen && (
         <aside className="sidebar">
           {/* 头部只留「这是哪个视图」和这个视图的动作。vault 名挪到了底部 ——
