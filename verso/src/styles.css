@@ -4410,3 +4410,122 @@ textarea:focus-visible {
   background: var(--hover-bg);
   color: var(--accent);
 }
+
+/* ---------- 侧栏里的版本历史（§2.8） ---------- */
+
+.hist {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px;
+}
+.hist-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--text);
+  transition: background var(--t-fast);
+}
+.hist-head:hover {
+  background: var(--hover-bg);
+}
+.hist-caret {
+  flex: none;
+  align-self: center;
+  color: var(--muted);
+  transition: transform var(--t-fast);
+}
+.hist > li.is-open .hist-caret {
+  transform: rotate(90deg);
+}
+.hist-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 时间靠右、压淡：它是定位用的坐标，不是内容 */
+.hist-when {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hist-files {
+  list-style: none;
+  margin: 0 0 4px;
+  /* 缩进对齐上面那个箭头之后的文字 */
+  padding: 0 0 0 23px;
+}
+.hist-files > li {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--r-xs);
+}
+.hist-files > li:hover {
+  background: var(--hover-bg);
+}
+.hist-file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text);
+}
+.hist-file:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+/* 动作用极淡的彩底标出来：一列全灰的话，要逐行读才知道哪条是新增 */
+.hist-kind {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  font-size: 10.5px;
+  color: var(--muted);
+  background: color-mix(in oklch, var(--muted) 12%, transparent);
+}
+.hist-kind.is-added {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+.hist-kind.is-deleted {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+}
+.hist-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hist-restore {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+.hist-files > li:hover .hist-restore,
+.hist-restore:focus-visible {
+  opacity: 1;
+}
+.hist-restore:hover {
+  color: var(--accent);
+  background: var(--hover-bg);
+}

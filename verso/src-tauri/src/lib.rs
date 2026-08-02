@@ -535,6 +535,35 @@ fn git_commit(
     state.with_vault(|v| vault::git::commit_all(&v.root, message.as_deref()))
 }
 
+/// 最近的若干次提交。侧栏的历史面板用（§2.8）
+#[tauri::command]
+fn git_history(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<vault::git::HistoryEntry>> {
+    state.with_vault(|v| vault::git::history(&v.root, limit.unwrap_or(50)))
+}
+
+/// 把某一篇笔记回退到某一版。
+///
+/// **回退前先把当前状态记一个版本** —— 不然「回退」就成了一次不可撤销的
+/// 覆盖，而它本该只是历史里的又一步。写盘走 `VaultFs`（§1.2），顺带让文件
+/// 监听认出这是自己写的，不会再弹一条「文件被外部修改」。
+#[tauri::command]
+fn git_restore_file(state: State<'_, AppState>, commit: String, path: String) -> Result<()> {
+    if !path.ends_with(".md") {
+        return Err(Error::Vault("只能回退笔记".into()));
+    }
+    let text = state.with_vault(|v| vault::git::file_at(&v.root, &commit, &path))?;
+    state.with_vault(|v| {
+        vault::git::commit_all(&v.root, Some("回退前的状态"))?;
+        let abs = v.resolve(&path)?;
+        v.fs.write_atomic(&abs, &text)
+    })?;
+    state.reindex(&path);
+    Ok(())
+}
+
 #[tauri::command]
 fn workspace_get(state: State<'_, AppState>) -> Result<workspace::Workspace> {
     state.with_vault(|v| Ok(workspace::load(v.fs.as_ref(), &v.root)))
@@ -604,6 +633,8 @@ pub fn run() {
             notes_reorder,
             git_status,
             git_commit,
+            git_history,
+            git_restore_file,
             workspace_get,
             workspace_set,
             settings_get,

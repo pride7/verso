@@ -51,6 +51,12 @@ export interface Settings {
    */
   autoCommitIdleMin: number;
   /**
+   * 切到别的程序时也记一个版本（§2.8 把它和「空闲」并列为聚合窗口）。
+   *
+   * 没有改动时不会记，所以反复 alt-tab 不会造出一串空版本。
+   */
+  autoCommitOnBlur: boolean;
+  /**
    * 点侧栏里的文件时开新标签还是替换当前标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
@@ -101,6 +107,7 @@ export const DEFAULT_SETTINGS: Settings = {
   templateDir: "templates",
   journalKeep: 3,
   autoCommitIdleMin: 5,
+  autoCommitOnBlur: true,
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
@@ -201,6 +208,8 @@ export function sanitize(s: Settings): Settings {
     autoCommitIdleMin: Math.round(
       num(s.autoCommitIdleMin, 0, 120, DEFAULT_SETTINGS.autoCommitIdleMin),
     ),
+    autoCommitOnBlur:
+      typeof s.autoCommitOnBlur === "boolean" ? s.autoCommitOnBlur : DEFAULT_SETTINGS.autoCommitOnBlur,
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)

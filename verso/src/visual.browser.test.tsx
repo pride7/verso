@@ -207,6 +207,33 @@ vi.mock("./api", () => ({
       view: "table",
     }),
     propSet: async () => {},
+    gitStatus: async () => ({
+      enabled: true,
+      added: 1,
+      modified: 2,
+      deleted: 0,
+      dirty: 3,
+      lastMessage: "更新「线性代数」",
+      lastAt: Math.floor(Date.now() / 1000) - 900,
+    }),
+    gitCommit: async () => null,
+    gitHistory: async () => [
+      {
+        id: "a1",
+        message: "更新「线性代数」",
+        at: Math.floor(Date.now() / 1000) - 900,
+        files: [{ path: "数学/线性代数.md", kind: "modified" }],
+      },
+      {
+        id: "a2",
+        message: "新增「奇异值分解」「特征值」",
+        at: Math.floor(Date.now() / 1000) - 7200,
+        files: [
+          { path: "数学/线性代数/奇异值分解.md", kind: "added" },
+          { path: "数学/线性代数/特征值.md", kind: "added" },
+        ],
+      },
+    ],
     workspaceGet: async () => workspace,
     workspaceSet: async () => {},
     getSettings: async () => ({ theme }),
@@ -458,6 +485,17 @@ describe("视觉工作台", () => {
     await settle(700);
     document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
     await shot("16-dark-mindmap");
+    alive();
+  });
+
+  it("浅色 · 版本历史", async () => {
+    render();
+    await settle(700);
+    clickRail("历史");
+    await settle(300);
+    // 展开第一条，看得到动了哪几篇
+    document.querySelector<HTMLElement>(".hist-head")?.click();
+    await shot("17-light-history");
     alive();
   });
 

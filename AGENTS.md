@@ -419,18 +419,39 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
 2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析整篇
 
+## 改 git 相关代码时必须知道的三件事
+
+`src-tauri/src/vault/git.rs` + `src/components/HistoryView.tsx` + App 里那段
+自动提交。DESIGN.md §2.8。
+
+1. **暂存要 `add_all` 加 `update_all` 两步。** 前者收新增和修改，后者才收得到
+   **删除**。只调 add_all 的话，删掉一篇笔记永远提交不上去，而这种漏提交要等到
+   换台机器才发现。
+2. **revwalk 必须 `Sort::TOPOLOGICAL | Sort::TIME`。** git 的提交时间只精确到秒，
+   而自动提交完全可能在同一秒里连着来两个 —— 只按时间排的话，历史列表的顺序
+   是随机的。拓扑序保证「后一个提交一定排在它的父提交前面」。
+3. **前端调后端不存在的命令时，`invoke` 是同步抛的**，不是返回 rejected
+   Promise。所以 `try { await api.gitStatus() } catch {}` 挡不住它，`.catch()`
+   也挂不上去 —— 整个渲染函数直接崩。老测试里的 mock api 不会有新命令，
+   于是加一个后端命令能把五个不相干的测试打挂。包住整个调用点，别只包 await。
+
 ## 当前状态
 
-**v0.4.2 — M3 索引与 database 已完成，`/` 菜单与视图渲染已确认正常。**
+**v0.5.45 — M3 索引与 database 已完成；M5 的本地版本历史已完成。**
 详见 [CHANGELOG.md](CHANGELOG.md) 与 [verso/README.md](verso/README.md)。
+（CHANGELOG 从 v0.5.28 到 v0.5.44 有一段没补，逐条见 `git log`。）
 
 M2 的公式手感盲测已通过（作者手测），项目最大的风险点在那时就过去了。
 默认 snippet 库仍在长期迭代，待办记在 DESIGN.md §5.4 的表里 —— 用到不顺手
 随时可以动，但动之前先读上面「改 snippet 时必须知道的三件事」。
 
-下一步是 **M5 同步**：`git2-rs` 集成、同步按钮与状态、自动 commit 聚合、
-冲突解决 UI、凭据钥匙串、版本历史、未提交改动 diff 入口。验收是「两台桌面
-设备改同一个 vault 不丢数据；用 AI 改完能一眼 diff、一键回退」。
+**M5 第一步已经落地**（v0.5.43–45）：`git2-rs` 集成、状态栏的状态点、按空闲
+/ 失焦聚合的自动提交、说得出篇名的提交说明、侧栏的版本历史与单篇回退。
+第二步还没开始：远端 push/pull、冲突解决 UI、凭据钥匙串。验收是「两台桌面
+设备改同一个 vault 不丢数据」。
+
+**有意不做未提交改动的 diff 视图** —— 逐字对比在 Markdown 上没那么有用
+（改一个词整段标红），人真正要的是「回到昨天那版」，所以直接给回退。
 
 M4 留下的一个尾巴：**macOS 的透明标题栏 + 交通灯留白没做**，因为需要在
 真机上看红绿灯有没有压住侧栏内容，而这台开发机是 Windows。默认的原生

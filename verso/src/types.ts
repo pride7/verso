@@ -118,6 +118,21 @@ export interface GitStatus {
   lastAt: number | null;
 }
 
+/** §2.8 历史里的一次提交 */
+export interface HistoryEntry {
+  id: string;
+  /** 摘要那一行 */
+  message: string;
+  /** unix 秒 */
+  at: number;
+  files: FileChange[];
+}
+
+export interface FileChange {
+  path: string;
+  kind: "added" | "modified" | "deleted" | "renamed";
+}
+
 export interface CommitInfo {
   id: string;
   message: string;

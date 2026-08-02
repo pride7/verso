@@ -20,6 +20,7 @@ import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { TemplatesView } from "./components/TemplatesView";
+import { HistoryView } from "./components/HistoryView";
 import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
@@ -219,6 +220,9 @@ export default function App() {
   const dirtyRef = useRef(false);
   // `[[` 补全通过 getter 读它 —— 清单变化时不必重建编辑器
   const noteListRef = useRef<NoteRef[]>([]);
+  // 设置放 ref：失焦那个监听器只装一次，闭包里读 state 会永远拿到初值
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   bodyRef.current = body;
   noteRef.current = note;
   dirtyRef.current = saveState === "dirty";
@@ -703,6 +707,34 @@ export default function App() {
     [saveNow, refreshGit],
   );
 
+  /**
+   * 把某篇笔记回退到某一版。
+   *
+   * **先问一句**：这会覆盖当前内容。虽然后端在回退前会把现状先记一个版本
+   * （所以什么都丢不了），但那是「事后能找回来」，不是「本来就没事」——
+   * 覆盖正文这种事该由人点头。
+   */
+  const restoreFile = useCallback(
+    async (commit: string, path: string) => {
+      const name = path.replace(/\.md$/, "");
+      if (!window.confirm(`把「${name}」恢复成这一版的内容？
+
+当前内容会先被记成一个版本，随时能再退回来。`)) {
+        return;
+      }
+      try {
+        await api.gitRestoreFile(commit, path);
+        await refresh();
+        setRevision((v) => v + 1);
+        // 正在看的就是这一篇的话，把编辑器里那份也换掉
+        if (noteRef.current?.path === path) await loadNote(path);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [refresh, loadNote],
+  );
+
   // 打开 vault 后先问一次，之后每次改动（revision）也跟着更新。
   // vault 可能还没打开（首屏是「选个目录」），那时不问
   useEffect(refreshGit, [refreshGit, vault?.root, revision]);
@@ -999,14 +1031,18 @@ export default function App() {
     return () => unlisten?.();
   }, [refresh]);
 
-  // 失焦立即保存（§2.7）
+  // 失焦立即保存（§2.7），顺带按设置记一个版本（§2.8）
   useEffect(() => {
     const onBlur = () => {
       if (dirtyRef.current) void saveNow();
+      // **切到别的程序**是一个天然的「一件事做完了」的时刻 —— §2.8 把它
+      // 和「空闲 5 分钟」并列为聚合窗口。没有改动时 `commitNow` 什么都不做，
+      // 所以反复 alt-tab 不会造出一串空版本
+      if (settingsRef.current.autoCommitOnBlur) void commitNow();
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
-  }, [saveNow]);
+  }, [saveNow, commitNow]);
 
   // 全局快捷键。键位不写在这里 —— 全部来自下面那张命令表（`commands`），
   // 用户在设置里改过的会盖掉默认值。见 `lib/keymap.ts`
@@ -1220,6 +1256,12 @@ export default function App() {
         defaultKeys: "Mod+Shift+G",
         enabled: hasNote,
         run: () => setMindmapOpen((v) => !v),
+      },
+      {
+        id: "vault.history",
+        group: "vault",
+        label: "版本历史",
+        run: () => pickView("history"),
       },
       {
         id: "note.outline",
@@ -1469,6 +1511,7 @@ export default function App() {
     search: "搜索",
     tags: "标签",
     template: "模板",
+    history: "历史",
     outline: "大纲",
   };
 
@@ -1588,6 +1631,13 @@ export default function App() {
                 onInsert={(t) => void insertTemplate(t.path)}
                 onCreate={(t) => void createFromTemplate(t.path, null)}
                 onOpen={(p) => void openPath(p)}
+              />
+            )}
+            {sidebarView === "history" && (
+              <HistoryView
+                revision={revision}
+                onOpen={(p) => void openPath(p)}
+                onRestore={(commit, path) => void restoreFile(commit, path)}
               />
             )}
             {sidebarView === "outline" &&

@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// `.verso/` 是纯派生数据（索引缓存、UI 状态），删掉能重建，不该进版本库。
 const GITIGNORE: &str = "\
@@ -649,6 +649,75 @@ mod commit_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn history_lists_commits_newest_first() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "一").unwrap();
+        commit_all(&dir, Some("第一步")).unwrap();
+        std::fs::write(dir.join("乙.md"), "二").unwrap();
+        commit_all(&dir, Some("第二步")).unwrap();
+
+        let h = history(&dir, 10).unwrap();
+        assert_eq!(h[0].message, "第二步", "新的在前");
+        assert_eq!(h[1].message, "第一步");
+        assert!(h[0].at >= h[1].at);
+        assert_eq!(h.len(), 3, "还有一条「初始化」");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 动了哪些文件**从 diff 算**，不解析我们自己写进正文的那几行 ——
+    /// 用户自己写说明时会把那几行整段替换掉
+    #[test]
+    fn history_files_come_from_the_diff() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "一").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        std::fs::write(dir.join("甲.md"), "改了").unwrap();
+        std::fs::write(dir.join("乙.md"), "新的").unwrap();
+        std::fs::remove_file(dir.join(".gitignore")).unwrap();
+        commit_all(&dir, Some("随手写的说明")).unwrap();
+
+        let h = history(&dir, 1).unwrap();
+        let mut got: Vec<_> = h[0].files.iter().map(|f| (f.path.as_str(), f.kind)).collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![(".gitignore", "deleted"), ("乙.md", "added"), ("甲.md", "modified")]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn history_of_a_repo_without_commits_is_empty_not_an_error() {
+        let dir = std::env::temp_dir().join(format!("verso-git-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        ensure_repo(&dir).unwrap();
+        assert_eq!(history(&dir, 10).unwrap().len(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 回退一篇：取出那一版的内容。**写盘不在这儿** —— 那要走 VaultFs
+    #[test]
+    fn file_at_reads_an_old_version() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "第一版").unwrap();
+        commit_all(&dir, None).unwrap();
+        let old = history(&dir, 1).unwrap()[0].id.clone();
+
+        std::fs::write(dir.join("甲.md"), "第二版").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        assert_eq!(file_at(&dir, &old, "甲.md").unwrap(), "第一版");
+        // 那一版里没有的文件要说清楚，而不是给个空串
+        assert!(file_at(&dir, &old, "不存在.md").is_err());
+        assert!(file_at(&dir, "乱写的", "甲.md").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// 不是仓库时不报错，只是「没这功能」—— 状态栏那个点不该拖垮界面
     #[test]
     fn plain_folder_is_not_enabled() {
@@ -659,4 +728,107 @@ mod commit_tests {
         assert_eq!(s.dirty, 0);
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// ---------------------------------------------------------------- 历史与回退
+
+/// 一次提交，给侧栏的历史面板用
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub id: String,
+    /// 摘要那一行。正文里的文件清单不重复给 —— 下面 `files` 更准
+    pub message: String,
+    /// unix 秒
+    pub at: i64,
+    pub files: Vec<FileChange>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    /// `added` | `modified` | `deleted` | `renamed`
+    pub kind: &'static str,
+}
+
+/// 这一次提交动了哪些文件。
+///
+/// **从 diff 算，不解析我们自己写进正文的那几行** —— 那几行是给人看的，
+/// 而且用户自己写说明时可能整段替换掉。历史面板要的是事实。
+fn commit_files(repo: &git2::Repository, c: &git2::Commit) -> Vec<FileChange> {
+    let new_tree = match c.tree() {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    // 第一次提交没有父：和「空」比，于是所有文件都算新增
+    let old_tree = c.parent(0).ok().and_then(|p| p.tree().ok());
+    let Ok(diff) = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None) else {
+        return Vec::new();
+    };
+
+    diff.deltas()
+        .filter_map(|d| {
+            let path = d
+                .new_file()
+                .path()
+                .or_else(|| d.old_file().path())?
+                .to_string_lossy()
+                .into_owned();
+            let kind = match d.status() {
+                git2::Delta::Added => "added",
+                git2::Delta::Deleted => "deleted",
+                git2::Delta::Renamed => "renamed",
+                _ => "modified",
+            };
+            Some(FileChange { path, kind })
+        })
+        .collect()
+}
+
+/// 最近的若干次提交，新的在前。仓库还没有任何提交时返回空表，不报错。
+pub fn history(root: &Path, limit: usize) -> Result<Vec<HistoryEntry>> {
+    let repo = git2::Repository::open(root)?;
+    // 空仓库（一次都没提交过）里 revwalk.push_head 会失败 —— 那不是错误
+    let Ok(mut walk) = repo.revwalk() else {
+        return Ok(Vec::new());
+    };
+    if walk.push_head().is_err() {
+        return Ok(Vec::new());
+    }
+    // **TOPOLOGICAL 不能少。** 提交时间只精确到秒，同一秒里的两次提交
+    // （自动记完手动又记一次）光按时间排会给出随机的先后；拓扑序保证
+    // 子提交永远排在它的父提交前面
+    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+
+    let mut out = Vec::new();
+    for oid in walk.take(limit) {
+        let Ok(oid) = oid else { continue };
+        let Ok(c) = repo.find_commit(oid) else { continue };
+        out.push(HistoryEntry {
+            id: c.id().to_string(),
+            message: c.summary().unwrap_or("").to_string(),
+            at: c.time().seconds(),
+            files: commit_files(&repo, &c),
+        });
+    }
+    Ok(out)
+}
+
+/// 取某一次提交里某个文件的内容。回退单篇笔记用。
+///
+/// 只做「读出来」这一半，**写回磁盘交给 `Vault`** —— 业务代码只走 `VaultFs`
+/// （§1.2 移动端要换实现），而且那条路会给文件监听打上「是我自己写的」标记，
+/// 不然回退完会被当成外部修改再弹一条提示。
+pub fn file_at(root: &Path, commit: &str, path: &str) -> Result<String> {
+    let repo = git2::Repository::open(root)?;
+    let oid = git2::Oid::from_str(commit)
+        .map_err(|_| Error::Vault(format!("看不懂的版本号：{commit}")))?;
+    let tree = repo.find_commit(oid)?.tree()?;
+    let entry = tree
+        .get_path(Path::new(path))
+        .map_err(|_| Error::Vault(format!("这一版里没有 {path}")))?;
+    let blob = repo.find_blob(entry.id())?;
+    String::from_utf8(blob.content().to_vec())
+        .map_err(|_| Error::Vault(format!("{path} 不是文本，没法回退")))
 }

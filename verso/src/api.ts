@@ -6,6 +6,7 @@ import type {
   Backlink,
   CommitInfo,
   GitStatus,
+  HistoryEntry,
   IndexStats,
   NoteContent,
   NoteMeta,
@@ -131,6 +132,11 @@ export const api = {
   gitStatus: () => call<GitStatus>("git_status"),
   /** 提交全部改动。没有改动时返回 null，不产生空提交 */
   gitCommit: (message?: string) => call<CommitInfo | null>("git_commit", { message }),
+  /** 最近的若干次提交，新的在前 */
+  gitHistory: (limit?: number) => call<HistoryEntry[]>("git_history", { limit }),
+  /** 把某篇笔记回退到某一版。**回退前会先把当前状态记一个版本** */
+  gitRestoreFile: (commit: string, path: string) =>
+    call<void>("git_restore_file", { commit, path }),
 
   // —— §2.1 每个 vault 的界面状态：标签页 ——
   /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */

@@ -2,7 +2,7 @@ import { hint } from "../lib/keymap";
 import { Icon, type IconName } from "./Icon";
 
 /** 侧栏当前显示哪个面板 */
-export type SidebarView = "tree" | "search" | "tags" | "template" | "outline";
+export type SidebarView = "tree" | "search" | "tags" | "template" | "history" | "outline";
 
 interface Props {
   view: SidebarView;
@@ -35,6 +35,7 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] =
   { id: "tags", icon: "tag", label: "标签", cmd: "note.tags" },
   // 模板也是跨文档的东西，排在标签之后、大纲之前
   { id: "template", icon: "template", label: "模板", cmd: "note.templates" },
+  { id: "history", icon: "history", label: "历史", cmd: "vault.history" },
   // 大纲是「当前这篇」的视图，排在三个跨文档视图后面
   { id: "outline", icon: "outline", label: "大纲", cmd: "note.outline" },
 ];

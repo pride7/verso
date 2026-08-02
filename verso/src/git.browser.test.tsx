@@ -35,6 +35,26 @@ let dirty = 0;
 /** 调用顺序 —— 「先保存再提交」全靠它验 */
 const calls: string[] = [];
 
+const NOW_S = Math.floor(Date.now() / 1000);
+const HISTORY = [
+  {
+    id: "aaa",
+    message: "更新「甲」",
+    at: NOW_S - 120,
+    files: [{ path: "甲.md", kind: "modified" as const }],
+  },
+  {
+    id: "bbb",
+    message: "新增「甲」「乙」",
+    at: NOW_S - 7200,
+    files: [
+      { path: "甲.md", kind: "added" as const },
+      { path: "乙.md", kind: "added" as const },
+    ],
+  },
+];
+const gitRestore = vi.fn(async (_commit: string, _path: string) => {});
+
 const gitCommit = vi.fn(async (_message?: string) => {
   calls.push("commit");
   dirty = 0;
@@ -88,6 +108,8 @@ vi.mock("./api", () => ({
       lastAt: 1_754_000_000,
     }),
     gitCommit: (message?: string) => gitCommit(message),
+    gitHistory: async () => HISTORY,
+    gitRestoreFile: (commit: string, path: string) => gitRestore(commit, path),
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
     getSettings: async () => ({}),
@@ -117,6 +139,7 @@ beforeEach(() => {
   dirty = 0;
   calls.length = 0;
   gitCommit.mockClear();
+  gitRestore.mockClear();
 });
 
 afterEach(() => {
@@ -240,5 +263,71 @@ describe("版本记录点", () => {
     });
     const labels = [...document.querySelectorAll(".palette-label")].map((b) => b.textContent);
     expect(labels).not.toContain("记一个版本");
+  });
+});
+
+describe("侧栏里的版本历史", () => {
+  async function openPanel() {
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="历史"]')!.click();
+      await settle(300);
+    });
+  }
+
+  it("列出每一版，新的在前，时间是人话", async () => {
+    await mount();
+    await openPanel();
+
+    const rows = [...document.querySelectorAll<HTMLElement>(".hist-msg")].map((e) => e.textContent);
+    expect(rows).toEqual(["更新「甲」", "新增「甲」「乙」"]);
+    // 只验「接上了」。**具体怎么措辞由 `lib/relTime.test.ts` 钉**（那边的
+    // now 是注入的，怎么跑都一样）—— 在这里写死「2 小时前」的话，
+    // 半夜跑测试会变成「昨天 23:50」，而那正是它该有的行为
+    const when = [...document.querySelectorAll<HTMLElement>(".hist-when")].map((e) => e.textContent);
+    expect(when[0]).toBe("2 分钟前");
+    expect(when[1]).toBeTruthy();
+    expect(when[1]).not.toBe(when[0]);
+  });
+
+  it("展开看动了哪几篇", async () => {
+    await mount();
+    await openPanel();
+    await act(async () => {
+      document.querySelectorAll<HTMLElement>(".hist-head")[1].click();
+      await settle(150);
+    });
+
+    const files = [...document.querySelectorAll<HTMLElement>(".hist-path")].map((e) => e.textContent);
+    expect(files).toEqual(["甲", "乙"]);
+    expect(document.querySelector(".hist-kind")?.textContent).toBe("新增");
+  });
+
+  /**
+   * 回退会覆盖当前正文 —— 后端在覆盖前会先把现状记一个版本（所以丢不了），
+   * 但那是「事后能找回来」，不是「本来就没事」。这种事得由人点头。
+   */
+  it("回退前先问一句，点取消就什么都不做", async () => {
+    await mount();
+    await openPanel();
+    await act(async () => {
+      document.querySelectorAll<HTMLElement>(".hist-head")[0].click();
+      await settle(150);
+    });
+
+    const no = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await act(async () => {
+      document.querySelector<HTMLElement>(".hist-restore")!.click();
+      await settle(200);
+    });
+    expect(gitRestore).not.toHaveBeenCalled();
+    no.mockRestore();
+
+    const yes = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => {
+      document.querySelector<HTMLElement>(".hist-restore")!.click();
+      await settle(300);
+    });
+    expect(gitRestore).toHaveBeenCalledWith("aaa", "甲.md");
+    yes.mockRestore();
   });
 });

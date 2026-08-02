@@ -321,6 +321,27 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
 
           {tab === "editor" && (
             <>
+              <div className="set-row">
+                <div className="set-label">
+                  <span>切到别的程序时记一个版本</span>
+                  <span className="set-hint">
+                    「做完一件事了」的天然时刻。没有改动时不记，反复切窗口不会造出一串空版本
+                  </span>
+                </div>
+                <div className="set-control">
+                  <div className="segmented">
+                    {([true, false] as const).map((v) => (
+                      <button
+                        key={String(v)}
+                        className={settings.autoCommitOnBlur === v ? "is-on" : undefined}
+                        onClick={() => onChange({ autoCommitOnBlur: v })}
+                      >
+                        {v ? "记" : "不记"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
               <Slider
                 label="自动记版本"
                 hint="停手这么久之后，把改动记成一个版本。0 = 不自动记"

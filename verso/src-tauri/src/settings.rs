@@ -46,6 +46,10 @@ fn default_auto_commit_idle() -> f64 {
     5.0
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// 主题色的色相与鲜艳度。默认是应用图标上那点青绿。
 ///
 /// **明度不开放**：深浅两套主题各自需要不同的明度才看得清，让用户调它
@@ -135,6 +139,10 @@ pub struct Settings {
     #[serde(default = "default_auto_commit_idle")]
     pub auto_commit_idle_min: f64,
 
+    /// 切到别的程序时也记一个版本（§2.8 的另一个聚合窗口）
+    #[serde(default = "default_true")]
+    pub auto_commit_on_blur: bool,
+
     /// 主题色色相（oklch 的 h，0–360）。界面底色是中性灰，这个色相只用在
     /// 链接、焦点环、选中标记这些「重音」上
     #[serde(default = "default_accent_hue")]
@@ -188,6 +196,7 @@ impl Default for Settings {
             template_dir: default_template_dir(),
             journal_keep: default_journal_keep(),
             auto_commit_idle_min: default_auto_commit_idle(),
+            auto_commit_on_blur: default_true(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
