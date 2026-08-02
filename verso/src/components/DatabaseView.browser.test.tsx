@@ -1190,3 +1190,48 @@ describe("列头菜单里该有什么", () => {
     expect((await items("标题")).some((t) => t?.includes("取消排序"))).toBe(false);
   });
 });
+
+/**
+ * 定宽表格里最容易复发的两个毛病，都是「看起来像功能坏了」而 DOM 完全正常。
+ */
+describe("定宽表格不能把东西裁掉", () => {
+  const SIZED = [
+    'from: "论文/*"',
+    "view: table",
+    "columns: [title, status]",
+    "widths: title=90, status=70",
+  ].join("\n");
+
+  it("列头菜单不能被 th 裁掉 —— 裁了就等于「点列头没反应」", async () => {
+    const view = mount(SIZED);
+    await settle();
+
+    const th = view.dom.querySelector<HTMLElement>('th[data-col="status"]')!;
+    await userEvent.click(th.querySelector<HTMLElement>(".dbview-th")!);
+    await settle(200);
+
+    const menu = view.dom.querySelector<HTMLElement>(".dbview-menu")!;
+    expect(menu, "菜单该开出来").not.toBeNull();
+
+    // **只能钉声明。** 裁剪不改变 getBoundingClientRect —— 菜单被 overflow
+    // 裁没了的时候，几何量出来和正常时一模一样，只有人眼看得出来
+    expect(getComputedStyle(th).overflow).not.toBe("hidden");
+    // 菜单确实挂在 th 外面（所以上面那条才要紧）
+    expect(menu.getBoundingClientRect().bottom).toBeGreaterThan(
+      th.getBoundingClientRect().bottom,
+    );
+  });
+
+  it("窄列里标题截断而不是断成两行", async () => {
+    const view = mount(SIZED);
+    await settle();
+
+    const link = view.dom.querySelector<HTMLElement>(".dbview-link")!;
+    const icon = link.querySelector("svg")!.getBoundingClientRect();
+    const text = link.querySelector("span")!.getBoundingClientRect();
+
+    // 图标和文字在同一行：断行的话文字会整个跑到图标下面去
+    expect(text.top).toBeLessThan(icon.bottom);
+    expect(getComputedStyle(link.querySelector("span")!).textOverflow).toBe("ellipsis");
+  });
+});

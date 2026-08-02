@@ -364,6 +364,19 @@ CodeMirror 自带的基础主题（同特异度靠源码顺序决胜，而它注
 另外重申一条已经写在下面的：**行装饰不能用纵向 margin**，CodeMirror 的高度图
 测的是盒高，margin 不计入，坐标反查会整体偏移一行。
 
+### `overflow: hidden` 会把「挂在里面的浮层」整个裁掉，而测试全绿
+
+v0.5.38 踩的：给定宽表格的 `th` 加了 `overflow: hidden` 做截断，而列头菜单是
+**绝对定位挂在那个 `th` 里**的 —— 菜单照常打开、事件照常派发、DOM 里查得到，
+就是一个像素都看不见。作者报的是「点列头没反应」。
+
+**裁剪不改变 `getBoundingClientRect`**，所以几何量不出来，查 DOM 的测试也一路
+全绿。这类只能**钉声明**：`expect(getComputedStyle(th).overflow).not.toBe("hidden")`，
+并在注释里写清楚删掉它会坏什么（和 `pageScroll.browser.test.tsx` 钉
+`overscroll-behavior` 是同一招）。
+
+规矩：**要截断就截里面那个具体元素，别截那个当定位基准的容器。**
+
 ### 这类问题：量，不要盯着截图猜
 
 「看不见」至少有三种原因：样式没生效、太淡、被裁掉。三种的修法完全不同，而

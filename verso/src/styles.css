@@ -1405,11 +1405,24 @@ body.is-resizing {
 
 .dbview-cell,
 .dbview-link {
-  margin-left: auto;
+  /* flex + `min-width: 0`：定宽之后列一窄，图标和标题会断成两行
+     （按钮默认是 inline-block，里面两个行内盒该换行就换行）。
+     省略号也要靠这个 —— 没有 `min-width: 0` 的 flex 子项缩不到内容以下 */
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
   text-align: left;
   padding: 7px 8px;
   font-size: 13px;
   border-radius: 0;
+}
+.dbview-link > span {
+  min-width: 0;
+}
+.dbview-rowicon {
+  flex: none;
 }
 .dbview-cell:hover {
   background: color-mix(in oklch, var(--accent) 9%, transparent);
@@ -3650,15 +3663,22 @@ textarea:focus-visible {
      就自己撑开，拖出来的宽度看着像没生效 */
   table-layout: fixed;
 }
-.dbview-table.is-sized th,
 .dbview-table.is-sized td {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* ⚠️ **`th` 上绝不能 `overflow: hidden`。**
+   列头菜单是绝对定位挂在 `th` 里面的，裁掉之后它还在 DOM 里、事件也照常，
+   只是一个像素都看不见 —— 表现就是「点列头没反应」，而查 DOM 的测试一路
+   全绿（裁剪不改变 getBoundingClientRect）。要截断就截里面那个按钮。 */
+.dbview-table.is-sized .dbview-th {
+  overflow: hidden;
+  max-width: 100%;
+}
 /* 定宽之后标题也得能截断，否则一个长标题会把那一格顶出去 */
+.dbview-table.is-sized .dbview-th,
 .dbview-table.is-sized .dbview-link span,
 .dbview-table.is-sized .dbview-cell {
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
