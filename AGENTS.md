@@ -164,10 +164,14 @@ app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动
 
 真机上第一次跑就撞到了，而两种在截图里都完全看不出来：
 
-1. **系统栏压在界面上。** 安卓 15 起（targetSdk ≥ 35）强制全面屏绘制，webview
-   铺满整块屏，状态栏和底部手势条盖在最上层。`index.html` 里必须有
-   `viewport-fit=cover`（否则 `env(safe-area-inset-*)` 全返回 0），再在 `.app`
-   上让出那几条。
+1. **系统栏压在界面上。安卓上这件事 CSS 修不好。**
+   `env(safe-area-inset-*)` 在安卓 WebView 里**只反映挖孔/刘海，不含系统栏** ——
+   照着 iOS 的经验写 `padding-top: env(safe-area-inset-top)` 会得到 0，
+   而人会以为是媒体查询没生效、DPR 算错之类（我为此白改了两版）。
+   安卓 15 起 `setDecorFitsSystemWindows(true)` 也已失效，只能在
+   `MainActivity` 里听 `WindowInsetsCompat` 给内容视图加内边距 ——
+   见 `fitSystemBars()`。底部记得取「手势条」和「输入法」的较大者，
+   否则软键盘会盖住光标。
 2. **浮层盖住了本该能点的东西。** 抽屉的遮罩 `inset: 0` 会连图标栏一起盖住 ——
    而图标栏是手机上唯一的导航。那一竖排图标看得见、点下去却只是关抽屉。
 

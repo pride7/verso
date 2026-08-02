@@ -2663,21 +2663,10 @@ textarea:focus-visible {
    ========================================================================== */
 
 @media (max-width: 640px) {
-  /* **系统栏的安全区。** 安卓 15 起（targetSdk ≥ 35）强制全面屏绘制：
-     webview 铺满整块屏，状态栏和底部手势条**压在界面上面**。不让开的话，
-     顶上那一条（图标栏最上面的按钮、标签页）点下去是状态栏在收通知，
-     底下那一条被手势条吃掉 —— 表现就是「界面在那儿，但点不动」。
-
-     加在 `.app` 上而不是各个子元素上：它是整个界面的外壳，让一次就够。
-     `height: 100%` + `box-sizing: border-box` 保证让出来的部分从总高里扣，
-     而不是把界面顶出屏幕 */
-  .app.is-narrow {
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-  }
+  /* 系统栏（状态栏、手势条）的让位**不在这里做**。
+     安卓 WebView 的 `env(safe-area-inset-*)` 只反映挖孔/刘海，不含系统栏 ——
+     在 CSS 里怎么写都修不好「顶部被状态栏压住」。那件事由 MainActivity 的
+     `fitSystemBars()` 在原生层给 WebView 加内边距解决，两边一起加会重复让位。 */
 
   /* 侧栏那一列整个取消。它仍然渲染，只是不再参与网格 */
   .app.is-narrow {
