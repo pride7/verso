@@ -225,3 +225,191 @@ describe("手机竖屏下的布局", () => {
     expect(document.querySelector(".sidebar-scrim"), "宽屏上不该有遮罩").toBeNull();
   });
 });
+
+/**
+ * §5.5 公式工具条。
+ *
+ * 这里验的是**它和编辑器真的接上了**：点一下有没有插进正文、跳转点在不在、
+ * `→` 走不走得动。符号表本身在 `lib/mathbar.test.ts` 里穷举过了。
+ */
+describe("公式工具条", () => {
+  const bar = () => document.querySelector(".mathbar");
+  const keyByName = (name: string) =>
+    document.querySelector<HTMLElement>(`.mathbar-key[aria-label="${name}"]`);
+  const text = () => document.querySelector(".cm-content")?.textContent ?? "";
+
+  /** 真机上是手指，这里补一套 pointer 事件 —— 组件监听的是 pointerdown/up */
+  function tap(el: HTMLElement) {
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }));
+    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 10, clientY: 10 }));
+    el.click();
+  }
+
+  async function openNote() {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(300);
+    });
+  }
+
+  it("看一眼：工具条和长按变体", async () => {
+    await openNote();
+    await page.screenshot({ path: "__shots__/22-phone-mathbar.png" });
+    const key = document.querySelector<HTMLElement>('.mathbar-key[aria-label="括号"]')!;
+    await act(async () => {
+      key.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      await settle(700);
+    });
+    await page.screenshot({ path: "__shots__/23-phone-mathbar-variants.png" });
+  });
+
+  it("窄屏、且打开了笔记时才出现", async () => {
+    await openNote();
+    expect(bar()).toBeTruthy();
+
+    // 回到宽屏就该收起来：桌面有物理键盘，那才是 snippet 那套的主场
+    await act(async () => {
+      await page.viewport(1440, 900);
+      await settle(300);
+    });
+    expect(bar(), "桌面上不该占着一条").toBeNull();
+  });
+
+  it("点一下就插进正文，光标停在第一个跳转点上", async () => {
+    await openNote();
+    await act(async () => {
+      tap(keyByName("分式")!);
+      await settle(200);
+    });
+    expect(text()).toContain("\\frac{}{}");
+  });
+
+  it("`→` 走到下一个跳转点 —— 它替代的就是 Tab", async () => {
+    await openNote();
+    await act(async () => {
+      tap(keyByName("分式")!);
+      await settle(200);
+    });
+    // 在第一个跳转点里打个字，再按 → 跳到第二个、再打一个
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.focus();
+      document.execCommand("insertText", false, "a");
+      await settle(120);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>('.mathbar-nav button[aria-label="下一个位置"]')!.click();
+      await settle(120);
+      document.execCommand("insertText", false, "b");
+      await settle(120);
+    });
+    expect(text()).toContain("\\frac{a}{b}");
+  });
+
+  it("长按出变体，选一个插它", async () => {
+    await openNote();
+    const key = keyByName("分式")!;
+    await act(async () => {
+      key.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      await settle(700);
+    });
+    const panel = document.querySelector(".mathbar-variants");
+    expect(panel, "长按 500ms 之后该弹出变体").toBeTruthy();
+
+    await act(async () => {
+      // 松手：长按已经触发过，这一下不该再插一次主符号
+      key.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 10, clientY: 10 }));
+      await settle(100);
+    });
+    expect(text()).not.toContain("\\frac");
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('.mathbar-variants button[aria-label="偏导"]')!.click();
+      await settle(200);
+    });
+    expect(text()).toContain("\\partial");
+    expect(document.querySelector(".mathbar-variants")).toBeNull();
+  });
+
+  /**
+   * 变体面板挂在被长按那个键的正上方，而靠右边的键长按之后，
+   * 面板会**整个伸出屏幕** —— 在 390px 宽的屏上这不是边缘情况，
+   * 一行 8 个键里最后两三个都会中招
+   */
+  it("靠右边的键，变体面板也要整个在屏幕里", async () => {
+    await openNote();
+    // 先滑到最右边那个键
+    const keys = [...document.querySelectorAll<HTMLElement>(".mathbar-key")];
+    const last = keys[keys.length - 1];
+    document.querySelector(".mathbar-keys")!.scrollLeft = 9999;
+    await act(async () => {
+      await settle(100);
+    });
+
+    // 找一个真的有变体、且此刻在屏幕右侧的键
+    const target =
+      keys.reverse().find((el) => {
+        const r = el.getBoundingClientRect();
+        return el.classList.contains("has-more") && r.left > PHONE.w * 0.5;
+      }) ?? last;
+    await act(async () => {
+      target.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      await settle(700);
+    });
+
+    const panel = document.querySelector(".mathbar-variants")!;
+    const box = panel.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(PHONE.w);
+    // 而且每一个变体都得在里面，一个都不能被挤掉
+    const wanted = panel.querySelectorAll("button").length;
+    expect(wanted).toBeGreaterThanOrEqual(2);
+    for (const b of panel.querySelectorAll("button")) {
+      expect(b.getBoundingClientRect().right).toBeLessThanOrEqual(PHONE.w);
+    }
+  });
+
+  /**
+   * 横滑工具条时手指必然在某个键上停留超过 500ms。不取消长按的话，
+   * **每滑一次都会弹出一个变体面板** —— 而横滑是这一条上的主要操作
+   */
+  it("滑动时不触发长按", async () => {
+    await openNote();
+    const key = keyByName("分式")!;
+    await act(async () => {
+      key.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }),
+      );
+      key.dispatchEvent(
+        new PointerEvent("pointermove", { bubbles: true, clientX: 60, clientY: 12 }),
+      );
+      await settle(700);
+    });
+    expect(document.querySelector(".mathbar-variants")).toBeNull();
+  });
+
+  it("用过的符号进「最近」，下次打开还在", async () => {
+    await openNote();
+    await act(async () => {
+      // 用第一页上的键：默认停在「结构」那一页，别的页得先切过去
+      tap(keyByName("根式")!);
+      await settle(200);
+    });
+    const tabs = [...document.querySelectorAll(".mathbar-pages button")].map((b) => b.textContent);
+    expect(tabs[0], "「最近」要排在第一个").toBe("最近");
+
+    await act(async () => {
+      document.querySelector<HTMLElement>(".mathbar-pages button")!.click();
+      await settle(150);
+    });
+    expect(keyByName("根式"), "「最近」那一页里应该有它").toBeTruthy();
+    // 存住了：localStorage 里记的是 insert
+    expect(localStorage.getItem("verso.mathbar.recent")).toContain("sqrt");
+  });
+});

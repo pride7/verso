@@ -2727,6 +2727,151 @@ textarea:focus-visible {
 
 
 /* ==========================================================================
+   移动端公式工具条（DESIGN.md §5.5）
+
+   贴在状态栏上面、编辑区下面 —— 也就是真机上软键盘正上方那一条。
+   它是移动端唯一的公式入口：snippet 那套的前提是物理键盘，手机上不成立。
+   ========================================================================== */
+
+.mathbar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  /* 浮层（长按变体）以它为定位基准 */
+  position: relative;
+}
+
+/* 分页标签。「最近」在最前，因为命中率最高 */
+.mathbar-pages {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.mathbar-pages::-webkit-scrollbar {
+  display: none;
+}
+.mathbar-pages button {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  color: var(--muted);
+}
+.mathbar-pages button.is-on {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+
+.mathbar-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 6px;
+  min-width: 0;
+}
+
+/* 符号横向滑动。一页放不下是常态，硬挤成两行会把编辑区吃掉更多 */
+.mathbar-keys {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* 滑到头之后别把整个界面一起带动 */
+  overscroll-behavior-x: contain;
+  min-width: 0;
+}
+.mathbar-keys::-webkit-scrollbar {
+  display: none;
+}
+
+.mathbar-key {
+  flex: none;
+  /* 44px 是手指的接触面直径（Apple HIG / Material 一致）。
+     这一条上的每一个键都会被反复点，不能省 */
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+}
+.mathbar-key:active {
+  background: var(--hover-bg);
+}
+/* 右下角一个小点：告诉人「这个能长按」。不用文字，一个点足够，
+   而且不占键面 */
+.mathbar-key.has-more {
+  position: relative;
+}
+.mathbar-key.has-more::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--muted-2);
+}
+
+/* ← → 常驻，不跟着符号一起滑走：它替代的是 Tab，任何一页上都要能按到 */
+.mathbar-nav {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+.mathbar-nav button {
+  min-width: 36px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 15px;
+}
+.mathbar-nav button:active {
+  background: var(--hover-bg);
+  color: var(--accent);
+}
+
+.mathbar-variants {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  z-index: 41;
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.mathbar-variants button {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 16px;
+}
+.mathbar-variants button:active {
+  background: var(--hover-bg);
+}
+
+/* 盖住整屏而不是只盖工具条：变体弹出来之后，下一个动作十有八九是「算了」 */
+.mathbar-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+/* ==========================================================================
    触摸屏（DESIGN.md §4.4：不做成悬停才出现 —— 触摸屏上没有悬停）
 
    `hover: none` 认的是**指针能力**，不是屏幕宽度：手机、平板、触屏笔记本

@@ -22,6 +22,7 @@ import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { TemplatesView } from "./components/TemplatesView";
 import { HistoryView } from "./components/HistoryView";
+import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
@@ -1952,6 +1953,17 @@ export default function App() {
           fontSize={settings.terminalFontSize}
           dark={effectiveTheme === "dark"}
           theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}
+        />
+      )}
+
+      {/* §5.5 公式工具条。只在窄屏、且真的打开了一篇笔记时出现 ——
+          它占的是软键盘上方那一条，没有编辑对象时那一条不该存在。
+          终端开着时也不显示：两个都想占底部，而在手机上根本没有终端 */}
+      {narrow && note && !termOpen && !mindmapOpen && (
+        <MathBar
+          onInsert={(replacement) => editorRef.current?.insertSnippet(replacement)}
+          onNext={() => editorRef.current?.nextStop()}
+          onPrev={() => editorRef.current?.prevStop()}
         />
       )}
 

@@ -12,6 +12,9 @@ import {
 } from "../editor/fold";
 import { foldTargets } from "../lib/journal";
 import { parseCustomSnippets } from "../editor/snippets/custom";
+import { expand } from "../editor/snippets/match";
+import { shiftTabSpec, tabSpec } from "../editor/snippets";
+import { setTabstops } from "../editor/snippets/tabstops";
 import { setImageResolver } from "../editor/image";
 import { setSlashConfig } from "../editor/completion";
 import { setViewRenderer } from "../editor/viewBlock";
@@ -29,6 +32,17 @@ export interface EditorHandle {
    * 不给就落在末尾 —— 模板里的 `{{cursor}}` 靠它落点（§4.6）
    */
   insert: (text: string, cursorOffset?: number) => void;
+  /**
+   * 插一段带跳转点的 snippet（`$1` `$2`），光标落在第一个跳转点上。
+   *
+   * 移动端公式工具条用（§5.5）。走的是 snippet 引擎同一套展开和跳转点
+   * 状态 —— 于是工具条插出来的东西和用户自己敲展开出来的**在编辑器眼里
+   * 一模一样**，`nextStop` 和 Tab 走的是同一条路，不用维护第二套逻辑。
+   */
+  insertSnippet: (replacement: string) => void;
+  /** 跳到下一个 / 上一个跳转点。就是 Tab / Shift-Tab 那两条命令 */
+  nextStop: () => void;
+  prevStop: () => void;
   /** 当前选中的文字，没选就是空串。模板的 `{{selection}}` 用 */
   selectedText: () => string;
   /**
@@ -242,6 +256,41 @@ export function Editor({
           userEvent: "input.symbol",
           scrollIntoView: true,
         });
+        view.focus();
+      },
+      insertSnippet: (replacement: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const sel = view.state.selection.main;
+        const { text, tabstops } = expand(replacement);
+        const stops = tabstops.map((t) => sel.from + t);
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: text },
+          // 没有跳转点时落在末尾 —— 单个符号（`\alpha`）就是这种
+          selection: { anchor: stops.length ? stops[0] : sel.from + text.length },
+          effects: setTabstops.of(
+            // 第一个跳转点就是现在光标所在处，所以下一个是从第二个开始
+            stops.length > 1
+              ? { positions: stops.slice(1), from: sel.from, to: sel.from + text.length }
+              : null,
+          ),
+          userEvent: "input.snippet",
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
+      nextStop: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        const spec = tabSpec(view.state);
+        if (spec) view.dispatch(spec);
+        view.focus();
+      },
+      prevStop: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        const spec = shiftTabSpec(view.state);
+        if (spec) view.dispatch(spec);
         view.focus();
       },
       selectedText: () => {
