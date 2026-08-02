@@ -216,3 +216,47 @@ export const BUILTIN_COLUMNS = ["created", "updated"] as const;
 export function isBuiltin(key: string): boolean {
   return (BUILTIN_COLUMNS as readonly string[]).includes(key);
 }
+
+/**
+ * 列宽。写成一行 `widths: title=320, 作者=140`。
+ *
+ * ## 为什么进代码块而不是界面状态
+ *
+ * 和排序、列的显隐同一条理由（§0 第 1 条）：它写在笔记里、跟着 `.md` 走，
+ * 换台机器、换个编辑器打开都还在。`.verso/` 放不了 —— 那里只放派生数据，
+ * 而「这一列我调过宽」推断不出来。
+ *
+ * ## 为什么是一行而不是 YAML 映射
+ *
+ * 这个代码块是**用户手写**的，改动只动一行是这里的一贯做法（见文件头）。
+ * 展开成多行映射的话，调一次列宽就在 git 里炸出一整块 diff。
+ *
+ * 属性名里带逗号或等号的情况不支持 —— 那种键名本来就会让 `columns: [a, b]`
+ * 也失效，遇到就整条忽略、退回自适应，而不是解析出半个错误的结果。
+ */
+export function readWidths(yaml: string): Record<string, number> {
+  const raw = readKey(yaml, "widths");
+  if (raw === null) return {};
+  const out: Record<string, number> = {};
+  for (const part of raw.split(",")) {
+    const at = part.indexOf("=");
+    if (at < 0) continue;
+    const key = part.slice(0, at).trim();
+    const px = Number(part.slice(at + 1).trim());
+    if (key && Number.isFinite(px) && px > 0) out[key] = Math.round(px);
+  }
+  return out;
+}
+
+/** 传 null 或空对象 = 删掉这一行，回到按内容自适应 */
+export function writeWidths(yaml: string, widths: Record<string, number> | null): string {
+  const entries = Object.entries(widths ?? {}).filter(([, px]) => Number.isFinite(px) && px > 0);
+  if (entries.length === 0) return writeKey(yaml, "widths", null);
+  return writeKey(yaml, "widths", entries.map(([k, px]) => `${k}=${Math.round(px)}`).join(", "));
+}
+
+/** 列宽的上下限。太窄了连一个字都放不下，太宽了横向滚动条会长到没边 */
+export const MIN_COL_W = 56;
+export const MAX_COL_W = 720;
+
+export const clampColW = (px: number) => Math.min(MAX_COL_W, Math.max(MIN_COL_W, Math.round(px)));

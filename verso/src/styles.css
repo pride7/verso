@@ -2985,6 +2985,7 @@ textarea:focus-visible {
 
 /* 列头：名字 + ⋮，⋮ 平时不显示 */
 .dbview-thwrap {
+  /* 拖杆是绝对定位的，得有个 positioned 祖先 */
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -3640,6 +3641,55 @@ textarea:focus-visible {
    环：滚动容器的尺寸取决于内容，内容的可用宽度又取决于容器。实测的表现是
    元素位置反复微调，自动化点击一直等不到「稳定」——「加一列」那个按钮明明
    有尺寸、在框内，却点不动。拆成两层就没有这个环。 */
+/* ---------- 列宽（§2.6） ----------
+
+   拖表头之间那条线改列宽，双击复位。宽度写进代码块，跟着 `.md` 走 —— 
+   和排序、列的显隐一样是用户内容，不是界面状态。 */
+.dbview-table.is-sized {
+  /* 定宽布局。自适应布局下浏览器只把 `<col width>` 当参考值，内容一长
+     就自己撑开，拖出来的宽度看着像没生效 */
+  table-layout: fixed;
+}
+.dbview-table.is-sized th,
+.dbview-table.is-sized td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 定宽之后标题也得能截断，否则一个长标题会把那一格顶出去 */
+.dbview-table.is-sized .dbview-link span,
+.dbview-table.is-sized .dbview-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分隔线本身很细，但**可抓的区域要宽**（7px）—— 2px 的热区要瞄准了点，
+   而这是个高频动作。平时不画线，鼠标靠近才浮出来一条 */
+.dbview-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 7px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.dbview-resize::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 3px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.dbview-resize:hover::after {
+  opacity: 0.7;
+}
+
 .dbview-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;

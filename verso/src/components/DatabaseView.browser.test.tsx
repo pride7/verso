@@ -886,6 +886,11 @@ describe("视觉：三种新视图", () => {
     ];
 
     for (const [name, kind, spec] of [
+      [
+        "19-db-table",
+        "table",
+        ["view: table", "columns: [title, status, 作者, 读于]", "widths: title=240, status=90, 作者=120, 读于=110"].join("\n"),
+      ],
       ["20-db-list", "list", "view: list\ncolumns: [title, status, 作者]"],
       ["21-db-gallery", "gallery", "view: gallery\ncolumns: [title, status, 作者]"],
       ["22-db-calendar", "calendar", "view: calendar\ndate-field: 读于"],
@@ -1019,5 +1024,82 @@ describe("属性名的中文显示（§2.6）", () => {
     expect(icon.right).toBeLessThan(text.right);
     expect(getComputedStyle(row).display).toBe("flex");
     expect(parseFloat(getComputedStyle(row).gap)).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe("列宽可调（§2.6）", () => {
+  const SPEC = ['from: "论文/*"', "view: table", "columns: [title, status]"].join("\n");
+
+  /** 按下某一列的拖杆、拖 dx 像素、松手 */
+  async function drag(view: EditorView, col: string, dx: number) {
+    const th = [...view.dom.querySelectorAll<HTMLElement>("th[data-col]")].find(
+      (t) => t.dataset.col === col,
+    )!;
+    const handle = th.querySelector<HTMLElement>(".dbview-resize")!;
+    const x = handle.getBoundingClientRect().left;
+    handle.dispatchEvent(new MouseEvent("mousedown", { clientX: x, bubbles: true, cancelable: true }));
+    await settle(60);
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: x + dx, bubbles: true }));
+    await settle(60);
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await settle(200);
+  }
+
+  it("拖完把宽度写回代码块", async () => {
+    const view = mount(SPEC);
+    await settle();
+
+    const before = view.dom.querySelector<HTMLElement>('th[data-col="title"]')!.getBoundingClientRect().width;
+    await drag(view, "title", 80);
+
+    const doc = view.state.doc.toString();
+    expect(doc).toMatch(/widths: .*title=\d+/);
+    // 真的变宽了，而且大致是拖过的距离
+    const after = view.dom.querySelector<HTMLElement>('th[data-col="title"]')!.getBoundingClientRect().width;
+    expect(after).toBeGreaterThan(before + 40);
+  });
+
+  it("**每一列都记下来** —— 只记被拖的那一列，别的列会在手底下跳一下", async () => {
+    const view = mount(SPEC);
+    await settle();
+    await drag(view, "title", 60);
+
+    const widths = /widths: (.+)/.exec(view.state.doc.toString())![1];
+    expect(widths).toContain("title=");
+    expect(widths).toContain("status=");
+  });
+
+  it("拖动不会顺手排一个序", async () => {
+    // 拖杆在表头按钮里面，不掐断冒泡的话松手就触发了排序
+    const view = mount(SPEC);
+    await settle();
+    await drag(view, "status", 40);
+    expect(view.state.doc.toString()).not.toContain("sort:");
+  });
+
+  it("双击复位，回到按内容自适应", async () => {
+    const view = mount(SPEC);
+    await settle();
+    await drag(view, "title", 60);
+    expect(view.state.doc.toString()).toContain("widths:");
+
+    const handle = view.dom.querySelector<HTMLElement>('th[data-col="title"] .dbview-resize')!;
+    handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await settle(200);
+    expect(view.state.doc.toString()).not.toContain("widths:");
+  });
+
+  it("代码块里写好的宽度，打开就生效", async () => {
+    const view = mount([SPEC, "widths: title=260, status=90"].join("\n"));
+    await settle();
+    const th = view.dom.querySelector<HTMLElement>('th[data-col="title"]')!;
+    expect(Math.round(th.getBoundingClientRect().width)).toBe(260);
+  });
+
+  it("窄到放不下时截断，不把表撑破", async () => {
+    const view = mount([SPEC, "widths: title=70, status=70"].join("\n"));
+    await settle();
+    const cell = view.dom.querySelector<HTMLElement>(".dbview-link span")!;
+    expect(getComputedStyle(cell).textOverflow).toBe("ellipsis");
   });
 });

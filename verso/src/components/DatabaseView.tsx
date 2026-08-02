@@ -13,6 +13,7 @@ import {
 } from "./ViewSettings";
 import { propLabel } from "../lib/propLabel";
 import {
+  clampColW,
   formatDate,
   isBuiltin,
   newNoteParent,
@@ -20,9 +21,11 @@ import {
   readColumns,
   readKey,
   readSort,
+  readWidths,
   toDateInput,
   writeColumns,
   writeSort,
+  writeWidths,
 } from "../lib/viewSpec";
 import type { PropDef, PropSchema, ViewResult, ViewRow } from "../types";
 
@@ -76,6 +79,20 @@ export function DatabaseView({
       只读 state 的话拿到的还是 null（拖了等于没拖） */
   const draggingRef = useRef<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
+  /**
+   * 正在拖哪条列边界。`base` 是**按下那一刻所有列的实际宽度** ——
+   * 只记被拖的那一列是不够的：改成定宽布局之后，没记宽度的列会立刻
+   * 重新分配剩余空间，整张表在手底下跳一下
+   */
+  const [resizing, setResizing] = useState<{
+    key: string;
+    startX: number;
+    base: Record<string, number>;
+  } | null>(null);
+  /** 拖动过程中的临时宽度。松手才写回代码块 —— 每动一像素写一次文件，
+      撤销历史会被冲掉，磁盘也遭不住 */
+  const [dragWidths, setDragWidths] = useState<Record<string, number> | null>(null);
+  const headRef = useRef<HTMLTableRowElement>(null);
 
   const load = useCallback(() => {
     api
@@ -127,6 +144,62 @@ export function DatabaseView({
 
   /** 点表头：升 → 降 → 恢复默认。改的是代码块，不是一个 React state */
   const toggleSort = (col: string) => onPatch?.(writeSort(source, nextSort(sort, col)));
+
+  // ---- 列宽（§2.6）----
+  //
+  // 宽度写进代码块，和排序、列的显隐一样跟着 `.md` 走（§0 第 1 条）。
+
+  /** 代码块里记着的宽度；拖动时用临时值盖住它 */
+  const widths = dragWidths ?? readWidths(source);
+
+  /**
+   * 按下分隔线。
+   *
+   * 这一刻把**所有列的实际宽度**量下来当基准 —— 一旦有了显式宽度，表格就切到
+   * 定宽布局，没量过的列会立刻重排，整张表在手底下跳一下。
+   */
+  const startResize = (col: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    // 不让它冒泡到表头按钮上去 —— 否则拖完一放手就顺手排了个序
+    e.stopPropagation();
+    const base: Record<string, number> = {};
+    for (const th of headRef.current?.querySelectorAll<HTMLElement>("th[data-col]") ?? []) {
+      const key = th.dataset.col!;
+      base[key] = clampColW(th.getBoundingClientRect().width);
+    }
+    setResizing({ key: col, startX: e.clientX, base });
+    setDragWidths(base);
+  };
+
+  useEffect(() => {
+    if (!resizing) return;
+    const move = (e: MouseEvent) => {
+      const next = {
+        ...resizing.base,
+        [resizing.key]: clampColW(resizing.base[resizing.key] + (e.clientX - resizing.startX)),
+      };
+      setDragWidths(next);
+    };
+    const up = () => {
+      // 用函数式读最新值：闭包里的 dragWidths 是这一轮渲染的旧值
+      setDragWidths((w) => {
+        if (w) onPatch?.(writeWidths(source, w));
+        return null;
+      });
+      setResizing(null);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    // 拖动全程锁成 col-resize 光标，否则划过别的元素就变回箭头
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [resizing, source, onPatch]);
 
   /**
    * 加一行 = 新建一篇笔记。§2.6：「加一行 → 新建一篇笔记并写入对应属性」。
@@ -632,11 +705,28 @@ export function DatabaseView({
         )}
       </div>
       <div className="dbview-scroll">
-        <table className="dbview-table">
-        <thead>
-          <tr>
+        {/* 有显式宽度就切到定宽布局 —— 自适应布局下浏览器只把 `<col width>`
+            当参考值，内容一长就自己撑开，拖出来的宽度看着像没生效 */}
+        <table
+          className={`dbview-table${Object.keys(widths).length ? " is-sized" : ""}`}
+          style={
+            Object.keys(widths).length
+              ? { width: result.columns.reduce((n, c) => n + (widths[c] ?? 120), 0) }
+              : undefined
+          }
+        >
+        {Object.keys(widths).length > 0 && (
+          <colgroup>
             {result.columns.map((c) => (
-              <th key={c} className={sort?.key === c ? "is-sorted" : undefined}>
+              <col key={c} style={{ width: widths[c] ?? 120 }} />
+            ))}
+            {onPatch && <col style={{ width: 34 }} />}
+          </colgroup>
+        )}
+        <thead>
+          <tr ref={headRef}>
+            {result.columns.map((c) => (
+              <th key={c} data-col={c} className={sort?.key === c ? "is-sorted" : undefined}>
                 {onPatch ? (
                   <span className="dbview-thwrap">
                     <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
@@ -660,6 +750,19 @@ export function DatabaseView({
                     >
                       ⋮
                     </button>
+                    {/* 拖这条边改列宽，双击复位（和侧栏那条拖杆一个手势）。
+                        宽度写进代码块，跟着 `.md` 走 */}
+                    <span
+                      className="dbview-resize"
+                      onMouseDown={(e) => startResize(c, e)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onPatch(writeWidths(source, null));
+                      }}
+                      title="拖动改列宽，双击复位"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
                     {colMenu(panel) === c && (
                       <ul className="dbview-menu" onMouseDown={(e) => e.stopPropagation()}>
                         <li>

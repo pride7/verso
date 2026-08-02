@@ -14,6 +14,11 @@ import {
   formatDate,
   toDateInput,
   isBuiltin,
+  clampColW,
+  MAX_COL_W,
+  MIN_COL_W,
+  readWidths,
+  writeWidths,
 } from "./viewSpec";
 
 const SPEC = ['from: "论文/**"', "# 只看没读完的", 'where: status != "已读"', "view: table"].join("\n");
@@ -171,5 +176,46 @@ describe("isBuiltin", () => {
     expect(isBuiltin("created")).toBe(true);
     expect(isBuiltin("updated")).toBe(true);
     expect(isBuiltin("status")).toBe(false);
+  });
+});
+
+describe("列宽", () => {
+  it("读写一个来回", () => {
+    const y = writeWidths("view: table", { title: 320, 作者: 140 });
+    expect(y).toContain("widths: title=320, 作者=140");
+    expect(readWidths(y)).toEqual({ title: 320, 作者: 140 });
+  });
+
+  it("没写就是空的，不是 null", () => {
+    expect(readWidths("view: table")).toEqual({});
+  });
+
+  it("清空 = 删掉那一行，回到自适应", () => {
+    const y = writeWidths("view: table\nwidths: title=320", {});
+    expect(y).not.toContain("widths");
+    expect(readWidths(y)).toEqual({});
+  });
+
+  it("坏值跳过，不影响同一行里别的列", () => {
+    expect(readWidths("widths: title=abc, 作者=140, =90, 难度=-5")).toEqual({ 作者: 140 });
+  });
+
+  it("小数取整 —— 拖出来的像素带小数，写进文件里没必要", () => {
+    expect(readWidths("widths: title=320.6")).toEqual({ title: 321 });
+    expect(writeWidths("", { title: 320.6 })).toContain("title=321");
+  });
+
+  it("改宽度只动那一行，别的键原样", () => {
+    const src = ['from: "论文/**"', "view: table", "sort: 难度 desc", "columns: [title]"].join("\n");
+    const y = writeWidths(src, { title: 200 });
+    expect(y).toContain('from: "论文/**"');
+    expect(y).toContain("sort: 难度 desc");
+    expect(y).toContain("columns: [title]");
+  });
+
+  it("夹紧：太窄放不下一个字，太宽会把横向滚动条拉到没边", () => {
+    expect(clampColW(10)).toBe(MIN_COL_W);
+    expect(clampColW(9999)).toBe(MAX_COL_W);
+    expect(clampColW(200.4)).toBe(200);
   });
 });
