@@ -2867,17 +2867,27 @@ textarea:focus-visible {
 
 /* 表头做成按钮，但要看着还是表头 —— 不是一排控件 */
 .dbview-th {
+  /* **整块列头就是「打开这一列的菜单」**，所以要有 hover 反馈 ——
+     没有的话它看着像一段静止的文字，没人会想到去点 */
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0;
+  padding: 1px 5px;
+  margin: 0 -3px;
   font: inherit;
   color: inherit;
   border-radius: var(--r-xs);
-  transition: color var(--t-fast);
+  transition: color var(--t-fast), background var(--t-fast);
 }
 .dbview-th:hover {
   color: var(--text);
+  background: var(--hover-bg);
+}
+/* 菜单开着的时候底色留住 —— 否则鼠标一移开列头就「灭」了，
+   而菜单还开着，看起来像两件不相干的东西 */
+.dbview-th[aria-expanded="true"] {
+  color: var(--text);
+  background: var(--hover-bg);
 }
 .dbview-table th.is-sorted .dbview-th {
   color: var(--text);
@@ -2994,16 +3004,6 @@ textarea:focus-visible {
 .dbview-th svg {
   color: var(--muted);
   opacity: 0.75;
-}
-.dbview-more {
-  padding: 0 2px;
-  color: var(--muted);
-  opacity: 0;
-  transition: opacity var(--t-fast);
-}
-.dbview-table th:hover .dbview-more,
-.dbview-more:focus-visible {
-  opacity: 1;
 }
 /* 最后那一列只放「加一列」，不参与宽度分配 */
 .dbview-plus {

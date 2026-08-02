@@ -170,31 +170,55 @@ describe("视图本身能操作（§2.6）", () => {
       b.textContent?.startsWith(name),
     )!;
 
-  it("点表头排序，改的是代码块 —— 排序跟着 .md 走，不是界面状态", async () => {
+  /** 打开某一列的菜单，点里面某一项 */
+  async function menu(view: EditorView, col: string, item: string) {
+    await userEvent.click(th(view, col));
+    await settle(200);
+    const hit = [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
+      b.textContent?.includes(item),
+    )!;
+    expect(hit, `这一列的菜单里该有「${item}」`).toBeTruthy();
+    await userEvent.click(hit);
+    await settle();
+  }
+
+  /**
+   * **点列头开菜单，不直接排序。**
+   *
+   * 点一下就改文件的设计，误触的代价是一次真实的改动；而且排序之外的操作
+   * 会被迫全塞进一个 `⋮` 里。思源、Notion 都是点列头开菜单。
+   */
+  it("点列头开的是菜单，不是直接排序", async () => {
     const view = mount();
     await settle();
 
     await userEvent.click(th(view, "status"));
+    await settle(200);
+    expect(view.dom.querySelector(".dbview-menu"), "该弹出这一列的菜单").not.toBeNull();
+    expect(view.state.doc.toString(), "只是打开菜单，不该动文件").not.toContain("sort:");
+  });
+
+  it("菜单里选升序/降序，改的是代码块 —— 排序跟着 .md 走，不是界面状态", async () => {
+    const view = mount();
     await settle();
+
+    await menu(view, "status", "升序");
     expect(view.state.doc.toString()).toContain("sort: status");
 
-    // 再点一次变降序，仍然只有一行 sort
-    await userEvent.click(th(view, "status"));
-    await settle();
+    await menu(view, "status", "降序");
     expect(view.state.doc.toString()).toContain("sort: status desc");
+    // 仍然只有一行 sort
     expect(view.state.doc.toString().match(/sort:/g)).toHaveLength(1);
 
-    // 第三次回到默认顺序，那一行删掉
-    await userEvent.click(th(view, "status"));
-    await settle();
+    // 「取消排序」只在这一列正排着的时候出现
+    await menu(view, "status", "取消排序");
     expect(view.state.doc.toString()).not.toContain("sort:");
   });
 
   it("排序不动代码块里别的行 —— 那些是用户自己排的", async () => {
     const view = mount();
     await settle();
-    await userEvent.click(th(view, "status"));
-    await settle();
+    await menu(view, "status", "升序");
     const doc = view.state.doc.toString();
     expect(doc).toContain('from: "论文/*"');
     expect(doc).toContain("view: table");
@@ -265,10 +289,10 @@ describe("列与设置（§2.6）", () => {
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+    const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
     )!;
-    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await userEvent.click(th);
     await settle(200);
     await userEvent.click(
       [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
@@ -293,10 +317,10 @@ describe("列与设置（§2.6）", () => {
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
 
-    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+    const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
     )!;
-    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await userEvent.click(th);
     await settle(200);
     await userEvent.click(
       [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
@@ -315,10 +339,10 @@ describe("列与设置（§2.6）", () => {
     const view = mount();
     await settle();
 
-    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+    const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
     )!;
-    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await userEvent.click(th);
     await settle(200);
     await userEvent.click(
       [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
@@ -423,10 +447,10 @@ describe("按类型给编辑控件（§2.6）", () => {
     const view = mount();
     await settle();
 
-    const th = [...view.dom.querySelectorAll<HTMLElement>("th")].find((t) =>
+    const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
     )!;
-    await userEvent.click(th.querySelector<HTMLElement>(".dbview-more")!);
+    await userEvent.click(th);
     await settle(200);
     await userEvent.click(
       [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
@@ -972,6 +996,12 @@ describe("属性名的中文显示（§2.6）", () => {
         b.textContent?.includes("创建时间"),
       )!,
     );
+    await settle(200);
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
+        b.textContent?.includes("升序"),
+      )!,
+    );
     await settle();
     expect(view.state.doc.toString()).toContain("sort: created");
     expect(view.state.doc.toString()).not.toContain("创建时间");
@@ -1069,11 +1099,12 @@ describe("列宽可调（§2.6）", () => {
     expect(widths).toContain("status=");
   });
 
-  it("拖动不会顺手排一个序", async () => {
-    // 拖杆在表头按钮里面，不掐断冒泡的话松手就触发了排序
+  it("拖动不会顺手把这一列的菜单打开", async () => {
+    // 拖杆长在表头按钮旁边，不掐断冒泡的话松手就顺手开了菜单
     const view = mount(SPEC);
     await settle();
     await drag(view, "status", 40);
+    expect(view.dom.querySelector(".dbview-menu")).toBeNull();
     expect(view.state.doc.toString()).not.toContain("sort:");
   });
 
@@ -1101,5 +1132,61 @@ describe("列宽可调（§2.6）", () => {
     await settle();
     const cell = view.dom.querySelector<HTMLElement>(".dbview-link span")!;
     expect(getComputedStyle(cell).textOverflow).toBe("ellipsis");
+  });
+});
+
+describe("列头菜单里该有什么", () => {
+  it("宽度复位只在这一列真调过宽时出现", async () => {
+    const view = mount(['from: "论文/*"', "view: table", "columns: [title, status]"].join("\n"));
+    await settle();
+
+    const open = async () => {
+      await userEvent.click(
+        [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((b) =>
+          b.textContent?.includes("status"),
+        )!,
+      );
+      await settle(200);
+      return [...view.dom.querySelectorAll(".dbview-menu button")].map((b) => b.textContent);
+    };
+
+    expect((await open()).some((t) => t?.includes("宽度复位"))).toBe(false);
+
+    // 关菜单。**不能点表格里的任何地方** —— 那会把光标送进代码块，
+    // 整个视图立刻退回源码（live preview 的规则），表就没了
+    window.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await settle(150);
+
+    const handle = view.dom.querySelector<HTMLElement>('th[data-col="status"] .dbview-resize')!;
+    const x = handle.getBoundingClientRect().left;
+    handle.dispatchEvent(new MouseEvent("mousedown", { clientX: x, bubbles: true, cancelable: true }));
+    // 按下和移动之间必须让一拍：监听器是在 effect 里挂的，同一拍里发出去的
+    // mousemove 还没人接
+    await settle(60);
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: x + 50, bubbles: true }));
+    await settle(60);
+    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await settle(250);
+
+    expect((await open()).some((t) => t?.includes("宽度复位"))).toBe(true);
+  });
+
+  it("「取消排序」只在这一列正排着的时候出现", async () => {
+    const view = mount(['from: "论文/*"', "view: table", "sort: status", "columns: [title, status]"].join("\n"));
+    await settle();
+
+    const items = async (col: string) => {
+      await userEvent.click(
+        [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((b) =>
+          b.textContent?.includes(col),
+        )!,
+      );
+      await settle(200);
+      return [...view.dom.querySelectorAll(".dbview-menu button")].map((b) => b.textContent);
+    };
+
+    expect((await items("status")).some((t) => t?.includes("取消排序"))).toBe(true);
+    // 没在排序的那一列不该有 —— 常驻一条会让人以为哪儿正排着
+    expect((await items("标题")).some((t) => t?.includes("取消排序"))).toBe(false);
   });
 });

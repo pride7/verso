@@ -17,7 +17,6 @@ import {
   formatDate,
   isBuiltin,
   newNoteParent,
-  nextSort,
   readColumns,
   readKey,
   readSort,
@@ -141,9 +140,6 @@ export function DatabaseView({
     onPatch?.(writeColumns(source, (readColumns(source) ?? result.columns).filter((c) => c !== col)));
     setPanel(null);
   };
-
-  /** 点表头：升 → 降 → 恢复默认。改的是代码块，不是一个 React state */
-  const toggleSort = (col: string) => onPatch?.(writeSort(source, nextSort(sort, col)));
 
   // ---- 列宽（§2.6）----
   //
@@ -729,7 +725,18 @@ export function DatabaseView({
               <th key={c} data-col={c} className={sort?.key === c ? "is-sorted" : undefined}>
                 {onPatch ? (
                   <span className="dbview-thwrap">
-                    <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
+                    {/* **点列头开菜单，不是直接排序。**
+                        点一下就改文件的设计，误触的代价是一次真实的改动；
+                        而且排序之外的操作（重命名、类型、隐藏）会被迫全塞进
+                        一个 `⋮` 里，那个图标既小又没人认得。思源、Notion
+                        都是点列头开菜单，这里跟上 */}
+                    <button
+                      className="dbview-th"
+                      onClick={() => setPanel(colMenu(panel) === c ? null : { col: c })}
+                      title={`「${propLabel(c)}」这一列`}
+                      aria-haspopup="menu"
+                      aria-expanded={colMenu(panel) === c}
+                    >
                       <Icon name={c === "title" ? "doc" : isBuiltin(c) ? "clock" : propIcon(typeOf(c))} size={13} />
                       {/* 表头显示中文名，但排序、隐藏、写回 `columns:` 用的
                           全是原键名 —— 中文名一旦进了文件就不可移植了 */}
@@ -739,16 +746,6 @@ export function DatabaseView({
                       {sort?.key === c && (
                         <span className="dbview-arrow">{sort.dir === "desc" ? "↓" : "↑"}</span>
                       )}
-                    </button>
-                    <button
-                      className="dbview-more"
-                      onClick={() =>
-                        setPanel(colMenu(panel) === c ? null : { col: c })
-                      }
-                      title="这一列"
-                      aria-label={`${c} 这一列`}
-                    >
-                      ⋮
                     </button>
                     {/* 拖这条边改列宽，双击复位（和侧栏那条拖杆一个手势）。
                         宽度写进代码块，跟着 `.md` 走 */}
@@ -766,15 +763,30 @@ export function DatabaseView({
                     {colMenu(panel) === c && (
                       <ul className="dbview-menu" onMouseDown={(e) => e.stopPropagation()}>
                         <li>
-                          <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "asc" })); setPanel(null); }}>
+                          <button
+                            className={sort?.key === c && sort.dir === "asc" ? "is-current" : undefined}
+                            onClick={() => { onPatch(writeSort(source, { key: c, dir: "asc" })); setPanel(null); }}
+                          >
                             升序
                           </button>
                         </li>
                         <li>
-                          <button onClick={() => { onPatch(writeSort(source, { key: c, dir: "desc" })); setPanel(null); }}>
+                          <button
+                            className={sort?.key === c && sort.dir === "desc" ? "is-current" : undefined}
+                            onClick={() => { onPatch(writeSort(source, { key: c, dir: "desc" })); setPanel(null); }}
+                          >
                             降序
                           </button>
                         </li>
+                        {/* 只在这一列真的在排序时出现 —— 常驻一条「取消排序」
+                            会让人以为哪儿正排着 */}
+                        {sort?.key === c && (
+                          <li>
+                            <button onClick={() => { onPatch(writeSort(source, null)); setPanel(null); }}>
+                              取消排序
+                            </button>
+                          </li>
+                        )}
                         {!isBuiltin(c) && (
                           <li>
                             <button onClick={() => renameColumn(c)}>重命名…</button>
@@ -806,6 +818,18 @@ export function DatabaseView({
                             ))}
                           </span>
                         </li>
+                        )}
+                        {widths[c] !== undefined && (
+                          <li>
+                            <button
+                              onClick={() => {
+                                onPatch(writeWidths(source, null));
+                                setPanel(null);
+                              }}
+                            >
+                              宽度复位
+                            </button>
+                          </li>
                         )}
                         <li>
                           <button onClick={() => hideColumn(c)}>隐藏这一列</button>
