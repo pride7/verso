@@ -55,11 +55,16 @@
 | M6 移动端 | `v0.7.0` |
 | M7 发布 | `v0.8.0` |
 
-**版本号存在三个文件里，必须一致**（Tauri 不会帮你同步，不一致会做出版本号错乱的安装包）：
+**版本号存在四个文件里，必须一致**（Tauri 不会帮你同步，不一致会做出版本号错乱的安装包）：
 
 - `verso/package.json`
 - `verso/src-tauri/Cargo.toml`
 - `verso/src-tauri/tauri.conf.json`
+- `verso/src-tauri/Cargo.lock`（`[[package]] name = "verso"` 那一段）
+
+**`Cargo.lock` 要进版本库。** Rust 的规矩是二进制 crate 提交、库不提交，
+Verso 是桌面应用。漏改它的话，下一次 `cargo` 跑起来会自己改掉，那一行 diff
+就飘到后面某个不相干的提交里 —— 脚本已经把这一处一起管了。
 
 别手改这三处，用脚本：
 

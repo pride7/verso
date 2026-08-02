@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 版本号在三个文件里各存了一份，Tauri 不会帮你同步。
+ * 版本号在四个文件里各存了一份，Tauri 不会帮你同步。
  * 不一致的后果是做出版本号错乱的安装包，而且很难第一时间发现。
  *
  *   node scripts/version.mjs          查看当前版本 + 检查一致性
- *   node scripts/version.mjs 0.2.0    三处一起改
+ *   node scripts/version.mjs 0.2.0    四处一起改
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -28,6 +28,17 @@ const FILES = [
     path: join(root, "verso/src-tauri/Cargo.toml"),
     re: /(^version\s*=\s*")([^"]+)(")/m,
   },
+  {
+    // Cargo.lock 里也存着一份自己的版本号，**必须一起改**。
+    //
+    // 漏了它的话，下一次 cargo 跑起来会自己把它改掉，那一行 diff 就飘到
+    // 后面某个不相干的提交里去（`Cargo.lock` 属于二进制 crate，要进版本库）。
+    //
+    // 锚在 `name = "verso"` 上：这个文件里有几百个 `version = "…"`，
+    // 不锚死会把所有依赖的版本号一起改掉，那是灾难性的
+    path: join(root, "verso/src-tauri/Cargo.lock"),
+    re: /(name = "verso"\s*\nversion = ")([^"]+)(")/,
+  },
 ];
 
 const read = (f) => {
@@ -47,7 +58,7 @@ if (!target) {
     return current;
   });
   const consistent = versions.every((v) => v === versions[0]);
-  console.log(consistent ? `\n✓ 三处一致：v${versions[0]}` : "\n✗ 版本号不一致，用 `node scripts/version.mjs <版本>` 修复");
+  console.log(consistent ? `\n✓ 四处一致：v${versions[0]}` : "\n✗ 版本号不一致，用 `node scripts/version.mjs <版本>` 修复");
   process.exit(consistent ? 0 : 1);
 }
 
