@@ -740,7 +740,8 @@ export function DatabaseView({
             {result.columns.map((c) => (
               <th key={c} data-col={c} className={sort?.key === c ? "is-sorted" : undefined}>
                 {onPatch ? (
-                  <span className="dbview-thwrap">
+                  <>
+                    <span className="dbview-thwrap">
                     {/* **点列头开菜单，不是直接排序。**
                         点一下就改文件的设计，误触的代价是一次真实的改动；
                         而且排序之外的操作（重命名、类型、隐藏）会被迫全塞进
@@ -767,19 +768,6 @@ export function DatabaseView({
                         <span className="dbview-arrow">{sort.dir === "desc" ? "↓" : "↑"}</span>
                       )}
                     </button>
-                    {/* 拖这条边改列宽，双击复位（和侧栏那条拖杆一个手势）。
-                        宽度写进代码块，跟着 `.md` 走 */}
-                    <span
-                      className="dbview-resize"
-                      onMouseDown={(e) => startResize(c, e)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        onPatch(writeWidths(source, null));
-                      }}
-                      title="拖动改列宽，双击复位"
-                      role="separator"
-                      aria-orientation="vertical"
-                    />
                     {colMenu(panel) === c && (
                       /**
                        * **`position: fixed`，坐标在打开那一刻算好。**
@@ -884,7 +872,25 @@ export function DatabaseView({
                         </li>
                       </ul>
                     )}
-                  </span>
+                    </span>
+                    {/* 拖这条边改列宽，双击复位（和侧栏那条拖杆一个手势）。
+                        宽度写进代码块，跟着 `.md` 走。
+
+                        **必须挂在 `th` 上，不能挂在里面那个 `.dbview-thwrap`** ——
+                        后者是 inline-flex，只有「图标 + 列名」那么宽，拖杆会
+                        停在文字后面，而不是列的边界上 */}
+                    <span
+                      className="dbview-resize"
+                      onMouseDown={(e) => startResize(c, e)}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onPatch(writeWidths(source, null));
+                      }}
+                      title="拖动改列宽，双击复位"
+                      role="separator"
+                      aria-orientation="vertical"
+                    />
+                  </>
                 ) : (
                   propLabel(c)
                 )}

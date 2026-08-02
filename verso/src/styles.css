@@ -1389,6 +1389,8 @@ body.is-resizing {
   border-collapse: collapse;
 }
 .dbview-table th {
+  /* 列宽拖杆绝对定位在**这一格**上（不是里面那块文字），要有定位基准 */
+  position: relative;
   text-align: left;
   font-weight: 400;
   font-size: 12px;
@@ -3701,8 +3703,10 @@ textarea:focus-visible {
   position: absolute;
   top: 0;
   bottom: 0;
+  /* 骑在这一格的右边界上：宽 8px、右移 4px，中线正好落在边界上 ——
+     它要对齐的是**列的边界**，不是列名文字的末尾 */
   right: -4px;
-  width: 7px;
+  width: 8px;
   cursor: col-resize;
   z-index: 1;
 }
@@ -3712,7 +3716,7 @@ textarea:focus-visible {
   top: 4px;
   bottom: 4px;
   left: 3px;
-  width: 1.5px;
+  width: 2px;
   border-radius: 1px;
   background: var(--accent);
   opacity: 0;

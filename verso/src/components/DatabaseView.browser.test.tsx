@@ -1279,3 +1279,22 @@ describe("列头菜单的样子", () => {
     }
   });
 });
+
+describe("列宽拖杆的位置", () => {
+  it("骑在列的边界上，不是停在列名文字后面", async () => {
+    // 拖杆原来挂在 `.dbview-thwrap` 上，而那是个 inline-flex，只有
+    // 「图标 + 列名」那么宽 —— 于是它停在文字末尾，和下面的列边界对不上
+    const view = mount(
+      ['from: "论文/*"', "view: table", "columns: [title, status]", "widths: title=220, status=90"].join("\n"),
+    );
+    await settle();
+
+    for (const col of ["title", "status"]) {
+      const th = view.dom.querySelector<HTMLElement>(`th[data-col="${col}"]`)!;
+      const handle = th.querySelector<HTMLElement>(".dbview-resize")!;
+      const edge = th.getBoundingClientRect().right;
+      const center = handle.getBoundingClientRect().left + handle.getBoundingClientRect().width / 2;
+      expect(Math.abs(center - edge), `${col} 的拖杆没骑在列边界上`).toBeLessThan(1.5);
+    }
+  });
+});
