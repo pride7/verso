@@ -180,6 +180,32 @@ app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动
 你以为的那个元素。查 z-index、查类名、看截图，三者都会告诉你「没问题」。
 `mobile.browser.test.tsx` 里有一条照着写。
 
+### 安卓 release 包：见过一次没能复现的原生崩溃
+
+v0.6.13 的 release APK 装上后第一次启动，约 6 秒时崩了一次：
+
+```
+F libc: FORTIFY: pthread_mutex_lock called on a destroyed mutex
+```
+
+**之后 4 次（3 次重启 + 1 次卸载重装）都没能复现**，debug 包也从没出现过。
+没有栈，logcat 的 crash 缓冲里只有这两行。
+
+留个记号，别当它不存在。可疑的方向按优先级：`notify` 的文件监听线程
+（inotify 在安卓的 FUSE 共享存储上本来就不可靠，而 §2.7 给移动端规划的是
+「从后台恢复时做一次全量 mtime 扫描」，不是长期监听）；其次是换 vault 时
+`VaultWatcher` 的 Drop 与其线程的竞态。再遇到就往这两处查。
+
+### release 签名
+
+密钥在**仓库外面**（`~/.verso-signing/verso-release.jks`），
+`gen/android/keystore.properties` 指向它、被 .gitignore 挡着。
+`app/build.gradle.kts` 读不到那个文件就不配签名，产出未签名的 release 包 ——
+别人 clone 下来不该因为没有密钥就构建不了。
+
+打包：`scripts/android-apk.ps1 -Release`。release 的 `.so` 是 17 MB
+（debug 172 MB），APK 19 MB（debug 172 MB）。
+
 ### 自适应图标：`tauri icon` 生成的前景图是满幅的，会被裁
 
 安卓的自适应图标只保证 108dp 画布**中间 72dp** 可见 —— 等于把前景放大 1.5 倍

@@ -6,6 +6,20 @@ plugins {
     id("rust")
 }
 
+/**
+ * release 签名。DESIGN.md §1.2
+ *
+ * 密钥本体和密码都在**仓库外面**（`~/.verso-signing/`），这里只读一份
+ * `keystore.properties` —— 那个文件被 gen/android/.gitignore 挡着。
+ *
+ * 拿不到就不配签名，让 gradle 产出未签名的 release 包（装不上，但至少
+ * 编得过）—— 换台机器 clone 下来的人不该因为没有密钥而连构建都跑不动。
+ */
+val keystoreProperties = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+
 val tauriProperties = Properties().apply {
     val propFile = file("tauri.properties")
     if (propFile.exists()) {
@@ -24,6 +38,17 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        create("release") {
+            keystoreProperties.getProperty("storeFile")?.let {
+                storeFile = file(it)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -37,6 +62,9 @@ android {
             }
         }
         getByName("release") {
+            if (keystoreProperties.getProperty("storeFile") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
