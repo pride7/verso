@@ -539,8 +539,11 @@ button {
   background: var(--hover-bg);
 }
 .rail-btn.is-on {
-  color: var(--accent);
-  background: color-mix(in oklch, var(--accent) 13%, transparent);
+  /* **不用彩色填充块。** 一屏黑白灰里那块青绿是最抢眼的东西，而它说的
+     只是「当前在文档树」—— 一个状态不该比内容还响。改成中性底，
+     「就是它」交给左边那根竖条（§6.2：颜色只做重音） */
+  color: var(--text);
+  background: var(--selected-bg);
 }
 
 /* 选中的视图在最左边有一条竖标 —— VS Code 的做法。
@@ -1118,8 +1121,10 @@ body.is-resizing {
   flex-wrap: wrap;
 }
 .props-tag {
-  color: var(--accent);
-  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  /* 中性底。标签是**内容**不是交互，给它彩色等于让每篇笔记顶上都挂着
+     几块彩条（§6.2：颜色只做重音） */
+  color: var(--text);
+  background: color-mix(in oklch, var(--muted) 13%, transparent);
   border-radius: var(--r-xs);
   padding: 1.5px 7px;
   /* 标签中间断行会变成上下两截，看着像两个标签 */
@@ -2276,8 +2281,10 @@ body.is-resizing {
 }
 
 ::-webkit-scrollbar {
-  width: 11px;
-  height: 11px;
+  /* 10px 而不是 11px：滚动条常驻在正文右侧，是一直在视野里的东西，
+     细一档就少一分存在感。再细手就抓不住了 */
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -2497,7 +2504,7 @@ textarea:focus-visible {
   /* 右边必须让开滚动条那 11px（见下面的 ::-webkit-scrollbar）：滚动条是
      .main 自己的，而浮动目录和 .main 占同一个 grid area，不让就会压在
      滚动条上 —— 既看着脏，鼠标想拖滚动条也会先碰到目录 */
-  padding: 152px 19px 12px 6px;
+  padding: 152px 18px 12px 6px;
 }
 
 .toc-list {
@@ -2563,10 +2570,12 @@ textarea:focus-visible {
 .toc-dash {
   flex: none;
   width: var(--dash);
-  height: 2px;
+  /* 1.5px 而不是 2px、更淡：收起态的这几根短横线是「这儿有个目录」的提示，
+     不是控件。太实的话它会在正文右边变成一个漂着的小图标 */
+  height: 1.5px;
   border-radius: 1px;
   background: currentColor;
-  opacity: 0.5;
+  opacity: 0.4;
   transition: width var(--t-base), opacity var(--t-base);
 }
 .toc-item.is-active .toc-dash {

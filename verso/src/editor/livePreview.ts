@@ -320,6 +320,27 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
             return false;
           }
 
+          // ---- 标题：给整行挂一个层级 class ----
+          //
+          // 只为了**留白**：标题上方的空白要明显大于下方，那是「这一节从这里
+          // 开始」的信号（§6.1）。字号能靠 HighlightStyle 给，但那是行内 span，
+          // 撑不开行与行之间的距离，只能落在行装饰上。
+          //
+          // 行装饰不替换换行符，ViewPlugin 里可以安全产出（同 Blockquote）。
+          case "ATXHeading1":
+          case "ATXHeading2":
+          case "ATXHeading3":
+          case "ATXHeading4":
+          case "ATXHeading5":
+          case "ATXHeading6": {
+            const level = node.name.slice(-1);
+            marks.push(
+              Decoration.line({ class: `cm-h cm-h${level}` }).range(state.doc.lineAt(from).from),
+            );
+            // 继续往里走，下面的 HeaderMark 分支要把 `#` 藏掉
+            return;
+          }
+
           case "HeaderMark": {
             const parent = node.node.parent;
             if (parent && touched(state, parent.from, parent.to)) return false;

@@ -48,12 +48,31 @@ export const versoTheme = EditorView.theme({
   },
   ".cm-activeLine": { backgroundColor: "transparent" },
 
+  // ---- 标题的留白（§6.1）----
+  //
+  // **上方的空白明显大于下方**：留白是「这一节从这里开始」的信号，
+  // 层级靠它拉开，而不是靠字号一路涨上去。
+  //
+  // 只能用 padding，不能用 margin —— CodeMirror 的高度图测的是盒高，
+  // margin 不计入，坐标反查会整体偏移一行（AGENTS.md 里那条）。
+  //
+  // 每一级把值写进 `--h-top`，是为了让折叠箭头拿同一个数：箭头在行内
+  // 绝对定位、上下撑满再居中，行一旦有了上内边距，它就会浮到文字上方去。
+  // 给它同样的 padding-top，居中的基准就重新落回那一行文字上
+  ".cm-h1": { "--h-top": "1.15em" },
+  ".cm-h2": { "--h-top": "1em" },
+  ".cm-h3": { "--h-top": "0.8em" },
+  ".cm-h4, .cm-h5, .cm-h6": { "--h-top": "0.6em" },
+  ".cm-h": { paddingTop: "var(--h-top, 0)" },
+
   // ---- 公式 ----
   ".cm-math-inline": { cursor: "pointer" },
   ".cm-math-block": {
     display: "block",
     textAlign: "center",
-    margin: "0.6em 0",
+    // **padding 不是 margin**：块级 widget 也进高度图，而高度图测的是盒高，
+    // margin 不计入 —— 坐标反查会偏。表格那边早就是这么写的，这里之前漏了
+    padding: "0.9em 0",
     cursor: "pointer",
   },
   ".cm-math-error": {
@@ -79,16 +98,21 @@ export const versoTheme = EditorView.theme({
   },
 
   // ---- 标签 ----
+  //
+  // 中性底、正文色。标签是**内容**不是交互 —— 给它主题色的话，一段带三个
+  // 标签的正文里就有三块彩色补丁，而它们并不比周围的字更重要（§6.2）
   ".cm-hashtag": {
-    color: "var(--accent)",
-    backgroundColor: "color-mix(in oklch, var(--accent) 12%, transparent)",
+    color: "var(--text)",
+    backgroundColor: "color-mix(in oklch, var(--muted) 12%, transparent)",
     borderRadius: "var(--r-xs)",
     padding: "1px 5px",
     fontSize: "0.9em",
   },
 
+  // 高亮是**用户拿马克笔划的**，这一处的颜色是内容本身，不在「只做重音」
+  // 的约束里。但 40% 在中文正文里过重，压到 26% 仍然一眼可见
   ".cm-highlight": {
-    backgroundColor: "color-mix(in oklch, var(--warn) 40%, transparent)",
+    backgroundColor: "color-mix(in oklch, var(--warn) 26%, transparent)",
     borderRadius: "var(--r-xs)",
     padding: "0 2px",
   },
@@ -122,7 +146,7 @@ export const versoTheme = EditorView.theme({
   ".cm-inline-code": {
     fontFamily: "var(--font-mono)",
     fontSize: "0.9em",
-    background: "color-mix(in oklch, var(--muted) 14%, transparent)",
+    background: "color-mix(in oklch, var(--muted) 10%, transparent)",
     borderRadius: "var(--r-xs)",
     padding: "1px 5px",
   },
@@ -144,6 +168,8 @@ export const versoTheme = EditorView.theme({
     alignItems: "center",
     justifyContent: "center",
     width: "16px",
+    // 跟着标题行的上内边距一起下移，否则它会停在标题上方那片空白的正中
+    paddingTop: "var(--h-top, 0)",
     color: "var(--muted)",
     opacity: 0,
     cursor: "pointer",
@@ -277,8 +303,10 @@ export const versoTheme = EditorView.theme({
     // 编辑器出现横向滚动条，而左侧色条恰好画在被推出可视区的那一段上，
     // 表现就是"竖线怎么调都看不见"。块与正文栏左右对齐就够了。
     padding: "0.15em 14px 0.15em 16px",
-    borderLeft: "3px solid var(--callout, var(--accent))",
-    background: "color-mix(in oklch, var(--callout, var(--muted)) 7%, transparent)",
+    // 颜色收在**左边那条线和图标**上，底色改成中性的一层极淡灰。
+    // 一整块带色的底会在正文里铺出一大片彩色，而 callout 只是旁注 —— §6.2
+    borderLeft: "2.5px solid var(--callout, var(--accent))",
+    background: "color-mix(in oklch, var(--muted) 6%, transparent)",
   },
   // ⚠️ 行装饰**绝不能用纵向 margin**。
   //
@@ -383,10 +411,13 @@ export const versoTheme = EditorView.theme({
  * 藏起来了，正文应当看起来就是排好版的文章。变色反而显得像代码编辑器。
  */
 export const versoHighlight = HighlightStyle.define([
-  // §6.1 层级靠字重和留白区分，不靠字号暴涨
-  { tag: t.heading1, fontSize: "1.85em", fontWeight: "600", lineHeight: "1.3" },
-  { tag: t.heading2, fontSize: "1.5em", fontWeight: "600", lineHeight: "1.35" },
-  { tag: t.heading3, fontSize: "1.25em", fontWeight: "600" },
+  // §6.1 层级靠字重和留白区分，不靠字号暴涨。
+  //
+  // 字重从 600 降到 550/560：中文在 600 上显得墩实，尤其是大字号的一级标题。
+  // 字号也各收一档 —— 让出来的层级差由上方留白补（见上面的 `--h-top`）
+  { tag: t.heading1, fontSize: "1.7em", fontWeight: "550", lineHeight: "1.35" },
+  { tag: t.heading2, fontSize: "1.38em", fontWeight: "560", lineHeight: "1.4" },
+  { tag: t.heading3, fontSize: "1.18em", fontWeight: "580" },
   { tag: t.heading4, fontSize: "1em", fontWeight: "600" },
   { tag: t.heading5, fontWeight: "600" },
   { tag: t.heading6, fontWeight: "600", color: "var(--muted)" },
@@ -398,11 +429,12 @@ export const versoHighlight = HighlightStyle.define([
   { tag: t.url, color: "var(--muted)" },
   { tag: t.quote, color: "var(--muted)" },
 
+  // 行内代码的底色压到 10%：一段中文里的三处行内代码，14% 看起来是三块补丁
   {
     tag: t.monospace,
     fontFamily: "var(--font-mono)",
     fontSize: "0.9em",
-    backgroundColor: "color-mix(in oklch, var(--muted) 14%, transparent)",
+    backgroundColor: "color-mix(in oklch, var(--muted) 10%, transparent)",
     borderRadius: "var(--r-xs)",
     padding: "1px 4px",
   },
