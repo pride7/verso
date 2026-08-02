@@ -47,6 +47,13 @@ let viewMock: {
 } = DEFAULT_VIEW;
 const propRenameAll = vi.fn(async () => 3);
 
+/**
+ * 确认框走 `lib/dialog` 而不是 `window.confirm` —— 见 `noGlobalDialog.test.ts`。
+ * 这里必须 mock：真的那个要发 Tauri IPC，浏览器里没有。
+ */
+const confirmMock = vi.fn(async (_message: string) => true);
+vi.mock("../lib/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
+
 vi.mock("../api", () => ({
   api: {
     backlinks: vi.fn(async () => []),
@@ -341,7 +348,7 @@ describe("列与设置（§2.6）", () => {
     const view = mount();
     await settle();
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmMock.mockResolvedValue(true);
 
     const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
@@ -356,20 +363,19 @@ describe("列与设置（§2.6）", () => {
     await settle();
 
     // 问过了才改 —— 真在动几十个文件，不该点一下就悄悄发生
-    expect(confirm).toHaveBeenCalled();
+    expect(confirmMock).toHaveBeenCalled();
     expect(propRenameAll).toHaveBeenCalledWith("status", "阅读状态");
     // 视图点名的那一列也要跟着改，否则这一列会变成空的
     expect(view.state.doc.toString()).toContain("阅读状态");
 
     prompt.mockRestore();
-    confirm.mockRestore();
   });
 
   it("确认框点取消就什么都不做", async () => {
     const view = mount();
     await settle();
     const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
 
     const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
       t.textContent?.includes("status"),
@@ -385,7 +391,7 @@ describe("列与设置（§2.6）", () => {
 
     expect(propRenameAll).not.toHaveBeenCalled();
     prompt.mockRestore();
-    confirm.mockRestore();
+    confirmMock.mockResolvedValue(true);
   });
 
   it("隐藏一列只改 columns，绝不动任何笔记的 frontmatter", async () => {

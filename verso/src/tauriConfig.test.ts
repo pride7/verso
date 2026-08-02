@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 // 直接 import 而不是读文件：`src/` 这个 tsconfig 里没有 node 的类型，
 // 而 `resolveJsonModule` 本来就开着
 import conf from "../src-tauri/tauri.conf.json";
+import capabilities from "../src-tauri/capabilities/default.json";
 
 describe("tauri.conf.json", () => {
   /**
@@ -26,5 +27,20 @@ describe("tauri.conf.json", () => {
    */
   it("关掉 OS 层拖放，否则文档树的拖拽全部失灵", () => {
     expect(conf.app.windows[0].dragDropEnabled).toBe(false);
+  });
+});
+
+describe("capabilities/default.json", () => {
+  /**
+   * `dialog:allow-open` 管的是选目录（`pickVaultFolder`），**不包括确认框**。
+   * 确认框走的是 `plugin:dialog|message` 这个命令（`ask` / `confirm` 在
+   * plugin-dialog 2.7 里都是它的包装，`allow-confirm` 只是它的过时别名）。
+   *
+   * 少了这一条，`lib/dialog.ts` 的 `confirm()` 会被权限层挡回来 —— 弹窗压根
+   * 不出现，Promise 直接 reject。删笔记、回退版本、重置设置全都变成
+   * 「点了没反应」或者「报一句看不懂的错」。
+   */
+  it("放行 dialog 的 message 命令，否则所有确认框都弹不出来", () => {
+    expect(capabilities.permissions).toContain("dialog:allow-message");
   });
 });

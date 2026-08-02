@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parseCustomSnippets } from "../editor/snippets/custom";
+import { confirm } from "../lib/dialog";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { RemoteInfo } from "../types";
@@ -732,8 +733,8 @@ export function SettingsPanel({
         <footer className="settings-foot">
           <button
             className="set-reset-all"
-            onClick={() => {
-              if (window.confirm("把所有设置恢复成默认值？")) onReset();
+            onClick={async () => {
+              if (await confirm("把所有设置恢复成默认值？")) onReset();
             }}
           >
             全部恢复默认

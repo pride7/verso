@@ -38,6 +38,13 @@ let body = BODY;
 
 const writeNote = vi.fn(async (_path: string, _body: string) => 0);
 
+/**
+ * 确认框走 `lib/dialog` 而不是 `window.confirm` —— 见 `noGlobalDialog.test.ts`。
+ * 这里必须 mock：真的那个要发 Tauri IPC，浏览器里没有。
+ */
+const confirmMock = vi.fn(async (_message: string) => true);
+vi.mock("./lib/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
+
 vi.mock("./api", () => ({
   api: {
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
@@ -242,23 +249,22 @@ describe("思维导图", () => {
 
   it("删节点连子树一起删，删之前会问一句", async () => {
     await open();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmMock.mockResolvedValue(true);
     await click(node("甲")!.querySelector(".mm-label")!);
     await key("Delete");
 
-    expect(confirm).toHaveBeenCalled();
+    expect(confirmMock).toHaveBeenCalled();
     const text = await saved();
     expect(text).not.toContain("- 甲");
     expect(text).not.toContain("甲一");
     // 邻居不能被牵连
     expect(text).toContain("- 乙");
     expect(text).toContain("## 结论");
-    confirm.mockRestore();
   });
 
   it("确认框点取消就什么都不做", async () => {
     await open();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
     await click(node("甲")!.querySelector(".mm-label")!);
     await key("Delete");
     // 什么都没改 = 什么都不会存盘
@@ -267,7 +273,7 @@ describe("思维导图", () => {
     });
     expect(writeNote).not.toHaveBeenCalled();
     expect(texts()).toContain("甲一");
-    confirm.mockRestore();
+    confirmMock.mockResolvedValue(true);
   });
 
   it("折叠一支，它底下的就不占地方了", async () => {

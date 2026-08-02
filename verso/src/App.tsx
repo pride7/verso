@@ -5,6 +5,7 @@ import type { EditorState } from "@codemirror/state";
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 import { api, onAppClosing, onVaultChanged, pickVaultFolder } from "./api";
+import { confirm } from "./lib/dialog";
 import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -760,11 +761,10 @@ export default function App() {
   const restoreFile = useCallback(
     async (commit: string, path: string) => {
       const name = path.replace(/\.md$/, "");
-      if (!window.confirm(`把「${name}」恢复成这一版的内容？
+      const ok = await confirm(`把「${name}」恢复成这一版的内容？
 
-当前内容会先被记成一个版本，随时能再退回来。`)) {
-        return;
-      }
+当前内容会先被记成一个版本，随时能再退回来。`);
+      if (!ok) return;
       try {
         await api.gitRestoreFile(commit, path);
         await refresh();
@@ -924,13 +924,17 @@ export default function App() {
   const deleteNode = useCallback(
     async (node: TreeNode) => {
       const n = node.children.length;
-      const withChildren =
-        n > 0
-          ? window.confirm(
-              `「${node.name}」有 ${n} 个子文档。\n\n确定 = 连同子文档一起删除\n取消 = 只删除本文档，保留子文档`,
-            )
-          : false;
-      if (n === 0 && !window.confirm(`删除「${node.name}」？`)) return;
+      // 有子文档时，这一问同时决定「删不删」和「子文档跟不跟着走」，两个按钮
+      // 都是「删」—— 所以把结果写在按钮上，别让人对着「确定/取消」猜
+      let withChildren = false;
+      if (n > 0) {
+        withChildren = await confirm(`「${node.name}」有 ${n} 个子文档。`, {
+          okLabel: "连同子文档一起删除",
+          cancelLabel: "只删本文档，留下子文档",
+        });
+      } else if (!(await confirm(`删除「${node.name}」？`))) {
+        return;
+      }
       try {
         await api.deleteNote(node.path, withChildren);
         await refresh();
@@ -1077,7 +1081,7 @@ export default function App() {
         await openPath(hit.path);
         return;
       }
-      if (!window.confirm(`「${clean}」还不存在，现在新建？`)) return;
+      if (!(await confirm(`「${clean}」还不存在，现在新建？`, { kind: "info" }))) return;
       try {
         const meta = await api.createNote(null, clean);
         await refresh();

@@ -80,6 +80,13 @@ const gitCommit = vi.fn(async (_message?: string) => {
   return { id: "abc", message: "更新「甲」", files: 1 };
 });
 
+/**
+ * 确认框走 `lib/dialog` 而不是 `window.confirm` —— 见 `noGlobalDialog.test.ts`。
+ * 这里必须 mock：真的那个要发 Tauri IPC，浏览器里没有。
+ */
+const confirmMock = vi.fn(async (_message: string) => true);
+vi.mock("./lib/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
+
 vi.mock("./api", () => ({
   api: {
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
@@ -357,21 +364,19 @@ describe("侧栏里的版本历史", () => {
       await settle(150);
     });
 
-    const no = vi.spyOn(window, "confirm").mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
     await act(async () => {
       document.querySelector<HTMLElement>(".hist-restore")!.click();
       await settle(200);
     });
     expect(gitRestore).not.toHaveBeenCalled();
-    no.mockRestore();
 
-    const yes = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmMock.mockResolvedValue(true);
     await act(async () => {
       document.querySelector<HTMLElement>(".hist-restore")!.click();
       await settle(300);
     });
     expect(gitRestore).toHaveBeenCalledWith("aaa", "甲.md");
-    yes.mockRestore();
   });
 });
 

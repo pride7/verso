@@ -12,6 +12,7 @@ import {
   TYPES,
   ViewSettings,
 } from "./ViewSettings";
+import { confirm } from "../lib/dialog";
 import { propLabel } from "../lib/propLabel";
 import {
   clampColW,
@@ -312,7 +313,7 @@ export function DatabaseView({
     if (!next || next === col) return;
     try {
       const n = await api.propCount(col);
-      if (n > 0 && !window.confirm(`这会修改 ${n} 篇笔记的 frontmatter，继续？`)) return;
+      if (n > 0 && !(await confirm(`这会修改 ${n} 篇笔记的 frontmatter，继续？`))) return;
       await api.propRenameAll(col, next);
       // 视图里点名的列也要跟着改，否则这一列会变成空的
       if (onPatch) {

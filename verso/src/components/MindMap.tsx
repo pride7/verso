@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
+import { confirm } from "../lib/dialog";
 import {
   editAddChild,
   editAddSibling,
@@ -185,12 +186,12 @@ export function MindMap({ title, body, onEdit, onGoto, onClose }: Props) {
     onEdit(edit);
   };
 
-  const remove = (node: MindNode) => {
+  const remove = async (node: MindNode) => {
     if (node.kind === "root") return;
     const n = subtreeSize(node);
     // 只有一个节点时不问 —— 那种误删按一次撤销就回来了；连着子树一起没了
     // 才是「刚才那一整块哪去了」的那种慌
-    if (n > 1 && !window.confirm(`删掉「${node.text}」和它底下的 ${n - 1} 个节点？`)) return;
+    if (n > 1 && !(await confirm(`删掉「${node.text}」和它底下的 ${n - 1} 个节点？`))) return;
     const parent = parentOf(root, node.line);
     setSelected(parent?.line ?? 0);
     onEdit(editRemove(node));

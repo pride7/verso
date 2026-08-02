@@ -9,6 +9,7 @@ import {
   type KeyOverrides,
 } from "../lib/keymap";
 import { keyLabel } from "../lib/platform";
+import { confirm } from "../lib/dialog";
 import type { Command } from "./CommandPalette";
 
 interface Props {
@@ -118,8 +119,8 @@ export function KeyBindings({ commands, overrides, onChange }: Props) {
         <button
           className="set-reset-all"
           disabled={changedCount === 0}
-          onClick={() => {
-            if (window.confirm("把所有快捷键恢复成默认？")) onChange({});
+          onClick={async () => {
+            if (await confirm("把所有快捷键恢复成默认？")) onChange({});
           }}
         >
           {changedCount ? `恢复默认键位（改过 ${changedCount} 条）` : "全是默认键位"}
