@@ -179,6 +179,32 @@ app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动
 你以为的那个元素。查 z-index、查类名、看截图，三者都会告诉你「没问题」。
 `mobile.browser.test.tsx` 里有一条照着写。
 
+### 真机上调界面：连 WebView 的 devtools，别截屏
+
+debug 包的 WebView 开着远程调试，可以直接在手机上跑的页面里执行 JS：
+
+```bash
+PID=$(adb shell pidof app.verso.desktop)
+adb forward tcp:9222 localabstract:webview_devtools_remote_$PID
+curl -s http://127.0.0.1:9222/json/list          # 拿 webSocketDebuggerUrl
+# 然后往那个 ws 发 Runtime.evaluate（scratchpad 里那个 cdp.mjs 就是干这个的）
+```
+
+`getComputedStyle`、`getBoundingClientRect`、`elementFromPoint` 全都能问。
+「抽屉打不开」那个 bug 就是这么一次定位的：DOM 里在、类名对、position 和
+z-index 全对，一量高度是 0。**光看截图永远查不出来**，而截屏还会拍到作者
+正在用的私人手机。
+
+### 绝对定位的网格子元素，包含块是它那一格网格区域
+
+窄屏下侧栏改成浮层时，`.app` 的 `grid-template-areas` 里已经没有 `sidebar`
+那一格了，而 `.sidebar` 上还留着 `grid-area: sidebar` —— 于是它的包含块变成
+一个**零高的隐式区域**，`top: 0; bottom: 0` 撑在零高的盒子里，整个抽屉掉到
+视口下方、高度为 0。必须一起写 `grid-area: auto`。
+
+**这类 bug 只有量纵向才看得出来。** 当时的测试只量了横向（左右重不重叠、
+宽度够不够），全绿 —— 而真机上抽屉根本不存在。量布局时 x 和 y 都要量。
+
 ### 改窄屏布局时：视口是**整个浏览器实例共享的**
 
 `page.viewport(390, 844)` 改的是那一个 Chromium 实例，不是当前这个测试文件的。

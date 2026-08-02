@@ -95,6 +95,7 @@ vi.mock("./api", () => ({
     ptyResize: async () => {},
     ptyClose: async () => {},
   },
+  onBackendNotice: async () => () => {},
   onVaultChanged: async () => () => {},
   onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
@@ -160,6 +161,30 @@ describe("手机竖屏下的布局", () => {
     expect(main.width).toBeGreaterThan(PHONE.w * 0.7);
     // 抽屉自己也得留一条正文出来，那是关掉它的唯一出口
     expect(side.right).toBeLessThan(PHONE.w);
+  });
+
+  /**
+   * **抽屉要真的铺满整屏高。**
+   *
+   * 之前只量了横向（左右重不重叠、宽度够不够），于是漏掉了一个真机上
+   * 致命的 bug：`grid-area: sidebar` 没解掉，绝对定位的包含块变成一个
+   * 零高的隐式网格区域，抽屉整个掉到视口下面去了 —— DOM 里在、类名对、
+   * position 和 z-index 全对，只有量高度才看得出来。
+   */
+  it("抽屉铺满整屏高，里面的行点得到", async () => {
+    await mount();
+    const app = box(".app")!;
+    const side = box(".sidebar")!;
+    expect(side.height).toBeGreaterThan(app.height * 0.9);
+    expect(side.top).toBeLessThan(app.top + 2);
+
+    // 而且里面的行要真的在屏幕上、点得到
+    const label = document.querySelector<HTMLElement>(".tree-label")!;
+    const r = label.getBoundingClientRect();
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.bottom).toBeLessThanOrEqual(PHONE.h);
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit && label.contains(hit), "点在文件名上，碰到的却是别的东西").toBe(true);
   });
 
   it("点开一篇之后抽屉自己收起来", async () => {

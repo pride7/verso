@@ -2680,6 +2680,14 @@ textarea:focus-visible {
 
   .app.is-narrow .sidebar {
     position: absolute;
+    /* **必须解掉 `grid-area`。** 绝对定位的网格子元素，包含块是它那一格
+       网格区域 —— 而窄屏下上面那张模板里已经没有 `sidebar` 这一格了，
+       于是它落进一个零高的隐式区域：`top:0;bottom:0` 撑在零高的盒子里，
+       抽屉被丢到视口下方、高度为 0。
+
+       症状是「抽屉打不开」，但 DOM 里它在、类名对、position/z-index 全对，
+       只有量高度才看得出来。真机上就是这么坏的（v0.6.9）。 */
+    grid-area: auto;
     top: 0;
     bottom: 0;
     left: 44px;

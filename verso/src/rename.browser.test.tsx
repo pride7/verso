@@ -90,6 +90,7 @@ vi.mock("./api", () => ({
     ptyResize: async () => {},
     ptyClose: async () => {},
   },
+  onBackendNotice: async () => () => {},
   onVaultChanged: async () => () => {},
   onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
