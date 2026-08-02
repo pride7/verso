@@ -529,7 +529,7 @@ fn git_status(state: State<'_, AppState>) -> Result<vault::git::GitStatus> {
 
 /// 把工作区的改动提交掉。没有改动时返回 null，**不产生空提交**。
 ///
-/// 只做本地历史，不碰远端 —— 完整的 pull/push 与冲突解决仍在 M5 的后半段。
+/// 只提交，不同步 —— 推送走 `vault_sync`。
 #[tauri::command]
 fn git_commit(
     state: State<'_, AppState>,
@@ -611,6 +611,62 @@ fn close_now(window: tauri::Window) {
     let _ = window.destroy();
 }
 
+
+// —— §2.8 远端同步（M5b）——
+
+/// 当前配的远端。没配过时 `url` 是 null
+#[tauri::command]
+fn sync_remote_get(state: State<'_, AppState>) -> Result<vault::sync::RemoteInfo> {
+    state.with_vault(|v| vault::sync::remote_get(&v.root))
+}
+
+/// 配远端。空串 = 不要远端了。
+///
+/// 顺带报告这个 URL 上有没有存过令牌 —— 换了个仓库地址之后，界面得知道
+/// 是不是又要填一次
+#[tauri::command]
+fn sync_remote_set(state: State<'_, AppState>, url: String) -> Result<vault::sync::RemoteInfo> {
+    state.with_vault(|v| vault::sync::remote_set(&v.root, &url))
+}
+
+/// 存/删这个远端的访问令牌。空串 = 删掉。
+///
+/// **只进系统钥匙串，不进设置文件**（`vault/secret.rs` 开头写了为什么）。
+#[tauri::command]
+fn sync_token_set(url: String, token: String) -> Result<()> {
+    vault::secret::token_set(&url, &token)
+}
+
+/// 这个远端存过令牌没有。**有意不提供「读令牌」的命令** ——
+/// 令牌一旦传给前端，就会出现在 IPC 日志和 DevTools 里
+#[tauri::command]
+fn sync_token_has(url: String) -> bool {
+    vault::secret::token_has(&url)
+}
+
+/// 同步一次：提交本地改动 → 取远端 → 接到一起 → 推上去。
+///
+/// 令牌在 Rust 侧从钥匙串取，前端不经手。撞上冲突时返回的 `conflicts`
+/// 非空，且**这次同步什么都没做** —— 工作区、历史、远端全都没动。
+///
+/// 同步会改磁盘上的文件（拉下来的那些），所以完事要重建索引，
+/// 不然搜索和 database 视图看到的还是旧内容。
+#[tauri::command]
+fn vault_sync(state: State<'_, AppState>) -> Result<vault::sync::SyncOutcome> {
+    let (root, url) = state.with_vault(|v| {
+        Ok((
+            v.root.clone(),
+            vault::sync::remote_get(&v.root)?.url.unwrap_or_default(),
+        ))
+    })?;
+    let token = vault::secret::token_get(&url);
+    let out = vault::sync::sync(&root, token)?;
+    if out.pulled > 0 {
+        rebuild_index(&state);
+    }
+    Ok(out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -656,6 +712,11 @@ pub fn run() {
             git_commit,
             git_history,
             git_restore_file,
+            sync_remote_get,
+            sync_remote_set,
+            sync_token_set,
+            sync_token_has,
+            vault_sync,
             workspace_get,
             workspace_set,
             settings_get,

@@ -64,6 +64,16 @@ const closeNow = vi.fn(async () => {
 /** 每条测试自己覆盖，`getSettings` 读它 */
 let settingsPatch: Record<string, unknown> = {};
 
+/** 配的远端。每条测试自己定 */
+let remoteUrl: string | null = "https://example.com/notes.git";
+const vaultSync = vi.fn(async () => ({
+  committed: null,
+  pulled: 2,
+  pushed: 1,
+  conflicts: [] as string[],
+}));
+const tokenSet = vi.fn(async (_url: string, _token: string) => null);
+
 const gitCommit = vi.fn(async (_message?: string) => {
   calls.push("commit");
   dirty = 0;
@@ -122,6 +132,18 @@ vi.mock("./api", () => ({
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
     closeNow: () => closeNow(),
+    syncRemoteGet: async () => ({
+      url: remoteUrl,
+      branch: "main",
+      needsToken: !!remoteUrl?.startsWith("https"),
+    }),
+    syncRemoteSet: async (url: string) => {
+      remoteUrl = url || null;
+      return { url: remoteUrl, branch: "main", needsToken: !!remoteUrl?.startsWith("https") };
+    },
+    syncTokenSet: (url: string, token: string) => tokenSet(url, token),
+    syncTokenHas: async () => false,
+    vaultSync: () => vaultSync(),
     getSettings: async () => settingsPatch,
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},
@@ -156,6 +178,11 @@ beforeEach(() => {
   calls.length = 0;
   gitCommit.mockClear();
   gitRestore.mockClear();
+  closeNow.mockClear();
+  settingsPatch = {};
+  remoteUrl = "https://example.com/notes.git";
+  vaultSync.mockClear();
+  tokenSet.mockClear();
 });
 
 afterEach(() => {
@@ -391,5 +418,105 @@ describe("关窗之前", () => {
     await close();
 
     expect(closeNow).toHaveBeenCalled();
+  });
+});
+
+describe("同步", () => {
+  const syncBtn = () =>
+    [...document.querySelectorAll<HTMLButtonElement>(".status-git")].find((b) =>
+      b.textContent?.includes("同步"),
+    );
+
+  it("配了远端才有那个按钮", async () => {
+    await mount();
+    expect(syncBtn()).toBeTruthy();
+
+    root?.unmount();
+    root = null;
+    document.body.innerHTML = "";
+    remoteUrl = null;
+    await mount();
+    expect(syncBtn(), "没配远端时不该出现一个永远点不动的按钮").toBeFalsy();
+  });
+
+  it("点一下就同步，完事报一句话", async () => {
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    expect(vaultSync).toHaveBeenCalled();
+    expect(document.querySelector(".status-notice")?.textContent).toBe(
+      "拿到 2 个版本，传出 1 个版本",
+    );
+  });
+
+  it("没什么可同步的时候也说一声", async () => {
+    vaultSync.mockResolvedValueOnce({ committed: null, pulled: 0, pushed: 0, conflicts: [] });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+    expect(document.querySelector(".status-notice")?.textContent).toBe("已经是最新的");
+  });
+
+  /**
+   * 冲突走 `error` 而不是那句会自己消失的话 —— 它需要人去处理，
+   * 一闪而过等于没说。而且要说清是**哪几篇**
+   */
+  it("冲突时说清是哪几篇，并且留在屏幕上", async () => {
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: ["数学/线性代数.md", "乙.md"],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    const msg = document.querySelector(".error")?.textContent ?? "";
+    expect(msg).toContain("数学/线性代数");
+    expect(msg).toContain("乙");
+    expect(msg).not.toContain(".md");
+    expect(document.querySelector(".status-notice"), "冲突不该同时报一句好消息").toBeFalsy();
+  });
+
+  it("同步失败把后端那句话原样显示出来", async () => {
+    vaultSync.mockRejectedValueOnce(new Error("认证失败：远端不接受这个令牌"));
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+    expect(document.querySelector(".error")?.textContent).toContain("认证失败");
+  });
+
+  it("正在同步时按钮点不动 —— 两次同步撞在一起会把仓库搅乱", async () => {
+    let release: (() => void) | null = null;
+    vaultSync.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          release = () => r({ committed: null, pulled: 0, pushed: 0, conflicts: [] });
+        }),
+    );
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(150);
+    });
+    expect(syncBtn()!.disabled).toBe(true);
+    expect(syncBtn()!.textContent).toContain("同步中");
+
+    await act(async () => {
+      syncBtn()!.click();
+      release?.();
+      await settle(300);
+    });
+    expect(vaultSync).toHaveBeenCalledTimes(1);
   });
 });

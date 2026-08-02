@@ -219,7 +219,7 @@ pub struct GitStatus {
     pub last_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitInfo {
     pub id: String,
@@ -386,7 +386,7 @@ fn body(list: &[(Kind, String)]) -> String {
 /// 用户没配过 `user.name` / `user.email` 时 libgit2 会直接报错 —— 而那在
 /// 一台没写过代码的机器上是常态。回落到一个明确写着是软件自己提交的身份，
 /// 比让「保存」这件事失败强得多；用户什么时候配好了，之后的提交就跟着变。
-fn signature(repo: &git2::Repository) -> Result<git2::Signature<'static>> {
+pub(super) fn signature(repo: &git2::Repository) -> Result<git2::Signature<'static>> {
     match repo.signature() {
         Ok(sig) => Ok(sig.to_owned()),
         Err(_) => Ok(git2::Signature::now("Verso", "verso@localhost")?),

@@ -45,7 +45,7 @@ import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/tre
 import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
-import type { GitStatus, NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { GitStatus, NoteContent, RemoteInfo, NoteRef, TreeNode, VaultInfo } from "./types";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -120,6 +120,13 @@ export default function App() {
   const mainRef = useRef<HTMLElement | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [error, setError] = useState<string | null>(null);
+  /**
+   * 一句「做完了」的话，几秒后自己消失（同步用）。
+   *
+   * 和 `error` 分开：错误要留着等人处理，而「拿到 3 个版本」看一眼就够了 ——
+   * 让人动手关掉一条好消息是多余的一步
+   */
+  const [notice, setNotice] = useState<string | null>(null);
   const [externalChange, setExternalChange] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   // 拖拽把排序方式从规则切成手动时提示一句。静悄悄地改一个下拉框的值，
@@ -667,6 +674,12 @@ export default function App() {
   // 路径（§7.4）。
 
   const [git, setGit] = useState<GitStatus | null>(null);
+  /** §2.8 配的远端。null = 没打开 vault 或者后端不支持 */
+  const [remote, setRemote] = useState<RemoteInfo | null>(null);
+  /** 这个远端存过令牌没有。**令牌本身永远不到前端** */
+  const [tokenSaved, setTokenSaved] = useState(false);
+  /** 正在同步。同步要走网络，可能要好几秒 */
+  const [syncing, setSyncing] = useState(false);
   /** 正在提交。挡住重入：自动提交和手动点可能撞在一起 */
   const committing = useRef(false);
 
@@ -679,6 +692,22 @@ export default function App() {
       void api.gitStatus().then(setGit).catch(() => setGit(null));
     } catch {
       setGit(null);
+    }
+  }, []);
+
+  /** 远端配置。和 `refreshGit` 一样要防同步抛 —— 老后端没有这个命令 */
+  const refreshRemote = useCallback(() => {
+    try {
+      void api
+        .syncRemoteGet()
+        .then((r) => {
+          setRemote(r);
+          if (r.url) void api.syncTokenHas(r.url).then(setTokenSaved).catch(() => {});
+          else setTokenSaved(false);
+        })
+        .catch(() => setRemote(null));
+    } catch {
+      setRemote(null);
     }
   }, []);
 
@@ -735,9 +764,81 @@ export default function App() {
     [refresh, loadNote],
   );
 
+  // 报完就散。挂在 notice 上而不是在 setNotice 那处 setTimeout：
+  // 连着同步两次时，后一句的计时会覆盖前一句，而不会被前一句的定时器提前抹掉
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   // 打开 vault 后先问一次，之后每次改动（revision）也跟着更新。
   // vault 可能还没打开（首屏是「选个目录」），那时不问
   useEffect(refreshGit, [refreshGit, vault?.root, revision]);
+  // 远端只跟着 vault 变 —— 它不会因为改了一篇笔记而变
+  useEffect(refreshRemote, [refreshRemote, vault?.root]);
+
+  /**
+   * 同步一次。§2.8
+   *
+   * 结果只报一句话，报完就散 —— 「拉下来 3 个、推上去 1 个」这种话看一眼
+   * 就够了，留在界面上反而要人动手关掉。**只有冲突留着**：那是需要人去
+   * 处理的事，一闪而过等于没说。
+   */
+  const syncNow = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const out = await api.vaultSync();
+      if (out.conflicts.length > 0) {
+        const names = out.conflicts.map((p) => p.replace(/\.md$/, "")).join("、");
+        setError(
+          `「${names}」两边都改过，这次没有同步。先把这几篇改成你要的样子，再同步一次`,
+        );
+      } else {
+        const bits = [];
+        if (out.pulled > 0) bits.push(`拿到 ${out.pulled} 个版本`);
+        if (out.pushed > 0) bits.push(`传出 ${out.pushed} 个版本`);
+        setNotice(bits.length ? bits.join("，") : "已经是最新的");
+      }
+      refreshGit();
+      await refresh();
+      setRevision((v) => v + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, refreshGit, refresh]);
+
+  /** 配远端。改完立刻重问一次 —— needsToken 会跟着 URL 变 */
+  const setRemoteUrl = useCallback(
+    async (url: string) => {
+      try {
+        const r = await api.syncRemoteSet(url);
+        setRemote(r);
+        setTokenSaved(r.url ? await api.syncTokenHas(r.url) : false);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [],
+  );
+
+  /** 存/删令牌。空串 = 删掉 */
+  const setToken = useCallback(
+    async (token: string) => {
+      const url = remote?.url;
+      if (!url) return;
+      try {
+        await api.syncTokenSet(url, token);
+        setTokenSaved(!!token);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [remote?.url],
+  );
 
   /**
    * 自动提交：**停手一段时间之后才提交一次**（§2.8「按时间窗聚合」）。
@@ -1438,6 +1539,14 @@ export default function App() {
         run: () => void commitNow(),
       },
       {
+        id: "vault.sync",
+        group: "vault",
+        label: "同步",
+        // 不绑默认键位：它会走网络、可能要好几秒，不该是手滑就触发的动作
+        enabled: !!remote?.url && !syncing,
+        run: () => void syncNow(),
+      },
+      {
         id: "vault.commitNamed",
         group: "vault",
         label: "记一个版本并写说明…",
@@ -1862,6 +1971,18 @@ export default function App() {
             {git.dirty > 0 ? `${git.dirty} 个改动` : "已记录"}
           </button>
         )}
+        {remote?.url && (
+          // 同步。**只有配了远端才出现** —— 没配的人不该看见一个永远点不动的按钮
+          <button
+            className={`status-git${syncing ? " is-busy" : ""}`}
+            onClick={() => void syncNow()}
+            disabled={syncing}
+            title={syncing ? "正在同步…" : `和 ${remote.url} 对齐一次`}
+          >
+            <Icon name="sync" size={13} />
+            {syncing ? "同步中…" : "同步"}
+          </button>
+        )}
         {note && (
           // 显示字数而不是 id：id 是给链接用的内部标识，写东西的人关心的是
           // 写了多少。中文按字符数算才有意义 —— 按空格切词对中文永远是 1
@@ -1869,6 +1990,7 @@ export default function App() {
             {countChars(body)} 字
           </span>
         )}
+        {notice && <span className="status-notice">{notice}</span>}
         {error && <span className="error">{error}</span>}
       </footer>
 
@@ -1893,6 +2015,10 @@ export default function App() {
           onChange={updateSettings}
           onReset={resetSettings}
           onClose={() => setSettingsOpen(false)}
+          remote={remote}
+          tokenSaved={tokenSaved}
+          onRemoteChange={(url) => void setRemoteUrl(url)}
+          onTokenChange={(token) => void setToken(token)}
         />
       )}
 

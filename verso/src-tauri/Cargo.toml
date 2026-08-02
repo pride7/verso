@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.6.0"
+version = "0.6.1"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -26,9 +26,14 @@ ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 
-# M0 只用到 Repository::init。default-features = false 关掉 https/ssh，
-# 避免在 Windows 上引入 openssl。M5 做同步时再打开网络特性。
-git2 = { version = "0.20", default-features = false }
+# §2.8 的底座。M5b 打开了网络特性：
+# - https：走系统 TLS，**不引入 openssl**（vendored-openssl 会让 Windows
+#   构建变成一场噩梦，而系统 TLS 用的本来就是用户已经信任的那套根证书）
+# - ssh：libssh2，配合 ssh-agent 或 ~/.ssh 下的默认密钥
+git2 = { version = "0.20", default-features = false, features = ["https"] }
+# 同步用的访问令牌存进系统钥匙串（Windows 凭据管理器 / macOS 钥匙串），
+# **不进设置文件**：那是明文 JSON，会被备份、会被同步、会被顺手贴给别人看。
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # 索引（§2.5）。bundled 把 SQLite 一起编进来，不依赖系统库；
 # FTS5 是全文搜索必需的。

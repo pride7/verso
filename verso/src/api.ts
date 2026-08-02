@@ -11,7 +11,9 @@ import type {
   NoteContent,
   NoteMeta,
   NoteRef,
+  RemoteInfo,
   SearchHit,
+  SyncOutcome,
   TreeNode,
   VaultInfo,
   PropDef,
@@ -137,6 +139,18 @@ export const api = {
   /** 把某篇笔记回退到某一版。**回退前会先把当前状态记一个版本** */
   gitRestoreFile: (commit: string, path: string) =>
     call<void>("git_restore_file", { commit, path }),
+
+  // —— §2.8 远端同步 ——
+  /** 当前配的远端。没配过时 `url` 是 null */
+  syncRemoteGet: () => call<RemoteInfo>("sync_remote_get"),
+  /** 配远端。空串 = 不要远端了 */
+  syncRemoteSet: (url: string) => call<RemoteInfo>("sync_remote_set", { url }),
+  /** 存/删这个远端的令牌。**只进系统钥匙串** */
+  syncTokenSet: (url: string, token: string) => call<null>("sync_token_set", { url, token }),
+  /** 存过令牌没有。**有意没有「读令牌」** —— 传给前端就等于印在日志里 */
+  syncTokenHas: (url: string) => call<boolean>("sync_token_has", { url }),
+  /** 同步一次：提交 → 取远端 → 接到一起 → 推上去 */
+  vaultSync: () => call<SyncOutcome>("vault_sync"),
 
   /** 收尾做完了，可以真的关窗了。见 `onAppClosing` */
   closeNow: () => call<null>("close_now"),

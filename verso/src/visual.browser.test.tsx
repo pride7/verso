@@ -234,6 +234,15 @@ vi.mock("./api", () => ({
         ],
       },
     ],
+    syncRemoteGet: async () => ({
+      url: "https://github.com/xsfeng/notes.git",
+      branch: "main",
+      needsToken: true,
+    }),
+    syncTokenHas: async () => true,
+    syncRemoteSet: async (url: string) => ({ url, branch: "main", needsToken: true }),
+    syncTokenSet: async () => null,
+    vaultSync: async () => ({ committed: null, pulled: 0, pushed: 0, conflicts: [] }),
     workspaceGet: async () => workspace,
     workspaceSet: async () => {},
     getSettings: async () => ({ theme }),
@@ -552,6 +561,18 @@ describe("视觉工作台", () => {
     await settle(400);
     clickRail("设置");
     await shot("06-light-settings");
+    alive();
+  });
+
+  it("浅色 · 同步设置", async () => {
+    render();
+    await settle(400);
+    clickRail("设置");
+    await settle(200);
+    [...document.querySelectorAll<HTMLElement>(".settings-tabs button")]
+      .find((b) => b.textContent === "同步")!
+      .click();
+    await shot("18-light-sync");
     alive();
   });
 });

@@ -4411,6 +4411,48 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
+/* 同步按钮和上面那个点长一样，只是图标不同 —— 它们是同一类东西
+   （「这份东西现在在哪儿」），分成两种样式只会让状态栏显得杂 */
+.status-git:not(:disabled):hover {
+  background: var(--hover-bg);
+  color: var(--accent);
+}
+.status-git.is-busy {
+  color: var(--text);
+}
+
+/* 同步完那句「拿到 3 个版本」。几秒后自己消失，所以不给它任何
+   「可以点」的样子 —— 那会让人去找关闭按钮 */
+.status-notice {
+  color: var(--muted);
+}
+
+/* ---------- 同步设置（§2.8） ---------- */
+.set-sync .set-control {
+  gap: 6px;
+}
+/* 地址和令牌都是「填完按保存」，不是边打边生效 —— 打到一半就去连远端
+   毫无意义。所以这两页比别处多一个按钮 */
+.set-save {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  color: var(--text);
+  background: var(--surface);
+}
+.set-save:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.set-save:disabled {
+  color: var(--muted-2);
+  cursor: default;
+}
+.set-note-dim {
+  color: var(--muted-2);
+}
+
 /* ---------- 侧栏里的版本历史（§2.8） ---------- */
 
 .hist {

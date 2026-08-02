@@ -139,6 +139,26 @@ export interface CommitInfo {
   files: number;
 }
 
+/** §2.8 当前配的远端。和 Rust 的 `vault::sync::RemoteInfo` 一一对应 */
+export interface RemoteInfo {
+  /** 没配过时是 null */
+  url: string | null;
+  /** 同步只管当前这一个分支 */
+  branch: string;
+  /** https 要令牌；本地路径不要 */
+  needsToken: boolean;
+}
+
+/** 一次同步的结果 */
+export interface SyncOutcome {
+  /** 这次顺手提交掉的本地改动 */
+  committed: CommitInfo | null;
+  pulled: number;
+  pushed: number;
+  /** **非空就意味着这次同步什么都没做** */
+  conflicts: string[];
+}
+
 export interface IndexStats {
   notes: number;
   links: number;

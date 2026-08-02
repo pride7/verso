@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
+import type { RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
 import { KeyBindings } from "./KeyBindings";
@@ -14,9 +15,15 @@ interface Props {
   onChange: (patch: Partial<Settings>) => void;
   onReset: () => void;
   onClose: () => void;
+  /** §2.8 远端。null = 还没打开 vault */
+  remote: RemoteInfo | null;
+  /** 这个远端在系统钥匙串里存过令牌没有 */
+  tokenSaved: boolean;
+  onRemoteChange: (url: string) => void;
+  onTokenChange: (token: string) => void;
 }
 
-type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets" | "slash";
+type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets" | "slash" | "sync";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "外观" },
@@ -25,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "terminal", label: "终端" },
   { id: "snippets", label: "公式 snippet" },
   { id: "slash", label: "/ 菜单" },
+  { id: "sync", label: "同步" },
 ];
 
 /**
@@ -142,13 +150,131 @@ function TextRow({
   );
 }
 
+
+/**
+ * 同步那一页。DESIGN.md §2.8
+ *
+ * 界面上只有两样东西：**仓库地址**和**令牌**。没有 branch、没有 remote 名字、
+ * 没有 push/pull 的选项 —— 那些概念对着一个笔记软件的用户没有意义，而它们
+ * 全都有一个唯一合理的取值。
+ *
+ * 地址和令牌都**不是设置项**：地址存在仓库自己的 `.git/config` 里（跟着
+ * vault 走，换台机器重新填一次是对的），令牌存在系统钥匙串里。所以这一页
+ * 不走 `onChange`，而是各自有自己的回调。
+ */
+function SyncSettings({
+  remote,
+  tokenSaved,
+  onRemoteChange,
+  onTokenChange,
+}: {
+  remote: RemoteInfo | null;
+  tokenSaved: boolean;
+  onRemoteChange: (url: string) => void;
+  onTokenChange: (token: string) => void;
+}) {
+  // 两个输入框都**按下「保存」才提交**，不是边打边存：地址打到一半就去连
+  // 远端毫无意义，而令牌每敲一个字符写一次钥匙串更是荒唐
+  const [url, setUrl] = useState(remote?.url ?? "");
+  const [token, setToken] = useState("");
+  useEffect(() => setUrl(remote?.url ?? ""), [remote?.url]);
+
+  if (!remote) {
+    return <p className="set-note">先打开一个 vault。</p>;
+  }
+
+  return (
+    <div className="set-sync">
+      <p className="set-note">
+        填一个仓库地址，之后状态栏上会多一个「同步」。它会把这台机器上的改动推上去、
+        把别处的改动取下来 —— 你不需要知道底下是 git。
+      </p>
+
+      <div className="set-row">
+        <div className="set-label">
+          <span>仓库地址</span>
+          <span className="set-hint">
+            GitHub / GitLab / 自建都行，要 <code>https://</code> 开头的那个地址。留空 = 不同步
+          </span>
+        </div>
+        <div className="set-control">
+          <input
+            type="text"
+            className="set-text"
+            value={url}
+            placeholder="https://github.com/你/你的笔记.git"
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <button
+            className="set-save"
+            disabled={url.trim() === (remote.url ?? "")}
+            onClick={() => onRemoteChange(url.trim())}
+          >
+            保存
+          </button>
+        </div>
+      </div>
+
+      {remote.needsToken && (
+        <div className="set-row">
+          <div className="set-label">
+            <span>访问令牌</span>
+            <span className="set-hint">
+              {/* 说清楚它存哪儿 —— 一个仓库令牌等于那个仓库的写权限，
+                  人有权知道自己把它交到了哪里 */}
+              GitHub 的 Personal access token（要 repo 权限）。存在系统钥匙串里，不写进设置文件
+              {tokenSaved && " · 已存过一个"}
+            </span>
+          </div>
+          <div className="set-control">
+            <input
+              type="password"
+              className="set-text"
+              value={token}
+              placeholder={tokenSaved ? "已存过，填新的可覆盖" : "ghp_…"}
+              onChange={(e) => setToken(e.target.value)}
+            />
+            <button
+              className="set-save"
+              disabled={!token && !tokenSaved}
+              onClick={() => {
+                onTokenChange(token);
+                setToken("");
+              }}
+            >
+              {token ? "保存" : "删掉"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {remote.url && (
+        <p className="set-note set-note-dim">
+          同步的是 <code>{remote.branch}</code> 这一支。两边改了同一篇时会停下来告诉你是哪几篇，
+          不会自动合 —— 那种时候自作主张合一半比不合更糟。
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * 设置界面。DESIGN.md §6
  *
  * 有意做成**改一下立刻生效**、没有「保存」按钮：调字号这种事必须边看边调，
  * 隔着一次确认根本调不准。撤销的入口是每一项旁边的「恢复默认」。
  */
-export function SettingsPanel({ settings, commands, onChange, onReset, onClose }: Props) {
+export function SettingsPanel({
+  settings,
+  commands,
+  onChange,
+  onReset,
+  onClose,
+  remote,
+  tokenSaved,
+  onRemoteChange,
+  onTokenChange,
+}: Props) {
   const [tab, setTab] = useState<Tab>("appearance");
   // snippet 文本单独存一份本地状态：它要边打边校验，但不该每敲一个字符
   // 就往磁盘写一次
@@ -490,6 +616,15 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
                 终端里跑 AI CLI 时字号可以调小一点，能多看到几行上下文。
               </p>
             </>
+          )}
+
+          {tab === "sync" && (
+            <SyncSettings
+              remote={remote}
+              tokenSaved={tokenSaved}
+              onRemoteChange={onRemoteChange}
+              onTokenChange={onTokenChange}
+            />
           )}
 
           {tab === "slash" && (

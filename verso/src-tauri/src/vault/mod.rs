@@ -5,6 +5,8 @@ pub mod note;
 pub mod order;
 pub mod ops;
 pub mod schema;
+pub mod secret;
+pub mod sync;
 pub mod tree;
 
 use std::path::{Component, Path, PathBuf};
