@@ -941,9 +941,13 @@ describe("属性名的中文显示（§2.6）", () => {
       rows: [{ path: "论文/甲.md", title: "甲", props: { created: "2026-03-04" } }],
       view: "table",
       groupBy: null,
+      // Rust 侧总会把这两个内置列附在 properties 末尾（见 index/view.rs），
+      // 这里照着来，否则「加一列」里根本看不到它们
       properties: [
         { key: "status", type: "string" },
         { key: "tags", type: "list" },
+        { key: "created", type: "date" },
+        { key: "updated", type: "date" },
       ],
     };
   }
@@ -993,5 +997,27 @@ describe("属性名的中文显示（§2.6）", () => {
     await settle(200);
     const names = [...view.dom.querySelectorAll(".vset-list button")].map((b) => b.textContent);
     expect(names.some((n) => n?.includes("status"))).toBe(true);
+  });
+
+  it("内置列后面不再缀一句解释 —— 名字本身已经说清楚了", async () => {
+    labelMock();
+    // 已经显示出来的列不会出现在「加一列」里，所以这里只留 title
+    viewMock = { ...viewMock, columns: ["title"] };
+    const view = mount(['from: "论文/*"', "view: table", "columns: [title]"].join("\n"));
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
+    await settle(200);
+
+    const row = [...view.dom.querySelectorAll<HTMLElement>(".vset-list button")].find((b) =>
+      b.textContent?.includes("创建时间"),
+    )!;
+    expect(row.textContent?.trim()).toBe("创建时间");
+
+    // 图标和文字之间要留出间距。原来那条规则不是 flex，两者贴在一起
+    const icon = row.querySelector("svg")!.getBoundingClientRect();
+    const text = row.getBoundingClientRect();
+    expect(icon.right).toBeLessThan(text.right);
+    expect(getComputedStyle(row).display).toBe("flex");
+    expect(parseFloat(getComputedStyle(row).gap)).toBeGreaterThanOrEqual(6);
   });
 });

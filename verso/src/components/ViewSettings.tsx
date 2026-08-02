@@ -400,9 +400,10 @@ export function ColumnPicker({
                   }}
                 >
                   <Icon name={isBuiltin(p.key) ? "clock" : propIcon(p.type)} size={13} />
-                  {/* 显示名可以是中文，但**加进 `columns:` 的仍然是原键名** */}
+                  {/* 显示名可以是中文，但**加进 `columns:` 的仍然是原键名**。
+                      内置列以前在后面缀一句「文件时间」，现在名字本身就是
+                      「创建时间」，再解释一遍是废话 */}
                   {propLabel(p.key)}
-                  {isBuiltin(p.key) && <span className="vset-tip">文件自带，改不了</span>}
                 </button>
               </li>
             ))}
