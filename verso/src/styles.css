@@ -41,11 +41,18 @@
 
      默认是图标上那点青绿。鲜艳度拉到 0 就是完全无彩的石墨风。 */
   --accent-h: 195;
-  --accent-c: 0.085;
+  /* 0.085 太灰了 —— **低饱和不等于高级，发灰才是真的不高级**。
+     0.11 在浅底上干净得多，依然不抢正文 */
+  --accent-c: 0.11;
 
   --accent: oklch(52% var(--accent-c) var(--accent-h));
   /* 大面积铺的时候用这个：同色相、极低明度对比，不抢正文 */
   --accent-soft: oklch(52% var(--accent-c) var(--accent-h) / 0.12);
+  /* 淡彩底上的字。比 `--accent` 再深一档 —— 8% 的底配 52% 的字对比度不够，
+     配纯黑又会让那块彩色白铺一场。同色系深一档，块才「成块」 */
+  --accent-ink: oklch(38% var(--accent-c) var(--accent-h));
+  /* 标签、徽标那种极淡的彩底 */
+  --accent-wash: color-mix(in oklch, var(--accent) 9%, transparent);
 
   /* ## 选中态：中性灰底 + 一根主题色的竖条
 
@@ -134,6 +141,9 @@
   /* 深底上要提亮：同一个 chroma 在暗背景上看起来更闷，明度不拉高会糊成一团 */
   --d-accent: oklch(74% var(--accent-c) var(--accent-h));
   --d-accent-soft: oklch(74% var(--accent-c) var(--accent-h) / 0.16);
+  /* 深色里「深一档」要反过来变成**更亮**一档，否则淡底上的字会糊掉 */
+  --d-accent-ink: oklch(84% var(--accent-c) var(--accent-h));
+  --d-accent-wash: color-mix(in oklch, var(--d-accent) 15%, transparent);
   --d-selected-bg: oklch(31% 0 0);
   --d-hover-bg: oklch(100% 0 0 / 0.07);
   /* 代码高亮的深色版。同色相、明度翻上去、chroma 略降 —— 和 accent 一个道理，
@@ -163,6 +173,8 @@
     --hairline: var(--d-hairline);
     --accent: var(--d-accent);
     --accent-soft: var(--d-accent-soft);
+    --accent-ink: var(--d-accent-ink);
+    --accent-wash: var(--d-accent-wash);
     --selected-bg: var(--d-selected-bg);
     --hover-bg: var(--d-hover-bg);
     --shadow-sm: var(--d-shadow-sm);
@@ -190,6 +202,8 @@
   --hairline: var(--d-hairline);
   --accent: var(--d-accent);
   --accent-soft: var(--d-accent-soft);
+  --accent-ink: var(--d-accent-ink);
+  --accent-wash: var(--d-accent-wash);
   --selected-bg: var(--d-selected-bg);
   --hover-bg: var(--d-hover-bg);
   --shadow-sm: var(--d-shadow-sm);
@@ -1121,10 +1135,10 @@ body.is-resizing {
   flex-wrap: wrap;
 }
 .props-tag {
-  /* 中性底。标签是**内容**不是交互，给它彩色等于让每篇笔记顶上都挂着
-     几块彩条（§6.2：颜色只做重音） */
-  color: var(--text);
-  background: color-mix(in oklch, var(--muted) 13%, transparent);
+  /* **极淡的彩底 + 同色系深一档的字。** 中灰底配黑字是最廉价的一种块
+     （办公软件观感），而 9% 的彩底几乎不占视觉重量，却让它「成块」 */
+  color: var(--accent-ink);
+  background: var(--accent-wash);
   border-radius: var(--r-xs);
   padding: 1.5px 7px;
   /* 标签中间断行会变成上下两截，看着像两个标签 */

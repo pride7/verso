@@ -27,6 +27,7 @@ import { tables } from "./table";
 import { parseCustomSnippets } from "./snippets/custom";
 import type { SnippetSpec } from "./snippets/types";
 import { versoHighlighting, versoTheme } from "./theme";
+import { typography } from "./typography";
 import { viewBlocks } from "./viewBlock";
 
 export { mathContextAt, type MathContext } from "./mathContext";
@@ -143,6 +144,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     versoTheme,
     versoHighlighting,
+
+    // §4.3 中西文混排间距。**不进 PREVIEW** —— 它只改字距，不藏任何标记，
+    // 源码模式下同样该有：那时读的仍然是中英混排的文字
+    typography,
 
     // §4 标题折叠。**不放进 PREVIEW** —— 源码模式下折叠仍然有用，
     // 那时正是在长文里找东西的时候

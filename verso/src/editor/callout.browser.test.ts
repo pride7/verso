@@ -96,11 +96,23 @@ describe("callout 渲染", () => {
     expect(px(last.borderBottomLeftRadius)).toBeGreaterThan(0);
   });
 
-  it("底色和正文背景不一样", async () => {
+  /**
+   * v0.5.33 起 callout **没有底色**：一整块底会把它变成「提示框控件」，
+   * 而它其实是旁注。识别靠左边那条类型色的线和带色的标题。
+   */
+  it("不靠底色，靠左边那条类型色的线", async () => {
     const v = mount("正文\n\n> [!warning] 注意\n> 内容\n\n结尾");
     await settle();
-    const line = v.dom.querySelector<HTMLElement>(".cm-callout")!;
-    expect(getComputedStyle(line).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    const style = getComputedStyle(v.dom.querySelector<HTMLElement>(".cm-callout")!);
+
+    expect(style.backgroundColor, "不该有底色").toBe("rgba(0, 0, 0, 0)");
+    expect(px(style.borderLeftWidth)).toBeGreaterThan(1);
+
+    // 那条线必须有彩色，不能退成灰 —— 否则和普通引用长得一模一样
+    const quote = mount("正文\n\n> 只是引用\n\n结尾");
+    await settle();
+    const q = getComputedStyle(quote.dom.querySelector<HTMLElement>(".cm-quote")!);
+    expect(style.borderLeftColor).not.toBe(q.borderLeftColor);
   });
 
   it("不同类型用不同颜色", async () => {

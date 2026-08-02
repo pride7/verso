@@ -48,6 +48,15 @@ export const versoTheme = EditorView.theme({
   },
   ".cm-activeLine": { backgroundColor: "transparent" },
 
+  // ---- 中西文混排间距（§4.3 typography）----
+  //
+  // 八分之一个字宽。四分之一（0.25em）是活字排版的传统值，但在屏幕上、
+  // 尤其是 1.75 行高的中文里显得松 —— 0.125em 刚好让人感觉「不挤」而
+  // 说不出哪里变了。**用 margin 不是 padding**：padding 会把行内代码那种
+  // 带底色的段落撑出一块多余的底
+  ".cm-hs-l": { marginLeft: "0.125em" },
+  ".cm-hs-r": { marginRight: "0.125em" },
+
   // ---- 标题的留白（§6.1）----
   //
   // **上方的空白明显大于下方**：留白是「这一节从这里开始」的信号，
@@ -99,11 +108,11 @@ export const versoTheme = EditorView.theme({
 
   // ---- 标签 ----
   //
-  // 中性底、正文色。标签是**内容**不是交互 —— 给它主题色的话，一段带三个
-  // 标签的正文里就有三块彩色补丁，而它们并不比周围的字更重要（§6.2）
+  // **极淡的彩底 + 同色系深一档的字。** 中灰底配黑字是最廉价的一种块，
+  // 而 9% 的彩底几乎不占视觉重量，却让它「成块」—— 简洁不等于褪色（§6.2）
   ".cm-hashtag": {
-    color: "var(--text)",
-    backgroundColor: "color-mix(in oklch, var(--muted) 12%, transparent)",
+    color: "var(--accent-ink)",
+    backgroundColor: "var(--accent-wash)",
     borderRadius: "var(--r-xs)",
     padding: "1px 5px",
     fontSize: "0.9em",
@@ -303,10 +312,11 @@ export const versoTheme = EditorView.theme({
     // 编辑器出现横向滚动条，而左侧色条恰好画在被推出可视区的那一段上，
     // 表现就是"竖线怎么调都看不见"。块与正文栏左右对齐就够了。
     padding: "0.15em 14px 0.15em 16px",
-    // 颜色收在**左边那条线和图标**上，底色改成中性的一层极淡灰。
-    // 一整块带色的底会在正文里铺出一大片彩色，而 callout 只是旁注 —— §6.2
+    // **不要底色。** 一整块底（无论彩的还是灰的）都会把 callout 变成一个
+    // 「提示框控件」，而它其实是旁注。颜色收在左边那条线和图标+标题上，
+    // 识别度一点没丢，正文却清爽得多
     borderLeft: "2.5px solid var(--callout, var(--accent))",
-    background: "color-mix(in oklch, var(--muted) 6%, transparent)",
+    background: "transparent",
   },
   // ⚠️ 行装饰**绝不能用纵向 margin**。
   //
@@ -415,8 +425,10 @@ export const versoHighlight = HighlightStyle.define([
   //
   // 字重从 600 降到 550/560：中文在 600 上显得墩实，尤其是大字号的一级标题。
   // 字号也各收一档 —— 让出来的层级差由上方留白补（见上面的 `--h-top`）
-  { tag: t.heading1, fontSize: "1.7em", fontWeight: "550", lineHeight: "1.35" },
-  { tag: t.heading2, fontSize: "1.38em", fontWeight: "560", lineHeight: "1.4" },
+  // 字距收一点点：中文在大字号下字与字之间会显得松，-0.01em 肉眼说不出
+  // 哪里变了，但整行会「紧实」起来。正文不动 —— 那个尺度上收字距会伤可读性
+  { tag: t.heading1, fontSize: "1.7em", fontWeight: "550", lineHeight: "1.35", letterSpacing: "-0.012em" },
+  { tag: t.heading2, fontSize: "1.38em", fontWeight: "560", lineHeight: "1.4", letterSpacing: "-0.008em" },
   { tag: t.heading3, fontSize: "1.18em", fontWeight: "580" },
   { tag: t.heading4, fontSize: "1em", fontWeight: "600" },
   { tag: t.heading5, fontWeight: "600" },

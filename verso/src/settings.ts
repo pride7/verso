@@ -87,7 +87,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tabOpen: "new",
   // 应用图标上那点青绿
   accentHue: 195,
-  accentChroma: 0.085,
+  accentChroma: 0.11,
   customSnippets: "",
   keybindings: {},
 };
