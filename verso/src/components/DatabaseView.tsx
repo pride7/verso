@@ -11,6 +11,7 @@ import {
   TYPES,
   ViewSettings,
 } from "./ViewSettings";
+import { propLabel } from "../lib/propLabel";
 import {
   formatDate,
   isBuiltin,
@@ -640,7 +641,9 @@ export function DatabaseView({
                   <span className="dbview-thwrap">
                     <button className="dbview-th" onClick={() => toggleSort(c)} title="点击排序">
                       <Icon name={c === "title" ? "doc" : isBuiltin(c) ? "clock" : propIcon(typeOf(c))} size={13} />
-                      {c}
+                      {/* 表头显示中文名，但排序、隐藏、写回 `columns:` 用的
+                          全是原键名 —— 中文名一旦进了文件就不可移植了 */}
+                      {propLabel(c)}
                       {/* 箭头只在这一列真的在排序时出现 —— 每列都挂一个灰箭头
                           会把表头变成一排噪点 */}
                       {sort?.key === c && (
@@ -708,7 +711,7 @@ export function DatabaseView({
                     )}
                   </span>
                 ) : (
-                  c
+                  propLabel(c)
                 )}
               </th>
             ))}

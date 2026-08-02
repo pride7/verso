@@ -18,6 +18,7 @@
 import { useMemo, useState } from "react";
 
 import { Icon } from "./Icon";
+import { propLabel } from "../lib/propLabel";
 import { formatDate, isBuiltin } from "../lib/viewSpec";
 import {
   dateKey,
@@ -61,7 +62,7 @@ function Chips({
     <dl className={`dbv-chips${inline ? " is-inline" : ""}`}>
       {filled.map((c) => (
         <div key={c}>
-          <dt>{c}</dt>
+          <dt>{propLabel(c)}</dt>
           <dd>{shown(row.props[c], typeOf(c))}</dd>
         </div>
       ))}
@@ -241,7 +242,7 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
         >
           今天
         </button>
-        <span className="dbv-cal-field">按「{dateField}」</span>
+        <span className="dbv-cal-field">按「{propLabel(dateField)}」</span>
       </div>
 
       <div className="dbv-cal-head">
@@ -300,7 +301,7 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
       {/* 没有日期的不能丢掉不显示 —— 那等于让人在月历里翻找一篇根本不会出现的笔记 */}
       {undated.length > 0 && (
         <div className="dbv-cal-undated">
-          <span className="dbv-cal-undated-label">没有「{dateField}」</span>
+          <span className="dbv-cal-undated-label">没有「{propLabel(dateField)}」</span>
           {undated.map((r) => (
             <button
               key={r.path}

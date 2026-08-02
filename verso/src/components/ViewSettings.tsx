@@ -12,6 +12,7 @@ import {
   writeWhere,
   type Condition,
 } from "../lib/viewSpec";
+import { propLabel } from "../lib/propLabel";
 import type { PropDef, PropMeta, PropType } from "../types";
 
 interface Props {
@@ -144,7 +145,9 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
                     }
                   >
                     {[...new Set([c.key, ...properties.map((p) => p.key)])].map((k) => (
-                      <option key={k}>{k}</option>
+                      <option key={k} value={k}>
+                        {propLabel(k)}
+                      </option>
                     ))}
                   </select>
                   <select
@@ -268,12 +271,12 @@ function PropRow({
         value={value}
         onChange={(e) => onPatch(writeKey(source, k, e.target.value || null))}
       >
-        <option value="">{fallback ? `不设（用 ${fallback}）` : "不设"}</option>
+        <option value="">{fallback ? `不设（用${propLabel(fallback)}）` : "不设"}</option>
         {/* 用户手写过一个当前不在候选里的键（笔记还没填过这个属性）时，
             也要显示出来，否则一进设置面板就被悄悄改成「不设」 */}
         {[...new Set(value ? [value, ...options] : options)].map((o) => (
           <option key={o} value={o}>
-            {o}
+            {propLabel(o)}
           </option>
         ))}
       </select>
@@ -397,8 +400,9 @@ export function ColumnPicker({
                   }}
                 >
                   <Icon name={isBuiltin(p.key) ? "clock" : propIcon(p.type)} size={13} />
-                  {p.key}
-                  {isBuiltin(p.key) && <span className="vset-tip">文件时间</span>}
+                  {/* 显示名可以是中文，但**加进 `columns:` 的仍然是原键名** */}
+                  {propLabel(p.key)}
+                  {isBuiltin(p.key) && <span className="vset-tip">文件自带，改不了</span>}
                 </button>
               </li>
             ))}

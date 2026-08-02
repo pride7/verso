@@ -933,3 +933,65 @@ describe("列表视图的版式", () => {
     expect(chips.left).toBeGreaterThan(title.left);
   });
 });
+
+describe("属性名的中文显示（§2.6）", () => {
+  function labelMock() {
+    viewMock = {
+      columns: ["title", "created"],
+      rows: [{ path: "论文/甲.md", title: "甲", props: { created: "2026-03-04" } }],
+      view: "table",
+      groupBy: null,
+      properties: [
+        { key: "status", type: "string" },
+        { key: "tags", type: "list" },
+      ],
+    };
+  }
+
+  it("表头显示中文，但排序写回代码块的仍然是原键名", async () => {
+    labelMock();
+    const view = mount('from: "论文/*"\nview: table\ncolumns: [title, created]');
+    await settle();
+
+    const heads = [...view.dom.querySelectorAll(".dbview-th")].map((b) => b.textContent);
+    expect(heads).toEqual(["标题", "创建时间"]);
+
+    // **写进文件的必须还是英文。** 中文键一旦进了 .md，笔记就不能拖进
+    // 别的软件用了（§0 第 1 条）
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((b) =>
+        b.textContent?.includes("创建时间"),
+      )!,
+    );
+    await settle();
+    expect(view.state.doc.toString()).toContain("sort: created");
+    expect(view.state.doc.toString()).not.toContain("创建时间");
+  });
+
+  it("「加一列」里也是中文名，加进去的是原键名", async () => {
+    labelMock();
+    const view = mount('from: "论文/*"\nview: table\ncolumns: [title]');
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
+    await settle(200);
+    const pick = [...view.dom.querySelectorAll<HTMLElement>(".vset-list button")].find((b) =>
+      b.textContent?.includes("标签"),
+    )!;
+    expect(pick, "列表里该显示「标签」而不是 tags").toBeTruthy();
+    await userEvent.click(pick);
+    await settle();
+
+    expect(view.state.doc.toString()).toContain("columns: [title, tags]");
+  });
+
+  it("用户自己起的属性名一个字都不动", async () => {
+    labelMock();
+    const view = mount('from: "论文/*"\nview: table\ncolumns: [title]');
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-plus button")!);
+    await settle(200);
+    const names = [...view.dom.querySelectorAll(".vset-list button")].map((b) => b.textContent);
+    expect(names.some((n) => n?.includes("status"))).toBe(true);
+  });
+});
