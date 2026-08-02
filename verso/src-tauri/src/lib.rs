@@ -183,6 +183,7 @@ fn open_default_vault(
     let mut why = Vec::new();
     for dir in vault_candidates(app) {
         if let Err(e) = std::fs::create_dir_all(&dir) {
+            eprintln!("[verso] 建不出目录 {}：{e}", dir.display());
             why.push(format!("{}：建不出目录（{e}）", dir.display()));
             continue;
         }
@@ -199,7 +200,12 @@ fn open_default_vault(
                 }
                 return Ok(pair);
             }
-            Err(e) => why.push(format!("{} 用不了：{e}", dir.display())),
+            Err(e) => {
+                // 同时打进 logcat：手机上界面能显示的字数有限，而
+                // `adb logcat -s RustStderr` 里能看到完整的一句
+                eprintln!("[verso] vault 打不开 {}：{e}", dir.display());
+                why.push(format!("{} 用不了：{e}", dir.display()));
+            }
         }
     }
     Err(format!("这几个位置都用不了：

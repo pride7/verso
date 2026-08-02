@@ -4,7 +4,7 @@ import type { EditorState } from "@codemirror/state";
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { api, onAppClosing, onVaultChanged, pickVaultFolder } from "./api";
+import { api, onAppClosing, onBackendNotice, onVaultChanged, pickVaultFolder } from "./api";
 import { confirm } from "./lib/dialog";
 import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
@@ -1167,6 +1167,15 @@ export default function App() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
+
+  // 后端的非致命提示。以前发了没人听，等于白发
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void onBackendNotice(setError).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
 
   // §2.7 文件监听推来的外部修改。比「窗口聚焦时比对 mtime」更及时 ——
   // AI 在终端里改文件时，窗口一直是聚焦的，那条路径根本不会触发。

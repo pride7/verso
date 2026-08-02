@@ -54,9 +54,36 @@ fn migrate_empty_master(repo: &git2::Repository) -> bool {
 /// 第一次推送就得手动改名。
 const INITIAL_BRANCH: &str = "main";
 
+/// 关掉 libgit2 的「仓库属主校验」。**只在安卓上关。**
+///
+/// git 的 dubious-ownership 保护（CVE-2022-24765）会拒绝操作一个「属主不是
+/// 当前用户」的仓库。安卓的共享存储是一层 FUSE，它合成出来的属主和进程的
+/// uid 对不上，于是 `/storage/emulated/0/Verso` 必然被判成别人的仓库：
+///
+/// ```text
+/// repository path '/storage/emulated/0/Verso' is not owned by current user;
+/// class=Config (7); code=Owner (-36)
+/// ```
+///
+/// 症状极具迷惑性：`Repository::init` 会成功（`.git/` 建得出来），下一次
+/// 打开它才失败 —— 看起来像「目录写了一半」。
+///
+/// 桌面上**不关**：那里的属主检查是真的安全边界。
+#[cfg(target_os = "android")]
+fn relax_owner_check() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| unsafe {
+        let _ = git2::opts::set_verify_owner_validation(false);
+    });
+}
+
 /// 幂等：已经是仓库就不动它，已有 .gitignore 也不覆盖
 /// （用户可能已经加了自己的规则）。
 pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
+    #[cfg(target_os = "android")]
+    relax_owner_check();
+
     let mut renamed_branch = false;
     let created_repo = match git2::Repository::open(root) {
         Ok(repo) => {

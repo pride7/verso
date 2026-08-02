@@ -127,6 +127,39 @@ pnpm test:browser              # 前端（真实 Chromium）：补全、live pre
 桌面上完全看不出来（焦点回不回来无所谓，没有软键盘），所以这类问题只能靠
 「写的时候就知道」来防。`components/MathBar.tsx` 里每一个按钮都加了。
 
+### 安卓：libgit2 会拒绝共享存储里的仓库
+
+`repository path '/storage/emulated/0/Verso' is not owned by current user;
+class=Config (7); code=Owner (-36)` —— git 的 dubious-ownership 保护
+（CVE-2022-24765）。安卓共享存储是一层 FUSE，它合成出来的属主和进程 uid
+对不上，于是**那里的仓库必然被判成别人的**。
+
+症状极具迷惑性：`Repository::init` 会成功（`.git/` 建得出来、内容齐全），
+下一次**打开**它才失败 —— 看起来像「目录写了一半」「权限给了一半」，
+会把人往存储权限的方向带很远。
+
+解法是 `git2::opts::set_verify_owner_validation(false)`，**只在安卓上关**
+（桌面那里的属主检查是真的安全边界）。见 `vault/git.rs` 的 `relax_owner_check`。
+
+### 手机上没有日志就等于瞎猜
+
+这一轮连着发了三个坏包，根因都是「失败被吞掉了」：`vault_reopen_last`
+返回 `Option`，失败就是一个 None，手机上既没有终端也看不到原因。
+
+两条现在都接好了，改移动端代码时别再拆掉：
+
+1. **失败要走到界面上。** Rust 侧的非致命提示走 `index:error` 事件 ——
+   注意它以前**发了但前端根本没人监听**，等于不存在（`onBackendNotice`）。
+2. **同时 `eprintln!` 一份**。Tauri 把 stdout/stderr 接到 logcat 的
+   `RustStdoutStderr`，`adb logcat -d | grep verso]` 一抓就到。上面那条
+   owner 错误就是这么找到的，在那之前我猜了三轮全错。
+
+**手机连 USB 打开调试之后**，整个循环是：`scripts/android-apk.ps1` →
+`adb install -r <apk>` → `adb logcat -c` → `adb shell am start -n
+app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动传包
+装包快一个数量级。**别用 `adb exec-out screencap` 去看界面** —— 那是作者
+正在用的私人手机，截到的可能是任何东西；要验证就查文件系统。
+
 ### 手机上「界面在那儿但点不动」的两种成因
 
 真机上第一次跑就撞到了，而两种在截图里都完全看不出来：

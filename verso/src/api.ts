@@ -189,6 +189,16 @@ export const onVaultChanged = (cb: (paths: string[]) => void): Promise<UnlistenF
 export const onAppClosing = (cb: () => void): Promise<UnlistenFn> =>
   listen("app:closing", () => cb());
 
+/**
+ * 后端那些「不致命但你该知道」的提示：图片作用域没授上、笔记库退到了别的
+ * 位置……
+ *
+ * **以前 Rust 一直在发它，前端从来没人听** —— 于是那些提示等于不存在。
+ * 手机上尤其要命：那是唯一能知道「为什么笔记落在别处」的地方。
+ */
+export const onBackendNotice = (cb: (msg: string) => void): Promise<UnlistenFn> =>
+  listen<string>("index:error", (ev) => cb(ev.payload));
+
 /** PTY 输出。`data` 是 base64 的原始字节，交给 xterm 自己解 UTF-8。 */
 export const onPtyData = (cb: (e: { id: string; data: string }) => void): Promise<UnlistenFn> =>
   listen<{ id: string; data: string }>("pty:data", (ev) => cb(ev.payload));
