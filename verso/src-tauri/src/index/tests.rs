@@ -201,6 +201,33 @@ fn numeric_props_keep_a_sortable_number() {
     assert_eq!(titles, vec!["奇异值分解", "特征值", "线性代数"]);
 }
 
+/// 日历的日期字段、画廊的封面必须**跟着一起取值**。
+///
+/// 每一行只装 `columns` 里点名的属性，而这两个键是视图自己用的、通常不在
+/// `columns` 里 —— 漏了它们的表现是「日历一格都排不出来」「封面全空」，
+/// 而查询本身还成功着，极难往「取值时被过滤掉了」上想。看板的 group-by
+/// 早就这么处理，这两个是补齐。
+#[test]
+fn calendar_and_gallery_keys_are_fetched_even_when_not_listed() {
+    let (_t, _v, idx) = setup(&[(
+        "论文.md",
+        "---\nid: 01DDDDDDDDDDDDDDDDDDDDDDDD\ntitle: 论文\n读于: 2026-03-04\n封面: attachments/cover.png\n---\n\n正文\n",
+    )]);
+
+    let spec: view::ViewSpec = serde_yaml::from_str(
+        "columns: [title]\nview: calendar\ndate-field: 读于\ncover: 封面\n",
+    )
+    .unwrap();
+    let r = view::query(idx.conn(), &spec).unwrap();
+
+    assert_eq!(r.rows.len(), 1);
+    assert_eq!(r.rows[0].props.get("读于").map(String::as_str), Some("2026-03-04"));
+    assert_eq!(
+        r.rows[0].props.get("封面").map(String::as_str),
+        Some("attachments/cover.png")
+    );
+}
+
 // -------------------------------------------------------------- 增量更新
 
 #[test]

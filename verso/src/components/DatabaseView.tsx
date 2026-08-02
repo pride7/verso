@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "../api";
+import { CalendarView, canMoveDates, GalleryView, ListView } from "./DbViews";
 import { Icon } from "./Icon";
 import {
   ColumnPicker,
@@ -31,6 +32,8 @@ interface Props {
   /** 属性被改写后通知外层重查 */
   onChanged: () => void;
   revision: number;
+  /** 画廊的封面要把 vault 相对路径解析成能给 `<img>` 的 URL */
+  imageSrc?: (target: string) => string | null;
   /**
    * 把改过的 YAML 写回代码块。排序这些**是用户内容不是界面状态**：
    * 它写在笔记里，跟着 `.md` 走，换个编辑器打开也还在（§0 第 1 条）。
@@ -50,7 +53,14 @@ interface Props {
 type Panel = null | "settings" | "columns" | { col: string } | { options: string };
 const colMenu = (p: Panel) => (p && typeof p === "object" && "col" in p ? p.col : null);
 
-export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: Props) {
+export function DatabaseView({
+  source,
+  onOpen,
+  onChanged,
+  revision,
+  onPatch,
+  imageSrc,
+}: Props) {
   const [result, setResult] = useState<ViewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ path: string; key: string } | null>(null);
@@ -476,6 +486,94 @@ export function DatabaseView({ source, onOpen, onChanged, revision, onPatch }: P
             </section>
           ))}
         </div>
+        <div className="dbview-foot">{result.rows.length} 条</div>
+      </div>
+    );
+  }
+
+  // ---- 只读的三种：列表 / 画廊 / 日历 ----
+  //
+  // 它们共用一条工具栏，但**没有**「加一列」和列头菜单 —— 那两样是表格
+  // 特有的操作，摆在这里点开也无处施展
+  if (result.view === "list" || result.view === "gallery" || result.view === "calendar") {
+    const dateField = readKey(source, "date-field") || "created";
+    const cover = readKey(source, "cover");
+    // 卡片上不再重复标题，也不显示被视图自己用掉的那两个键
+    // （封面已经画成图了，日期已经是它所在的格子）
+    const cardCols = result.columns.filter(
+      (c) => c !== "title" && c !== cover && !(result.view === "calendar" && c === dateField),
+    );
+    const KIND = {
+      list: { icon: "list", label: "列表" },
+      gallery: { icon: "gallery", label: "画廊" },
+      calendar: { icon: "calendar", label: "日历" },
+    } as const;
+    const kind = KIND[result.view as keyof typeof KIND];
+
+    return (
+      // 这三种一律铺满正文栏。`.dbview` 默认是 `width: max-content`（表格按
+      // 内容宽，用不着的地方不占位），但那对它们全是错的：画廊会塌成一列
+      // 148px 的窄条，日历会被里面最长的标题撑成一个奇怪的宽度。
+      // 它们是「一片区域」而不是「一张表」
+      <div className="dbview is-full">
+        <div className="dbview-bar">
+          <span className="dbview-kind">
+            <Icon name={kind.icon} size={14} />
+            {kind.label}
+          </span>
+          {onPatch && (
+            <>
+              <button
+                className="dbview-tool"
+                onClick={() => setPanel(panel === "settings" ? null : "settings")}
+                title="视图设置"
+                aria-label="视图设置"
+              >
+                <Icon name="settings" size={14} />
+              </button>
+              <button className="dbview-new" onClick={() => void addRow()}>
+                新建
+              </button>
+            </>
+          )}
+          {panel === "settings" && onPatch && (
+            <ViewSettings
+              source={source}
+              properties={result.properties ?? []}
+              onPatch={(y) => onPatch(y)}
+              onClose={() => setPanel(null)}
+            />
+          )}
+        </div>
+
+        {result.rows.length === 0 ? (
+          <p className="dbview-none">没有匹配的笔记</p>
+        ) : result.view === "list" ? (
+          <ListView rows={result.rows} cols={cardCols} typeOf={typeOf} onOpen={onOpen} />
+        ) : result.view === "gallery" ? (
+          <GalleryView
+            rows={result.rows}
+            cols={cardCols}
+            typeOf={typeOf}
+            onOpen={onOpen}
+            cover={cover}
+            imageSrc={imageSrc ?? (() => null)}
+          />
+        ) : (
+          <CalendarView
+            rows={result.rows}
+            onOpen={onOpen}
+            dateField={dateField}
+            // 内置的 created/updated 是文件自己的时间，拖了也写不回去 ——
+            // 干脆不给拖，而不是拖完弹一个错
+            onSetDate={
+              canMoveDates(dateField)
+                ? (path, ymd) => void commitValue(path, dateField, ymd)
+                : undefined
+            }
+          />
+        )}
+
         <div className="dbview-foot">{result.rows.length} 条</div>
       </div>
     );

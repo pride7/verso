@@ -143,6 +143,7 @@ export function Editor({
             onChanged={() => cb.current.onChanged()}
             revision={cb.current.revision}
             onPatch={patch}
+            imageSrc={(t) => cb.current.imageSrc(t)}
           />,
         );
       },

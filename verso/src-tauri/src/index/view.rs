@@ -24,10 +24,14 @@ pub struct ViewSpec {
     pub where_: Option<String>,
     /// 形如 `created desc`
     pub sort: Option<String>,
-    /// table | board | list
+    /// table | board | list | gallery | calendar
     pub view: Option<String>,
     pub columns: Option<Vec<String>>,
     pub group_by: Option<String>,
+    /// 日历视图按哪个日期属性摆。没写就用内置的 `created`
+    pub date_field: Option<String>,
+    /// 画廊视图拿哪一列当封面图（值是 vault 相对路径或 `![[图.png]]`）
+    pub cover: Option<String>,
     pub limit: Option<usize>,
 }
 
@@ -328,9 +332,14 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
 
     // 需要展示哪些列
     let mut columns = spec.columns.clone().unwrap_or_else(|| vec!["title".into()]);
-    if let Some(g) = &spec.group_by {
-        if !columns.contains(g) {
-            columns.push(g.clone());
+    // 分组、日历的日期、画廊的封面这三个键**必须**跟着一起取值 —— 下面只把
+    // `columns` 里点名的属性放进每一行。漏了它们的话，看板会全部掉进
+    // 「未设置」、日历一格都排不出来，而表面上看只是「视图空的」
+    for extra in [&spec.group_by, &spec.date_field, &spec.cover] {
+        if let Some(k) = extra.as_deref().filter(|s| !s.trim().is_empty()) {
+            if !columns.iter().any(|c| c == k) {
+                columns.push(k.to_string());
+            }
         }
     }
 

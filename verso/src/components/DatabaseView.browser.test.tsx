@@ -7,7 +7,7 @@
  * （AGENTS.md「什么时候必须写 browser 测试」）。
  */
 import { EditorView } from "@codemirror/view";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -72,10 +72,21 @@ afterEach(() => {
   schemaMock = {};
   viewMock = DEFAULT_VIEW;
   propRenameAll.mockClear();
+  opened.length = 0;
+  coverAsked.length = 0;
 });
 
+/** 被点开过哪些笔记。每条测试自己清 */
+const opened: string[] = [];
+/** 画廊问过哪些封面路径 */
+const coverAsked: string[] = [];
+/** 1×1 的透明 PNG。**必须是真能加载的** —— 加载失败的封面会退回占位块，
+    那正是「封面文件不在了」的正常行为，用假 URL 会把它当成 bug 测出来 */
+const PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 /** 照 Editor.tsx 的做法把 widget 容器渲染成 React 组件 */
-function mount(spec?: string) {
+function mount(spec?: string, imageSrc?: (t: string) => string | null) {
   setViewRenderer({
     mount: (el, source, patch) => {
       const root = createRoot(el);
@@ -83,10 +94,15 @@ function mount(spec?: string) {
       root.render(
         <DatabaseView
           source={source}
-          onOpen={() => {}}
+          onOpen={(p) => opened.push(p)}
           onChanged={() => {}}
           revision={0}
           onPatch={patch}
+          // 画廊的封面：真实的解析器在 App 里，这里只记下它问的是哪个路径
+          imageSrc={(t) => {
+            coverAsked.push(t);
+            return imageSrc ? imageSrc(t) : PIXEL;
+          }}
         />,
       );
     },
@@ -649,5 +665,244 @@ describe("看板（§2.6）", () => {
     expect(createNote).toHaveBeenCalled();
     expect(propSet).toHaveBeenCalledWith("论文/丙.md", "status", "已读");
     prompt.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------- 另外三种视图
+
+describe("列表视图（§2.6）", () => {
+  const SPEC = ['from: "论文/*"', "view: list", "columns: [title, status]"].join("\n");
+
+  function listMock() {
+    viewMock = {
+      columns: ["title", "status"],
+      rows: [
+        { path: "论文/甲.md", title: "甲", props: { status: "在读" } },
+        { path: "论文/乙.md", title: "乙", props: {} },
+      ],
+      view: "list",
+      groupBy: null,
+      properties: [{ key: "status", type: "string" }],
+    };
+  }
+
+  it("一行一篇，点标题打开那篇", async () => {
+    listMock();
+    const view = mount(SPEC);
+    await settle();
+
+    const items = view.dom.querySelectorAll(".dbv-list > li");
+    expect(items).toHaveLength(2);
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbv-list-title")!);
+    await settle(100);
+    expect(opened).toEqual(["论文/甲.md"]);
+  });
+
+  it("空值的属性不画 —— 摆一排「—」只是噪音", async () => {
+    listMock();
+    const view = mount(SPEC);
+    await settle();
+
+    const [first, second] = view.dom.querySelectorAll<HTMLElement>(".dbv-list > li");
+    expect(first.textContent).toContain("在读");
+    expect(second.querySelector(".dbv-chips")).toBeNull();
+  });
+});
+
+describe("画廊视图（§2.6）", () => {
+  const SPEC = ['from: "论文/*"', "view: gallery", "cover: 封面"].join("\n");
+
+  function galleryMock(cover?: string) {
+    viewMock = {
+      columns: ["title", "封面", "status"],
+      rows: [
+        {
+          path: "论文/甲.md",
+          title: "甲",
+          props: { status: "在读", ...(cover ? { 封面: cover } : {}) },
+        },
+      ],
+      view: "gallery",
+      groupBy: null,
+      properties: [
+        { key: "status", type: "string" },
+        { key: "封面", type: "string" },
+      ],
+    };
+  }
+
+  it("封面列的路径变成一张图", async () => {
+    galleryMock("attachments/图.png");
+    const view = mount(SPEC);
+    await settle();
+
+    expect(view.dom.querySelector(".dbv-tile-cover img")).toBeTruthy();
+    // 解析器拿到的必须是 frontmatter 里那个路径原样
+    expect(coverAsked).toContain("attachments/图.png");
+  });
+
+  it("顺手写成 ![[图.png]] 也认 —— frontmatter 里这么写其实不生效，但人就是会写", async () => {
+    galleryMock("![[图.png]]");
+    mount(SPEC);
+    await settle();
+    expect(coverAsked).toContain("图.png");
+  });
+
+  it("没有封面时给占位块，不是碎图标", async () => {
+    galleryMock();
+    const view = mount(SPEC);
+    await settle();
+    expect(view.dom.querySelector(".dbv-tile-blank")).not.toBeNull();
+    // .cm-widgetBuffer 也是 <img>，所以只在封面那一块里找
+    expect(view.dom.querySelector(".dbv-tile-cover img")).toBeNull();
+  });
+
+  it("封面文件不在了就退回占位块，不显示碎图标（§4.4 同理）", async () => {
+    galleryMock("attachments/没了.png");
+    const view = mount(SPEC, () => "data:image/png;base64,坏的");
+    await settle();
+    expect(view.dom.querySelector(".dbv-tile-blank")).not.toBeNull();
+  });
+
+  it("封面那一列不再重复显示成属性 —— 它已经是那张图了", async () => {
+    galleryMock("attachments/图.png");
+    const view = mount(SPEC);
+    await settle();
+    expect(view.dom.querySelector(".dbv-chips")?.textContent).not.toContain("封面");
+    expect(view.dom.querySelector(".dbv-chips")?.textContent).toContain("在读");
+  });
+});
+
+describe("日历视图（§2.6）", () => {
+  const SPEC = ['from: "论文/*"', "view: calendar", "date-field: 读于"].join("\n");
+
+  function calMock() {
+    viewMock = {
+      columns: ["title", "读于"],
+      rows: [
+        { path: "论文/甲.md", title: "甲", props: { 读于: "2026-03-04" } },
+        { path: "论文/乙.md", title: "乙", props: { 读于: "2026-03-20T09:00:00+08:00" } },
+        { path: "论文/丙.md", title: "丙", props: {} },
+      ],
+      view: "calendar",
+      groupBy: null,
+      properties: [{ key: "读于", type: "date" }],
+    };
+  }
+
+  /** 某一天那一格 */
+  const cellOf = (view: EditorView, day: string) =>
+    [...view.dom.querySelectorAll<HTMLElement>(".dbv-cal-cell")].find(
+      (c) => c.querySelector(".dbv-cal-day")?.textContent === day && !c.classList.contains("is-out"),
+    )!;
+
+  it("开在有笔记的那个月，而不是今天", async () => {
+    // 日期全在去年的视图开在今天，等于开在一片空白上，看着像坏了
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+    expect(view.dom.querySelector(".dbv-cal-title")?.textContent).toBe("2026 年 3 月");
+  });
+
+  it("笔记落在自己那一格，RFC3339 和纯日期一视同仁", async () => {
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+    expect(cellOf(view, "4").textContent).toContain("甲");
+    expect(cellOf(view, "20").textContent).toContain("乙");
+  });
+
+  it("没有日期的单独列出来，不是丢掉不显示", async () => {
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+    expect(view.dom.querySelector(".dbv-cal-undated")?.textContent).toContain("丙");
+  });
+
+  it("翻月", async () => {
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>('[aria-label="下一月"]')!);
+    await settle(100);
+    expect(view.dom.querySelector(".dbv-cal-title")?.textContent).toBe("2026 年 4 月");
+  });
+
+  it("拖到另一天 = 改那篇笔记的日期属性", async () => {
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+
+    const item = [...view.dom.querySelectorAll<HTMLElement>(".dbv-cal-item")].find((i) =>
+      i.textContent?.includes("甲"),
+    )!;
+    const target = cellOf(view, "11");
+
+    const dt = new DataTransfer();
+    item.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
+    target.dispatchEvent(
+      new DragEvent("dragover", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    target.dispatchEvent(
+      new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }),
+    );
+    await settle();
+
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "读于", "2026-03-11");
+  });
+
+  it("按内置的 created 摆时不给拖 —— 那是文件自己的时间，拖了也写不回去", async () => {
+    calMock();
+    const view = mount(['from: "论文/*"', "view: calendar"].join("\n"));
+    await settle();
+
+    const items = view.dom.querySelectorAll<HTMLElement>(".dbv-cal-item");
+    for (const i of items) expect(i.draggable).toBe(false);
+  });
+});
+
+/**
+ * 三种新视图的样子。**不是断言型测试**，产物是给人看的 PNG ——
+ * 和 `visual.browser.test.tsx` 一个用途，但那边的工作台是整个 App 的场景，
+ * 这里只要视图本身，摆一个 App 进去反而看不清。
+ */
+describe("视觉：三种新视图", () => {
+  const shot = async (name: string) => {
+    await settle(300);
+    await page.screenshot({ path: `__shots__/${name}.png` });
+  };
+
+  it("列表 / 画廊 / 日历各来一张", async () => {
+    const rows: { path: string; title: string; props: Record<string, string> }[] = [
+      { path: "论文/甲.md", title: "奇异值分解的数值方法", props: { status: "在读", 作者: "Golub", 读于: "2026-03-04" } },
+      { path: "论文/乙.md", title: "Attention Is All You Need", props: { status: "已读", 作者: "Vaswani 等", 读于: "2026-03-11" } },
+      { path: "论文/丙.md", title: "一篇还没开始读的", props: { status: "未读", 作者: "张三" } },
+    ];
+    const properties = [
+      { key: "status", type: "string" },
+      { key: "作者", type: "string" },
+      { key: "读于", type: "date" },
+    ];
+
+    for (const [name, kind, spec] of [
+      ["20-db-list", "list", "view: list\ncolumns: [title, status, 作者]"],
+      ["21-db-gallery", "gallery", "view: gallery\ncolumns: [title, status, 作者]"],
+      ["22-db-calendar", "calendar", "view: calendar\ndate-field: 读于"],
+    ] as const) {
+      viewMock = { columns: ["title", "status", "作者", "读于"], rows, view: kind, groupBy: null, properties };
+      const v = mount(spec);
+      await shot(name);
+      // 画廊塌成一列窄条是最容易复发的毛病（`.dbview` 默认按内容宽），
+      // 这里顺手量一下：瓦片不能比声明的最小宽度还窄
+      if (kind === "gallery") {
+        const tile = document.querySelector(".dbv-tile")!.getBoundingClientRect();
+        expect(tile.width).toBeGreaterThanOrEqual(148);
+      }
+      v.destroy();
+      views.pop();
+      document.body.innerHTML = "";
+    }
+    expect(true).toBe(true);
   });
 });

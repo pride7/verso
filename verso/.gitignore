@@ -29,4 +29,5 @@ src/**/__screenshots__/
 # vitest 的诊断附件，不入库
 .vitest-attachments/
 
-src/__shots__/
+# 视觉工作台的产物，是给人看的中间物，不入库
+src/**/__shots__/

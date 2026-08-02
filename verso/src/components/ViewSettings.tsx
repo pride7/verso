@@ -27,6 +27,8 @@ const VIEWS: { id: string; label: string }[] = [
   { id: "table", label: "表格" },
   { id: "board", label: "看板" },
   { id: "list", label: "列表" },
+  { id: "gallery", label: "画廊" },
+  { id: "calendar", label: "日历" },
 ];
 
 /**
@@ -71,6 +73,42 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
           ))}
         </span>
       </label>
+
+      {/* 每种视图各自还差一个键才能工作：看板要分组、日历要日期、画廊要封面。
+          以前这三个只能手写进代码块，选了「看板」却看不到任何提示，
+          表现是「切过去还是那张表」—— 缺的键就该在切换它的地方问 */}
+      {view === "board" && (
+        <PropRow
+          label="分组"
+          k="group-by"
+          hint="按哪个属性分列。单选类型的属性最合适"
+          source={source}
+          properties={properties}
+          onPatch={onPatch}
+        />
+      )}
+      {view === "calendar" && (
+        <PropRow
+          label="日期"
+          k="date-field"
+          hint="按哪个日期属性摆。不设就用文件的创建时间"
+          fallback="created"
+          extra={["created", "updated"]}
+          source={source}
+          properties={properties}
+          onPatch={onPatch}
+        />
+      )}
+      {view === "gallery" && (
+        <PropRow
+          label="封面"
+          k="cover"
+          hint="哪一列是图片路径（attachments/图.png）"
+          source={source}
+          properties={properties}
+          onPatch={onPatch}
+        />
+      )}
 
       <label className="vset-row">
         <span className="vset-label">来源</span>
@@ -187,6 +225,59 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
         />
       </label>
     </div>
+  );
+}
+
+/**
+ * 「这个视图用哪个属性当 X」的一行。分组 / 日期 / 封面共用。
+ *
+ * 候选来自**这批笔记身上真实出现过的属性**，不是让人凭记忆敲键名 ——
+ * 敲错一个字的表现是「视图空的」，而界面上没有任何地方会告诉你敲错了。
+ */
+function PropRow({
+  label,
+  k,
+  hint,
+  fallback,
+  extra = [],
+  source,
+  properties,
+  onPatch,
+}: {
+  label: string;
+  /** YAML 里的键名 */
+  k: string;
+  hint: string;
+  /** 没设时实际生效的值，显示在「不设」那一项里 */
+  fallback?: string;
+  /** 额外的候选（日历的 created/updated 是文件自己的时间，不在 props 表里） */
+  extra?: string[];
+  source: string;
+  properties: PropMeta[];
+  onPatch: (yaml: string) => void;
+}) {
+  const value = readKey(source, k) ?? "";
+  const options = [...new Set([...extra, ...properties.map((p) => p.key)])].filter(
+    (o) => !isBuiltin(o) || extra.includes(o),
+  );
+  return (
+    <label className="vset-row" title={hint}>
+      <span className="vset-label">{label}</span>
+      <select
+        className="vset-input"
+        value={value}
+        onChange={(e) => onPatch(writeKey(source, k, e.target.value || null))}
+      >
+        <option value="">{fallback ? `不设（用 ${fallback}）` : "不设"}</option>
+        {/* 用户手写过一个当前不在候选里的键（笔记还没填过这个属性）时，
+            也要显示出来，否则一进设置面板就被悄悄改成「不设」 */}
+        {[...new Set(value ? [value, ...options] : options)].map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

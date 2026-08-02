@@ -3659,3 +3659,247 @@ textarea:focus-visible {
   background: var(--hover-bg);
   color: var(--text);
 }
+
+/* ---------- 列表 / 画廊 / 日历（§2.6） ----------
+
+   三种只读视图共用一套「属性小标签」。和看板卡片上那份是同一个意思，
+   但那份是竖排（卡片窄），这份横排（行和瓦片都宽）。 */
+
+.dbv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.dbv-chips > div {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+.dbv-chips dt {
+  flex: none;
+  opacity: 0.75;
+}
+.dbv-chips dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+/* 列表：一行一篇。**不画表格线也不等高** —— 那正是它和表格的分工，
+   表格保证对齐（好比较），列表换取密度和完整的标题（好浏览） */
+.dbv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.dbv-list > li {
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.dbv-list > li:hover {
+  background: var(--hover-bg);
+}
+.dbv-list > li + li {
+  border-top: 1px solid var(--hairline);
+}
+.dbv-list-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.dbv-list-title svg {
+  flex: none;
+  color: var(--muted);
+}
+.dbv-list-title:hover {
+  color: var(--accent);
+}
+
+/* 画廊：自适应列数。`auto-fill` + `minmax` 让窄栏里自动变成两列甚至一列，
+   不必为侧栏宽度写断点 */
+.dbv-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+}
+.dbv-tile {
+  padding: 8px;
+  border-radius: var(--r-md);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--t-fast);
+}
+.dbv-tile:hover {
+  box-shadow: var(--shadow-md);
+}
+.dbv-tile-cover {
+  display: block;
+  width: 100%;
+  /* 固定比例，图片再怎么参差，一面墙也是齐的 */
+  aspect-ratio: 4 / 3;
+  margin-bottom: 7px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: color-mix(in oklch, var(--muted) 10%, transparent);
+}
+.dbv-tile-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dbv-tile-blank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: color-mix(in oklch, var(--muted) 55%, transparent);
+}
+.dbv-tile-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+}
+.dbv-tile-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 日历 */
+.dbv-cal-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.dbv-cal-bar button {
+  padding: 3px 6px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.dbv-cal-bar button:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+.dbv-cal-title {
+  min-width: 6.5em;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text);
+}
+/* 「上一月」用同一个箭头翻过来，不另画一个 */
+.dbv-flip {
+  transform: rotate(180deg);
+}
+.dbv-cal-field {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* `minmax(0, 1fr)` 而不是 `1fr`：后者的下限是 min-content，格子里一个
+   不换行的长标题就能把整张月历撑出正文栏，编辑器随即出现横向滚动条
+   （AGENTS.md 里那条「别把块外扩到正文栏之外」是同一类问题） */
+.dbv-cal-head,
+.dbv-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.dbv-cal-head {
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-align: center;
+}
+.dbv-cal-grid {
+  gap: 4px;
+}
+.dbv-cal-cell {
+  min-height: 74px;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: color-mix(in oklch, var(--muted) 5%, transparent);
+  transition: background var(--t-fast), box-shadow var(--t-fast);
+}
+/* 邻月的日子压淡，但**不隐藏** —— 月初月末的笔记常常就落在那几格上 */
+.dbv-cal-cell.is-out {
+  opacity: 0.45;
+}
+.dbv-cal-cell.is-today {
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--accent) 55%, transparent);
+}
+.dbv-cal-cell.is-over {
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.dbv-cal-day {
+  display: block;
+  padding: 0 2px 2px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dbv-cal-item {
+  display: block;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 2px 4px;
+  border-radius: var(--r-xs);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  color: var(--text);
+  /* 一格只有 1/7 栏宽，标题一律截断 —— 换行会把格子撑成一根柱子 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dbv-cal-item:hover {
+  color: var(--accent);
+}
+.dbv-cal-undated {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+.dbv-cal-undated .dbv-cal-item {
+  width: auto;
+  max-width: 180px;
+  margin: 0;
+}
+.dbv-cal-undated-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.dbview-none {
+  margin: 10px 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
