@@ -13,7 +13,9 @@ import {
 import { foldTargets } from "../lib/journal";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { setImageResolver } from "../editor/image";
+import { setSlashConfig } from "../editor/completion";
 import { setViewRenderer } from "../editor/viewBlock";
+import { parseSlashCustom } from "../lib/slash";
 import { DatabaseView } from "./DatabaseView";
 import type { NoteContent, NoteRef } from "../types";
 import { Backlinks } from "./Backlinks";
@@ -49,6 +51,9 @@ export interface EditorHandle {
   /** 可视区上沿落在第几行（1 起）。大纲判断「当前在哪一节」用 */
   topLine: () => number;
 }
+
+/** 默认值放模块级：写成 `= []` 的话每次渲染都是新数组，effect 会白跑一轮 */
+const EMPTY_HIDDEN: string[] = [];
 
 /** 跳转后标题距上沿留的空隙，也是 `topLine` 的取样点 */
 const TOP_MARGIN = 12;
@@ -98,6 +103,11 @@ interface Props {
   onNoteChanged: () => void;
   /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
   customSnippets: string;
+  /** `/` 菜单里隐藏掉的内置条目名。可选是为了让只关心别的行为的测试
+      不必每个都填一遍；App 那边是显式传的 */
+  slashHidden?: string[];
+  /** 自己加的 `/` 菜单条目（JSON 文本） */
+  slashCustom?: string;
   /** 源码模式：摘掉全部 live preview 装饰，直接看 Markdown 源码 */
   sourceMode: boolean;
   /**
@@ -137,6 +147,8 @@ export function Editor({
   revision,
   onNoteChanged,
   customSnippets,
+  slashHidden = EMPTY_HIDDEN,
+  slashCustom = "",
   sourceMode,
   // 默认 0 = 不自动折叠。可选是为了让只关心别的行为的测试不必每个都填一遍；
   // App 那边是显式传的
@@ -197,6 +209,12 @@ export function Editor({
     setImageResolver((target) => cb.current.imageSrc(target));
     return () => setImageResolver(null);
   });
+
+  // `/` 菜单的配置。走模块级注入而不是重建编辑器 —— 改一条设置就丢光标、
+  // 丢撤销历史的话，这个设置只会被用一次（和 snippet compartment 同理）
+  useEffect(() => {
+    setSlashConfig(slashHidden, parseSlashCustom(slashCustom).items);
+  }, [slashHidden, slashCustom]);
 
   // 编辑器销毁时把残留的 React root 一起清掉，否则内存泄漏
   useEffect(

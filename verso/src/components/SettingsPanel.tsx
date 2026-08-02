@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parseCustomSnippets } from "../editor/snippets/custom";
+import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
@@ -15,7 +16,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets";
+type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets" | "slash";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "外观" },
@@ -23,6 +24,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "keys", label: "快捷键" },
   { id: "terminal", label: "终端" },
   { id: "snippets", label: "公式 snippet" },
+  { id: "slash", label: "/ 菜单" },
 ];
 
 /**
@@ -40,6 +42,18 @@ const ACCENTS: [string, number, number][] = [
   ["琥珀", 75, 0.1],
   ["绯红", 20, 0.095],
 ];
+
+/**
+ * 自定义 `/` 条目的示例（占位文字）。
+ *
+ * 用 `JSON.stringify` 生成而不是手写一段字符串：换行在 JSON 里要写成
+ * 两个字符，手写时极容易漏掉一层转义 —— 让它自己序列化一次最稳。
+ */
+const SLASH_EXAMPLE = JSON.stringify(
+  [{ label: "定理", detail: "callout", template: "> [!note] 定理\n> $0" }],
+  null,
+  2,
+);
 
 /** 数值设置统一长这样：滑块调、右边显示当前值、能一键回默认 */
 function Slider({
@@ -156,6 +170,18 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
 
   const snippetCheck = useMemo(() => parseCustomSnippets(snippetText), [snippetText]);
   const snippetDirty = snippetText !== settings.customSnippets;
+
+  const [slashText, setSlashText] = useState(settings.slashCustom);
+  useEffect(() => setSlashText(settings.slashCustom), [settings.slashCustom]);
+  const slashCheck = useMemo(() => parseSlashCustom(slashText), [slashText]);
+  const slashDirty = slashText !== settings.slashCustom;
+  const hidden = new Set(settings.slashHidden);
+  const toggleSlash = (label: string) =>
+    onChange({
+      slashHidden: hidden.has(label)
+        ? settings.slashHidden.filter((x) => x !== label)
+        : [...settings.slashHidden, label],
+    });
 
   return (
     <div className="overlay" onMouseDown={onClose}>
@@ -411,6 +437,64 @@ export function SettingsPanel({ settings, commands, onChange, onReset, onClose }
                 终端里跑 AI CLI 时字号可以调小一点，能多看到几行上下文。
               </p>
             </>
+          )}
+
+          {tab === "slash" && (
+            <div className="set-snippets">
+              <p className="set-note">
+                写正文时打 <code>/</code> 弹出来的那个菜单。用不上的关掉，常用的自己加。
+              </p>
+
+              <ul className="set-slash">
+                {BUILTIN_SLASH.map((b) => (
+                  <li key={b.label}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={!hidden.has(b.label)}
+                        onChange={() => toggleSlash(b.label)}
+                      />
+                      <span className="set-slash-name">{b.label}</span>
+                      <span className="set-slash-detail">{b.detail}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+
+              <p className="set-note">
+                自己加的条目。<code>$0</code> 标出插入后光标停的位置，和公式 snippet 一个写法。
+              </p>
+              <textarea
+                className="set-code"
+                spellCheck={false}
+                value={slashText}
+                placeholder={SLASH_EXAMPLE}
+                onChange={(e) => setSlashText(e.target.value)}
+              />
+
+              {slashCheck.errors.length > 0 && (
+                <ul className="set-errors">
+                  {slashCheck.errors.map((msg, i) => (
+                    <li key={i}>{msg}</li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="set-actions">
+                <span className="set-hint">
+                  {slashCheck.errors.length
+                    ? `${slashCheck.items.length} 条可用，${slashCheck.errors.length} 条有问题`
+                    : `${slashCheck.items.length} 条`}
+                </span>
+                <button
+                  className="btn-primary"
+                  disabled={!slashDirty}
+                  onClick={() => onChange({ slashCustom: slashText })}
+                >
+                  {slashDirty ? "应用" : "已应用"}
+                </button>
+              </div>
+            </div>
           )}
 
           {tab === "snippets" && (

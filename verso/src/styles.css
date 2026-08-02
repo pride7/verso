@@ -4347,3 +4347,41 @@ textarea:focus-visible {
   background: var(--hover-bg);
   color: var(--text);
 }
+
+/* ---------- 设置里的 `/` 菜单条目开关（§4.3） ---------- */
+
+.set-slash {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  /* 二十来条，一列排下去要滚很久；两列刚好一屏放得下 */
+  columns: 2;
+  column-gap: 18px;
+}
+.set-slash li {
+  break-inside: avoid;
+}
+.set-slash label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  border-radius: var(--r-xs);
+  cursor: pointer;
+}
+.set-slash label:hover {
+  background: var(--hover-bg);
+}
+.set-slash-name {
+  flex: none;
+}
+/* 那一小段示例（`## `、`> [!note]`）压淡，是提示不是内容 */
+.set-slash-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}

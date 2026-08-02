@@ -10,7 +10,10 @@ import {
 import type { Extension } from "@codemirror/state";
 
 import { rankNotes } from "../lib/fuzzy";
+import { applyCaret, slashItems, type SlashAction, type SlashItem } from "../lib/slash";
 import type { NoteRef } from "../types";
+
+export type { SlashAction } from "../lib/slash";
 import { mathContextAt } from "./mathContext";
 
 /**
@@ -59,58 +62,6 @@ export function wikiLinkSource(getNotes: () => NoteRef[]) {
   };
 }
 
-/** `/` 菜单里那几条「不插文本、交回给 App 做一件事」的选项 */
-export type SlashAction = "template" | "journal" | "issues";
-
-interface Block {
-  label: string;
-  detail: string;
-  /** `|` 标出插入后光标应当停的位置。有 `action` 的条目不用它 */
-  template?: string;
-  /**
-   * 不插文本，而是让 App 做一件事（目前只有「插入模板」）。
-   *
-   * 为什么放进 `/` 菜单而不是只做成命令：`/` 是写作过程中手不离键盘的
-   * 入口，而插入模板恰恰发生在写作中途。只藏在命令面板里的功能，
-   * 不知道它存在的人永远不会用到（§4.3 里 `/` 菜单存在的同一个理由）。
-   */
-  action?: SlashAction;
-}
-
-/**
- * `/` 命令菜单。§4.3 里说它是「Markdown 也能有 Notion 手感」的关键 ——
- * 用户不需要记语法，输入 `/` 选「三级标题」，编辑器插入 `### `。
- * 存储仍然是纯文本。
- */
-const BLOCKS: Block[] = [
-  { label: "一级标题", detail: "# ", template: "# |" },
-  { label: "二级标题", detail: "## ", template: "## |" },
-  { label: "三级标题", detail: "### ", template: "### |" },
-  { label: "无序列表", detail: "- ", template: "- |" },
-  { label: "有序列表", detail: "1. ", template: "1. |" },
-  { label: "待办", detail: "- [ ] ", template: "- [ ] |" },
-  { label: "引用", detail: "> ", template: "> |" },
-  { label: "提示 callout", detail: "> [!note]", template: "> [!note] |\n> " },
-  { label: "警告 callout", detail: "> [!warning]", template: "> [!warning] |\n> " },
-  { label: "代码块", detail: "```", template: "```|\n\n```" },
-  { label: "分隔线", detail: "---", template: "---\n|" },
-  { label: "表格", detail: "GFM 表格", template: "| | |\n|---|---|\n| | |\n|" },
-  { label: "行内公式", detail: "$…$", template: "$|$" },
-  { label: "块级公式", detail: "$$…$$", template: "$$\n|\n$$" },
-  { label: "内部链接", detail: "[[…]]", template: "[[|]]" },
-  { label: "高亮", detail: "==…==", template: "==|==" },
-  {
-    label: "database 视图",
-    detail: "按属性筛选笔记的表格",
-    template: '```verso-view\nfrom: "|"\nview: table\ncolumns: [title]\n```',
-  },
-  // 排在最后：这三条开的是浮层或者要问 App 才知道插什么，
-  // 和上面那些「插一段固定文本」不是一类动作
-  { label: "插入模板", detail: "template", action: "template" },
-  { label: "进展记录", detail: "带时间戳的一节（§2.10）", action: "journal" },
-  { label: "未关闭的条目", detail: "issue 列表", action: "issues" },
-];
-
 /**
  * `/` 菜单里的动作项要交回给 App 执行。
  *
@@ -122,6 +73,19 @@ let onAction: ((id: SlashAction) => void) | null = null;
 
 export function setSlashAction(fn: ((id: SlashAction) => void) | null) {
   onAction = fn;
+}
+
+/**
+ * 用户配的那份菜单（隐藏了哪几条、加了哪几条）。
+ *
+ * 同样走模块级变量而不是参数：补全来源是建 EditorView 时固化进扩展里的，
+ * 而设置随时会变 —— 传参数就得为改一条设置重建整个编辑器，光标和撤销
+ * 历史全丢（和 `setSlashAction` 同一个理由）。
+ */
+let items: SlashItem[] = slashItems([], []);
+
+export function setSlashConfig(hidden: readonly string[], custom: readonly SlashItem[]) {
+  items = slashItems(hidden, custom);
 }
 
 export function slashSource(ctx: CompletionContext): CompletionResult | null {
@@ -155,7 +119,7 @@ export function slashSource(ctx: CompletionContext): CompletionResult | null {
     // CM6 复用旧结果、只做本地过滤，而本地过滤已经被关掉了，打字就不再收窄。
     // 17 个选项重查一次的开销可以忽略。
     filter: false,
-    options: BLOCKS.filter(
+    options: items.filter(
       (b) => !query || b.label.includes(query) || b.detail.toLowerCase().includes(query.toLowerCase()),
     ).map((b) => ({
       label: b.label,
@@ -169,11 +133,10 @@ export function slashSource(ctx: CompletionContext): CompletionResult | null {
           onAction?.(b.action);
           return;
         }
-        const caret = b.template!.indexOf("|");
-        const text = b.template!.replace("|", "");
+        const { text, caret } = applyCaret(b.template!);
         view.dispatch({
           changes: { from, to, insert: text },
-          selection: { anchor: from + (caret < 0 ? text.length : caret) },
+          selection: { anchor: from + caret },
           userEvent: "input.slash",
           scrollIntoView: true,
         });

@@ -1604,6 +1604,8 @@ export default function App() {
               setRevision((v) => v + 1);
             }}
             customSnippets={settings.customSnippets}
+            slashHidden={settings.slashHidden}
+            slashCustom={settings.slashCustom}
             sourceMode={sourceMode}
             journalKeep={settings.journalKeep}
             onSaveFrontmatter={saveFrontmatter}

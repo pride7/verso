@@ -138,6 +138,15 @@ pub struct Settings {
     /// 两份会各自漂移的定义。Rust 这里只负责把这段文本原封不动地存下来。
     pub custom_snippets: String,
 
+    /// `/` 菜单里隐藏掉的内置条目名，以及自己加的那些（JSON 文本）。
+    ///
+    /// 和 snippet、键位一样**不在 Rust 侧建模**：条目的结构和解析规则全在
+    /// 前端 `lib/slash.ts` 里，这边再写一份只会造出两份各自漂移的定义。
+    #[serde(default)]
+    pub slash_hidden: Vec<String>,
+    #[serde(default)]
+    pub slash_custom: String,
+
     /// 改过的快捷键：命令 id → 键位（`"Mod+Shift+P"`）。空串表示显式解绑。
     ///
     /// 和 snippet 一样**不在 Rust 侧建模**：命令表和键位写法全在前端
@@ -169,6 +178,8 @@ impl Default for Settings {
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
             custom_snippets: String::new(),
+            slash_hidden: Vec::new(),
+            slash_custom: String::new(),
             keybindings: BTreeMap::new(),
         }
     }
@@ -212,6 +223,8 @@ impl Settings {
         if self.template_dir.contains("..") {
             self.template_dir = default_template_dir();
         }
+        // 手改的文件里塞进来一堆超长字符串，会让设置界面那一页铺满整个面板
+        self.slash_hidden.retain(|name| name.len() <= 64);
         // 上限 50：再多等于没折叠。手滑打成 500 会让「只看最新」悄悄失效
         self.journal_keep = clamp(self.journal_keep, 0.0, 50.0, default_journal_keep()).round();
         // 键位写法由前端管，这边只挡住明显是垃圾的：手改的文件里塞进来一段

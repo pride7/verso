@@ -62,6 +62,15 @@ export interface Settings {
   /** Latex Suite 那种 JSON 文本，由 `editor/snippets` 解析 */
   customSnippets: string;
   /**
+   * `/` 菜单里隐藏掉的内置条目（记的是它们的名字，见 `lib/slash.ts`）。
+   *
+   * 和快捷键一样只存**与默认不同**的那部分：将来内置表加了新条目，
+   * 没动过它的人会自动跟着有。
+   */
+  slashHidden: string[];
+  /** 自己加的 `/` 菜单条目，JSON 文本，由 `lib/slash.ts` 解析 */
+  slashCustom: string;
+  /**
    * 改过的快捷键。命令 id → 键位（`Mod+Shift+P` 这种写法）。
    *
    * 只存**与默认不同**的那几条，空串表示显式解绑。没出现在这里的命令
@@ -89,6 +98,8 @@ export const DEFAULT_SETTINGS: Settings = {
   accentHue: 195,
   accentChroma: 0.11,
   customSnippets: "",
+  slashHidden: [],
+  slashCustom: "",
   keybindings: {},
 };
 
@@ -156,6 +167,11 @@ export function sanitize(s: Settings): Settings {
     Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback;
   return {
     ...s,
+    // 手改的设置文件里可能是字符串、null、数字数组
+    slashHidden: Array.isArray(s.slashHidden)
+      ? s.slashHidden.filter((v): v is string => typeof v === "string")
+      : [],
+    slashCustom: typeof s.slashCustom === "string" ? s.slashCustom : "",
     // 设置文件能手改，这里可能是 null、数组、字符串 —— 全都会让设置界面
     // 里的快捷键那一页崩掉，而那正是唯一能把它改回来的地方
     keybindings:
