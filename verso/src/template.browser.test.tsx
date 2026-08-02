@@ -64,6 +64,8 @@ const writeFrontmatter = vi.fn(async () => 0);
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
     tree: async () => tree,

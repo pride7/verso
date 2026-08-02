@@ -153,6 +153,26 @@ export default function App() {
   const narrow = useMedia(NARROW);
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
+  /**
+   * 跑在手机上吗。**和「窄屏」是两回事**：窄屏跟视口走（桌面拖窄也算），
+   * 这个跟平台走 —— 决定的是「有没有目录选择器」这类平台能力。
+   *
+   * 用 ref 而不是 state：读它的地方是 `openVault` 那个长期存在的 callback
+   */
+  const mobileRef = useRef(false);
+  useEffect(() => {
+    // 老后端没有这个命令时 invoke 是**同步抛**的，包住整个调用点
+    try {
+      void api
+        .isMobile()
+        .then((v) => {
+          mobileRef.current = v;
+        })
+        .catch(() => {});
+    } catch {
+      /* 桌面老版本：当作不是手机 */
+    }
+  }, []);
   /** 排序菜单开着没有。做成菜单而不是原生 select —— 后者在头部占一大截宽度 */
   const [sortMenu, setSortMenu] = useState(false);
   // 侧栏宽度。和终端高度一样记在 localStorage：调好一次就别再调第二次
@@ -534,6 +554,19 @@ export default function App() {
 
   const openVault = useCallback(async () => {
     try {
+      // 手机上没有目录选择器（Tauri 移动端没实现，点下去毫无反应），
+      // 位置由 Rust 挑。**失败时那句错误要显示出来** —— 手机上没有终端、
+      // 看不了日志，那是唯一能知道为什么的地方
+      if (mobileRef.current) {
+        const info = await api.openDefaultVault();
+        setVault(info);
+        setNote(null);
+        setBody("");
+        setError(null);
+        await refresh();
+        await restoreTabs(null);
+        return;
+      }
       const path = await pickVaultFolder();
       if (!path) return;
       const info = await api.openVault(path);
@@ -1641,7 +1674,7 @@ export default function App() {
         <h1>Verso</h1>
         <p className="welcome-sub">本地优先的笔记本</p>
         <button className="btn-primary" onClick={openVault}>
-          打开 vault 目录
+          {mobileRef.current ? "开始使用" : "打开 vault 目录"}
         </button>
         {error && <p className="error">{error}</p>}
       </div>

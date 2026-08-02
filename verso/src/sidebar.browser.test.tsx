@@ -47,6 +47,8 @@ const setSettings = vi.fn(async (s: Record<string, unknown>) => s);
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
     openVault: async () => VAULT,
     tree: async () => TREE,

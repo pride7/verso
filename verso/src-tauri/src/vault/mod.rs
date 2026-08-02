@@ -79,8 +79,17 @@ impl Vault {
         if !root.is_dir() {
             return Err(Error::Vault(format!("不是一个目录: {}", root.display())));
         }
-        // 规范化，否则 `..` 之类会让后面的越界检查失效
-        let root = root.canonicalize()?;
+        // 规范化，否则 `..` 之类会让后面的越界检查失效。
+        //
+        // **失败不算致命**：安卓的共享存储（`/storage/emulated/0/…`）是一层
+        // FUSE，`canonicalize` 要沿路每一级都读得动，而中间那几级 App 往往
+        // 没权限 —— 于是一个明明建得出来、写得进去的目录会在这里被判死，
+        // 表现是「vault 打不开」而完全看不出为什么。
+        //
+        // 规范化失败时退回原路径。安全性不靠这一步：越界检查在 `resolve()`
+        // 里对每一次访问单独做，而这里的 root 要么来自目录选择器、要么是
+        // 我们自己拼的，本来就不是不可信输入。
+        let root = root.canonicalize().unwrap_or(root);
 
         let g = git::ensure_repo(&root)?;
         let info = VaultInfo {

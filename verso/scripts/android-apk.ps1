@@ -35,6 +35,16 @@ try {
     New-Item -ItemType Directory -Force $jni | Out-Null
     Copy-Item $so (Join-Path $jni 'libverso_lib.so') -Force
 
+    # gradle 的 native libs 合并产物有时会和我们手拷进去的那份重复，打出来的
+    # APK 里就有**两个同名的 .so** —— 文件大一倍，而 `unzip -l` 只显示最后
+    # 一个，所以「列出来的总和」和文件大小对不上（189 MB 的内容，335 MB 的包）。
+    # 每次打包前清掉它
+    $inter = Join-Path $root 'src-tauri\gen\android\app\build\intermediates'
+    foreach ($d in 'merged_native_libs', 'stripped_native_libs') {
+        $p = Join-Path $inter $d
+        if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+    }
+
     Write-Host '== 打包 APK ==' -ForegroundColor Cyan
     Set-Location (Join-Path $root 'src-tauri\gen\android')
     .\gradlew.bat assembleArm64Debug -x rustBuildArm64Debug --console=plain 2>&1 |

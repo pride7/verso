@@ -47,6 +47,8 @@ vi.mock("./lib/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
     openVault: async () => VAULT,
     tree: async () => [doc("论文", "论文.md")],

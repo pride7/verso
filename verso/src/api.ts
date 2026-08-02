@@ -152,6 +152,15 @@ export const api = {
   /** 同步一次：提交 → 取远端 → 接到一起 → 推上去 */
   vaultSync: () => call<SyncOutcome>("vault_sync"),
 
+  /**
+   * 手机上没有目录选择器，欢迎页那个按钮走这条：Rust 自己挑一个能用的位置
+   * （共享存储优先，退回 App 私有目录）。**失败会抛，且抛的是人话** ——
+   * 手机上那句错误是唯一能看到原因的地方
+   */
+  openDefaultVault: () => call<VaultInfo>("vault_open_default"),
+  /** 这是不是手机。欢迎页据此决定那个按钮该干什么 */
+  isMobile: () => call<boolean>("platform_is_mobile"),
+
   /** 收尾做完了，可以真的关窗了。见 `onAppClosing` */
   closeNow: () => call<null>("close_now"),
 

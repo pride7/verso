@@ -165,6 +165,8 @@ let workspace: { tabs: string[]; active: number; pinnedCount: number } = {
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
     openVault: async () => VAULT,
     tree: async () => TREE,

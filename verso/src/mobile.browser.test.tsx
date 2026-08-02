@@ -33,6 +33,8 @@ const doc = (name: string, path: string): TreeNode => ({
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
     tree: async () => [doc("甲", "甲.md"), doc("乙", "乙.md")],

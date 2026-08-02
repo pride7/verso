@@ -153,31 +153,58 @@ struct Reopened {
 /// 判断「能不能用」靠**真的写一个文件**：安卓上 `create_dir_all` 在没权限时
 /// 也可能返回 Ok，而目录建得出来、文件写不进去是最难查的一种坏法。
 #[cfg(mobile)]
-fn default_vault(app: &AppHandle) -> Option<PathBuf> {
+fn vault_candidates(app: &AppHandle) -> Vec<PathBuf> {
     use tauri::Manager;
-
     let shared = std::env::var_os("EXTERNAL_STORAGE")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/storage/emulated/0"))
         .join("Verso");
-    if writable(&shared) {
-        return Some(shared);
+    let mut list = vec![shared];
+    if let Ok(private) = app.path().app_data_dir() {
+        list.push(private.join("vault"));
     }
-
-    let fallback = app.path().app_data_dir().ok()?.join("vault");
-    writable(&fallback).then_some(fallback)
+    list
 }
 
-/// 建出来并且**真的写得进去**才算数
+/// 挨个试，**第一个真的能打开的那个**才算数。
+///
+/// 「能建目录」不等于「能用」：安卓上 `create_dir_all` 在没权限时也可能
+/// 返回 Ok，而共享存储那层 FUSE 还可能让 git2 初始化仓库失败。所以判据是
+/// 一路走到 `Vault::open_watched` 成功为止。
+///
+/// **失败时把每一条路径的原因都带回去。** 手机上没有终端也看不了日志，
+/// 一个静默返回 None 的启动流程等于让人对着一个死按钮猜 —— v0.6.6 就是
+/// 这么坏的。
 #[cfg(mobile)]
-fn writable(dir: &std::path::Path) -> bool {
-    if std::fs::create_dir_all(dir).is_err() {
-        return false;
+fn open_default_vault(
+    app: &AppHandle,
+    state: &AppState,
+) -> std::result::Result<(Vault, VaultInfo), String> {
+    let mut why = Vec::new();
+    for dir in vault_candidates(app) {
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            why.push(format!("{}：建不出目录（{e}）", dir.display()));
+            continue;
+        }
+        match Vault::open_watched(dir.clone(), state.self_writes.clone()) {
+            Ok(pair) => {
+                // **退到后面的候选时要说一声。** 共享存储用不了的话，笔记会
+                // 落在别处看不见的私有目录里，而用户完全无从察觉 —— 他只会
+                // 觉得「授权了但没生效」。这条走 index:error 那个提示条
+                if !why.is_empty() {
+                    let _ = app.emit(
+                        "index:error",
+                        format!("笔记暂时放在 {}。{}", dir.display(), why.join("；")),
+                    );
+                }
+                return Ok(pair);
+            }
+            Err(e) => why.push(format!("{} 用不了：{e}", dir.display())),
+        }
     }
-    let probe = dir.join(".verso-write-test");
-    let ok = std::fs::write(&probe, b"ok").is_ok();
-    let _ = std::fs::remove_file(&probe);
-    ok
+    Err(format!("这几个位置都用不了：
+{}", why.join("
+")))
 }
 
 /// 启动时自动重开上次的 vault 和笔记。目录被删或被移走就静默返回 None，
@@ -194,20 +221,13 @@ fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reope
     // 于是首次启动必然落在私有目录那条退路上，然后被记下来。不重算的话，
     // 用户授权之后**再怎么重启也回不到共享目录**，而他会以为授权没生效。
     #[cfg(mobile)]
-    let last = default_vault(&app).or_else(|| saved.last_vault.map(PathBuf::from));
+    let (v, vault) = {
+        let _ = &saved;
+        open_default_vault(&app, &state).ok()?
+    };
     #[cfg(not(mobile))]
-    let last = saved.last_vault.map(PathBuf::from);
-
-    let (v, vault) = Vault::open_watched(last?, state.self_writes.clone())
-        .or_else(|e| {
-            // 上次那个路径没了（换了设备、清了数据）时，移动端仍然要能起来
-            #[cfg(mobile)]
-            if let Some(dir) = default_vault(&app) {
-                return Vault::open_watched(dir, state.self_writes.clone());
-            }
-            Err(e)
-        })
-        .ok()?;
+    let (v, vault) =
+        Vault::open_watched(PathBuf::from(saved.last_vault?), state.self_writes.clone()).ok()?;
 
     // 笔记可能已被删除或改名，存在才恢复
     let last_note = saved
@@ -216,6 +236,33 @@ fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reope
 
     activate(&app, &state, v);
     Some(Reopened { vault, last_note })
+}
+
+/// 手机上没有目录选择器，欢迎页那个按钮改成走这条。
+///
+/// **返回 Result 而不是 Option**：失败时前端会把这句话原样显示出来，
+/// 那是手机上唯一能看到原因的地方。
+#[tauri::command]
+fn vault_open_default(app: AppHandle, state: State<'_, AppState>) -> Result<VaultInfo> {
+    #[cfg(mobile)]
+    {
+        let (v, info) = open_default_vault(&app, &state).map_err(Error::Vault)?;
+        recent::save_vault(&app, &info.root);
+        activate(&app, &state, v);
+        Ok(info)
+    }
+    #[cfg(not(mobile))]
+    {
+        let _ = (&app, &state);
+        Err(Error::Vault("桌面上请自己选一个目录".into()))
+    }
+}
+
+/// 这是不是手机。欢迎页要据此决定那个按钮该干什么 —— 桌面上是选目录，
+/// 手机上没有目录可选（见 `vault_open_default`）
+#[tauri::command]
+fn platform_is_mobile() -> bool {
+    cfg!(mobile)
 }
 
 #[tauri::command]
@@ -743,6 +790,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             vault_open,
             vault_reopen_last,
+            vault_open_default,
+            platform_is_mobile,
             tree_list,
             note_read,
             note_write,

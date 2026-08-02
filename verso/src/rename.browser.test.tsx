@@ -45,6 +45,8 @@ const renameNote = vi.fn(async (path: string, title: string) => {
 
 vi.mock("./api", () => ({
   api: {
+    isMobile: async () => false,
+    openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: null }),
     openVault: async () => VAULT,
     tree: async () => tree,
