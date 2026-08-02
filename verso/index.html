@@ -2,7 +2,11 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：安卓 15 起（targetSdk ≥ 35）系统强制全面屏绘制，
+         webview 会画到状态栏和手势条底下。没有这一句的话 `env(safe-area-inset-*)`
+         全是 0，界面顶部就被状态栏压住 —— 那正是 v0.6.5 安卓包的症状。
+         安全区的实际处理在 styles.css 的 `.app` 上 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Verso</title>
   </head>
 

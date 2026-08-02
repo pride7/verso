@@ -2663,6 +2663,22 @@ textarea:focus-visible {
    ========================================================================== */
 
 @media (max-width: 640px) {
+  /* **系统栏的安全区。** 安卓 15 起（targetSdk ≥ 35）强制全面屏绘制：
+     webview 铺满整块屏，状态栏和底部手势条**压在界面上面**。不让开的话，
+     顶上那一条（图标栏最上面的按钮、标签页）点下去是状态栏在收通知，
+     底下那一条被手势条吃掉 —— 表现就是「界面在那儿，但点不动」。
+
+     加在 `.app` 上而不是各个子元素上：它是整个界面的外壳，让一次就够。
+     `height: 100%` + `box-sizing: border-box` 保证让出来的部分从总高里扣，
+     而不是把界面顶出屏幕 */
+  .app.is-narrow {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
   /* 侧栏那一列整个取消。它仍然渲染，只是不再参与网格 */
   .app.is-narrow {
     grid-template-columns: 44px minmax(0, 1fr);
@@ -2678,19 +2694,26 @@ textarea:focus-visible {
     top: 0;
     bottom: 0;
     left: 44px;
-    /* 留一条正文出来：那是关掉抽屉的唯一入口（盖满的话只能靠图标栏关，
-       而那要求用户先想明白「刚才是从哪儿打开的」） */
-    width: min(78vw, 300px);
+    /* **必须留出一条手指点得到的正文**：那是关掉抽屉最直接的入口。
+       写成「屏宽减去图标栏、再减 64」而不是一个百分比 —— 百分比在窄屏上
+       会把那条缝压到十几像素，等于没有 */
+    width: min(300px, calc(100vw - 44px - 64px));
     z-index: 30;
     box-shadow: var(--shadow-lg);
   }
 
-  /* 抽屉底下那层。它接管点击，正文这时候不该能点 */
+  /* 抽屉底下那层。它接管正文区的点击，**但不该盖住图标栏** ——
+     图标栏是手机上唯一的导航，抽屉开着的时候照样要能切视图。
+     被盖住的话，那一竖排图标看得见、点下去却只是关掉抽屉 */
   .sidebar-scrim {
     position: absolute;
     inset: 0;
     z-index: 29;
     background: rgb(0 0 0 / 24%);
+  }
+  .app.is-narrow .rail {
+    position: relative;
+    z-index: 31;
   }
 
   /* 拖不动的东西不占地方：触摸屏上没有精确到 4px 的拖拽 */

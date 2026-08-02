@@ -175,6 +175,30 @@ describe("手机竖屏下的布局", () => {
     expect(document.querySelector(".sidebar"), "点完还得再手动关一次的话，那一下就白点了").toBeNull();
   });
 
+  /**
+   * **抽屉开着时，图标栏必须还能点。** 它是手机上唯一的导航。
+   *
+   * 用 `elementFromPoint` 做真正的命中测试，而不是查 z-index 或类名 ——
+   * 遮罩盖住图标栏时，那一竖排图标**看得见、点下去却只是关掉抽屉**，
+   * 截图上一模一样，只有命中测试能发现。
+   */
+  it("抽屉开着的时候，图标栏照样点得到", async () => {
+    await mount();
+    expect(document.querySelector(".sidebar-scrim")).toBeTruthy();
+
+    const btn = document.querySelector<HTMLElement>('.rail-btn[aria-label="搜索"]')!;
+    const r = btn.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit?.closest(".rail-btn"), "点到的是遮罩，不是图标栏").toBe(btn);
+  });
+
+  /** 抽屉再宽也得留一条正文出来 —— 那是关掉它最直接的入口 */
+  it("抽屉旁边留得下一根手指", async () => {
+    await mount();
+    const side = document.querySelector(".sidebar")!.getBoundingClientRect();
+    expect(PHONE.w - side.right).toBeGreaterThanOrEqual(48);
+  });
+
   it("点正文那一条（遮罩）也能关掉抽屉", async () => {
     await mount();
     expect(document.querySelector(".sidebar-scrim")).toBeTruthy();

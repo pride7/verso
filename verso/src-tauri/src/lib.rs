@@ -188,8 +188,13 @@ fn writable(dir: &std::path::Path) -> bool {
 #[tauri::command]
 fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reopened> {
     let saved = recent::load(&app);
+    // **移动端每次都重新算一遍，不认上次记的那个。**
+    //
+    // MainActivity 是在启动时把用户带去授权页的，而这个函数早就跑完了 ——
+    // 于是首次启动必然落在私有目录那条退路上，然后被记下来。不重算的话，
+    // 用户授权之后**再怎么重启也回不到共享目录**，而他会以为授权没生效。
     #[cfg(mobile)]
-    let last = saved.last_vault.map(PathBuf::from).or_else(|| default_vault(&app));
+    let last = default_vault(&app).or_else(|| saved.last_vault.map(PathBuf::from));
     #[cfg(not(mobile))]
     let last = saved.last_vault.map(PathBuf::from);
 
