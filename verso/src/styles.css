@@ -788,6 +788,14 @@ body.is-resizing {
   cursor: col-resize;
 }
 
+/* 表格列宽拖动会越过编辑器里的多种节点；锁住整页光标和选区，才能让一次
+   pointer 手势从表头边界平稳走到正文区域，不会途中开始框选文字。 */
+body.is-table-resizing,
+body.is-table-resizing * {
+  user-select: none !important;
+  cursor: col-resize !important;
+}
+
 /* ---------- 侧栏视图（搜索 / 标签）共用的骨架 ---------- */
 
 .side-view {

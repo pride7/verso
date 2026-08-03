@@ -60,6 +60,23 @@ function click(el: Element) {
   el.dispatchEvent(new MouseEvent("click", at));
 }
 
+/** 从列边界拖一段真实的 pointer 手势。事件发给 window，覆盖拖出表头后的路径。 */
+function dragWidth(el: Element, delta: number) {
+  const box = el.getBoundingClientRect();
+  const start = {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    clientX: box.left + box.width / 2,
+    clientY: box.top + box.height / 2,
+  };
+  el.dispatchEvent(new PointerEvent("pointerdown", start));
+  window.dispatchEvent(new PointerEvent("pointermove", { ...start, clientX: start.clientX + delta }));
+  window.dispatchEvent(new PointerEvent("pointerup", { ...start, clientX: start.clientX + delta }));
+}
+
 /** 菜单里那几条的文字 */
 function menuLabels(v: EditorView): string[] {
   return [...v.dom.querySelectorAll(".cm-table-menu li > button")].map((b) =>
@@ -77,6 +94,7 @@ function menuItem(v: EditorView, label: string): HTMLElement {
 
 const cols = (v: EditorView) => v.dom.querySelectorAll<HTMLElement>(".cm-table-grip.is-col");
 const rows = (v: EditorView) => v.dom.querySelectorAll<HTMLElement>(".cm-table-grip.is-row");
+const resizers = (v: EditorView) => v.dom.querySelectorAll<HTMLElement>(".cm-table-resize");
 
 describe("把手", () => {
   it("每列一个列把手，每行一个行把手（表头也有）", async () => {
@@ -85,6 +103,7 @@ describe("把手", () => {
     expect(cols(v)).toHaveLength(2);
     // 表头 + 两行数据
     expect(rows(v)).toHaveLength(3);
+    expect(cols(v)[0].querySelector("svg"), "点阵图标要让入口看得出是操作把手").toBeTruthy();
   });
 
   it("平时不显示，鼠标进了表格才浮现", async () => {
@@ -96,10 +115,9 @@ describe("把手", () => {
     expect(getComputedStyle(grip).pointerEvents).toBe("none");
   });
 
-  // 把手是绝对定位到单元格上、再探进外面那层的内边距里的，而外面那层是
-  // `overflow-x: auto` —— 位置算错一点就被整个裁掉，表现是「把手根本不出现」，
-  // 和「样式没生效」长得一模一样（callout 的左侧色条踩过同一条）
-  it("落在表格框里，没被裁掉，也没压住单元格的字", async () => {
+  // 把手内收进单元格：列头上方不能再被撑出一条空白工具栏，行把手也不能
+  // 用一排按钮外壳把第一列文字推得太远。
+  it("内收在单元格里，不额外撑高表头，也不压住文字", async () => {
     const v = mount(DOC);
     await settle();
     const wrap = v.dom.querySelector<HTMLElement>(".cm-table")!.getBoundingClientRect();
@@ -108,23 +126,39 @@ describe("把手", () => {
     const row = rows(v)[1].getBoundingClientRect();
 
     expect(col.height).toBeGreaterThan(2);
-    expect(col.top).toBeGreaterThanOrEqual(wrap.top);
-    // 列把手在表头上沿之上，不盖住列名
-    expect(col.bottom).toBeLessThanOrEqual(th.top + 1);
+    expect(th.top - wrap.top, "表头上方只该有正常的块内边距").toBeLessThan(16);
+    expect(col.top).toBeGreaterThanOrEqual(th.top);
+    expect(col.bottom).toBeLessThanOrEqual(th.bottom);
+    expect(col.right).toBeLessThanOrEqual(th.right);
     expect(row.width).toBeGreaterThan(2);
     expect(row.left).toBeGreaterThanOrEqual(wrap.left);
-    // 行把手待在第一格的左内边距里
-    expect(row.right).toBeLessThanOrEqual(th.left + 12);
+    // 行把手待在第一格专门预留的左内边距里，不压住正文
+    expect(row.right).toBeLessThanOrEqual(th.left + 27);
+    const rowStyle = getComputedStyle(rows(v)[1]);
+    expect(rowStyle.borderTopWidth, "默认不能出现一整列按钮外框").toBe("0px");
+    expect(rowStyle.boxShadow).toBe("none");
+    expect(rowStyle.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   });
 
-  it("点列把手弹出菜单", async () => {
+  it("点列把手弹出带上下文和分组的菜单", async () => {
     const v = mount(DOC);
     await settle();
     click(cols(v)[0]);
     expect(menuLabels(v)).toContain("在右侧插入列");
+    const menu = v.dom.querySelector<HTMLElement>(".cm-table-menu")!;
+    expect(menu.querySelector(".cm-table-menu-title")?.textContent).toBe("第 1 列操作");
+    expect(menu.querySelectorAll(".cm-table-menu-divider").length).toBe(3);
+    expect(menu.querySelector("button.is-danger")?.textContent).toContain("删除这一列");
+    expect(cols(v)[0].getAttribute("aria-expanded")).toBe("true");
+    const box = menu.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(box.bottom).toBeLessThanOrEqual(window.innerHeight);
     // 再点一下收起来
     click(cols(v)[0]);
     expect(v.dom.querySelector(".cm-table-menu")).toBeNull();
+    expect(cols(v)[0].getAttribute("aria-expanded")).toBe("false");
   });
 
   it("做不了的那几条不出现在菜单里", async () => {
@@ -141,6 +175,61 @@ describe("把手", () => {
     await settle();
     click(rows(v)[0]);
     expect(menuLabels(v)).toEqual(["在下方插入行"]);
+    expect(v.dom.querySelector(".cm-table-menu-title")?.textContent).toBe("表头操作");
+    expect(v.dom.querySelector(".cm-table-menu-divider")).toBeNull();
+  });
+});
+
+describe("手动列宽", () => {
+  it("每列边界都有拖杆，命中区骑在表头边缘而不占一层高度", async () => {
+    const v = mount(DOC);
+    await settle();
+    expect(resizers(v)).toHaveLength(2);
+    const th = v.dom.querySelector<HTMLElement>(".cm-table th")!.getBoundingClientRect();
+    const handle = resizers(v)[0].getBoundingClientRect();
+    // collapse 的表格边框会落在半像素上；拖杆贴边即可，不要求浮点数逐位相等。
+    expect(Math.abs(handle.top - th.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(handle.bottom - th.bottom)).toBeLessThanOrEqual(1);
+    expect(Math.abs(handle.left + handle.width / 2 - th.right)).toBeLessThanOrEqual(1);
+    expect(handle.left, "列操作点阵与列宽拖杆不能重叠").toBeGreaterThan(cols(v)[0].getBoundingClientRect().right);
+  });
+
+  it("左右拖动只改变视图里的列宽，不改 Markdown，也不误入单元格编辑", async () => {
+    const v = mount(DOC);
+    await settle();
+    const original = v.state.doc.toString();
+    const before = v.dom.querySelector<HTMLElement>(".cm-table th")!.getBoundingClientRect().width;
+    dragWidth(resizers(v)[0], 96);
+    const table = v.dom.querySelector<HTMLElement>(".cm-table table")!;
+    const after = v.dom.querySelector<HTMLElement>(".cm-table th")!.getBoundingClientRect().width;
+    expect(after - before).toBeGreaterThan(80);
+    expect(table.classList.contains("is-manual-width")).toBe(true);
+    expect(v.state.doc.toString()).toBe(original);
+    expect(editingCell(v)).toBeNull();
+    expect(document.body.classList.contains("is-table-resizing")).toBe(false);
+  });
+
+  it("改单元格重建表格后保留宽度；双击边界恢复自动布局", async () => {
+    const v = mount(DOC);
+    await settle();
+    dragWidth(resizers(v)[0], 88);
+    const manualWidth = v.dom.querySelector<HTMLElement>(".cm-table th")!.getBoundingClientRect().width;
+
+    click(v.dom.querySelector(".cm-table td")!);
+    const cell = editingCell(v)!;
+    cell.textContent = "改过";
+    cell.blur();
+    await settle();
+
+    const rebuilt = v.dom.querySelector<HTMLElement>(".cm-table table")!;
+    const keptWidth = v.dom.querySelector<HTMLElement>(".cm-table th")!.getBoundingClientRect().width;
+    expect(rebuilt.classList.contains("is-manual-width")).toBe(true);
+    expect(Math.abs(keptWidth - manualWidth)).toBeLessThanOrEqual(2);
+
+    resizers(v)[0].dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+    expect(rebuilt.classList.contains("is-manual-width")).toBe(false);
+    expect(rebuilt.style.width).toBe("");
+    expect(rebuilt.querySelector("col")?.getAttribute("style") ?? "").not.toContain("width");
   });
 });
 

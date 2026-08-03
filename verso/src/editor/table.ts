@@ -81,6 +81,7 @@ let pendingEdit: { from: number; row: number; col: number; caret: Caret } | null
  * DOM。路径按同一套规矩画：16×16、描边 1.5、只用 currentColor（§6 的图标约定）。
  */
 const ICONS = {
+  handle: "M5 4.5h.01M11 4.5h.01M5 8h.01M11 8h.01M5 11.5h.01M11 11.5h.01",
   plus: "M8 3.5v9M3.5 8h9",
   up: "M8 13V3.4M4.4 7 8 3.4 11.6 7",
   down: "M8 3v9.6M4.4 9 8 12.6 11.6 9",
@@ -114,24 +115,25 @@ interface MenuItem {
   op: TableOp;
   label: string;
   icon: keyof typeof ICONS;
+  group: "insert" | "move" | "delete";
 }
 
 /** 列头菜单。顺序按「加 → 挪 → 删」，删除永远在最后一条，不容易误点 */
 const COL_ITEMS: MenuItem[] = [
-  { op: "col-left", label: "在左侧插入列", icon: "plus" },
-  { op: "col-right", label: "在右侧插入列", icon: "plus" },
-  { op: "col-move-left", label: "左移一列", icon: "left" },
-  { op: "col-move-right", label: "右移一列", icon: "right" },
-  { op: "col-delete", label: "删除这一列", icon: "trash" },
+  { op: "col-left", label: "在左侧插入列", icon: "plus", group: "insert" },
+  { op: "col-right", label: "在右侧插入列", icon: "plus", group: "insert" },
+  { op: "col-move-left", label: "左移一列", icon: "left", group: "move" },
+  { op: "col-move-right", label: "右移一列", icon: "right", group: "move" },
+  { op: "col-delete", label: "删除这一列", icon: "trash", group: "delete" },
 ];
 
 /** 行把手菜单。表头那一条只会剩下「在下方插入行」—— 别的对表头都不成立 */
 const ROW_ITEMS: MenuItem[] = [
-  { op: "row-above", label: "在上方插入行", icon: "plus" },
-  { op: "row-below", label: "在下方插入行", icon: "plus" },
-  { op: "row-up", label: "上移一行", icon: "up" },
-  { op: "row-down", label: "下移一行", icon: "down" },
-  { op: "row-delete", label: "删除这一行", icon: "trash" },
+  { op: "row-above", label: "在上方插入行", icon: "plus", group: "insert" },
+  { op: "row-below", label: "在下方插入行", icon: "plus", group: "insert" },
+  { op: "row-up", label: "上移一行", icon: "up", group: "move" },
+  { op: "row-down", label: "下移一行", icon: "down", group: "move" },
+  { op: "row-delete", label: "删除这一行", icon: "trash", group: "delete" },
 ];
 
 const ALIGNS: { align: Align; label: string; icon: keyof typeof ICONS }[] = [
@@ -142,6 +144,12 @@ const ALIGNS: { align: Align; label: string; icon: keyof typeof ICONS }[] = [
 
 /** widget 被移除时要收的尾（关掉还开着的菜单、摘掉全局监听） */
 const cleanups = new WeakMap<HTMLElement, () => void>();
+
+/**
+ * 手动列宽是视图状态，不写进 Markdown。按 EditorView 隔开，避免两篇恰好有同名
+ * 表头的笔记互相串宽度；widget 因改单元格重建时仍能从这里接回来。
+ */
+const tableWidths = new WeakMap<EditorView, Map<string, number[]>>();
 
 class TableWidget extends WidgetType {
   constructor(
@@ -167,10 +175,12 @@ class TableWidget extends WidgetType {
 
     let menu: HTMLElement | null = null;
     let opener: HTMLElement | null = null;
+    let stopResize: (() => void) | null = null;
 
     const closeMenu = () => {
       menu?.remove();
       opener?.classList.remove("is-open");
+      opener?.setAttribute("aria-expanded", "false");
       menu = null;
       opener = null;
     };
@@ -194,6 +204,7 @@ class TableWidget extends WidgetType {
     view.scrollDOM.addEventListener("scroll", closeMenu);
     cleanups.set(wrap, () => {
       closeMenu();
+      stopResize?.();
       document.removeEventListener("mousedown", onDocDown, true);
       document.removeEventListener("keydown", onKey, true);
       view.scrollDOM.removeEventListener("scroll", closeMenu);
@@ -425,31 +436,66 @@ class TableWidget extends WidgetType {
      * `overflow-x: auto`，而 CSS 规定一个轴是 auto 时另一个轴的 visible 会被
      * 强制成 auto，absolute 的菜单会被裁掉下半截（database 视图那边踩过同一条）。
      */
-    const openMenu = (grip: HTMLElement, items: MenuItem[], row: number, col: number) => {
+    const openMenu = (
+      grip: HTMLElement,
+      title: string,
+      items: MenuItem[],
+      row: number,
+      col: number,
+    ) => {
       if (opener === grip) return closeMenu();
       closeMenu();
 
       const ul = document.createElement("ul");
       ul.className = "cm-table-menu cm-table-ui";
       ul.setAttribute("role", "menu");
+      ul.setAttribute("aria-label", `${title}操作`);
+
+      const heading = document.createElement("li");
+      heading.className = "cm-table-menu-title";
+      heading.setAttribute("role", "presentation");
+      const headingText = document.createElement("strong");
+      headingText.textContent = title;
+      const headingHint = document.createElement("span");
+      headingHint.textContent = "操作";
+      heading.append(headingText, headingHint);
+      ul.appendChild(heading);
+
+      const divider = () => {
+        const li = document.createElement("li");
+        li.className = "cm-table-menu-divider";
+        li.setAttribute("role", "separator");
+        ul.appendChild(li);
+      };
+
+      const available = items.filter((it) => applyOp(data, it.op, row, col));
+      const appendGroup = (group: MenuItem["group"]) => {
+        const groupItems = available.filter((it) => it.group === group);
+        if (groupItems.length === 0) return false;
+        for (const it of groupItems) {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          if (it.group === "delete") btn.className = "is-danger";
+          btn.appendChild(icon(it.icon));
+          btn.appendChild(document.createTextNode(it.label));
+          btn.addEventListener("mousedown", (e) => e.preventDefault());
+          btn.addEventListener("click", () => run(it.op, row, col));
+          li.appendChild(btn);
+          ul.appendChild(li);
+        }
+        return true;
+      };
 
       // 菜单里只留**真的做得了**的那几条：删掉唯一一列、把第一行再往上移，
       // 这些请求由 applyOp 统一判定 —— 灰着的菜单项等于让人点两次才知道不行
-      for (const it of items) {
-        if (!applyOp(data, it.op, row, col)) continue;
-        const li = document.createElement("li");
-        const btn = document.createElement("button");
-        btn.appendChild(icon(it.icon));
-        btn.appendChild(document.createTextNode(it.label));
-        btn.addEventListener("mousedown", (e) => e.preventDefault());
-        btn.addEventListener("click", () => run(it.op, row, col));
-        li.appendChild(btn);
-        ul.appendChild(li);
-      }
+      appendGroup("insert");
+      if (available.some((it) => it.group === "move")) divider();
+      appendGroup("move");
 
       // 对齐是列独有的一条，做成一行三个小按钮（同 database 视图的「类型」那行）：
       // 三条并排的文字菜单项会把这个菜单撑成一长条
       if (items === COL_ITEMS) {
+        divider();
         const li = document.createElement("li");
         li.className = "cm-table-menu-sub";
         li.appendChild(icon("align-left"));
@@ -472,15 +518,34 @@ class TableWidget extends WidgetType {
         ul.appendChild(li);
       }
 
+      if (available.some((it) => it.group === "delete")) divider();
+      appendGroup("delete");
+
       const r = grip.getBoundingClientRect();
-      // 靠右的列、靠下的表格不能让菜单跑出视口：宽高按实际的量不到（还没进
-      // DOM），用一个够用的估值先夹一下，比出屏之后再修一次要稳
-      const w = 168;
-      const h = 40 + ul.childElementCount * 28;
-      ul.style.left = `${Math.max(4, Math.min(r.left, window.innerWidth - w - 4))}px`;
-      ul.style.top = `${Math.min(r.bottom + 4, Math.max(4, window.innerHeight - h - 4))}px`;
+      // 先隐身挂上去再量真实尺寸。菜单如今有标题、分组与可变项目数，继续按
+      // 行数估高度会在靠下的表格里把最后那个「删除」挤出屏幕。
+      ul.style.visibility = "hidden";
+      ul.style.left = "0";
+      ul.style.top = "0";
       wrap.appendChild(ul);
+      const box = ul.getBoundingClientRect();
+      const gap = 6;
+      const edge = 6;
+      const isColumn = grip.classList.contains("is-col");
+      const wantedLeft = isColumn
+        ? r.left + r.width / 2 - box.width / 2
+        : r.right + gap + box.width <= window.innerWidth - edge
+          ? r.right + gap
+          : r.left - box.width - gap;
+      const below = r.bottom + gap;
+      const wantedTop = below + box.height <= window.innerHeight - edge
+        ? below
+        : r.top - box.height - gap;
+      ul.style.left = `${Math.max(edge, Math.min(wantedLeft, window.innerWidth - box.width - edge))}px`;
+      ul.style.top = `${Math.max(edge, Math.min(wantedTop, window.innerHeight - box.height - edge))}px`;
+      ul.style.visibility = "visible";
       grip.classList.add("is-open");
+      grip.setAttribute("aria-expanded", "true");
       menu = ul;
       opener = grip;
     };
@@ -491,10 +556,12 @@ class TableWidget extends WidgetType {
       b.title = label;
       b.setAttribute("aria-label", label);
       b.setAttribute("aria-haspopup", "menu");
+      b.setAttribute("aria-expanded", "false");
+      b.appendChild(icon("handle", 12));
       // 按下就 preventDefault：不拦的话浏览器会把焦点从编辑器挪到按钮上，
       // 桌面上表现成光标丢失，手机上是软键盘弹一轮（AGENTS.md 里那条）
       b.addEventListener("mousedown", (e) => e.preventDefault());
-      b.addEventListener("click", () => openMenu(b, items, row, col));
+      b.addEventListener("click", () => openMenu(b, label, items, row, col));
       return b;
     };
 
@@ -511,6 +578,115 @@ class TableWidget extends WidgetType {
 
     const table = document.createElement("table");
     table.addEventListener("mousedown", cellDown);
+    const context = view.state.doc.sliceString(Math.max(0, this.from - 160), this.from);
+    const widthKey = `${this.from}\u001f${context}\u001f${data.header.join("\u001f")}`;
+    let widthsForView = tableWidths.get(view);
+    if (!widthsForView) {
+      widthsForView = new Map();
+      tableWidths.set(view, widthsForView);
+    }
+
+    const colgroup = document.createElement("colgroup");
+    const columns = data.header.map(() => {
+      const col = document.createElement("col");
+      colgroup.appendChild(col);
+      return col;
+    });
+    table.appendChild(colgroup);
+
+    const applyWidths = (widths: number[]) => {
+      const next = widths.map((width) => Math.max(64, Math.round(width)));
+      for (let i = 0; i < columns.length; i++) columns[i].style.width = `${next[i]}px`;
+      table.style.tableLayout = "fixed";
+      table.style.width = `${next.reduce((sum, width) => sum + width, 0)}px`;
+      table.style.minWidth = "100%";
+      table.classList.add("is-manual-width");
+      widthsForView!.set(widthKey, next);
+      table.querySelectorAll<HTMLElement>(".cm-table-resize").forEach((handle, i) => {
+        handle.setAttribute("aria-valuenow", String(next[i]));
+        handle.setAttribute("aria-valuetext", `${next[i]} 像素`);
+      });
+    };
+
+    const resetWidths = () => {
+      for (const col of columns) col.style.removeProperty("width");
+      table.style.removeProperty("table-layout");
+      table.style.removeProperty("width");
+      table.style.removeProperty("min-width");
+      table.classList.remove("is-manual-width");
+      widthsForView!.delete(widthKey);
+      table.querySelectorAll(".cm-table-resize").forEach((handle) => {
+        handle.removeAttribute("aria-valuenow");
+        handle.removeAttribute("aria-valuetext");
+      });
+    };
+
+    const measuredWidths = () =>
+      [...table.tHead!.rows[0].cells].map((cell) => cell.getBoundingClientRect().width);
+
+    const nudgeWidth = (col: number, delta: number) => {
+      const widths = widthsForView!.get(widthKey)?.slice() ?? measuredWidths();
+      widths[col] = Math.max(64, widths[col] + delta);
+      applyWidths(widths);
+    };
+
+    const resizeHandle = (col: number) => {
+      const handle = document.createElement("div");
+      handle.className = "cm-table-resize cm-table-ui";
+      handle.title = `拖动调整第 ${col + 1} 列宽度；双击复位`;
+      handle.setAttribute("role", "separator");
+      handle.setAttribute("aria-label", `调整第 ${col + 1} 列宽度`);
+      handle.setAttribute("aria-orientation", "vertical");
+      handle.setAttribute("aria-valuemin", "64");
+      handle.tabIndex = 0;
+
+      handle.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+        stopResize?.();
+        const startX = event.clientX;
+        const start = widthsForView!.get(widthKey)?.slice() ?? measuredWidths();
+        applyWidths(start);
+        wrap.classList.add("is-resizing");
+        document.body.classList.add("is-table-resizing");
+
+        const move = (e: PointerEvent) => {
+          const next = start.slice();
+          next[col] = Math.max(64, start[col] + e.clientX - startX);
+          applyWidths(next);
+        };
+        const stop = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", stop);
+          window.removeEventListener("pointercancel", stop);
+          wrap.classList.remove("is-resizing");
+          document.body.classList.remove("is-table-resizing");
+          stopResize = null;
+        };
+        stopResize = stop;
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", stop);
+        window.addEventListener("pointercancel", stop);
+      });
+      handle.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        resetWidths();
+      });
+      handle.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          nudgeWidth(col, event.key === "ArrowLeft" ? -16 : 16);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          resetWidths();
+        }
+      });
+      return handle;
+    };
+
     const thead = table.createTHead();
     const hr = thead.insertRow();
     data.header.forEach((cell, i) => {
@@ -519,12 +695,17 @@ class TableWidget extends WidgetType {
       th.dataset.col = String(i);
       th.appendChild(content(HEADER, i, cell));
       th.style.textAlign = data.align[i] ?? "left";
-      // 列把手在表头上沿。表头那一行同时也是「行把手」的落点（只提供
-      // 「在下方插入行」）—— 一张还没有数据行的表全靠它才加得出第一行
+      // 列把手内收在表头右侧。表头那一行同时也是「行把手」的落点（只提供
+      // 「在下方插入行」）—— 一张还没有数据行的表全靠它才加得出第一行。
+      // 最右边那根 resizeHandle 则骑在列边界上，两类入口不能共用命中区。
       if (i === 0) th.appendChild(grip("is-row", "表头", ROW_ITEMS, HEADER, 0));
       th.appendChild(grip("is-col", `第 ${i + 1} 列`, COL_ITEMS, HEADER, i));
+      th.appendChild(resizeHandle(i));
       hr.appendChild(th);
     });
+
+    const savedWidths = widthsForView.get(widthKey);
+    if (savedWidths?.length === columns.length) applyWidths(savedWidths);
 
     const tbody = table.createTBody();
     data.rows.forEach((row, r) => {

@@ -159,10 +159,14 @@ export const versoTheme = EditorView.theme({
     // 把手绝对定位在单元格上，所以每一格都得是定位上下文
     position: "relative",
   },
+  // 第一列左侧留给行把手；表头右侧留给列把手。把手内收进单元格，不另撑
+  // 一条空白操作带。只给真正需要的边加空间，不把整张表都撑宽。
+  ".cm-table th:first-child, .cm-table td:first-child": { paddingLeft: "27px" },
   ".cm-table thead th": {
     fontWeight: "600",
     background: "color-mix(in oklch, var(--muted) 8%, transparent)",
     whiteSpace: "nowrap",
+    paddingRight: "42px",
   },
   ".cm-table tbody tr:last-child td": { borderBottom: "none" },
   // 点哪格改哪格（§4.9），整格都是点击面积，所以整格都给文字光标
@@ -184,47 +188,108 @@ export const versoTheme = EditorView.theme({
 
   // ---- 表格的行/列把手（§4.9）----
   //
-  // **平时一根都不显示**，鼠标进了这张表才浮现。常显的把手会让一篇笔记
-  // 看起来像一张后台管理表（同 §4 折叠箭头那条）。浮现时也只有 32% 的
-  // 不透明度 —— 它是"可以点这里"的暗示，不是内容。
+  // **平时一个都不显示**，鼠标进表后才淡淡浮现，经过的那一行/列再明确起来。
+  // 所有把手一起高亮会把正文表格变成后台管理表；点阵只负责暗示「这里可操作」。
   ".cm-table-grip": {
     position: "absolute",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     padding: 0,
     border: "none",
-    borderRadius: "999px",
-    background: "var(--muted)",
+    borderRadius: "var(--r-sm)",
+    background: "transparent",
+    color: "var(--muted)",
     opacity: 0,
     cursor: "pointer",
-    transition: "opacity var(--t-fast), background var(--t-fast)",
+    boxShadow: "none",
+    transition: "opacity var(--t-fast), color var(--t-fast), background var(--t-fast)",
     // 藏起来的时候不能挡住单元格 —— 点单元格是就地改字的入口
     pointerEvents: "none",
+    zIndex: 1,
   },
-  // 列把手：贴在表头上沿，横着一条，宽度就是这一列的宽度。
-  // 落在 .cm-table 的上内边距那 0.5em 里，不占表格自己的空间
-  ".cm-table-grip.is-col": { top: "-7px", left: "1px", right: "1px", height: "5px" },
-  // 行把手：竖着一条，落在第一格的左内边距里（那里有 12px，够放）
-  ".cm-table-grip.is-row": { left: "3px", top: "4px", bottom: "4px", width: "4px" },
-  ".cm-table:hover .cm-table-grip": { opacity: 0.32, pointerEvents: "auto" },
+  // 列把手放进表头右侧，行把手放进第一格左侧。两者都使用单元格已有高度，
+  // 不再像上一版那样给表头上方造出一条空白工具栏。
+  ".cm-table-grip.is-col": {
+    top: "50%",
+    // 最右边留给列宽拖杆；两个入口各有自己的命中区，拖宽不会误开列菜单。
+    right: "14px",
+    width: "20px",
+    height: "20px",
+    transform: "translateY(-50%)",
+  },
+  ".cm-table-grip.is-row": {
+    left: "4px",
+    top: "50%",
+    width: "17px",
+    height: "20px",
+    transform: "translateY(-50%)",
+  },
+  // 进入整张表时所有入口只露出轮廓；指到具体行/列表头才明确高亮。
+  ".cm-table:hover .cm-table-grip": { opacity: 0.16, pointerEvents: "auto" },
+  ".cm-table thead th:hover > .cm-table-grip.is-col, .cm-table tr:hover .cm-table-grip.is-row": {
+    opacity: 0.72,
+  },
   ".cm-table .cm-table-grip:hover, .cm-table .cm-table-grip.is-open": {
     opacity: 1,
-    background: "var(--accent)",
+    color: "var(--accent)",
+    background: "var(--hover-bg)",
   },
   // 触屏上没有 hover，一根把手都摸不出来 —— §1.2「不能假设有鼠标」。
   // 那里常显一份更淡的
   "@media (hover: none)": {
-    ".cm-table .cm-table-grip": { opacity: 0.22, pointerEvents: "auto" },
+    ".cm-table .cm-table-grip": { opacity: 0.38, pointerEvents: "auto" },
+    ".cm-table .cm-table-resize": { opacity: 0.42, pointerEvents: "auto" },
   },
 
+  // ---- 列宽拖杆（§4.9）----
+  // 命中区比那根 1px 线宽，但视觉上仍只是一条边界。它骑在相邻两列之间，
+  // 不占内容宽度，也不会再给表头加一层工具栏。
+  ".cm-table-resize": {
+    position: "absolute",
+    top: 0,
+    right: "-5px",
+    bottom: 0,
+    width: "10px",
+    zIndex: 3,
+    opacity: 0,
+    pointerEvents: "none",
+    cursor: "col-resize",
+    touchAction: "none",
+    outline: "none",
+  },
+  ".cm-table-resize::after": {
+    content: "''",
+    position: "absolute",
+    top: "4px",
+    bottom: "4px",
+    left: "4px",
+    width: "1px",
+    borderRadius: "999px",
+    background: "var(--hairline)",
+    transition: "background var(--t-fast), width var(--t-fast)",
+  },
+  ".cm-table:hover .cm-table-resize": { opacity: 0.5, pointerEvents: "auto" },
+  ".cm-table th:hover > .cm-table-resize": { opacity: 0.9 },
+  ".cm-table-resize:hover::after, .cm-table-resize:focus-visible::after, .cm-table.is-resizing .cm-table-resize::after": {
+    width: "2px",
+    background: "var(--accent)",
+  },
+  ".cm-table-resize:focus-visible": {
+    opacity: 1,
+    pointerEvents: "auto",
+  },
   // 把手菜单。fixed 定位的理由见 table.ts：外面那层是 overflow-x: auto，
   // absolute 的菜单会被裁掉下半截
   ".cm-table-menu": {
     position: "fixed",
     zIndex: "20",
-    minWidth: "150px",
+    minWidth: "176px",
     margin: 0,
     padding: "4px",
     listStyle: "none",
     background: "var(--raised)",
+    border: "1px solid var(--hairline)",
     borderRadius: "var(--r-md)",
     boxShadow: "var(--shadow-md)",
     fontFamily: "var(--font-body)",
@@ -234,6 +299,22 @@ export const versoTheme = EditorView.theme({
     textAlign: "left",
   },
   ".cm-table-menu li": { listStyle: "none", margin: 0, padding: 0 },
+  ".cm-table-menu-title": {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "7px 9px 6px",
+    color: "var(--text)",
+    fontSize: "12px",
+  },
+  ".cm-table-menu-title strong": { fontWeight: "650" },
+  ".cm-table-menu-title span": { color: "var(--muted)", fontSize: "10.5px" },
+  ".cm-table-menu-divider": {
+    height: "1px",
+    margin: "4px 7px",
+    background: "var(--hairline)",
+  },
   ".cm-table-menu button": {
     // 每一条都带图标：一列纯文字菜单要逐行读，带图标之后眼睛能直接跳到那条
     display: "flex",
@@ -253,6 +334,11 @@ export const versoTheme = EditorView.theme({
   ".cm-table-menu button > svg": { flex: "none", color: "var(--muted)" },
   ".cm-table-menu button:hover": { background: "var(--hover-bg)" },
   ".cm-table-menu button:hover > svg": { color: "var(--text)" },
+  ".cm-table-menu button.is-danger": { color: "var(--danger)" },
+  ".cm-table-menu button.is-danger > svg": { color: "var(--danger)" },
+  ".cm-table-menu button.is-danger:hover": {
+    background: "color-mix(in oklch, var(--danger) 9%, transparent)",
+  },
   // 对齐那一行：图标 + 标签 + 三个小按钮，同 database 视图的「类型」那一行
   ".cm-table-menu-sub": {
     display: "flex",
