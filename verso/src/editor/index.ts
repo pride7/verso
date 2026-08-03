@@ -19,9 +19,10 @@ import { autoFence } from "./autoFence";
 import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
 import { headingFolding } from "./fold";
+import { insertMarkdownLineBreak } from "./lineBreak";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
-import { paragraphRhythm } from "./paragraphRhythm";
+import { paragraphSpacing } from "./paragraphSpacing";
 import { imagePaste, type SaveImage } from "./paste";
 import { snippetEngine } from "./snippets";
 import { tables } from "./table";
@@ -52,7 +53,7 @@ const snippetCompartment = new Compartment();
  * Markdown 源码，不是纯文本。标题仍然大、代码仍然是等宽，只是 `##`、
  * `**` 这些标记不再被藏起来，公式和表格也不再被渲染成最终形态。
  */
-const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables];
+const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables, paragraphSpacing];
 
 /**
  * 预览装饰单独放一个 compartment，理由和 snippet 那个一样：
@@ -150,10 +151,6 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // 源码模式下同样该有：那时读的仍然是中英混排的文字
     typography,
 
-    // §6.1 段内自动折行保持紧凑，显式回车产生的正文行才增加段间留白。
-    // 不进 PREVIEW：源码模式仍需分辨正文段落，而且这一层不隐藏任何标记。
-    paragraphRhythm,
-
     // §4 标题折叠。**不放进 PREVIEW** —— 源码模式下折叠仍然有用，
     // 那时正是在长文里找东西的时候
     headingFolding,
@@ -181,6 +178,11 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     completion(cb.getNotes),
 
     keymap.of([
+      {
+        key: "Shift-Enter",
+        preventDefault: true,
+        run: insertMarkdownLineBreak,
+      },
       {
         key: "Mod-s",
         preventDefault: true,

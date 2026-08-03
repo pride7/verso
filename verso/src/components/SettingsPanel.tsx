@@ -737,8 +737,8 @@ export function SettingsPanel({
                 onChange={(v) => onChange({ bodyFontSize: v })}
               />
               <Slider
-                label="行高"
-                hint="调整正文行距；较高的行距更适合中文长文阅读。"
+                label="正文行距"
+                hint="统一调整正文行距；较高的行距更适合中文长文阅读。"
                 value={settings.lineHeight}
                 min={1.2}
                 max={2.4}
@@ -746,6 +746,17 @@ export function SettingsPanel({
                 suffix=""
                 fallback={DEFAULT_SETTINGS.lineHeight}
                 onChange={(v) => onChange({ lineHeight: v })}
+              />
+              <Slider
+                label="段落间距"
+                hint="调整普通回车产生的段落留白；Shift+Enter 的段内换行不受影响。"
+                value={settings.paragraphSpacing}
+                min={0}
+                max={1.2}
+                step={0.05}
+                suffix="em"
+                fallback={DEFAULT_SETTINGS.paragraphSpacing}
+                onChange={(v) => onChange({ paragraphSpacing: v })}
               />
               <Slider
                 label="正文栏宽"

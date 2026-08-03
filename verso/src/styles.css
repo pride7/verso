@@ -92,7 +92,8 @@
 
   /* §6.1 排版尺度。这几条会被设置覆写 */
   --body-font-size: 16.5px;
-  --body-line-height: 1.75;
+  --body-line-height: 1.85;
+  --paragraph-spacing: 0.35em;
   --content-width: 42rem;
   --ui-font-size: 13.5px;
 

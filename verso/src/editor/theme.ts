@@ -42,10 +42,12 @@ export const versoTheme = EditorView.theme({
   // 必须和 padding 写在**同一条**规则里 —— 这是 JS 对象字面量，
   // 同名键后面的会把前面的整个覆盖掉，分开写会悄悄丢掉一个
   ".cm-line": { padding: "0", position: "relative" },
-  // §6.1 段内行高与段间距是两套尺度。padding 会被 CodeMirror 的高度图计入，
-  // 不能换成 margin；空行本身则缩成同样的 0.9em，避免「段尾留白 + 空行」叠加。
-  ".cm-paragraph-break": { paddingBottom: "0.9em" },
-  ".cm-paragraph-gap": { lineHeight: "0.9em" },
+  // 段落留白是独立的块级 widget，不参与文字行盒；这样光标、选区和输入文字
+  // 永远使用同一套行高。具体大小由设置里的 --paragraph-spacing 控制。
+  ".cm-paragraph-space": {
+    height: "var(--paragraph-spacing)",
+    pointerEvents: "none",
+  },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "color-mix(in oklch, var(--accent) 22%, transparent)",
@@ -55,7 +57,7 @@ export const versoTheme = EditorView.theme({
   // ---- 中西文混排间距（§4.3 typography）----
   //
   // 八分之一个字宽。四分之一（0.25em）是活字排版的传统值，但在屏幕上、
-  // 尤其是 1.75 行高的中文里显得松 —— 0.125em 刚好让人感觉「不挤」而
+  // 尤其是 1.85 行高的中文里显得松 —— 0.125em 刚好让人感觉「不挤」而
   // 说不出哪里变了。**用 margin 不是 padding**：padding 会把行内代码那种
   // 带底色的段落撑出一块多余的底
   ".cm-hs-l": { marginLeft: "0.125em" },

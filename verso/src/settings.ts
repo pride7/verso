@@ -18,6 +18,8 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   bodyFontSize: number;
   lineHeight: number;
+  /** 正文段落之间的额外留白，em；段内 Shift+Enter 不使用 */
+  paragraphSpacing: number;
   /** 正文栏宽，rem */
   contentWidth: number;
   uiFontSize: number;
@@ -110,7 +112,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   bodyFontSize: 16.5,
-  lineHeight: 1.75,
+  lineHeight: 1.85,
+  paragraphSpacing: 0.35,
   contentWidth: 42,
   uiFontSize: 14,
   bodyFont: "",
@@ -181,6 +184,7 @@ export function applySettings(s: Settings, root: HTMLElement = document.document
   style.setProperty("--accent-c", String(s.accentChroma));
   style.setProperty("--body-font-size", `${s.bodyFontSize}px`);
   style.setProperty("--body-line-height", String(s.lineHeight));
+  style.setProperty("--paragraph-spacing", `${s.paragraphSpacing}em`);
   style.setProperty("--content-width", `${s.contentWidth}rem`);
   style.setProperty("--ui-font-size", `${s.uiFontSize}px`);
   style.setProperty("--font-body", stack(s.bodyFont, FALLBACK_BODY));
@@ -242,6 +246,7 @@ export function sanitize(s: Settings): Settings {
     accentChroma: num(s.accentChroma, 0, 0.16, DEFAULT_SETTINGS.accentChroma),
     bodyFontSize: num(s.bodyFontSize, 12, 28, DEFAULT_SETTINGS.bodyFontSize),
     lineHeight: num(s.lineHeight, 1.2, 2.4, DEFAULT_SETTINGS.lineHeight),
+    paragraphSpacing: num(s.paragraphSpacing, 0, 1.2, DEFAULT_SETTINGS.paragraphSpacing),
     contentWidth: num(s.contentWidth, 24, 80, DEFAULT_SETTINGS.contentWidth),
     uiFontSize: num(s.uiFontSize, 11, 20, DEFAULT_SETTINGS.uiFontSize),
     terminalFontSize: num(s.terminalFontSize, 9, 24, DEFAULT_SETTINGS.terminalFontSize),

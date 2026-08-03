@@ -67,7 +67,10 @@ fn default_body_font_size() -> f64 {
     16.5
 }
 fn default_line_height() -> f64 {
-    1.75
+    1.85
+}
+fn default_paragraph_spacing() -> f64 {
+    0.35
 }
 fn default_content_width() -> f64 {
     42.0
@@ -88,6 +91,8 @@ pub struct Settings {
     /// 正文字号（px）。中文比西文需要更大字号，默认 16.5
     pub body_font_size: f64,
     pub line_height: f64,
+    /// 正文段落之间的额外留白（em）；段内硬换行不使用
+    pub paragraph_spacing: f64,
     /// 正文栏宽（rem）。超过约 40 汉字，眼睛回扫会丢行
     pub content_width: f64,
     /// 界面（侧栏、状态栏、面板）字号，与正文分开调
@@ -199,6 +204,7 @@ impl Default for Settings {
             theme: default_theme(),
             body_font_size: default_body_font_size(),
             line_height: default_line_height(),
+            paragraph_spacing: default_paragraph_spacing(),
             content_width: default_content_width(),
             ui_font_size: default_ui_font_size(),
             body_font: String::new(),
@@ -253,6 +259,12 @@ impl Settings {
         self.accent_chroma = clamp(self.accent_chroma, 0.0, 0.16, default_accent_chroma());
         self.body_font_size = clamp(self.body_font_size, 12.0, 28.0, default_body_font_size());
         self.line_height = clamp(self.line_height, 1.2, 2.4, default_line_height());
+        self.paragraph_spacing = clamp(
+            self.paragraph_spacing,
+            0.0,
+            1.2,
+            default_paragraph_spacing(),
+        );
         self.content_width = clamp(self.content_width, 24.0, 80.0, default_content_width());
         self.ui_font_size = clamp(self.ui_font_size, 11.0, 20.0, default_ui_font_size());
         self.terminal_font_size = clamp(self.terminal_font_size, 9.0, 24.0, default_terminal_font_size());
@@ -320,7 +332,8 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.theme, "system");
         assert_eq!(s.body_font_size, 16.5);
-        assert_eq!(s.line_height, 1.75);
+        assert_eq!(s.line_height, 1.85);
+        assert_eq!(s.paragraph_spacing, 0.35);
         assert_eq!(s.content_width, 42.0);
     }
 
@@ -392,11 +405,13 @@ mod tests {
         let s = Settings {
             body_font_size: f64::NAN,
             line_height: f64::INFINITY,
+            paragraph_spacing: f64::NAN,
             ..Default::default()
         }
         .sanitized();
         assert_eq!(s.body_font_size, 16.5);
-        assert_eq!(s.line_height, 1.75);
+        assert_eq!(s.line_height, 1.85);
+        assert_eq!(s.paragraph_spacing, 0.35);
     }
 
     /// 模板目录默认是 `templates`，老设置文件里没有这个键也要回落到它 ——
@@ -406,6 +421,7 @@ mod tests {
         assert_eq!(Settings::default().template_dir, "templates");
         let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
         assert_eq!(s.template_dir, "templates");
+        assert_eq!(s.paragraph_spacing, 0.35);
     }
 
     /// `..` 会被 `Vault::resolve` 挡下来，但那时报的是「路径越界」这种
