@@ -4921,6 +4921,36 @@ textarea:focus-visible {
   color: var(--muted-2);
 }
 
+/* ---------- 更新设置（§2.11） ---------- */
+.set-version {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.set-update .set-actions {
+  /* 「以后再说」和「下载」并排靠右。默认的 set-actions 是两端对齐，
+     那是给「左边一句提示 + 右边一个按钮」用的 */
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* 更新说明是 release 正文，可能很长也可能只有一行 —— 给它一个上限并且
+   自己滚，别把「下载」按钮挤出可视区 */
+.set-update-notes {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  /* 这段是中文散文，不是代码 —— 等宽字体读起来会累。但换行要保留，
+     它是照着 CHANGELOG 里的排版写的 */
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+
 /* ---------- 侧栏里的版本历史（§2.8） ---------- */
 
 .hist {

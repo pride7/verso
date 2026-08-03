@@ -1,0 +1,116 @@
+# 打包并发布桌面版。DESIGN.md §2.11
+#
+# 触发方式是**推一个 tag**，这和 AGENTS.md 里「改版本 → 写 CHANGELOG →
+# 提交 → 打 tag」那套流程是同一条路的最后一步：
+#
+#   node scripts/version.mjs 0.6.14
+#   git commit -am "…" && git tag v0.6.14 && git push --follow-tags
+#
+# 产出的 release 是**草稿**，要自己去 GitHub 上点一下 Publish。理由有两个：
+# 编译要十几分钟，中途发现哪个平台挂了还能删了重来；而 `latest.json` 走的是
+# `releases/latest/download/…` 这个地址，它只认已发布、非预发布的那一个 ——
+# 也就是说**在你点 Publish 之前，没有任何用户会被推到这一版**。
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # 手动补跑一次用（比如某个平台单独挂了）
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要打包的 tag，例如 v0.6.14"
+        required: true
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      # 一个平台挂了，别把另外几个已经编好的一起取消掉
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # Linux 的依赖比另外两个平台多一截，其中两个是这个项目特有的：
+      # - libssl-dev：git2 的 https 后端在 Linux 上是 OpenSSL
+      #   （Windows 走 schannel、macOS 走 Security.framework，都不用装东西）
+      # - libdbus-1-dev：keyring 在 Linux 上走 secret-service，那是 D-Bus
+      - name: 装 Linux 依赖
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            libxdo-dev libssl-dev libdbus-1-dev \
+            build-essential curl wget file pkg-config patchelf
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: verso/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verso/src-tauri -> target
+          # 四个 job 的目标三样，缓存不分开会互相冲掉
+          key: ${{ matrix.args }}
+
+      - name: 装前端依赖
+        run: pnpm install --frozen-lockfile
+        working-directory: verso
+
+      # release 的正文来自 CHANGELOG 里那一节 —— 它会被 tauri-action 抄进
+      # `latest.json` 的 `notes`，也就是用户在「检查更新」里读到的那段话。
+      # 找不到那一节会直接失败，不会发出一个正文空白的版本
+      - name: 取出这一版的更新日志
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<VERSO_EOF'
+            node scripts/release-notes.mjs "${{ github.event.inputs.tag || github.ref_name }}"
+            echo 'VERSO_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 更新包必须签名，客户端只认这一把私钥对应的公钥
+          # （公钥写在 tauri.conf.json 的 plugins.updater.pubkey 里）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: verso
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: Verso ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          # Windows 上 `targets: all` 会同时产出 .msi 和 setup.exe。更新走
+          # NSIS：它能安静地装（installMode: passive），MSI 每次都要过一遍
+          # 用户账户控制
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}

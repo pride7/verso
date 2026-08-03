@@ -14,7 +14,7 @@ import { Editor, type EditorHandle } from "./components/Editor";
 import { OutlineFloat, OutlineView, useActiveHeading } from "./components/Outline";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsPanel, type Tab as SettingsTab } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
 import { TerminalPanel } from "./components/TerminalPanel";
@@ -29,6 +29,7 @@ import { setSlashAction } from "./editor/completion";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { journalInsert } from "./lib/journal";
 import { normalizeIcon, pushRecentIcon } from "./lib/emoji";
+import { useUpdate } from "./lib/update";
 import { IconPicker } from "./components/IconPicker";
 import { parseHeadings, type Heading } from "./lib/outline";
 import {
@@ -204,6 +205,8 @@ export default function App() {
   /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
   const [renaming, setRenaming] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 设置打开时停在哪一页。状态栏那个「有新版本」要能直接跳到「更新」 */
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
   /** 命令表的最新一份。全局快捷键从这里查，监听器就不必跟着命令表重装 */
@@ -1232,11 +1235,18 @@ export default function App() {
   }, [saveNow, commitNow]);
 
   /**
-   * 关窗前的收尾（§2.7 落盘 + §2.8 记一个版本）。
+   * 进程要没了之前的收尾（§2.7 落盘 + §2.8 记一个版本）。
    *
-   * 点 X 的那一刻，最后敲的几个字可能还在自动保存的 800ms 窗口里 —— 窗口
-   * 一销毁前端连一个 tick 都没有，那几个字就真的没了。所以 Rust 那边先把
-   * 关窗拦下来发这个事件，我们做完再让它关。
+   * 两条路共用它：点 X 关窗，以及装完更新重启（§2.11）。两处的处境是同一个 ——
+   * 最后敲的几个字可能还在自动保存的 800ms 窗口里，进程一没就真的没了。
+   */
+  const finishUp = useCallback(async () => {
+    if (dirtyRef.current) await saveNow();
+    if (settingsRef.current.autoCommitOnClose) await commitNow();
+  }, [saveNow, commitNow]);
+
+  /**
+   * 关窗。Rust 那边先把关窗拦下来发 `app:closing`，我们做完再让它关。
    *
    * **`closeNow` 必须在 finally 里**：保存失败、提交失败、vault 已经关了 ——
    * 任何一条岔路上漏掉它，用户看到的都是「点 X 没反应」。Rust 那边虽然有
@@ -1246,8 +1256,7 @@ export default function App() {
     let unlisten: (() => void) | null = null;
     void onAppClosing(async () => {
       try {
-        if (dirtyRef.current) await saveNow();
-        if (settingsRef.current.autoCommitOnClose) await commitNow();
+        await finishUp();
       } finally {
         await api.closeNow();
       }
@@ -1255,7 +1264,21 @@ export default function App() {
       unlisten = fn;
     });
     return () => unlisten?.();
-  }, [saveNow, commitNow]);
+  }, [finishUp]);
+
+  /**
+   * 自动更新（§2.11）。状态机整个在 `lib/update.ts` 里，这里只是把它挂起来。
+   *
+   * 放在 App 上而不是设置面板里：设置面板一关就卸载，而「下载中」这件事
+   * 不该因为关掉一个弹窗就消失。状态栏那个提示看的也是这一份。
+   */
+  const updater = useUpdate(settings.autoUpdateCheck, finishUp);
+
+  /** 打开设置，可以指定停在哪一页 */
+  const openSettings = useCallback((tab: SettingsTab = "appearance") => {
+    setSettingsTab(tab);
+    setSettingsOpen(true);
+  }, []);
 
   // 全局快捷键。键位不写在这里 —— 全部来自下面那张命令表（`commands`），
   // 用户在设置里改过的会盖掉默认值。见 `lib/keymap.ts`
@@ -1643,7 +1666,7 @@ export default function App() {
         label: "打开设置",
         // 沿用几乎所有桌面软件的「设置」快捷键
         defaultKeys: "Mod+,",
-        run: () => setSettingsOpen(true),
+        run: () => openSettings(),
       },
       {
         id: "vault.switch",
@@ -1791,7 +1814,7 @@ export default function App() {
           api.openTerminal(null).catch((err) => setError((err as Error).message))
         }
         onPalette={() => setPaletteOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => openSettings()}
       />
 
       {/* 抽屉打开时正文上盖一层，点它就关。窄屏上没有「点旁边空白处」
@@ -2122,6 +2145,24 @@ export default function App() {
             {syncing ? "同步中…" : "同步"}
           </button>
         )}
+        {(updater.state.phase === "found" ||
+          updater.state.phase === "downloading" ||
+          updater.state.phase === "ready") && (
+          // 有新版本时才出现（§2.11）。**不弹窗、不打断** —— 更新这件事
+          // 永远没有「正在写的这句话」重要，所以它只在状态栏上等着
+          <button
+            className={`status-git${updater.state.phase === "ready" ? " is-dirty" : ""}`}
+            onClick={() => openSettings("update")}
+            title="到设置里看看这一版改了什么"
+          >
+            <Icon name="arrow-down" size={13} />
+            {updater.state.phase === "downloading"
+              ? "下载中…"
+              : updater.state.phase === "ready"
+                ? "重启即可更新"
+                : `新版本 ${updater.state.version}`}
+          </button>
+        )}
         {note && (
           // 显示字数而不是 id：id 是给链接用的内部标识，写东西的人关心的是
           // 写了多少。中文按字符数算才有意义 —— 按空格切词对中文永远是 1
@@ -2158,6 +2199,8 @@ export default function App() {
           tokenSaved={tokenSaved}
           onRemoteChange={(url) => void setRemoteUrl(url)}
           onTokenChange={(token) => void setToken(token)}
+          update={updater}
+          initialTab={settingsTab}
         />
       )}
 

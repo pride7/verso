@@ -808,6 +808,23 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // 自动更新（§2.11）。**只有桌面装得上** —— 移动端的包由应用商店
+        // 或系统安装器管，一个应用没有权限就地替换自己。
+        //
+        // 注册放在 `setup` 里而不是链上直接 `.plugin(...)`：那两个 crate 是
+        // target 依赖，安卓上根本不存在，`#[cfg(desktop)]` 必须能把整段
+        // 代码连同 `use` 一起去掉。
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                let handle = app.handle();
+                handle.plugin(tauri_plugin_updater::Builder::new().build())?;
+                handle.plugin(tauri_plugin_process::init())?;
+            }
+            #[cfg(not(desktop))]
+            let _ = app;
+            Ok(())
+        })
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             vault_open,

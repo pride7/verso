@@ -77,6 +77,7 @@
 | ↳ 窄屏布局：侧栏变抽屉（M6 提前） | `v0.6.2` ✅ |
 | ↳ 移动端公式工具条（§5.5） | `v0.6.3` ✅ |
 | ↳ 文档图标（frontmatter `icon`，§2.3） | `v0.6.13` ✅ |
+| ↳ 桌面自动更新 + 发布流水线（原属 M7，提前，§2.11） | `v0.6.14` ✅ |
 | M6 移动端 | `v0.8.0` |
 | M7 发布 | `v0.9.0` |
 
@@ -101,8 +102,50 @@ node scripts/version.mjs 0.2.0     # 三处一起改
 ### 每次改版本时必做
 
 1. `node scripts/version.mjs <新版本>`
-2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，写清**用户能感知的变化**，不是 commit 流水账
+2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节，写清**用户能感知的变化**，不是 commit 流水账。
+   **这一节会原样变成 release 正文，也就是用户在「检查更新」里读到的那段话**
+   （`scripts/release-notes.mjs` 按 `## v0.6.14 —` 这个标题格式取，格式改了它就找不到）
 3. 提交，然后打 tag：`git tag v0.2.0`
+
+## 发布（桌面，§2.11）
+
+推 tag 触发 [.github/workflows/release.yml](.github/workflows/release.yml)：编 Windows /
+macOS(arm+intel) / Linux 四份包，传到一个**草稿** release。
+
+```bash
+node scripts/version.mjs 0.6.14
+# 写 CHANGELOG，提交
+git tag v0.6.14 && git push --follow-tags
+# 十几分钟后去 GitHub 上检查那个草稿，确认没问题再点 Publish
+```
+
+**点 Publish 之前没有任何用户会更新到这一版** —— 客户端读的是
+`releases/latest/download/latest.json`，那个地址只认已发布、非预发布的 release。
+
+四件必须知道的事：
+
+1. **`~/.tauri/verso.key` 是不可再生的。** 更新包用它签名，公钥编在
+   `tauri.conf.json` 里。这把私钥丢了，所有已经装出去的客户端就**永远**收不到
+   更新了 —— 只能重新发一个换了公钥的包，然后指望每个用户手动去装一次。
+   备份它，同时它必须存在于 GitHub secrets 里：
+   `TAURI_SIGNING_PRIVATE_KEY`（私钥文件的**内容**）与
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（生成时用的是空密码，这一条设成空字符串）。
+2. **本地打桌面包现在要先给环境变量**，否则 `tauri build` 会因为「有公钥没私钥」
+   直接失败（`createUpdaterArtifacts` 打开着）：
+
+   ```powershell
+   $env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\verso.key"
+   $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+   ```
+
+   安卓不受影响（updater 是 target 依赖，那边根本没编进去）。
+3. **updater / process 的权限写在
+   [capabilities/desktop.json](verso/src-tauri/capabilities/desktop.json)，
+   带 `platforms` 字段。** 别顺手挪进 `default.json` —— 那样
+   `tauri android build` 会在 ACL 解析阶段报「找不到 updater:default」，
+   而那条错误看不出和自动更新有任何关系。`tauriConfig.test.ts` 钉住了这一点。
+4. **macOS 那两个包没签名也没公证**，Gatekeeper 会拦。要等有 Apple 开发者账号。
+   CI 里那两个 job 编得出来，但装的人得手动放行。
 
 ## 构建与测试
 
@@ -691,6 +734,12 @@ M2 的公式手感盲测已通过（作者手测），项目最大的风险点�
 令牌进系统钥匙串。**冲突只检测不解决**，撞上就原样退回并报出是哪几篇。
 差的是冲突对比 UI，以及**真机对着 GitHub 跑一遍** —— 现在全部是本地裸仓库
 测出来的（7 条），传输层没有被验证过。
+
+**桌面自动更新已接上**（v0.6.14，§2.11）：updater 插件 + GitHub Releases，
+推 tag 就出四份包。**整条链路一次都还没真的跑过** —— 检查、下载、装、重启
+这几步全靠 Tauri 运行时，浏览器测试一步都验不了（AGENTS.md「browser 测试
+也有它够不着的一层」）。第一次发布时要盯着看的是：CI 四个 job 编不编得过、
+`latest.json` 里是不是 NSIS 那个包、以及**装完之后打开来版本号对不对**。
 
 **M5a 已经落地**（v0.5.43–46 攒成 v0.6.0）：`git2-rs` 集成、状态栏的状态点、
 按空闲 / 失焦 / 关窗聚合的自动提交、说得出篇名的提交说明、侧栏的版本历史与

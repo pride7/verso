@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.6.13"
+version = "0.6.14"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -66,3 +66,14 @@ git2 = { version = "0.20", default-features = false, features = ["https"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 git2 = { version = "0.20", default-features = false }
+
+# 自动更新（§2.11）。**只有桌面有。**
+#
+# updater 插件本身就不支持移动端 —— 安卓的包由应用商店或 APK 安装器管，
+# 一个应用没有权限就地替换自己。写成 target 依赖而不是 `optional`：
+# 依赖一旦进了图，安卓那边就要跟着编译它，而它编不过。
+#
+# process 插件在这里只为一件事：装完之后重启（`relaunch`）。
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

@@ -79,6 +79,13 @@ export interface Settings {
    */
   accentHue: number;
   accentChroma: number;
+  /**
+   * 启动几秒后悄悄检查一次有没有新版本（§2.11）。
+   *
+   * 默认开。**失败一律不报** —— 没网、GitHub 连不上都不该在开软件的时候
+   * 弹东西出来。只有在设置里手动按「检查更新」，失败才说得出原因。
+   */
+  autoUpdateCheck: boolean;
   /** Latex Suite 那种 JSON 文本，由 `editor/snippets` 解析 */
   customSnippets: string;
   /**
@@ -120,6 +127,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // 应用图标上那点青绿
   accentHue: 195,
   accentChroma: 0.11,
+  autoUpdateCheck: true,
   customSnippets: "",
   slashHidden: [],
   slashCustom: "",
@@ -222,6 +230,10 @@ export function sanitize(s: Settings): Settings {
       typeof s.autoCommitOnClose === "boolean"
         ? s.autoCommitOnClose
         : DEFAULT_SETTINGS.autoCommitOnClose,
+    autoUpdateCheck:
+      typeof s.autoUpdateCheck === "boolean"
+        ? s.autoUpdateCheck
+        : DEFAULT_SETTINGS.autoUpdateCheck,
     // 色相是环形的：绕回来而不是夹到端点。夹的话 370 会变成 360（红），
     // 而它本该是 10（也是红）—— 在别的角度上这个差别会很明显
     accentHue: Number.isFinite(s.accentHue)

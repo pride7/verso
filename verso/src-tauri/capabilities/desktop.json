@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "只在桌面存在的能力：自动更新（§2.11）",
+  "platforms": ["windows", "macOS", "linux"],
+  "windows": ["main"],
+  "permissions": ["updater:default", "process:allow-restart"]
+}

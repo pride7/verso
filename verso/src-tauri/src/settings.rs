@@ -158,6 +158,13 @@ pub struct Settings {
     #[serde(default = "default_accent_chroma")]
     pub accent_chroma: f64,
 
+    /// 启动几秒后悄悄检查一次有没有新版本（§2.11）。默认开。
+    ///
+    /// 整件事都发生在前端（updater 插件是桌面专属的 target 依赖），Rust
+    /// 这边只负责把这个开关存下来。
+    #[serde(default = "default_true")]
+    pub auto_update_check: bool,
+
     /// 自定义 snippet，Latex Suite 那种 JSON 文本，原样存、由前端解析。
     ///
     /// 有意不在 Rust 侧建模：snippet 的编译规则（触发词、正则、标志位）全在
@@ -207,6 +214,7 @@ impl Default for Settings {
             auto_commit_on_close: default_true(),
             accent_hue: default_accent_hue(),
             accent_chroma: default_accent_chroma(),
+            auto_update_check: default_true(),
             custom_snippets: String::new(),
             slash_hidden: Vec::new(),
             slash_custom: String::new(),
@@ -336,6 +344,19 @@ mod tests {
         // 显式关掉的要留住
         let s: Settings = serde_json::from_str(r#"{"autoCommitOnClose":false}"#).unwrap();
         assert!(!s.auto_commit_on_close);
+    }
+
+    /// 启动时检查更新（§2.11）默认开着，老设置文件里没这个键也一样。
+    ///
+    /// 缺一个键就当 `false` 的话，症状是「设置界面上写着『检查』，但它
+    /// 从来不检查」—— 而这种不一致没有任何报错，只能靠人某天发现自己
+    /// 落后了五个版本
+    #[test]
+    fn update_check_defaults_to_on_for_old_settings_files() {
+        let s: Settings = serde_json::from_str(r#"{"theme":"dark"}"#).unwrap();
+        assert!(s.auto_update_check);
+        let s: Settings = serde_json::from_str(r#"{"autoUpdateCheck":false}"#).unwrap();
+        assert!(!s.auto_update_check);
     }
 
     #[test]

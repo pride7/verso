@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { confirm } from "../lib/dialog";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
+import { APP_VERSION, progressText, updatesSupported, type UpdateApi } from "../lib/update";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
@@ -22,9 +23,21 @@ interface Props {
   tokenSaved: boolean;
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
+  /** §2.11 更新。状态机在 App 上，这里只是它的一个界面 */
+  update: UpdateApi;
+  /** 打开时停在哪一页。状态栏那个「有新版本」直接跳到「更新」 */
+  initialTab?: Tab;
 }
 
-type Tab = "appearance" | "editor" | "keys" | "terminal" | "snippets" | "slash" | "sync";
+export type Tab =
+  | "appearance"
+  | "editor"
+  | "keys"
+  | "terminal"
+  | "snippets"
+  | "slash"
+  | "sync"
+  | "update";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "外观" },
@@ -34,6 +47,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "snippets", label: "公式 snippet" },
   { id: "slash", label: "/ 菜单" },
   { id: "sync", label: "同步" },
+  { id: "update", label: "更新" },
 ];
 
 /**
@@ -260,6 +274,126 @@ function SyncSettings({
 }
 
 /**
+ * 更新那一页。DESIGN.md §2.11
+ *
+ * 状态机不在这里 —— 它挂在 App 上（`useUpdate`），状态栏和这一页看的是
+ * 同一份。这里只负责把那几个状态说成人话。
+ *
+ * **下载和安装分成两次点击**，中间那一步是有意的：更新的时机该由正在写
+ * 东西的人来定，而不是由「下载刚好完成」这个与他无关的时刻来定。
+ */
+function UpdateSettings({
+  update,
+  auto,
+  onAutoChange,
+}: {
+  update: UpdateApi;
+  auto: boolean;
+  onAutoChange: (v: boolean) => void;
+}) {
+  const { state } = update;
+  const supported = updatesSupported();
+  const busy = state.phase === "checking" || state.phase === "downloading";
+
+  return (
+    <div className="set-update">
+      <div className="set-row">
+        <div className="set-label">
+          <span>当前版本</span>
+          <span className="set-hint">
+            新版本发在 GitHub 上。检查更新会连一次网，除此之外这个软件不联网
+          </span>
+        </div>
+        <div className="set-control">
+          <span className="set-value set-version">{APP_VERSION}</span>
+          <button className="set-save" disabled={busy || !supported} onClick={update.check}>
+            {state.phase === "checking" ? "检查中…" : "检查更新"}
+          </button>
+        </div>
+      </div>
+
+      {!supported && (
+        <p className="set-note">
+          这个平台不支持自动更新。手机上的安装包由应用商店或你自己装的那个 APK
+          管，一个应用没有权限就地替换自己。
+        </p>
+      )}
+
+      {state.phase === "latest" && <p className="set-note">已经是最新的。</p>}
+
+      {state.phase === "error" && (
+        <ul className="set-errors">
+          <li>{state.message}</li>
+        </ul>
+      )}
+
+      {state.phase === "found" && (
+        <div className="set-update-found">
+          <p className="set-note">
+            有新版本 <strong>{state.version}</strong>
+            {state.date && ` · ${state.date.slice(0, 10)}`}
+          </p>
+          {/* 更新说明原样显示。它来自 GitHub release 的正文，是作者写的、
+              不是从提交记录拼的 —— 值得占这块地方 */}
+          {state.notes && <pre className="set-update-notes">{state.notes}</pre>}
+          <div className="set-actions">
+            <button className="set-save" onClick={update.dismiss}>
+              以后再说
+            </button>
+            <button className="btn-primary" onClick={update.download}>
+              下载
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.phase === "downloading" && (
+        <p className="set-note">
+          正在下载 {state.version} —— {progressText(state.received, state.total)}
+        </p>
+      )}
+
+      {state.phase === "ready" && (
+        <div className="set-update-found">
+          <p className="set-note">
+            {state.version} 已经下好了。重启之后它就生效 —— 现在重启的话，手里
+            没保存的东西会先落盘、按你的设置记一个版本。
+          </p>
+          <div className="set-actions">
+            <button className="btn-primary" onClick={update.install}>
+              重启并安装
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="set-row">
+        <div className="set-label">
+          <span>启动时检查一次</span>
+          <span className="set-hint">
+            开着的话，打开软件几秒后悄悄问一次。问不到就当没问过 —— 没网、
+            GitHub 连不上都不会弹任何东西
+          </span>
+        </div>
+        <div className="set-control">
+          <div className="segmented">
+            {([true, false] as const).map((v) => (
+              <button
+                key={String(v)}
+                className={auto === v ? "is-on" : undefined}
+                onClick={() => onAutoChange(v)}
+              >
+                {v ? "检查" : "不检查"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 设置界面。DESIGN.md §6
  *
  * 有意做成**改一下立刻生效**、没有「保存」按钮：调字号这种事必须边看边调，
@@ -275,8 +409,10 @@ export function SettingsPanel({
   tokenSaved,
   onRemoteChange,
   onTokenChange,
+  update,
+  initialTab,
 }: Props) {
-  const [tab, setTab] = useState<Tab>("appearance");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "appearance");
   // snippet 文本单独存一份本地状态：它要边打边校验，但不该每敲一个字符
   // 就往磁盘写一次
   const [snippetText, setSnippetText] = useState(settings.customSnippets);
@@ -617,6 +753,14 @@ export function SettingsPanel({
                 终端里跑 AI CLI 时字号可以调小一点，能多看到几行上下文。
               </p>
             </>
+          )}
+
+          {tab === "update" && (
+            <UpdateSettings
+              update={update}
+              auto={settings.autoUpdateCheck}
+              onAutoChange={(v) => onChange({ autoUpdateCheck: v })}
+            />
           )}
 
           {tab === "sync" && (
