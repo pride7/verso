@@ -20,6 +20,7 @@ import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
 import { headingFolding } from "./fold";
 import { insertMarkdownLineBreak } from "./lineBreak";
+import { listRenumber } from "./listRenumber";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
 import { paragraphSpacing } from "./paragraphSpacing";
@@ -173,6 +174,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // 打完 ``` 自动补收尾围栏。放在 snippet 之后 —— 两者都用
     // transactionFilter，先到的先决定这次输入怎么处理
     autoFence,
+
+    // 删除/粘贴之后把有序列表的编号排顺（1,2,3 删掉 2，剩下的 3 变 2）。
+    // 不进 PREVIEW —— 改的是源码本身，源码模式同样该生效
+    listRenumber,
 
     // `[[` 内部链接与 `/` 块插入菜单（§4.3）
     completion(cb.getNotes),

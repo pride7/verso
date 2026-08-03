@@ -813,6 +813,7 @@ publish_site(): { generated: number; url: string }
 | `slashCommand` | 输入 `/` 弹出块插入菜单（标题/表格/callout/公式/database 视图） | M3 |
 | `pasteHandler` | 粘贴图片 → 落盘 attachments → 插入 `![[]]` ✅；粘贴 HTML → 转 Markdown、粘贴 URL + 选中文本 → 变链接（未做） | M3 |
 | `typography` | 中西文混排间距（渐进增强）、连字、标点挤压 | M4 |
+| `listRenumber` | 有序列表在删除 / 粘贴后自动重排编号；起始编号保留（被代码块打断的列表靠它衔接），手改第一项编号则整体顺延 | v0.6.29 |
 
 `slashCommand` 值得单独说明：它是「Markdown 也能有 Notion 手感」的关键 —— 用户不需要记语法，输入 `/` 选「三级标题」，编辑器插入 `### `。存储仍是纯文本。
 
