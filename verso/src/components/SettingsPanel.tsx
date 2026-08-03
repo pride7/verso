@@ -8,6 +8,12 @@ import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
+import {
+  serializeSlashItems,
+  serializeSnippetSpecs,
+  SlashCustomTable,
+  SnippetRulesTable,
+} from "./InputRuleTables";
 import { KeyBindings } from "./KeyBindings";
 
 interface Props {
@@ -76,18 +82,6 @@ const ACCENTS: [string, number, number][] = [
   ["琥珀", 75, 0.1],
   ["绯红", 20, 0.095],
 ];
-
-/**
- * 自定义 `/` 条目的示例（占位文字）。
- *
- * 用 `JSON.stringify` 生成而不是手写一段字符串：换行在 JSON 里要写成
- * 两个字符，手写时极容易漏掉一层转义 —— 让它自己序列化一次最稳。
- */
-const SLASH_EXAMPLE = JSON.stringify(
-  [{ label: "定理", detail: "callout", template: "> [!note] 定理\n> $0" }],
-  null,
-  2,
-);
 
 /** 数值设置统一长这样：滑块调、右边显示当前值、能一键回默认 */
 function Slider({
@@ -422,12 +416,20 @@ export function SettingsPanel({
   initialTab,
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? "appearance");
-  // snippet 文本单独存一份本地状态：它要边打边校验，但不该每敲一个字符
-  // 就往磁盘写一次
-  const [snippetText, setSnippetText] = useState(settings.customSnippets);
+  // 底层仍存 Latex Suite 兼容的 JSON，界面则只操作表格行。这样既能无损接住
+  // 旧配置，又不必让日常添加一条规则的人手写括号、引号和转义符。
+  const snippetSource = useMemo(
+    () => parseCustomSnippets(settings.customSnippets),
+    [settings.customSnippets],
+  );
+  const [snippetRows, setSnippetRows] = useState(() => snippetSource.specs);
+  const [snippetImportText, setSnippetImportText] = useState(settings.customSnippets);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setSnippetText(settings.customSnippets), [settings.customSnippets]);
+  useEffect(() => {
+    setSnippetRows(snippetSource.specs);
+    setSnippetImportText(settings.customSnippets);
+  }, [settings.customSnippets, snippetSource.specs]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -440,13 +442,27 @@ export function SettingsPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const snippetText = useMemo(() => serializeSnippetSpecs(snippetRows), [snippetRows]);
   const snippetCheck = useMemo(() => parseCustomSnippets(snippetText), [snippetText]);
-  const snippetDirty = snippetText !== settings.customSnippets;
+  const snippetBase = useMemo(
+    () => serializeSnippetSpecs(snippetSource.specs),
+    [snippetSource.specs],
+  );
+  const snippetDirty = snippetText !== snippetBase;
+  const snippetErrors = snippetDirty ? snippetCheck.errors : snippetSource.errors;
+  const snippetImportCheck = useMemo(
+    () => parseCustomSnippets(snippetImportText),
+    [snippetImportText],
+  );
 
-  const [slashText, setSlashText] = useState(settings.slashCustom);
-  useEffect(() => setSlashText(settings.slashCustom), [settings.slashCustom]);
+  const slashSource = useMemo(() => parseSlashCustom(settings.slashCustom), [settings.slashCustom]);
+  const [slashRows, setSlashRows] = useState(() => slashSource.items);
+  useEffect(() => setSlashRows(slashSource.items), [slashSource.items]);
+  const slashText = useMemo(() => serializeSlashItems(slashRows), [slashRows]);
   const slashCheck = useMemo(() => parseSlashCustom(slashText), [slashText]);
-  const slashDirty = slashText !== settings.slashCustom;
+  const slashBase = useMemo(() => serializeSlashItems(slashSource.items), [slashSource.items]);
+  const slashDirty = slashText !== slashBase;
+  const slashErrors = slashDirty ? slashCheck.errors : slashSource.errors;
   const hidden = new Set(settings.slashHidden);
   const toggleSlash = (label: string) =>
     onChange({
@@ -801,39 +817,50 @@ export function SettingsPanel({
           {tab === "slash" && (
             <div className="set-snippets">
               <p className="set-note">
-                管理输入 <code>/</code> 时显示的内置命令；可停用不需要的条目。
+                输入 <code>/</code> 时显示这些命令。内置命令可以停用；自定义命令直接在
+                表格中填写名称、说明和要插入的 Markdown。
               </p>
 
-              <ul className="set-slash">
-                {BUILTIN_SLASH.map((b) => (
-                  <li key={b.label}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={!hidden.has(b.label)}
-                        onChange={() => toggleSlash(b.label)}
-                      />
-                      <span className="set-slash-name">{b.label}</span>
-                      <span className="set-slash-detail">{b.detail}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
+              <h3 className="set-table-section">内置命令</h3>
+              <div className="set-config-table-wrap set-builtins-wrap">
+                <table className="set-config-table set-slash-builtins">
+                  <thead>
+                    <tr>
+                      <th>显示</th>
+                      <th>命令</th>
+                      <th>菜单提示</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {BUILTIN_SLASH.map((b) => (
+                      <tr key={b.label} className={hidden.has(b.label) ? "is-off" : undefined}>
+                        <td data-label="显示">
+                          <input
+                            type="checkbox"
+                            checked={!hidden.has(b.label)}
+                            onChange={() => toggleSlash(b.label)}
+                            aria-label={`显示${b.label}`}
+                          />
+                        </td>
+                        <td data-label="命令">{b.label}</td>
+                        <td data-label="菜单提示">
+                          <code>{b.detail}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-              <p className="set-note">
-                自定义条目使用 JSON 格式；<code>$0</code> 表示内容插入后的光标位置。
+              <h3 className="set-table-section">自定义命令</h3>
+              <p className="set-note set-table-note">
+                插入内容支持多行 Markdown；<code>$0</code> 表示插入后光标停留的位置。
               </p>
-              <textarea
-                className="set-code"
-                spellCheck={false}
-                value={slashText}
-                placeholder={SLASH_EXAMPLE}
-                onChange={(e) => setSlashText(e.target.value)}
-              />
+              <SlashCustomTable rows={slashRows} onChange={setSlashRows} />
 
-              {slashCheck.errors.length > 0 && (
+              {slashErrors.length > 0 && (
                 <ul className="set-errors">
-                  {slashCheck.errors.map((msg, i) => (
+                  {slashErrors.map((msg, i) => (
                     <li key={i}>{msg}</li>
                   ))}
                 </ul>
@@ -859,26 +886,51 @@ export function SettingsPanel({
           {tab === "snippets" && (
             <div className="set-snippets">
               <p className="set-note">
-                格式兼容 Obsidian Latex Suite，可直接导入现有配置。自定义规则会与内置的
-                135 条规则合并；触发词相同时优先使用自定义规则。
+                自定义规则会与内置的 135 条规则合并；触发词相同时优先使用自定义规则。
+                展开内容中的 <code>$0</code>、<code>$1</code> 是按 Tab 跳转的光标位置。
               </p>
-              <textarea
-                className="set-code"
-                spellCheck={false}
-                value={snippetText}
-                placeholder={
-                  '[\n  { "trigger": "@a", "replacement": "\\\\alpha", "options": "mA" }\n]'
-                }
-                onChange={(e) => setSnippetText(e.target.value)}
-              />
+              <SnippetRulesTable rows={snippetRows} onChange={setSnippetRows} />
 
-              {snippetCheck.errors.length > 0 && (
+              {snippetErrors.length > 0 && (
                 <ul className="set-errors">
-                  {snippetCheck.errors.map((msg, i) => (
+                  {snippetErrors.map((msg, i) => (
                     <li key={i}>{msg}</li>
                   ))}
                 </ul>
               )}
+
+              <details className="set-import">
+                <summary>从 Obsidian Latex Suite 导入</summary>
+                <p className="set-hint">
+                  仅用于迁移已有配置：粘贴 Latex Suite 的 snippets JSON，确认后会转换成
+                  上面的表格。日常新增和修改不需要接触 JSON。
+                </p>
+                <textarea
+                  className="set-code set-import-code"
+                  spellCheck={false}
+                  value={snippetImportText}
+                  placeholder={'[{ "trigger": "@a", "replacement": "\\\\alpha", "options": "mA" }]'}
+                  onChange={(e) => setSnippetImportText(e.target.value)}
+                />
+                {snippetImportCheck.errors.length > 0 && (
+                  <ul className="set-errors">
+                    {snippetImportCheck.errors.map((msg, i) => (
+                      <li key={i}>{msg}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="set-import-actions">
+                  <button
+                    className="set-save"
+                    disabled={
+                      !snippetImportText.trim() || snippetImportCheck.errors.length > 0
+                    }
+                    onClick={() => setSnippetRows(snippetImportCheck.specs)}
+                  >
+                    导入到表格
+                  </button>
+                </div>
+              </details>
 
               <div className="set-actions">
                 <span className="set-hint">

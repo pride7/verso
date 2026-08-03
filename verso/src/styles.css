@@ -2838,6 +2838,284 @@ body.is-table-resizing * {
   gap: 10px;
   padding-top: 8px;
 }
+.set-table-section {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text);
+}
+.set-table-note {
+  margin-top: -4px;
+}
+.set-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.set-table-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--raised);
+  font-size: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.set-table-add:hover {
+  border-color: var(--border);
+  background: var(--hover-bg);
+}
+.set-config-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.set-config-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.set-config-table th {
+  padding: 7px 8px;
+  color: var(--muted);
+  background: var(--raised);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  text-align: left;
+}
+.set-config-table td {
+  padding: 7px 8px;
+  vertical-align: top;
+  border-top: 1px solid var(--hairline);
+}
+.set-config-table th + th,
+.set-config-table td + td {
+  border-left: 1px solid color-mix(in oklch, var(--hairline) 72%, transparent);
+}
+.set-config-table tbody tr:hover {
+  background: color-mix(in oklch, var(--hover-bg) 55%, transparent);
+}
+.set-config-table input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+.set-table-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.4;
+  outline: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+textarea.set-table-input {
+  min-height: 52px;
+  resize: vertical;
+}
+.set-table-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.set-table-input[aria-invalid="true"] {
+  border-color: color-mix(in oklch, var(--danger) 55%, var(--hairline));
+}
+.set-table-code {
+  font-family: var(--font-mono);
+  tab-size: 2;
+}
+.set-table-secondary {
+  margin-top: 5px;
+  color: var(--muted);
+}
+.set-snippet-key-col {
+  width: 24%;
+}
+.set-snippet-value-col {
+  width: 32%;
+}
+.set-snippet-option-col {
+  width: 34%;
+}
+.set-slash-name-col {
+  width: 32%;
+}
+.set-table-action-col {
+  width: 64px;
+}
+.set-snippet-options {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.set-snippet-options select {
+  width: 100%;
+  padding: 4px 22px 4px 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  font: inherit;
+  font-size: 11.5px;
+  outline: none;
+}
+.set-snippet-options select:focus {
+  border-color: var(--accent);
+}
+.set-snippet-flags {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+.set-snippet-flags button {
+  padding: 3px 2px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  font-size: 10.5px;
+}
+.set-snippet-flags button:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+.set-snippet-flags button.is-on {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  border-color: color-mix(in oklch, var(--accent) 24%, transparent);
+}
+.set-priority {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.set-priority input {
+  width: 64px;
+  padding: 3px 5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  font: inherit;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.set-priority input:focus {
+  border-color: var(--accent);
+}
+.set-table-row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 22px);
+  justify-content: center;
+  gap: 3px;
+}
+.set-table-row-actions button {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  border-radius: var(--r-xs);
+}
+.set-table-row-actions button:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.set-table-row-actions button:disabled {
+  opacity: 0.22;
+  cursor: default;
+}
+.set-table-row-actions button.is-danger:hover {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 9%, transparent);
+}
+.set-table-empty {
+  margin: 0;
+  padding: 18px 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-align: center;
+}
+.set-slash-builtins th:first-child,
+.set-slash-builtins td:first-child {
+  width: 52px;
+  text-align: center;
+}
+.set-slash-builtins th:nth-child(2),
+.set-slash-builtins td:nth-child(2) {
+  width: 42%;
+}
+.set-slash-builtins code {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.set-slash-builtins tr.is-off td {
+  color: var(--muted);
+  opacity: 0.56;
+}
+.set-builtins-wrap {
+  max-height: 230px;
+  overflow-y: auto;
+}
+.set-builtins-wrap th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.set-import {
+  border-top: 1px solid var(--hairline);
+  padding-top: 9px;
+}
+.set-import summary {
+  width: fit-content;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.set-import summary:hover {
+  color: var(--text);
+}
+.set-import > .set-hint {
+  display: block;
+  margin: 8px 0;
+}
+.set-import-code {
+  width: 100%;
+  min-height: 110px;
+  max-height: 220px;
+}
+.set-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 .set-code {
   min-height: 260px;
   padding: 10px 12px;
@@ -2954,6 +3232,10 @@ body.is-table-resizing * {
   }
   .settings-foot {
     padding: 9px 18px;
+  }
+  .set-snippet-table,
+  .set-slash-custom-table {
+    min-width: 560px;
   }
   .set-row {
     align-items: flex-start;
@@ -5367,44 +5649,6 @@ textarea:focus-visible {
 .mm-acts button:hover {
   background: var(--hover-bg);
   color: var(--text);
-}
-
-/* ---------- 设置里的 `/` 菜单条目开关（§4.3） ---------- */
-
-.set-slash {
-  list-style: none;
-  margin: 0 0 4px;
-  padding: 0;
-  /* 二十来条，一列排下去要滚很久；两列刚好一屏放得下 */
-  columns: 2;
-  column-gap: 18px;
-}
-.set-slash li {
-  break-inside: avoid;
-}
-.set-slash label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 3px 4px;
-  border-radius: var(--r-xs);
-  cursor: pointer;
-}
-.set-slash label:hover {
-  background: var(--hover-bg);
-}
-.set-slash-name {
-  flex: none;
-}
-/* 那一小段示例（`## `、`> [!note]`）压淡，是提示不是内容 */
-.set-slash-detail {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
 }
 
 /* ---------- 状态栏上的版本记录点（§2.8） ----------
