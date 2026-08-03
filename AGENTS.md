@@ -115,10 +115,14 @@ node scripts/version.mjs 0.2.0     # 三处一起改
    （`scripts/release-notes.mjs` 按 `## v0.6.14 —` 这个标题格式取，格式改了它就找不到）
 3. 提交，然后打 tag：`git tag v0.2.0`
 
-## 发布（桌面，§2.11）
+## 发布（§2.11）
 
 推 tag 触发 [.github/workflows/release.yml](.github/workflows/release.yml)：编 Windows /
-macOS(arm+intel) / Linux 四份包，传到一个**草稿** release。
+macOS(arm+intel) / Linux 四份桌面包 + 安卓 arm64 APK，传到一个**草稿** release，
+最后由 finalize job 在正文末尾追加「下载哪一个」对照表（追加发生在 `latest.json`
+上传之后，应用内「检查更新」读到的还是干净的更新日志）。
+**不要改成给资产改名**：`latest.json` 记的是原始下载地址，资产一改名，
+自动更新当场 404 —— 平台标注只能走正文对照表这条路。
 
 ```bash
 node scripts/version.mjs 0.6.14
@@ -132,7 +136,7 @@ git push && git push origin v0.6.14
 **点 Publish 之前没有任何用户会更新到这一版** —— 客户端读的是
 `releases/latest/download/latest.json`，那个地址只认已发布、非预发布的 release。
 
-四件必须知道的事：
+六件必须知道的事：
 
 1. **`~/.tauri/verso.key` 是不可再生的。** 更新包用它签名，公钥编在
    `tauri.conf.json` 里。这把私钥丢了，所有已经装出去的客户端就**永远**收不到
@@ -167,6 +171,15 @@ git push && git push origin v0.6.14
    CI 要在 arm64 机器上顺带产出 x86_64 的包，而 brew 只有本机架构那一份。
 5. **macOS 那两个包没签名也没公证**，Gatekeeper 会拦。要等有 Apple 开发者账号。
    CI 里那两个 job 编得出来，但装的人得手动放行。
+6. **安卓的签名靠四个 GitHub secret**，来源都在这台开发机上：
+   `ANDROID_KEYSTORE_B64`（`~/.verso-signing/verso-release.jks` 的 base64）、
+   `ANDROID_KEYSTORE_PASSWORD` / `ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD`
+   （抄自 `verso/src-tauri/gen/android/keystore.properties`，那个文件被
+   .gitignore 挡着）。这把 jks 和 `verso.key` 一样**不可再生** —— 丢了就只能
+   换签名重发，已装的用户无法覆盖升级。secrets 没配时 CI 不会失败，只是产出
+   **未签名的 APK（装不上）**并打一条 warning。给已发布的版本补 APK 用
+   `gh workflow run release.yml -f tag=v0.6.21 -f only=android` —— 只跑安卓
+   那一半，不会因为桌面包重传同名资产而失败。
 
 ## 构建与测试
 
