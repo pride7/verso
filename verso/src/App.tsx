@@ -1555,7 +1555,9 @@ export default function App() {
         group: "外观",
         name: "展开／收起侧栏",
         label: sidebarOpen ? "收起侧栏" : "展开侧栏",
-        defaultKeys: "Mod+B",
+        // 原来是 Mod+B（VS Code 的键位）。**让给加粗了** —— 这是笔记软件，
+        // 在这里 Ctrl+B 是加粗几乎是所有人的第一预期，而收侧栏一天按不了两次
+        defaultKeys: "Mod+Alt+B",
         run: () => pickView(sidebarView),
       },
       {
@@ -1619,6 +1621,49 @@ export default function App() {
         label: "展开全部标题",
         enabled: hasNote,
         run: () => editorRef.current?.unfoldAll(),
+      },
+      // §4.8 行内格式。粗体和斜体是所有编辑器都一样的两个键，别的几种
+      // 各家都不一样 —— 与其抄一个大多数人没有肌肉记忆的组合，不如放在
+      // Mod+Alt 这一族里，成一套自洽的东西
+      {
+        id: "format.bold",
+        group: "格式",
+        label: "粗体",
+        defaultKeys: "Mod+B",
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFormat("bold"),
+      },
+      {
+        id: "format.italic",
+        group: "格式",
+        label: "斜体",
+        defaultKeys: "Mod+I",
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFormat("italic"),
+      },
+      {
+        id: "format.code",
+        group: "格式",
+        label: "行内代码",
+        defaultKeys: "Mod+Alt+C",
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFormat("code"),
+      },
+      {
+        id: "format.highlight",
+        group: "格式",
+        label: "高亮",
+        defaultKeys: "Mod+Alt+H",
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFormat("highlight"),
+      },
+      {
+        id: "format.strike",
+        group: "格式",
+        label: "删除线",
+        defaultKeys: "Mod+Alt+X",
+        enabled: hasNote,
+        run: () => editorRef.current?.toggleFormat("strike"),
       },
       {
         id: "formula.symbols",

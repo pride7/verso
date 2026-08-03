@@ -10,6 +10,7 @@ import {
   toggleHeadingFold,
   unfoldAllHeadings,
 } from "../editor/fold";
+import { toggleFormatSpec, type InlineFormat } from "../editor/format";
 import { foldTargets } from "../lib/journal";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { expand } from "../editor/snippets/match";
@@ -47,6 +48,8 @@ export interface EditorHandle {
   prevStop: () => void;
   /** 当前选中的文字，没选就是空串。模板的 `{{selection}}` 用 */
   selectedText: () => string;
+  /** 开关一种行内格式（粗体、斜体…，§4.8）。逻辑在 `editor/format.ts` */
+  toggleFormat: (kind: InlineFormat) => void;
   /**
    * 按行替换。思维导图的每一次改动都走它（§4.7）。
    *
@@ -308,6 +311,19 @@ export function Editor({
         if (!view) return "";
         const sel = view.state.selection.main;
         return view.state.doc.sliceString(sel.from, sel.to);
+      },
+      toggleFormat: (kind: InlineFormat) => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch({
+          ...toggleFormatSpec(view.state, kind),
+          // 标成 input：撤销栈按输入的粒度合并，Ctrl+Z 一次退回来正好是
+          // 「刚才那次加粗」，而不是把前面敲的字一起吞掉
+          userEvent: "input.format",
+          scrollIntoView: true,
+        });
+        // 快捷键是在全局那一层截下来的，焦点可能根本不在编辑器里
+        view.focus();
       },
       replaceLines: (fromLine: number, toLine: number, insert: string) => {
         const view = viewRef.current;
