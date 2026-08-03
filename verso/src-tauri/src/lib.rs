@@ -683,6 +683,56 @@ fn git_history(
     state.with_vault(|v| vault::git::history(&v.root, limit.unwrap_or(50)))
 }
 
+/// 当前还没有记进版本历史的文件。侧栏的「当前改动」用（§2.8）。
+#[tauri::command]
+fn git_working_changes(state: State<'_, AppState>) -> Result<Vec<vault::git::FileChange>> {
+    state.with_vault(|v| vault::git::working_changes(&v.root))
+}
+
+/// 一篇文件的差异。`commit` 为空时比较当前工作区；有值时比较那一版与上一版。
+#[tauri::command]
+fn git_diff_file(
+    state: State<'_, AppState>,
+    path: String,
+    commit: Option<String>,
+) -> Result<vault::git::FileDiff> {
+    state.with_vault(|v| {
+        // §0：任何来自前端的路径都要先过这一道。历史里的删除文件虽然已经
+        // 不存在，`resolve` 仍能验证它是 vault 内的相对路径。
+        v.resolve(&path)?;
+        vault::git::diff_file(&v.root, commit.as_deref(), &path)
+    })
+}
+
+/// 撤销一篇文件尚未记进版本历史的改动。
+///
+/// 已经存在于 HEAD 的文件写回最近记录的原始字节；还没记录过的新文件删除。
+/// 前端必须先确认，因为这和历史里的「回退」不同：未记录内容没有备份版本。
+#[tauri::command]
+fn git_discard_file(state: State<'_, AppState>, path: String) -> Result<()> {
+    state.with_vault(|v| {
+        let abs = v.resolve(&path)?;
+        let change = vault::git::working_changes(&v.root)?
+            .into_iter()
+            .find(|change| change.path == path)
+            .ok_or_else(|| Error::Vault(format!("{path} 没有可撤销的改动")))?;
+        let previous = vault::git::file_at_head(&v.root, &path)?;
+
+        match previous {
+            Some(bytes) => v.fs.write_bytes(&abs, &bytes)?,
+            None if change.kind == "added" => {
+                if v.fs.exists(&abs) {
+                    v.fs.remove_file(&abs)?;
+                }
+            }
+            None => return Err(Error::Vault(format!("最近的版本里找不到 {path}"))),
+        }
+        vault::git::reset_index_file(&v.root, &path)
+    })?;
+    state.reindex(&path);
+    Ok(())
+}
+
 /// 把某一篇笔记回退到某一版。
 ///
 /// **回退前先把当前状态记一个版本** —— 不然「回退」就成了一次不可撤销的
@@ -866,6 +916,9 @@ pub fn run() {
             git_status,
             git_commit,
             git_history,
+            git_working_changes,
+            git_diff_file,
+            git_discard_file,
             git_restore_file,
             sync_remote_get,
             sync_remote_set,

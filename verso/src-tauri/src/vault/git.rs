@@ -271,6 +271,14 @@ impl Kind {
             Kind::Deleted => "删除",
         }
     }
+
+    fn key(self) -> &'static str {
+        match self {
+            Kind::Added => "added",
+            Kind::Modified => "modified",
+            Kind::Deleted => "deleted",
+        }
+    }
 }
 
 fn status_opts() -> git2::StatusOptions {
@@ -688,6 +696,10 @@ mod commit_tests {
         assert_eq!(h[0].message, "第二步", "新的在前");
         assert_eq!(h[1].message, "第一步");
         assert!(h[0].at >= h[1].at);
+        assert!(!h[0].author_name.is_empty());
+        assert!(h[0].author_email.is_some());
+        assert!(h[0].detail.contains("新增  乙.md"));
+        assert_eq!((h[0].additions, h[0].deletions), (1, 0));
         assert_eq!(h.len(), 3, "还有一条「初始化」");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -745,6 +757,125 @@ mod commit_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn working_changes_and_diff_include_modified_and_new_files() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "第一行\n旧内容\n最后一行\n").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        std::fs::write(dir.join("甲.md"), "第一行\n新内容\n最后一行\n").unwrap();
+        std::fs::write(dir.join("乙.md"), "新笔记\n").unwrap();
+
+        let files = working_changes(&dir).unwrap();
+        assert_eq!(
+            files
+                .iter()
+                .map(|f| (f.path.as_str(), f.kind))
+                .collect::<Vec<_>>(),
+            vec![("乙.md", "added"), ("甲.md", "modified")]
+        );
+
+        let changed = diff_file(&dir, None, "甲.md").unwrap();
+        assert_eq!((changed.additions, changed.deletions), (1, 1));
+        let lines = &changed.hunks[0].lines;
+        assert!(lines
+            .iter()
+            .any(|line| line.kind == "deleted" && line.text == "旧内容"));
+        assert!(lines
+            .iter()
+            .any(|line| line.kind == "added" && line.text == "新内容"));
+
+        let added = diff_file(&dir, None, "乙.md").unwrap();
+        assert_eq!(added.kind, "added");
+        assert_eq!((added.additions, added.deletions), (1, 0));
+
+        commit_all(&dir, None).unwrap();
+        std::fs::remove_file(dir.join("甲.md")).unwrap();
+        let deleted = diff_file(&dir, None, "甲.md").unwrap();
+        assert_eq!(deleted.kind, "deleted");
+        assert_eq!((deleted.additions, deleted.deletions), (0, 3));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discarding_restores_tracked_files_and_removes_new_files() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), b"old\n").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        std::fs::write(dir.join("甲.md"), b"new\n").unwrap();
+        std::fs::write(dir.join("乙.md"), b"untracked\n").unwrap();
+
+        let old = file_at_head(&dir, "甲.md").unwrap().unwrap();
+        std::fs::write(dir.join("甲.md"), old).unwrap();
+        reset_index_file(&dir, "甲.md").unwrap();
+        assert_eq!(std::fs::read(dir.join("甲.md")).unwrap(), b"old\n");
+
+        assert!(file_at_head(&dir, "乙.md").unwrap().is_none());
+        std::fs::remove_file(dir.join("乙.md")).unwrap();
+        reset_index_file(&dir, "乙.md").unwrap();
+        assert_eq!(status(&dir).dirty, 0);
+
+        // 已跟踪文件被删掉时同样从 HEAD 取回，不把“撤销删除”误当成新文件。
+        std::fs::remove_file(dir.join("甲.md")).unwrap();
+        let old = file_at_head(&dir, "甲.md").unwrap().unwrap();
+        std::fs::write(dir.join("甲.md"), old).unwrap();
+        reset_index_file(&dir, "甲.md").unwrap();
+        assert_eq!(status(&dir).dirty, 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discarding_also_clears_a_staged_change_for_that_file_only() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("a[1].md"), b"old\n").unwrap();
+        std::fs::write(dir.join("other.md"), b"other old\n").unwrap();
+        commit_all(&dir, None).unwrap();
+
+        std::fs::write(dir.join("a[1].md"), b"staged\n").unwrap();
+        std::fs::write(dir.join("other.md"), b"keep staged\n").unwrap();
+        let repo = git2::Repository::open(&dir).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("a[1].md")).unwrap();
+        index.add_path(Path::new("other.md")).unwrap();
+        index.write().unwrap();
+
+        let old = file_at_head(&dir, "a[1].md").unwrap().unwrap();
+        std::fs::write(dir.join("a[1].md"), old).unwrap();
+        reset_index_file(&dir, "a[1].md").unwrap();
+
+        let files = working_changes(&dir).unwrap();
+        assert_eq!(
+            files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            vec!["other.md"],
+            "literal 路径只能撤销目标文件，不能把方括号当通配符"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn historical_diff_compares_a_commit_with_its_parent() {
+        let dir = temp_vault();
+        std::fs::write(dir.join("甲.md"), "之前\n").unwrap();
+        commit_all(&dir, None).unwrap();
+        std::fs::write(dir.join("甲.md"), "之后\n").unwrap();
+        let commit = commit_all(&dir, Some("改写甲")).unwrap().unwrap();
+
+        let diff = diff_file(&dir, Some(&commit.id), "甲.md").unwrap();
+        assert_eq!(diff.kind, "modified");
+        assert_eq!((diff.additions, diff.deletions), (1, 1));
+        let lines = &diff.hunks[0].lines;
+        assert_eq!(lines[0].text, "之前");
+        assert_eq!(lines[0].kind, "deleted");
+        assert_eq!(lines[1].text, "之后");
+        assert_eq!(lines[1].kind, "added");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// 不是仓库时不报错，只是「没这功能」—— 状态栏那个点不该拖垮界面
     #[test]
     fn plain_folder_is_not_enabled() {
@@ -764,11 +895,17 @@ mod commit_tests {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
     pub id: String,
-    /// 摘要那一行。正文里的文件清单不重复给 —— 下面 `files` 更准
+    /// 摘要那一行。侧栏用它，悬浮信息卡再显示下面的 `detail`
     pub message: String,
+    /// 摘要下面的完整说明。自动记录时这里是逐行文件清单，手写说明则原样保留
+    pub detail: String,
+    pub author_name: String,
+    pub author_email: Option<String>,
     /// unix 秒
     pub at: i64,
     pub files: Vec<FileChange>,
+    pub additions: usize,
+    pub deletions: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -779,22 +916,259 @@ pub struct FileChange {
     pub kind: &'static str,
 }
 
+/// 当前还没记进版本历史的文件清单。
+///
+/// 和状态栏、自动说明共用 `changes`：三处各扫一遍的话，最容易出现状态栏说
+/// 3 个、侧栏只列 2 个这种很难解释的分叉。
+pub fn working_changes(root: &Path) -> Result<Vec<FileChange>> {
+    let repo = git2::Repository::open(root)?;
+    Ok(changes(&repo)
+        .into_iter()
+        .map(|(kind, path)| FileChange {
+            path,
+            kind: kind.key(),
+        })
+        .collect())
+}
+
+/// HEAD 里某个文件的原始内容。`None` 表示它还没有被记进任何版本。
+///
+/// 返回字节而不是字符串：当前改动也会列附件，撤销图片时不能先经过 UTF-8。
+pub fn file_at_head(root: &Path, path: &str) -> Result<Option<Vec<u8>>> {
+    let repo = git2::Repository::open(root)?;
+    let Some(tree) = repo
+        .head()
+        .ok()
+        .and_then(|head| head.peel_to_commit().ok())
+        .and_then(|commit| commit.tree().ok())
+    else {
+        return Ok(None);
+    };
+    let Ok(entry) = tree.get_path(Path::new(path)) else {
+        return Ok(None);
+    };
+    let blob = repo.find_blob(entry.id())?;
+    Ok(Some(blob.content().to_vec()))
+}
+
+/// 只把索引里的这一条恢复到 HEAD；工作区内容由 `VaultFs` 写回。
+///
+/// Verso 自己不暴露暂存区，但外部工具可能留下 staged 改动。只改工作区的话，
+/// 侧栏仍会把那条 staged 改动列出来，看起来像「撤销没生效」。这里直接按精确
+/// 路径更新一条 index entry，不走 pathspec；文件名里的 `[`、`*` 不是通配符。
+pub fn reset_index_file(root: &Path, path: &str) -> Result<()> {
+    let repo = git2::Repository::open(root)?;
+    let mut index = repo.index()?;
+    let repo_path = Path::new(path);
+    if index.conflict_get(repo_path).is_ok() {
+        index.conflict_remove(repo_path)?;
+    }
+    let head_entry = repo
+        .head()
+        .ok()
+        .and_then(|head| head.peel_to_commit().ok())
+        .and_then(|commit| commit.tree().ok())
+        .and_then(|tree| tree.get_path(repo_path).ok());
+
+    if let Some(head_entry) = head_entry {
+        let blob = repo.find_blob(head_entry.id())?;
+        let mut entry = index.get_path(repo_path, 0).unwrap_or(git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode: head_entry.filemode() as u32,
+            uid: 0,
+            gid: 0,
+            file_size: 0,
+            id: head_entry.id(),
+            flags: (path.len().min(0x0fff)) as u16,
+            flags_extended: 0,
+            path: path.as_bytes().to_vec(),
+        });
+        entry.id = head_entry.id();
+        entry.mode = head_entry.filemode() as u32;
+        entry.file_size = blob.size().min(u32::MAX as usize) as u32;
+        // stage 位在 flags 的高两位；恢复后必须回到普通 stage 0。
+        entry.flags &= 0x3fff;
+        index.add(&entry)?;
+    } else if index.get_path(repo_path, 0).is_some() {
+        index.remove_path(repo_path)?;
+    }
+    index.write()?;
+    Ok(())
+}
+
+/// 对比视图里的一行。行号缺失的一侧用 `None`：新增行没有旧行号，删除反之。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    /// `context` | `added` | `deleted`
+    pub kind: &'static str,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    pub lines: Vec<DiffLine>,
+}
+
+/// 一篇文件的逐行差异。只传 Git 已经裁过上下文的 hunk，不把两份完整笔记
+/// 都经 IPC 搬到前端；长文只有几处小改时，这个差别很大。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiff {
+    pub path: String,
+    /// `added` | `modified` | `deleted` | `renamed`
+    pub kind: &'static str,
+    pub additions: usize,
+    pub deletions: usize,
+    pub binary: bool,
+    pub hunks: Vec<DiffHunk>,
+}
+
+fn diff_kind(delta: git2::Delta) -> &'static str {
+    match delta {
+        git2::Delta::Added | git2::Delta::Untracked => "added",
+        git2::Delta::Deleted => "deleted",
+        git2::Delta::Renamed => "renamed",
+        _ => "modified",
+    }
+}
+
+fn line_text(bytes: &[u8]) -> String {
+    // libgit2 把换行也放进 content。视图按“一项就是一行”渲染，留下它会让
+    // <pre> 自己再多撑一行；只拿掉一组行尾，正文末尾的空格必须原样保留。
+    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    let bytes = bytes.strip_suffix(b"\r").unwrap_or(bytes);
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+fn file_diff_from_git(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
+    let delta = diff
+        .deltas()
+        .next()
+        .ok_or_else(|| Error::Vault(format!("{path} 在这里没有变化")))?;
+    let kind = diff_kind(delta.status());
+    let Some(patch) = git2::Patch::from_diff(diff, 0)? else {
+        // libgit2 对二进制文件不给 patch。仍然给出文件级变化，让界面能明确
+        // 说明“有变化但不能逐行比较”，而不是像没点中一样空白。
+        return Ok(FileDiff {
+            path: path.to_string(),
+            kind,
+            additions: 0,
+            deletions: 0,
+            binary: true,
+            hunks: Vec::new(),
+        });
+    };
+
+    let (_, additions, deletions) = patch.line_stats()?;
+    let mut hunks = Vec::with_capacity(patch.num_hunks());
+    for hunk_index in 0..patch.num_hunks() {
+        let (header, line_count) = patch.hunk(hunk_index)?;
+        let mut lines = Vec::with_capacity(line_count);
+        for line_index in 0..line_count {
+            let line = patch.line_in_hunk(hunk_index, line_index)?;
+            let kind = match line.origin() {
+                '+' => "added",
+                '-' => "deleted",
+                ' ' => "context",
+                // `No newline at end of file` 是元信息，不是正文的一行。少画这句
+                // 比给它编一个行号更准确。
+                _ => continue,
+            };
+            lines.push(DiffLine {
+                kind,
+                old_line: line.old_lineno(),
+                new_line: line.new_lineno(),
+                text: line_text(line.content()),
+            });
+        }
+        hunks.push(DiffHunk {
+            old_start: header.old_start(),
+            old_lines: header.old_lines(),
+            new_start: header.new_start(),
+            new_lines: header.new_lines(),
+            lines,
+        });
+    }
+
+    Ok(FileDiff {
+        path: path.to_string(),
+        kind,
+        additions,
+        deletions,
+        binary: false,
+        hunks,
+    })
+}
+
+fn diff_options(path: &str) -> git2::DiffOptions {
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(3)
+        // 路径来自侧栏，看似可信，但最终仍是前端参数。禁掉 glob 后，文件名里
+        // 的 `[` `*` 不会意外匹配到别的笔记。
+        .disable_pathspec_match(true)
+        .pathspec(path);
+    opts
+}
+
+/// 对比一篇文件。
+///
+/// `commit = None`：HEAD 与当前工作区；`Some`：那次提交与它的上一版。
+/// 这两条正好对应侧栏的「当前改动」和「版本记录」。
+pub fn diff_file(root: &Path, commit: Option<&str>, path: &str) -> Result<FileDiff> {
+    let repo = git2::Repository::open(root)?;
+    let mut opts = diff_options(path);
+
+    if let Some(commit) = commit {
+        let oid = git2::Oid::from_str(commit)
+            .map_err(|_| Error::Vault(format!("看不懂的版本号：{commit}")))?;
+        let current = repo.find_commit(oid)?;
+        let new_tree = current.tree()?;
+        let old_tree = current.parent(0).ok().and_then(|p| p.tree().ok());
+        let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+        file_diff_from_git(&diff, path)
+    } else {
+        // HEAD 不存在就是一个还没记过任何版本的新 vault；和空树比较即可。
+        let old_tree = repo
+            .head()
+            .ok()
+            .and_then(|h| h.peel_to_commit().ok())
+            .and_then(|c| c.tree().ok());
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
+        let diff = repo.diff_tree_to_workdir_with_index(old_tree.as_ref(), Some(&mut opts))?;
+        file_diff_from_git(&diff, path)
+    }
+}
+
 /// 这一次提交动了哪些文件。
 ///
 /// **从 diff 算，不解析我们自己写进正文的那几行** —— 那几行是给人看的，
 /// 而且用户自己写说明时可能整段替换掉。历史面板要的是事实。
-fn commit_files(repo: &git2::Repository, c: &git2::Commit) -> Vec<FileChange> {
+fn commit_files(repo: &git2::Repository, c: &git2::Commit) -> (Vec<FileChange>, usize, usize) {
     let new_tree = match c.tree() {
         Ok(t) => t,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), 0, 0),
     };
     // 第一次提交没有父：和「空」比，于是所有文件都算新增
     let old_tree = c.parent(0).ok().and_then(|p| p.tree().ok());
     let Ok(diff) = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None) else {
-        return Vec::new();
+        return (Vec::new(), 0, 0);
     };
 
-    diff.deltas()
+    let files = diff
+        .deltas()
         .filter_map(|d| {
             let path = d
                 .new_file()
@@ -810,7 +1184,12 @@ fn commit_files(repo: &git2::Repository, c: &git2::Commit) -> Vec<FileChange> {
             };
             Some(FileChange { path, kind })
         })
-        .collect()
+        .collect();
+    let (additions, deletions) = diff
+        .stats()
+        .map(|stats| (stats.insertions(), stats.deletions()))
+        .unwrap_or((0, 0));
+    (files, additions, deletions)
 }
 
 /// 最近的若干次提交，新的在前。仓库还没有任何提交时返回空表，不报错。
@@ -831,12 +1210,26 @@ pub fn history(root: &Path, limit: usize) -> Result<Vec<HistoryEntry>> {
     let mut out = Vec::new();
     for oid in walk.take(limit) {
         let Ok(oid) = oid else { continue };
-        let Ok(c) = repo.find_commit(oid) else { continue };
+        let Ok(c) = repo.find_commit(oid) else {
+            continue;
+        };
+        let (files, additions, deletions) = commit_files(&repo, &c);
+        let full = c.message().unwrap_or("");
+        let detail = full
+            .split_once('\n')
+            .map(|(_, rest)| rest.trim().to_string())
+            .unwrap_or_default();
+        let author = c.author();
         out.push(HistoryEntry {
             id: c.id().to_string(),
             message: c.summary().unwrap_or("").to_string(),
+            detail,
+            author_name: author.name().unwrap_or("未知作者").to_string(),
+            author_email: author.email().map(str::to_string),
             at: c.time().seconds(),
-            files: commit_files(&repo, &c),
+            files,
+            additions,
+            deletions,
         });
     }
     Ok(out)

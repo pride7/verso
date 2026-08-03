@@ -128,6 +128,11 @@ impl VaultFs for DesktopFs {
     }
 
     fn remove_file(&self, path: &Path) -> Result<()> {
+        // 删除和写入一样会触发文件监听。当前改动里撤销一个新文件时，
+        // 这是 Verso 自己的动作，不该紧接着再报成「被外部程序修改」。
+        if let Some(sw) = &self.self_writes {
+            sw.mark(path);
+        }
         Ok(fs::remove_file(path)?)
     }
 

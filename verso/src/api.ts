@@ -5,6 +5,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type {
   Backlink,
   CommitInfo,
+  FileChange,
+  FileDiff,
   GitStatus,
   HistoryEntry,
   IndexStats,
@@ -136,6 +138,13 @@ export const api = {
   gitCommit: (message?: string) => call<CommitInfo | null>("git_commit", { message }),
   /** 最近的若干次提交，新的在前 */
   gitHistory: (limit?: number) => call<HistoryEntry[]>("git_history", { limit }),
+  /** 当前还没记进版本历史的文件 */
+  gitWorkingChanges: () => call<FileChange[]>("git_working_changes"),
+  /** 当前工作区，或某次历史记录里一篇文件的逐行差异 */
+  gitDiffFile: (path: string, commit?: string) =>
+    call<FileDiff>("git_diff_file", { path, commit }),
+  /** 撤销某个文件尚未记录的改动；新文件会被删除 */
+  gitDiscardFile: (path: string) => call<void>("git_discard_file", { path }),
   /** 把某篇笔记回退到某一版。**回退前会先把当前状态记一个版本** */
   gitRestoreFile: (commit: string, path: string) =>
     call<void>("git_restore_file", { commit, path }),

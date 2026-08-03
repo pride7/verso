@@ -614,6 +614,12 @@ button {
   overscroll-behavior: contain;
   padding-bottom: 8px;
 }
+/* 历史自己分成两个独立滚动区；再让外层滚一次会出现两根滚动条，拖杆也会
+   跟着内容跑掉。`:has` 在 Tauri 的 WebView2 / WKWebView 目标版本均可用。 */
+.sidebar-body:has(> .history-view) {
+  overflow: hidden;
+  padding-bottom: 0;
+}
 
 .sidebar-head {
   display: flex;
@@ -5126,21 +5132,150 @@ textarea:focus-visible {
 
 /* ---------- 侧栏里的版本历史（§2.8） ---------- */
 
+.history-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.hist-current {
+  flex: none;
+  min-height: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.history-view.is-resized .hist-current {
+  height: var(--hist-working-height);
+  /* 上次可能是在更高的窗口里拖的；缩小窗口后仍给版本记录留出可用空间。 */
+  max-height: calc(100% - 96px);
+}
+.hist-records {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 12px;
+}
+.hist-divider {
+  position: relative;
+  flex: none;
+  height: 9px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.hist-divider::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 4px;
+  height: 1px;
+  background: var(--hairline);
+  transition: height var(--t-fast), top var(--t-fast), background var(--t-fast);
+}
+.hist-divider:hover::after,
+.hist-divider:focus-visible::after,
+body.is-row-resizing .hist-divider::after {
+  top: 3px;
+  height: 2px;
+  background: var(--accent);
+}
+body.is-row-resizing {
+  cursor: row-resize;
+  user-select: none;
+}
+.hist-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 12px;
+  color: var(--muted);
+}
+.hist-section-head h3 {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.hist-section-head > span {
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--hover-bg);
+}
+.hist-empty {
+  margin: 0;
+  padding: 5px 12px 9px;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--muted);
+}
+
 .hist {
+  --hist-rail-x: 9px;
   list-style: none;
   margin: 0;
-  padding: 0 6px;
+  padding: 0 7px 0 8px;
+}
+/*
+ * 单主线的版本图。Verso 对用户隐藏 branch，所以这里不画假的分叉：一根线
+ * 表示版本沿时间向下延续，展开的文件再从对应节点旁边接出来。
+ */
+.hist > li {
+  position: relative;
+  padding-left: 18px;
+}
+.hist > li::before {
+  content: "";
+  position: absolute;
+  left: var(--hist-rail-x);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in oklch, var(--muted) 34%, transparent);
+}
+.hist > li:first-child::before {
+  top: 15px;
+}
+.hist > li:last-child::before {
+  bottom: calc(100% - 15px);
 }
 .hist-head {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: 6px;
   width: 100%;
-  padding: 5px 6px;
+  padding: 6px 6px 6px 2px;
+  font-size: 12px;
   border-radius: var(--r-sm);
   text-align: left;
   color: var(--text);
   transition: background var(--t-fast);
+}
+.hist-head::before {
+  content: "";
+  position: absolute;
+  left: -13px;
+  top: 11px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+  background: var(--surface);
+  transition: border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+}
+.hist > li.is-open .hist-head::before {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .hist-head:hover {
   background: var(--hover-bg);
@@ -5170,16 +5305,40 @@ textarea:focus-visible {
 }
 
 .hist-files {
+  position: relative;
   list-style: none;
   margin: 0 0 4px;
   /* 缩进对齐上面那个箭头之后的文字 */
   padding: 0 0 0 23px;
+}
+.hist > li > .hist-files {
+  padding-left: 14px;
+}
+.hist > li > .hist-files::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: -4px;
+  width: 23px;
+  height: 14px;
+  box-sizing: border-box;
+  border-left: 1px solid color-mix(in oklch, var(--muted) 34%, transparent);
+  border-bottom: 1px solid color-mix(in oklch, var(--muted) 34%, transparent);
+  border-radius: 0 0 0 6px;
+  pointer-events: none;
+}
+.hist-files.hist-working {
+  padding: 0 6px;
 }
 .hist-files > li {
   display: flex;
   align-items: center;
   gap: 2px;
   border-radius: var(--r-xs);
+}
+.hist-files > li.is-current {
+  background: var(--selected-bg);
+  box-shadow: inset 2px 0 var(--selected-mark);
 }
 .hist-files > li:hover {
   background: var(--hover-bg);
@@ -5241,4 +5400,301 @@ textarea:focus-visible {
 .hist-restore:hover {
   color: var(--accent);
   background: var(--hover-bg);
+}
+.hist-discard:hover {
+  color: var(--danger);
+}
+
+/* 版本记录的悬浮信息卡。用 fixed + portal，不能挂在侧栏滚动盒里：那样刚好
+   到侧栏右边界就会被 overflow 裁掉，只剩半张卡。 */
+.hist-popover {
+  position: fixed;
+  z-index: 1000;
+  max-height: min(440px, calc(100vh - 16px));
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 14px 16px 0;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  line-height: 1.65;
+  animation: hist-pop-in 120ms ease-out both;
+}
+@keyframes hist-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hist-pop-meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+}
+.hist-pop-meta strong {
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+.hist-pop-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+}
+.hist-pop-email {
+  display: block;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--muted-2);
+}
+.hist-popover h4 {
+  margin: 13px 0 6px;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.hist-popover pre {
+  margin: 0 0 13px;
+  font: inherit;
+  line-height: 1.72;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hist-pop-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  color: var(--muted);
+  background: color-mix(in oklch, var(--raised) 94%, transparent);
+  border-top: 1px solid var(--hairline);
+  backdrop-filter: blur(10px);
+}
+.hist-pop-foot .is-added {
+  color: var(--accent-ink);
+}
+.hist-pop-foot .is-deleted {
+  color: var(--danger);
+}
+.hist-pop-foot code {
+  margin-left: auto;
+  padding: 1px 5px;
+  color: var(--muted);
+  background: var(--hover-bg);
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+@media (hover: none) {
+  .hist-popover {
+    display: none;
+  }
+}
+
+/* ---------- 正文区里的版本差异（§2.8） ---------- */
+
+.diff-view {
+  min-height: 100%;
+  color: var(--text);
+  background: var(--bg);
+}
+.diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 8px 16px 8px 22px;
+  background: color-mix(in oklch, var(--bg) 94%, transparent);
+  border-bottom: 1px solid var(--hairline);
+  backdrop-filter: blur(12px);
+}
+.diff-title-wrap {
+  min-width: 0;
+  margin-right: auto;
+}
+.diff-context {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-title-wrap h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 620;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-stats {
+  display: flex;
+  gap: 7px;
+  font: 11.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.diff-stats .is-added {
+  color: var(--accent-ink);
+}
+.diff-stats .is-deleted {
+  color: var(--danger);
+}
+.diff-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  color: var(--muted);
+  border-radius: var(--r-sm);
+}
+.diff-close:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.diff-body {
+  min-width: 0;
+  overflow-x: hidden;
+  padding-bottom: 28px;
+}
+.diff-message {
+  margin: 56px auto;
+  padding: 0 24px;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.7;
+  text-align: center;
+}
+.diff-message.is-error {
+  color: var(--danger);
+}
+.diff-split {
+  width: 100%;
+  min-width: 0;
+  font: 12px/1.62 var(--font-mono);
+}
+.diff-pane-head {
+  display: inline-block;
+  width: 50%;
+  box-sizing: border-box;
+  padding: 7px 48px;
+  font: 10.5px/1 var(--font-ui);
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+}
+.diff-pane-head + .diff-pane-head {
+  border-left: 1px solid var(--hairline);
+}
+.diff-hunk-label {
+  padding: 5px 12px;
+  font: 10.5px/1.4 var(--font-mono);
+  color: var(--muted);
+  background: color-mix(in oklch, var(--accent) 5%, var(--bg));
+  border-block: 1px solid var(--hairline);
+}
+.diff-hunk-group + .diff-hunk-group {
+  margin-top: 12px;
+}
+.diff-split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.diff-cell {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  min-width: 0;
+}
+.diff-cell + .diff-cell {
+  border-left: 1px solid var(--hairline);
+}
+.diff-line-no {
+  padding: 0 9px 0 4px;
+  color: var(--muted-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.diff-cell pre,
+.diff-unified-row pre {
+  min-width: 0;
+  margin: 0;
+  padding: 0 12px;
+  font: inherit;
+  /* Markdown 的一段通常就是源码的一整行。像代码一样强制单行会让中文长段
+     全掉到视口外；保留空格与缩进，但在各自半栏内正常折行。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-cell.is-added,
+.diff-unified-row.is-added {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+.diff-cell.is-deleted,
+.diff-unified-row.is-deleted {
+  background: color-mix(in oklch, var(--danger) 9%, transparent);
+}
+.diff-cell.is-empty {
+  background: color-mix(in oklch, var(--muted) 4%, transparent);
+}
+.diff-unified {
+  display: none;
+  min-width: 0;
+  width: 100%;
+  font: 11.5px/1.62 var(--font-mono);
+}
+.diff-unified-row {
+  display: grid;
+  grid-template-columns: 38px 38px 18px minmax(0, 1fr);
+}
+.diff-mark {
+  color: var(--muted);
+  text-align: center;
+  user-select: none;
+}
+.diff-unified-row.is-added .diff-mark {
+  color: var(--accent-ink);
+}
+.diff-unified-row.is-deleted .diff-mark {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .diff-head {
+    min-height: 52px;
+    padding-inline: 14px 10px;
+  }
+  .diff-split {
+    display: none;
+  }
+  .diff-unified {
+    display: block;
+  }
 }

@@ -2,11 +2,13 @@
  * 状态栏上的版本记录点。DESIGN.md §2.8
  *
  * 提交本身在 Rust 那边测（`vault/git.rs` 的 commit_tests，用真仓库跑）。
- * 这一层只验界面这半边：**先冲盘再提交**、没有改动时不该能点、
+ * 这一层只验界面这半边：必要时先冲盘、外部改动不能被旧正文覆盖、
+ * 没有改动时不该能点、
  * 以及 §2.8 那条「对用户隐藏 git」—— 状态栏上不许出现 commit/branch 字样。
  */
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
+import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
@@ -40,23 +42,72 @@ const HISTORY = [
   {
     id: "aaa",
     message: "更新「甲」",
+    detail: "整理 AI 改写后的论证。\n\n更新  甲.md\nCo-Authored-By: Claude <noreply@anthropic.com>",
+    authorName: "pride7",
+    authorEmail: "pride7@example.com",
     at: NOW_S - 120,
     files: [{ path: "甲.md", kind: "modified" as const }],
+    additions: 12,
+    deletions: 3,
   },
   {
     id: "bbb",
     message: "新增「甲」「乙」",
+    detail: "新增  甲.md\n新增  乙.md",
+    authorName: "Verso",
+    authorEmail: "verso@localhost",
     at: NOW_S - 7200,
     files: [
       { path: "甲.md", kind: "added" as const },
       { path: "乙.md", kind: "added" as const },
     ],
+    additions: 8,
+    deletions: 0,
   },
 ];
+const LONG_LINE =
+  "这是一段由 AI 改写的很长文字，需要始终留在各自的对比栏里。".repeat(18) +
+  "an_unusually_long_identifier_that_must_also_wrap_without_horizontal_scrolling";
 const gitRestore = vi.fn(async (_commit: string, _path: string) => {});
+const gitDiscard = vi.fn(async (_path: string) => {
+  dirty = 0;
+});
+const gitDiffFile = vi.fn(async (path: string, _commit?: string) => ({
+  path,
+  kind: "modified" as const,
+  additions: 1,
+  deletions: 1,
+  binary: false,
+  hunks: [
+    {
+      oldStart: 1,
+      oldLines: 3,
+      newStart: 1,
+      newLines: 3,
+      lines: [
+        { kind: "context" as const, oldLine: 1, newLine: 1, text: "标题" },
+        {
+          kind: "deleted" as const,
+          oldLine: 2,
+          newLine: null,
+          text: `AI 修改前：${LONG_LINE}`,
+        },
+        {
+          kind: "added" as const,
+          oldLine: null,
+          newLine: 2,
+          text: `AI 修改后：${LONG_LINE}`,
+        },
+        { kind: "context" as const, oldLine: 3, newLine: 3, text: "结尾" },
+      ],
+    },
+  ],
+}));
 
 /** 后端拦下关窗之后发来的那个事件，测试里手动触发 */
 let fireClosing: (() => void) | null = null;
+/** 文件监听事件；自动记录的空闲窗口要靠它重新计时 */
+let fireVaultChanged: ((paths: string[]) => void) | null = null;
 const closeNow = vi.fn(async () => {
   calls.push("close");
   return null;
@@ -137,6 +188,10 @@ vi.mock("./api", () => ({
     }),
     gitCommit: (message?: string) => gitCommit(message),
     gitHistory: async () => HISTORY,
+    gitWorkingChanges: async () =>
+      dirty > 0 ? [{ path: "甲.md", kind: "modified" as const }] : [],
+    gitDiffFile: (path: string, commit?: string) => gitDiffFile(path, commit),
+    gitDiscardFile: (path: string) => gitDiscard(path),
     gitRestoreFile: (commit: string, path: string) => gitRestore(commit, path),
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
@@ -163,7 +218,12 @@ vi.mock("./api", () => ({
     ptyClose: async () => {},
   },
   onBackendNotice: async () => () => {},
-  onVaultChanged: async () => () => {},
+  onVaultChanged: async (cb: (paths: string[]) => void) => {
+    fireVaultChanged = cb;
+    return () => {
+      fireVaultChanged = null;
+    };
+  },
   onAppClosing: async (cb: () => void) => {
     fireClosing = cb;
     return () => {
@@ -188,17 +248,22 @@ beforeEach(() => {
   calls.length = 0;
   gitCommit.mockClear();
   gitRestore.mockClear();
+  gitDiscard.mockClear();
+  gitDiffFile.mockClear();
   closeNow.mockClear();
   settingsPatch = {};
   remoteUrl = "https://example.com/notes.git";
   vaultSync.mockClear();
   tokenSet.mockClear();
+  confirmMock.mockReset();
+  confirmMock.mockResolvedValue(true);
 });
 
-afterEach(() => {
+afterEach(async () => {
   root?.unmount();
   root = null;
   document.body.innerHTML = "";
+  await page.viewport(1440, 900);
 });
 
 async function mount() {
@@ -228,7 +293,7 @@ describe("版本记录点", () => {
     expect(point()?.disabled).toBe(false);
   });
 
-  it("点一下**先冲盘再提交** —— 不然记下的是上一版", async () => {
+  it("编辑器没有未保存内容时直接提交，不重写外部 AI 改过的文件", async () => {
     dirty = 1;
     await mount();
     await act(async () => {
@@ -237,8 +302,8 @@ describe("版本记录点", () => {
     });
 
     expect(gitCommit).toHaveBeenCalledTimes(1);
-    expect(calls.indexOf("save")).toBeGreaterThanOrEqual(0);
-    expect(calls.indexOf("save")).toBeLessThan(calls.indexOf("commit"));
+    expect(calls).not.toContain("save");
+    expect(calls).toContain("commit");
     // 提交完状态点自己变回「已记录」，不弹任何提示条
     expect(point()?.textContent).toContain("已记录");
   });
@@ -353,6 +418,161 @@ describe("侧栏里的版本历史", () => {
     const files = [...document.querySelectorAll<HTMLElement>(".hist-path")].map((e) => e.textContent);
     expect(files).toEqual(["甲", "乙"]);
     expect(document.querySelector(".hist-kind")?.textContent).toBe("新增");
+    const entry = document.querySelector<HTMLElement>(".hist > li")!;
+    const node = document.querySelector<HTMLElement>(".hist-head")!;
+    const branch = document.querySelector<HTMLElement>(".hist > li > .hist-files")!;
+    expect(getComputedStyle(node).fontSize).toBe("12px");
+    expect(getComputedStyle(entry, "::before").width).toBe("1px");
+    expect(getComputedStyle(node, "::before").borderRadius).toBe("50%");
+    expect(getComputedStyle(branch, "::before").borderLeftWidth).toBe("1px");
+  });
+
+  it("当前改动可以确认后撤销，取消时不动文件", async () => {
+    dirty = 1;
+    await mount();
+    await openPanel();
+
+    confirmMock.mockResolvedValue(false);
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".hist-discard")!.click();
+      await settle(120);
+    });
+    expect(gitDiscard).not.toHaveBeenCalled();
+
+    confirmMock.mockResolvedValue(true);
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".hist-discard")!.click();
+      await settle(300);
+    });
+    expect(gitDiscard).toHaveBeenCalledWith("甲.md");
+  });
+
+  it("分界线可用键盘调整，也能复位为按内容适应", async () => {
+    dirty = 1;
+    await mount();
+    await openPanel();
+    const divider = document.querySelector<HTMLElement>(".hist-divider")!;
+
+    await act(async () => {
+      divider.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      await settle(50);
+    });
+    expect(document.querySelector(".history-view")?.classList.contains("is-resized")).toBe(true);
+    expect(localStorage.getItem("verso.historyWorkingHeight")).toBeTruthy();
+
+    await act(async () => {
+      divider.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      await settle(50);
+    });
+    expect(document.querySelector(".history-view")?.classList.contains("is-resized")).toBe(false);
+    expect(localStorage.getItem("verso.historyWorkingHeight")).toBeNull();
+  });
+
+  it("悬停版本节点显示完整说明、作者、准确时间和改动统计", async () => {
+    await mount();
+    await openPanel();
+    const head = document.querySelector<HTMLElement>(".hist-head")!;
+    await act(async () => {
+      head.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      await settle(320);
+    });
+
+    const card = document.querySelector<HTMLElement>(".hist-popover")!;
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain("pride7");
+    expect(card.textContent).toContain("pride7@example.com");
+    expect(card.textContent).toContain("整理 AI 改写后的论证");
+    expect(card.textContent).toContain("12 行插入（+）");
+    expect(card.textContent).toContain("3 行删除（−）");
+    expect(card.textContent).toMatch(/\d{4}年\d+月\d+日 \d{2}:\d{2}/);
+
+    const side = document.querySelector<HTMLElement>(".sidebar")!.getBoundingClientRect();
+    const box = card.getBoundingClientRect();
+    expect(getComputedStyle(card).position).toBe("fixed");
+    expect(box.left).toBeGreaterThanOrEqual(side.right);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth + 0.5);
+  });
+
+  it("当前改动直接列在顶部，点文件就在正文区打开对比", async () => {
+    dirty = 1;
+    await mount();
+    await openPanel();
+
+    expect(document.querySelector("#working-title")?.textContent).toBe("当前改动");
+    expect(document.querySelector(".hist-working .hist-path")?.textContent).toBe("甲");
+    await act(async () => {
+      document.querySelector<HTMLElement>(".hist-working .hist-file")!.click();
+      await settle(250);
+    });
+
+    expect(gitDiffFile).toHaveBeenCalledWith("甲.md", undefined);
+    expect(document.querySelector(".diff-context")?.textContent).toBe("当前改动");
+    expect(document.querySelector(".diff-view")?.textContent).toContain("AI 修改前");
+    expect(document.querySelector(".diff-view")?.textContent).toContain("AI 修改后");
+  });
+
+  it("历史文件比较这一版与上一版，左右两栏同宽且改动行对齐", async () => {
+    await mount();
+    await openPanel();
+    await act(async () => {
+      document.querySelectorAll<HTMLElement>(".hist-head")[0].click();
+      await settle(100);
+      document.querySelector<HTMLElement>(".hist > li .hist-file")!.click();
+      await settle(250);
+    });
+
+    expect(gitDiffFile).toHaveBeenCalledWith("甲.md", "aaa");
+    expect(document.querySelector(".diff-context")?.textContent).toBe("更新「甲」");
+    const row = document.querySelectorAll<HTMLElement>(".diff-split-row")[1];
+    const [left, right] = [...row.children] as HTMLElement[];
+    const l = left.getBoundingClientRect();
+    const r = right.getBoundingClientRect();
+    expect(l.width).toBeGreaterThan(250);
+    expect(Math.abs(l.width - r.width)).toBeLessThan(1);
+    expect(Math.abs(l.top - r.top)).toBeLessThan(1);
+    expect(l.height).toBeGreaterThan(40);
+    const body = document.querySelector<HTMLElement>(".diff-body")!;
+    expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth + 1);
+  });
+
+  it("关掉对比回到原笔记，不增删标签", async () => {
+    dirty = 1;
+    await mount();
+    await openPanel();
+    const before = document.querySelectorAll(".tab").length;
+    await act(async () => {
+      document.querySelector<HTMLElement>(".hist-working .hist-file")!.click();
+      await settle(200);
+      document.querySelector<HTMLElement>(".diff-close")!.click();
+      await settle(200);
+    });
+
+    expect(document.querySelector(".diff-view")).toBeNull();
+    expect(document.querySelector(".editor")).toBeTruthy();
+    expect(document.querySelectorAll(".tab").length).toBe(before);
+  });
+
+  it("窄屏改成单列差异，不把左右两栏硬塞进手机", async () => {
+    dirty = 1;
+    await page.viewport(390, 844);
+    await mount();
+    await openPanel();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".hist-working .hist-file")!.click();
+      await settle(250);
+    });
+
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".diff-split")!).display).toBe(
+      "none",
+    );
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".diff-unified")!).display).toBe(
+      "block",
+    );
+    const main = document.querySelector<HTMLElement>(".main")!.getBoundingClientRect();
+    const view = document.querySelector<HTMLElement>(".diff-view")!.getBoundingClientRect();
+    expect(view.left).toBeGreaterThanOrEqual(main.left - 0.5);
+    const body = document.querySelector<HTMLElement>(".diff-body")!;
+    expect(body.scrollWidth).toBeLessThanOrEqual(body.clientWidth + 1);
   });
 
   /**
@@ -380,6 +600,76 @@ describe("侧栏里的版本历史", () => {
       await settle(300);
     });
     expect(gitRestore).toHaveBeenCalledWith("aaa", "甲.md");
+  });
+});
+
+describe("自动记录的空闲窗口", () => {
+  it("同一文件再次被外部写入会重新计时", async () => {
+    vi.useFakeTimers();
+    settingsPatch = { autoCommitIdleMin: 1 };
+    try {
+      const mounting = mount();
+      await vi.advanceTimersByTimeAsync(700);
+      await mounting;
+
+      dirty = 1;
+      await act(async () => {
+        fireVaultChanged?.(["甲.md"]);
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40_000);
+        fireVaultChanged?.(["甲.md"]);
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(gitCommit, "第二次写入后还没空闲一分钟，不该记录").not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+      expect(gitCommit).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("查看当前差异时暂停，关闭后再计完整一分钟", async () => {
+    vi.useFakeTimers();
+    dirty = 1;
+    settingsPatch = { autoCommitIdleMin: 1 };
+    try {
+      const mounting = mount();
+      await vi.advanceTimersByTimeAsync(700);
+      await mounting;
+      await act(async () => {
+        document.querySelector<HTMLElement>('.rail-btn[aria-label="历史"]')!.click();
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      await act(async () => {
+        document.querySelector<HTMLElement>(".hist-working .hist-file")!.click();
+        await vi.advanceTimersByTimeAsync(400);
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(70_000);
+      });
+      expect(gitCommit, "差异仍开着时不该把当前改动自动挪进历史").not.toHaveBeenCalled();
+
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>(".diff-close")!.click();
+        await vi.advanceTimersByTimeAsync(59_000);
+      });
+      expect(gitCommit).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(gitCommit).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

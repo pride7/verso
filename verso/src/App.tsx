@@ -22,7 +22,8 @@ import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
 import { TemplatesView } from "./components/TemplatesView";
-import { HistoryView } from "./components/HistoryView";
+import { HistoryView, type DiffSelection } from "./components/HistoryView";
+import { DiffView } from "./components/DiffView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
@@ -52,7 +53,7 @@ import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/tre
 import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
-import type { GitStatus, NoteContent, RemoteInfo, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { FileChange, GitStatus, NoteContent, RemoteInfo, NoteRef, TreeNode, VaultInfo } from "./types";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -195,6 +196,12 @@ export default function App() {
   /** 思维导图铺在正文上（§4.7）。它不是浮层，是同一篇笔记的另一种编辑视图 */
   const [mindmapOpen, setMindmapOpen] = useState(false);
   /**
+   * §2.8 的只读差异页。它不进标签状态：这是在检查一次改动，不是一篇文档。
+   * null 就显示原笔记。
+   */
+  const [diffSelection, setDiffSelection] = useState<DiffSelection | null>(null);
+  const diffReturnScroll = useRef<number | null>(null);
+  /**
    * 图标选择器开在哪篇笔记上（§2.3 的 frontmatter `icon`）。null = 没开。
    *
    * `at` 是弹出坐标；命令面板那条入口没有可以贴的坐标，给 null 就居中弹
@@ -216,6 +223,11 @@ export default function App() {
   const effectiveTheme = useEffectiveTheme(settings.theme);
   /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
   const [revision, setRevision] = useState(0);
+  /**
+   * 工作区最后一次活动。`git.dirty` 只记录数量，同一篇被连续改十次仍然是 1；
+   * 自动记录的空闲计时必须看这份活动序号，不能只看文件数。
+   */
+  const [gitActivity, setGitActivity] = useState(0);
   const [termOpen, setTermOpenRaw] = useState(
     () => localStorage.getItem("verso.termOpen") === "1",
   );
@@ -339,15 +351,19 @@ export default function App() {
   /** 立即落盘。切笔记、失焦、Ctrl+S 都走这里。 */
   const saveNow = useCallback(async () => {
     const n = noteRef.current;
-    if (!n) return;
+    if (!n) return true;
     try {
       setSaveState("saving");
       savedMtime.current = await api.writeNote(n.path, bodyRef.current);
+      dirtyRef.current = false;
       setSaveState("saved");
       setExternalChange(false);
+      setGitActivity((v) => v + 1);
+      return true;
     } catch (e) {
       setSaveState("error");
       setError((e as Error).message);
+      return false;
     }
   }, []);
 
@@ -414,6 +430,8 @@ export default function App() {
   const loadNote = useCallback(async (path: string) => {
     try {
       const content = await api.readNote(path);
+      setDiffSelection(null);
+      diffReturnScroll.current = null;
       setNote(content);
       setBody(content.body);
       savedMtime.current = content.mtimeMs;
@@ -423,6 +441,32 @@ export default function App() {
     } catch (e) {
       setError((e as Error).message);
     }
+  }, []);
+
+  /** 打开差异之前先落盘，否则“当前改动”会漏掉最后 800ms 里打的字。 */
+  const openDiff = useCallback(
+    async (selection: DiffSelection) => {
+      if (dirtyRef.current) await saveNow();
+      if (!diffSelection && mainRef.current) diffReturnScroll.current = mainRef.current.scrollTop;
+      setMindmapOpen(false);
+      setDiffSelection(selection);
+      if (narrowRef.current) setSidebarOpen(false);
+      requestAnimationFrame(() => {
+        if (mainRef.current) mainRef.current.scrollTop = 0;
+      });
+    },
+    [diffSelection, saveNow],
+  );
+
+  const closeDiff = useCallback(() => {
+    const top = diffReturnScroll.current ?? 0;
+    diffReturnScroll.current = null;
+    setDiffSelection(null);
+    // 原编辑器要等这一轮渲染才重新挂上；同一篇 note 的 path 没变，下面那条
+    // “换页恢复滚动”的 effect 不会跑，所以在这里单独放回去。
+    requestAnimationFrame(() => {
+      if (mainRef.current) mainRef.current.scrollTop = top;
+    });
   }, []);
 
   /**
@@ -799,11 +843,15 @@ export default function App() {
       if (committing.current) return;
       committing.current = true;
       try {
-        await saveNow();
+        // 外部 AI 改了文件、编辑器自己却是干净的情况下绝不能先保存：那会拿
+        // 内存里的旧正文盖掉 AI 的修改。只有最后 800ms 的键入还没落盘才冲盘。
+        if (dirtyRef.current && !(await saveNow())) return;
         await api.gitCommit(message);
         // 反馈就是状态栏那个点自己变成「已记录」—— 再弹一个提示条是噪音，
         // 而这件事本来就该悄悄发生
         refreshGit();
+        // 历史侧栏同时要把「当前改动」清掉，并把刚记的版本放到最上面。
+        setRevision((v) => v + 1);
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -840,6 +888,51 @@ export default function App() {
     [refresh, loadNote],
   );
 
+  /** 撤销一项尚未记录的改动。和历史回退不同，这一步没有自动备份，必须确认。 */
+  const discardWorkingFile = useCallback(
+    async (file: FileChange) => {
+      const name = file.path.replace(/\.md$/, "");
+      const deleting = file.kind === "added";
+      const ok = await confirm(
+        deleting
+          ? `删除尚未记录的新文件「${name}」？\n\n这个文件还没有进入版本记录，删除后无法从历史中找回。`
+          : `撤销「${name}」尚未记录的改动？\n\n文件会恢复到最近一次版本记录，未记录的内容会丢失。`,
+      );
+      if (!ok) return;
+
+      try {
+        const isCurrent = noteRef.current?.path === file.path;
+        // 撤销当前页包含“放弃内存里还没落盘的字”。先把 dirty ref 压掉，
+        // 否则删标签时 applyTabs 会按正常离页流程把它重新写回来。
+        if (isCurrent) {
+          dirtyRef.current = false;
+          setSaveState("saved");
+        }
+        await api.gitDiscardFile(file.path);
+        if (diffSelection?.commit === null && diffSelection.path === file.path) {
+          setDiffSelection(null);
+          diffReturnScroll.current = null;
+        }
+
+        if (deleting) {
+          forgetTab(file.path);
+          const tabIndex = tabsRef.current.tabs.indexOf(file.path);
+          if (tabIndex >= 0) await applyTabs(closeTab(tabsRef.current, tabIndex));
+        } else if (isCurrent) {
+          await loadNote(file.path);
+        }
+
+        await refresh();
+        refreshGit();
+        setGitActivity((v) => v + 1);
+        setRevision((v) => v + 1);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [applyTabs, diffSelection, forgetTab, loadNote, refresh, refreshGit],
+  );
+
   // 报完就散。挂在 notice 上而不是在 setNotice 那处 setTimeout：
   // 连着同步两次时，后一句的计时会覆盖前一句，而不会被前一句的定时器提前抹掉
   useEffect(() => {
@@ -848,9 +941,10 @@ export default function App() {
     return () => clearTimeout(t);
   }, [notice]);
 
-  // 打开 vault 后先问一次，之后每次改动（revision）也跟着更新。
+  // 打开 vault 后先问一次，之后每次内容活动也跟着更新。`revision` 管树和索引，
+  // `gitActivity` 还覆盖「同一文件连续改写但改动数量没变」的情况。
   // vault 可能还没打开（首屏是「选个目录」），那时不问
-  useEffect(refreshGit, [refreshGit, vault?.root, revision]);
+  useEffect(refreshGit, [refreshGit, vault?.root, revision, gitActivity]);
   // 远端只跟着 vault 变 —— 它不会因为改了一篇笔记而变
   useEffect(refreshRemote, [refreshRemote, vault?.root]);
 
@@ -865,6 +959,7 @@ export default function App() {
     if (syncing) return;
     setSyncing(true);
     try {
+      if (dirtyRef.current && !(await saveNow())) return;
       const out = await api.vaultSync();
       if (out.conflicts.length > 0) {
         const names = out.conflicts.map((p) => p.replace(/\.md$/, "")).join("、");
@@ -885,7 +980,7 @@ export default function App() {
     } finally {
       setSyncing(false);
     }
-  }, [syncing, refreshGit, refresh]);
+  }, [syncing, saveNow, refreshGit, refresh]);
 
   /** 配远端。改完立刻重问一次 —— needsToken 会跟着 URL 变 */
   const setRemoteUrl = useCallback(
@@ -924,12 +1019,14 @@ export default function App() {
    */
   useEffect(() => {
     const minutes = settings.autoCommitIdleMin;
-    if (minutes <= 0 || !git?.enabled || git.dirty === 0) return;
+    // 对比页是在主动审阅改动；审阅到一半把它自动挪进历史，会让眼前内容消失。
+    // 关掉对比后重新计完整的一段空闲时间。
+    if (minutes <= 0 || !git?.enabled || git.dirty === 0 || diffSelection) return;
     const t = setTimeout(() => void commitNow(), minutes * 60_000);
     return () => clearTimeout(t);
-    // 依赖里带上 dirty：每次有新改动都把这个计时器重新拨一遍，
-    // 「停手」才算得准
-  }, [settings.autoCommitIdleMin, git?.enabled, git?.dirty, commitNow]);
+    // `dirty` 只是文件数；同一个文件连续被 AI 写入时它不会变。
+    // `gitActivity` 才让每次真实活动都把计时器重新拨一遍。
+  }, [settings.autoCommitIdleMin, git?.enabled, git?.dirty, gitActivity, diffSelection, commitNow]);
 
   // ---------------------------------------------------------------- 项目日志（§2.10）
 
@@ -1213,6 +1310,7 @@ export default function App() {
     let unlisten: (() => void) | null = null;
     void onVaultChanged((paths) => {
       void refresh();
+      setGitActivity((v) => v + 1);
       setRevision((v) => v + 1);
       const cur = noteRef.current;
       if (!cur || !paths.includes(cur.path)) return;
@@ -1242,11 +1340,12 @@ export default function App() {
   // 失焦立即保存（§2.7），顺带按设置记一个版本（§2.8）
   useEffect(() => {
     const onBlur = () => {
-      if (dirtyRef.current) void saveNow();
       // **切到别的程序**是一个天然的「一件事做完了」的时刻 —— §2.8 把它
       // 和「空闲 5 分钟」并列为聚合窗口。没有改动时 `commitNow` 什么都不做，
       // 所以反复 alt-tab 不会造出一串空版本
+      // commitNow 自己会先冲掉未保存内容；两条异步保存并发会互相覆盖。
       if (settingsRef.current.autoCommitOnBlur) void commitNow();
+      else if (dirtyRef.current) void saveNow();
     };
     window.addEventListener("blur", onBlur);
     return () => window.removeEventListener("blur", onBlur);
@@ -1259,8 +1358,10 @@ export default function App() {
    * 最后敲的几个字可能还在自动保存的 800ms 窗口里，进程一没就真的没了。
    */
   const finishUp = useCallback(async () => {
-    if (dirtyRef.current) await saveNow();
+    // commitNow 已包含必要的冲盘。先 save 再 commit 会因为 React state 尚未
+    // 重渲染而重复写一次，关窗时尤其没必要。
     if (settingsRef.current.autoCommitOnClose) await commitNow();
+    else if (dirtyRef.current) await saveNow();
   }, [saveNow, commitNow]);
 
   /**
@@ -2042,8 +2143,10 @@ export default function App() {
             {sidebarView === "history" && (
               <HistoryView
                 revision={revision}
-                onOpen={(p) => void openPath(p)}
+                selected={diffSelection}
+                onDiff={(selection) => void openDiff(selection)}
                 onRestore={(commit, path) => void restoreFile(commit, path)}
+                onDiscard={(file) => void discardWorkingFile(file)}
               />
             )}
             {sidebarView === "outline" &&
@@ -2088,7 +2191,12 @@ export default function App() {
         pinnedCount={tabState.pinnedCount}
         dirtyPath={saveState === "dirty" ? (note?.path ?? null) : null}
         icons={iconMap}
-        onPick={(i) => void applyTabs(gotoTab(tabsRef.current, i))}
+        onPick={(i) => {
+          // 点标签就是明确地回到笔记。尤其是点当前标签时，applyTabs 会因为
+          // 路径没变而直接返回，不能指望它顺手关掉差异页。
+          if (diffSelection) closeDiff();
+          void applyTabs(gotoTab(tabsRef.current, i));
+        }}
         onClose={closeTabAt}
         onCloseOthers={closeOtherTabs}
         // 固定只是重排标签栏，不换页 —— 和拖动一样走 retagTabs
@@ -2102,7 +2210,7 @@ export default function App() {
       {/* 思维导图铺满编辑区。**放在 main 外面、和它占同一片区域** ——
           Editor 必须留在 DOM 里：图上的每一次改动都要走它的 dispatch，
           卸载了就没有编辑器可 dispatch，撤销历史也一并没了（§4.7） */}
-      {note && mindmapOpen && (
+      {note && mindmapOpen && !diffSelection && (
         <MindMap
           title={note.title}
           body={body}
@@ -2117,7 +2225,7 @@ export default function App() {
       )}
 
       <main className="main" ref={mainRef}>
-        {externalChange && (
+        {externalChange && !diffSelection && (
           <div className="banner">
             <span>文件已被外部程序修改</span>
             <button onClick={reloadFromDisk}>加载外部版本</button>
@@ -2125,7 +2233,9 @@ export default function App() {
           </div>
         )}
 
-        {note ? (
+        {diffSelection ? (
+          <DiffView selection={diffSelection} revision={revision} onClose={closeDiff} />
+        ) : note ? (
           <Editor
             key={note.path}
             note={note}
@@ -2192,7 +2302,7 @@ export default function App() {
           本来就可以重叠），于是侧栏收起、终端打开时它自己会跟着挪，
           不需要任何 JS 参与布局。
           只有一条标题时不显示 —— 那不叫目录，只是一块挡视线的东西 */}
-      {note && tocFloat && headings.length >= 2 && (
+      {note && !diffSelection && tocFloat && headings.length >= 2 && (
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 
@@ -2213,7 +2323,7 @@ export default function App() {
       {/* §5.5 公式工具条。只在窄屏、且真的打开了一篇笔记时出现 ——
           它占的是软键盘上方那一条，没有编辑对象时那一条不该存在。
           终端开着时也不显示：两个都想占底部，而在手机上根本没有终端 */}
-      {narrow && note && !termOpen && !mindmapOpen && (
+      {narrow && note && !diffSelection && !termOpen && !mindmapOpen && (
         <MathBar
           onInsert={(replacement) => editorRef.current?.insertSnippet(replacement)}
           onNext={() => editorRef.current?.nextStop()}

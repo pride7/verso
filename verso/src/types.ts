@@ -130,14 +130,45 @@ export interface HistoryEntry {
   id: string;
   /** 摘要那一行 */
   message: string;
+  /** 摘要下面的完整说明 */
+  detail: string;
+  authorName: string;
+  authorEmail: string | null;
   /** unix 秒 */
   at: number;
   files: FileChange[];
+  additions: number;
+  deletions: number;
 }
 
 export interface FileChange {
   path: string;
   kind: "added" | "modified" | "deleted" | "renamed";
+}
+
+export interface DiffLine {
+  kind: "context" | "added" | "deleted";
+  oldLine: number | null;
+  newLine: number | null;
+  text: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: DiffLine[];
+}
+
+/** §2.8 一篇文件在当前工作区或某次历史记录里的变化 */
+export interface FileDiff {
+  path: string;
+  kind: FileChange["kind"];
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  hunks: DiffHunk[];
 }
 
 export interface CommitInfo {
