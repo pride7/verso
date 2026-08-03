@@ -3174,20 +3174,32 @@ textarea:focus-visible {
 /* 行距比文档树紧一档：一篇长文的标题数远多于文档树的节点数，
    照文档树的行高排下来，一屏只剩十几行 */
 .outline-list {
-  padding-bottom: 10px;
+  padding: 2px 7px 10px;
+}
+.outline-list > li {
+  margin-bottom: 1px;
 }
 
 .outline-row {
-  display: block;
+  --outline-indent: 0px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
   width: 100%;
+  min-height: 27px;
   text-align: left;
-  /* 左内边距由组件按层级覆写，这里只给最浅那一级的值 */
-  padding: 4px 8px 4px 10px;
+  /* 每层只让 12px：等级圆点已经说明结构，缩进不必再吃掉一大片标题宽度 */
+  padding: 3px 7px 3px calc(7px + var(--outline-indent));
   border-radius: var(--r-sm);
-  transition: background var(--t-fast);
+  transition: background var(--t-fast), color var(--t-fast);
 }
 .outline-row:hover {
   background: var(--hover-bg);
+}
+.outline-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 /* 选中态与文档树同款实心条 —— 侧栏里所有列表的选中必须长一个样 */
 .outline-row.is-active,
@@ -3198,29 +3210,52 @@ textarea:focus-visible {
   color: var(--selected-text);
   font-weight: 500;
 }
+.outline-level {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.outline-row:hover .outline-level {
+  border-color: var(--border);
+  color: var(--text);
+}
+.outline-row.is-active .outline-level {
+  border-color: color-mix(in oklch, var(--accent) 24%, transparent);
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
 
 .outline-text {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.35;
   color: var(--text);
 }
-/* 层级不能只靠缩进：侧栏只有 252px，一级差 13px 缩进，二级和三级
-   扫一眼分不出来。再叠一档字号和明度，和正文里标题的层次同一个道理 */
+/* 圆点已经给出准确等级，文字只留很轻的一档重量差，避免六级标题像六套字号 */
 .outline-text.lv-0 {
-  font-weight: 500;
+  font-weight: 550;
 }
 .outline-text.lv-1 {
-  font-size: 12.5px;
+  font-weight: 450;
 }
 .outline-text.lv-2 {
-  font-size: 12.5px;
   color: var(--muted);
 }
 .outline-text.lv-3 {
-  font-size: 12px;
   color: var(--muted);
 }
 

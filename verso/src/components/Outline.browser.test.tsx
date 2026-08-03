@@ -20,7 +20,7 @@ vi.mock("../api", () => ({
 
 import { activeHeading, parseHeadings } from "../lib/outline";
 import { Editor, type EditorHandle } from "./Editor";
-import { OutlineFloat } from "./Outline";
+import { OutlineFloat, OutlineView } from "./Outline";
 import "../styles.css";
 
 const roots: Root[] = [];
@@ -114,6 +114,53 @@ describe("大纲跳转与当前位置", () => {
     scroller.scrollTop = 0;
     await settle();
     expect(activeHeading(HEADINGS, handleRef.current!.topLine())).toBe(0);
+  });
+});
+
+describe("侧栏大纲", () => {
+  const headings = parseHeadings("# 总论\n\n## 方法\n\n### 实验\n\n## 结论");
+
+  function mountOutline(activeIndex = 1) {
+    const host = document.createElement("div");
+    host.style.width = "252px";
+    document.body.appendChild(host);
+    const picked: number[] = [];
+    const root = createRoot(host);
+    roots.push(root);
+    root.render(
+      <OutlineView
+        headings={headings}
+        activeIndex={activeIndex}
+        onPick={(h) => picked.push(h.line)}
+      />,
+    );
+    return { host, picked };
+  }
+
+  it("用紧凑圆点显示真实标题等级", async () => {
+    const { host } = mountOutline();
+    await settle();
+
+    const levels = [...host.querySelectorAll<HTMLElement>(".outline-level")];
+    expect(levels.map((level) => level.textContent)).toEqual(["1", "2", "3", "2"]);
+    expect(levels[0].getBoundingClientRect().width).toBeLessThanOrEqual(18);
+    expect(host.querySelector<HTMLElement>(".outline-row")!.getBoundingClientRect().height)
+      .toBeLessThanOrEqual(30);
+    expect(host.querySelector<HTMLButtonElement>(".outline-row")!.title).toBe("H1 · 总论");
+  });
+
+  it("保留层级缩进、当前位置与点击跳转", async () => {
+    const { host, picked } = mountOutline(2);
+    await settle();
+
+    const rows = [...host.querySelectorAll<HTMLButtonElement>(".outline-row")];
+    expect(rows.map((row) => row.style.getPropertyValue("--outline-indent")))
+      .toEqual(["0px", "12px", "24px", "12px"]);
+    expect(rows.map((row) => Number.parseFloat(getComputedStyle(row).paddingLeft)))
+      .toEqual([7, 19, 31, 19]);
+    expect(host.querySelectorAll(".outline-row.is-active")).toHaveLength(1);
+    await userEvent.click(rows[3]);
+    expect(picked).toEqual([headings[3].line]);
   });
 });
 

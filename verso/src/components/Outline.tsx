@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { activeHeading, outlineDepths, type Heading } from "../lib/outline";
 import type { EditorHandle } from "./Editor";
@@ -84,21 +84,26 @@ export function OutlineView({ headings, activeIndex, onPick }: Props) {
   }
 
   return (
-    <ul className="side-list outline-list">
-      {headings.map((h, i) => (
-        <li key={`${h.line}:${i}`}>
-          <button
-            className={`outline-row${i === activeIndex ? " is-active" : ""}`}
-            style={{ paddingLeft: 10 + depths[i] * 13 }}
-            onClick={() => onPick(h)}
-            title={h.text || EMPTY}
-          >
-            {/* 层级只用缩进表示不够 —— 缩进两格的二级和三级标题一眼分不出。
-                再加一档字号和颜色，和正文里的标题层次同一个道理 */}
-            <span className={`outline-text lv-${depths[i]}`}>{h.text || EMPTY}</span>
-          </button>
-        </li>
-      ))}
+    <ul className="side-list outline-list" aria-label="当前文档大纲">
+      {headings.map((h, i) => {
+        const text = h.text || EMPTY;
+        return (
+          <li key={`${h.line}:${i}`}>
+            <button
+              className={`outline-row depth-${depths[i]}${i === activeIndex ? " is-active" : ""}`}
+              style={{ "--outline-indent": `${depths[i] * 12}px` } as CSSProperties}
+              onClick={() => onPick(h)}
+              title={`H${h.level} · ${text}`}
+              aria-label={`${h.level} 级标题：${text}`}
+            >
+              {/* 数字圆点比写完整的 H1/H2 少占一半宽度；title 与 aria-label
+                  仍明确说出它是标题等级，不会被误解成章节编号。 */}
+              <span className="outline-level" aria-hidden="true">{h.level}</span>
+              <span className={`outline-text lv-${depths[i]}`}>{text}</span>
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
