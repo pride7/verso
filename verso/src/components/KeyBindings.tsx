@@ -91,7 +91,7 @@ export function KeyBindings({ commands, overrides, onChange }: Props) {
       if (!isUsableSpec(spec)) {
         // 不带 Ctrl/Alt 的键绑上去会把正常打字吃掉，而那时用户正好在
         // 编辑器里，第一反应是「这软件坏了」
-        setNotice("要配合 Ctrl / Alt，或者用 F1–F12");
+        setNotice("请使用包含 Ctrl 或 Alt 的组合键，或使用 F1–F12。");
         return;
       }
       set(recording, spec);
@@ -120,15 +120,15 @@ export function KeyBindings({ commands, overrides, onChange }: Props) {
           className="set-reset-all"
           disabled={changedCount === 0}
           onClick={async () => {
-            if (await confirm("把所有快捷键恢复成默认？")) onChange({});
+            if (await confirm("确定恢复全部默认快捷键吗？")) onChange({});
           }}
         >
-          {changedCount ? `恢复默认键位（改过 ${changedCount} 条）` : "全是默认键位"}
+          {changedCount ? `恢复默认（已修改 ${changedCount} 项）` : "使用默认设置"}
         </button>
       </div>
 
       <p className="set-note set-keys-note">
-        点右边的按钮，然后直接按下想要的组合键。Backspace 清除，Esc 取消。
+        选择右侧快捷键，然后按下新的组合键。按 Backspace 清除，按 Esc 取消。
         {notice && <strong className="set-keys-warn">　{notice}</strong>}
       </p>
 
@@ -151,16 +151,18 @@ export function KeyBindings({ commands, overrides, onChange }: Props) {
                     setRecording((cur) => (cur === c.id ? null : c.id));
                   }}
                   title={
-                    isConflict ? "和另一条命令绑在同一个键上，先按下的那条会赢" : "点一下开始录制"
+                    isConflict
+                      ? "此快捷键与其他命令冲突；触发时仅执行优先匹配的命令。"
+                      : "选择后录制新快捷键"
                   }
                 >
-                  {recording === c.id ? "按下组合键…" : spec ? keyLabel(spec) : "未绑定"}
+                  {recording === c.id ? "请按组合键…" : spec ? keyLabel(spec) : "未绑定"}
                 </button>
                 <button
                   className="set-reset"
                   disabled={!custom}
                   onClick={() => reset(c.id)}
-                  title="恢复这一条的默认键位"
+                  title="恢复该命令的默认快捷键"
                 >
                   ↺
                 </button>

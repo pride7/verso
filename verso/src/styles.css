@@ -15,6 +15,7 @@
      现在把侧栏压到 96.2%，并且规定：
        --bg       正文区（最亮，视线主要落点）
        --surface  侧栏、状态栏、终端（退后一层）
+       --rail     图标栏（再退半层）
        --raised   浮层、输入框、选中态（浮在 surface 之上）
        --hairline 分隔线，比 --border 淡得多，只用来分区不用来描边 */
   /* ## 底色是**真中性灰**，chroma 全为 0
@@ -23,13 +24,17 @@
      "廉价"最主要的来源：一个工具的底色带着倾向，你看它一整天都在被那点
      倾向推着走。图标是深炭灰 + 白 + 一点青绿，界面照着来：**黑白灰打底，
      颜色只做重音**。 */
-  --bg: oklch(99% 0 0);
-  --surface: oklch(96.4% 0 0);
+  --bg: oklch(98.8% 0 0);
+  --surface: oklch(96.8% 0 0);
+  /* 图标栏比侧栏再退半层。两块都还是中性灰，但导航与内容清单不再糊成
+     一整片；这点明度差比再加一根硬边框安静得多。 */
+  --rail: oklch(94.8% 0 0);
   --raised: oklch(100% 0 0);
-  --text: oklch(22% 0 0);
-  --muted: oklch(52% 0 0);
-  --border: oklch(89% 0 0);
-  --hairline: oklch(0% 0 0 / 0.07);
+  --text: oklch(21% 0 0);
+  --muted: oklch(48% 0 0);
+  --muted-2: oklch(63% 0 0);
+  --border: oklch(88.5% 0 0);
+  --hairline: oklch(0% 0 0 / 0.075);
   --warn: oklch(70% 0.12 70);
   --danger: oklch(58% 0.15 25);
 
@@ -58,11 +63,11 @@
 
      实心彩色条认读性最好，但一排下来彩色块面积太大。改成灰底 + 左边 2px
      的标记：底色负责"这一行被选中了"，那根竖条负责"就是它"。 */
-  --selected-bg: oklch(91.5% 0 0);
+  --selected-bg: oklch(92.5% 0 0);
   --selected-text: var(--text);
   --selected-mark: var(--accent);
   /* 失焦时的选中态：Mac 会把它降成灰色，提示"这里现在不接受键盘" */
-  --hover-bg: oklch(0% 0 0 / 0.05);
+  --hover-bg: oklch(0% 0 0 / 0.045);
 
   /* 阴影分三档。浅色靠投影，深色靠描边 —— 深背景上的黑色投影看不见，
      硬加只会让边缘发脏。三档都带一层极淡的 1px 描边（阴影的第一段），
@@ -131,11 +136,13 @@
    深色不是把浅色反过来那么简单：明度差要拉得比浅色大（深色背景上人眼对
    明度差更迟钝），而 accent 要提亮、降饱和，否则在深底上会刺眼。 */
 :root {
-  --d-bg: oklch(18.5% 0 0);
-  --d-surface: oklch(22.5% 0 0);
-  --d-raised: oklch(26.5% 0 0);
+  --d-bg: oklch(18% 0 0);
+  --d-surface: oklch(22% 0 0);
+  --d-rail: oklch(19.8% 0 0);
+  --d-raised: oklch(26% 0 0);
   --d-text: oklch(92% 0 0);
-  --d-muted: oklch(65% 0 0);
+  --d-muted: oklch(67% 0 0);
+  --d-muted-2: oklch(52% 0 0);
   --d-border: oklch(32% 0 0);
   --d-hairline: oklch(100% 0 0 / 0.09);
   /* 深底上要提亮：同一个 chroma 在暗背景上看起来更闷，明度不拉高会糊成一团 */
@@ -166,9 +173,11 @@
   :root:not([data-theme]) {
     --bg: var(--d-bg);
     --surface: var(--d-surface);
+    --rail: var(--d-rail);
     --raised: var(--d-raised);
     --text: var(--d-text);
     --muted: var(--d-muted);
+    --muted-2: var(--d-muted-2);
     --border: var(--d-border);
     --hairline: var(--d-hairline);
     --accent: var(--d-accent);
@@ -195,9 +204,11 @@
 :root[data-theme="dark"] {
   --bg: var(--d-bg);
   --surface: var(--d-surface);
+  --rail: var(--d-rail);
   --raised: var(--d-raised);
   --text: var(--d-text);
   --muted: var(--d-muted);
+  --muted-2: var(--d-muted-2);
   --border: var(--d-border);
   --hairline: var(--d-hairline);
   --accent: var(--d-accent);
@@ -284,28 +295,36 @@ button {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
+  background:
+    radial-gradient(circle at 50% 42%, var(--raised) 0, transparent 42%),
+    var(--bg);
 }
 .welcome h1 {
-  font-size: 34px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 36px;
+  font-weight: 620;
+  letter-spacing: -0.035em;
   margin: 0;
 }
 .welcome-sub {
   color: var(--muted);
-  margin: 0 0 24px;
+  margin: 0 0 26px;
+  letter-spacing: 0.015em;
 }
 .btn-primary {
   background: var(--accent);
   color: white;
-  padding: 9px 20px;
+  padding: 9px 22px;
   border-radius: var(--r-md);
-  font-weight: 500;
-  transition: filter 150ms ease-out; /* §6.3 动效 120-180ms */
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+  transition: filter 150ms ease-out, transform var(--t-fast); /* §6.3 动效 120-180ms */
 }
 .btn-primary:hover {
   filter: brightness(1.08);
+}
+.btn-primary:active {
+  transform: translateY(1px);
 }
 
 /* ---------- 布局：§6.3 ---------- */
@@ -361,8 +380,8 @@ button {
      并自己横向滚，而不是把 `+` 挤出视野 */
   display: flex;
   align-items: stretch;
-  /* 不画底边：当前页的背景就是正文的背景，两者连成一片才说得通"这个标签
-     就是下面这块内容"。一条横线横穿过去，标签会变成飘在内容上的一排按钮 */
+  border-bottom: 1px solid var(--hairline);
+  /* 只在整条栏与正文之间收一根 hairline；单个标签不画轮廓，避免表格感。 */
 }
 
 /* 新建文档。在标签条**里面**，紧跟最后一个标签，跟着一起横向滚 */
@@ -373,7 +392,7 @@ button {
   justify-content: center;
   width: 28px;
   /* 和标签同高但不铺满：上下留一点，看起来是"挂在标签旁边"而不是又一个标签 */
-  margin: 2px 2px 4px 4px;
+  margin: 4px 2px 5px 4px;
   border-radius: var(--r-sm);
   color: var(--muted);
   transition: color var(--t-fast), background var(--t-fast);
@@ -390,8 +409,8 @@ button {
 .tab-strip {
   display: flex;
   align-items: stretch;
-  gap: 2px;
-  padding: 5px 8px 0;
+  gap: 3px;
+  padding: 5px 8px 4px;
   overflow-x: auto;
   scrollbar-width: none;
   /* 占满 `+` 之外的空间，并且**可以被压窄**（flex 项的默认 min-width 是
@@ -413,24 +432,24 @@ button {
   gap: 5px;
   flex: none;
   width: 168px;
-  padding: 0 5px 0 11px;
+  padding: 0 5px 0 10px;
   height: 30px;
   font-size: 12.5px;
   color: var(--muted);
   cursor: default;
-  border-radius: var(--r-sm) var(--r-sm) 0 0;
-  transition: background var(--t-fast), color var(--t-fast);
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
 }
 .tab:hover {
   background: var(--hover-bg);
   color: var(--text);
 }
-/* 当前页用**背景连到正文**来表示，不是加一条底边：标签和它下面的内容是
-   同一个东西，背景连起来最直白。上面那条 accent 只是强调，不承担识别 */
+/* 当前页是一张极薄的纸片：中性背景和细影负责层级，主题色只在底边点一下。
+   比浏览器式的通栏标签更安静，也不会把标题栏切成一排表格单元格。 */
 .tab.is-active {
-  background: var(--bg);
+  background: var(--raised);
   color: var(--text);
-  box-shadow: inset 0 2px 0 var(--accent);
+  box-shadow: var(--shadow-sm), inset 0 -2px 0 var(--accent);
 }
 .tab-name {
   flex: 1;
@@ -524,11 +543,10 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 10px 0 12px;
-  background: var(--surface);
-  /* 和侧栏同色、不画分隔线 —— 它们是同一块"退后的"区域，
-     中间加线会把左边切成两条细长条，显得局促 */
+  gap: 5px;
+  padding: 10px 0 11px;
+  background: var(--rail);
+  /* 靠与侧栏的半档明度差分层，不额外画硬线。 */
 }
 
 /* 把下半组动作推到底部。上组=切视图、下组=执行动作，两组在视觉上
@@ -539,8 +557,8 @@ button {
 
 .rail-btn {
   position: relative;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -557,7 +575,8 @@ button {
      只是「当前在文档树」—— 一个状态不该比内容还响。改成中性底，
      「就是它」交给左边那根竖条（§6.2：颜色只做重音） */
   color: var(--text);
-  background: var(--selected-bg);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 选中的视图在最左边有一条竖标 —— VS Code 的做法。
@@ -565,10 +584,10 @@ button {
 .rail-btn.is-on:not(.rail-action)::before {
   content: "";
   position: absolute;
-  left: -7px;
-  top: 5px;
-  bottom: 5px;
-  width: 2.5px;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
   border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
@@ -600,14 +619,15 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 11px 6px 9px 14px;
+  min-height: 43px;
+  padding: 10px 7px 8px 14px;
   flex: none;
 }
 .side-title {
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: var(--muted);
+  font-weight: 650;
+  font-size: 12.5px;
+  letter-spacing: 0.025em;
+  color: var(--text);
   flex: none;
   /* 标题和动作之间靠这个撑开，不用把 auto 挂在动作那一侧 ——
      那样头部每多一个元素就得重新想一遍谁该带 auto */
@@ -638,8 +658,12 @@ button {
 }
 .side-act:hover,
 .side-act.is-on {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+.side-act.is-on {
   color: var(--accent);
-  background: var(--border);
+  background: var(--accent-soft);
 }
 
 /* ---------- 头部的下拉菜单（排序） ---------- */
@@ -733,7 +757,7 @@ button {
 }
 .vault-name:hover {
   color: var(--text);
-  background: var(--border);
+  background: var(--hover-bg);
 }
 
 /* ---------- 拖右边缘调宽度 ---------- */
@@ -775,14 +799,16 @@ body.is-resizing {
   font: inherit;
   font-size: 12.5px;
   color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-sm);
   border-radius: var(--r-sm);
   outline: none;
-  transition: border-color var(--t-fast);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 .side-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .side-count {
   margin: 0;
@@ -897,7 +923,7 @@ body.is-resizing {
   gap: 3px;
   padding-right: 6px;
   border-radius: var(--r-sm);
-  margin: 0 8px 1px;
+  margin: 0 7px 2px;
   /* 选中标记那根竖条是绝对定位的，得以行为包含块 */
   position: relative;
   transition: background var(--t-fast);
@@ -942,8 +968,8 @@ body.is-resizing {
   content: "";
   position: absolute;
   left: 0;
-  top: 4px;
-  bottom: 4px;
+  top: 5px;
+  bottom: 5px;
   width: 2px;
   border-radius: 0 2px 2px 0;
   background: var(--selected-mark);
@@ -980,7 +1006,7 @@ body.is-resizing {
   align-items: center;
   gap: 5px;
   text-align: left;
-  padding: 5px 2px;
+  padding: 5.5px 2px;
   font-size: 13px;
   overflow: hidden;
   white-space: nowrap;
@@ -1017,6 +1043,7 @@ body.is-resizing {
   grid-area: main;
   overflow-y: auto;
   min-width: 0;
+  background: var(--bg);
   /* 滚到头之后继续滑，不要把外层一起带动 */
   overscroll-behavior: contain;
 }
@@ -1074,8 +1101,9 @@ body.is-resizing {
 /* 顶部要留够白。正文贴着窗口边缘是"网页感"最强的一处 ——
    桌面应用的内容区总有一段呼吸空间 */
 .breadcrumb {
-  padding: 32px 2px 12px;
-  font-size: 12px;
+  padding: 34px 2px 12px;
+  font-size: 11.5px;
+  font-weight: 500;
   color: var(--muted);
   letter-spacing: 0.01em;
 }
@@ -1273,7 +1301,7 @@ body.is-resizing {
 .overlay {
   position: fixed;
   inset: 0;
-  background: oklch(0% 0 0 / 0.18);
+  background: oklch(0% 0 0 / 0.22);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1300,6 +1328,7 @@ body.is-resizing {
   display: flex;
   flex-direction: column;
   background: var(--raised);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
@@ -1321,7 +1350,8 @@ body.is-resizing {
   color: var(--text);
   font: inherit;
   font-size: 15px;
-  padding: 14px 16px;
+  font-weight: 450;
+  padding: 15px 17px;
   border-bottom: 1px solid var(--hairline);
 }
 .modal-list {
@@ -1334,7 +1364,7 @@ body.is-resizing {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
 }
@@ -1960,10 +1990,11 @@ body.is-resizing {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 14px;
+  min-height: 24px;
+  padding: 4px 12px;
   border-top: 1px solid var(--hairline);
   background: var(--surface);
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--muted);
 }
 .dot {
@@ -2176,35 +2207,68 @@ body.is-resizing {
 /* ---------- 设置（M4） ---------- */
 
 .settings {
-  width: min(680px, 94vw);
-  /* 比其他浮层高：设置是"进来待一会儿"的地方，不是选一下就走 */
-  max-height: 78vh;
+  width: min(820px, 94vw);
+  height: min(640px, 86vh);
+  max-height: 86vh;
 }
 .settings-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px 0 6px;
-  border-bottom: 1px solid var(--border);
+  min-height: 48px;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+.settings-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
 }
 .settings-tabs {
   display: flex;
+  flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  padding: 12px 10px;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
 }
 .settings-tabs button {
-  padding: 9px 12px;
-  font-size: 13px;
+  position: relative;
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12.5px;
   color: var(--muted);
-  border-bottom: 2px solid transparent;
-  border-radius: 5px 5px 0 0;
-  transition: color var(--t-fast);
+  text-align: left;
+  border-radius: var(--r-sm);
+  transition: color var(--t-fast), background var(--t-fast);
 }
 .settings-tabs button:hover {
   color: var(--text);
+  background: var(--hover-bg);
 }
 .settings-tabs button.is-on {
   color: var(--text);
-  border-bottom-color: var(--accent);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  font-weight: 550;
+}
+.settings-tabs button.is-on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
 }
 .modal-close {
   color: var(--muted);
@@ -2216,14 +2280,37 @@ body.is-resizing {
   background: var(--hover-bg);
   color: var(--text);
 }
+.settings-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.settings-page-head {
+  flex: none;
+  padding: 18px 24px 13px;
+  border-bottom: 1px solid var(--hairline);
+}
+.settings-page-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.settings-page-head p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
 .settings-body {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 18px 18px;
+  padding: 2px 24px 20px;
 }
 .settings-foot {
-  border-top: 1px solid var(--border);
-  padding: 10px 18px;
+  flex: none;
+  border-top: 1px solid var(--hairline);
+  padding: 10px 24px;
 }
 .set-reset-all {
   font-size: 12.5px;
@@ -2232,14 +2319,27 @@ body.is-resizing {
 .set-reset-all:hover {
   color: var(--danger);
 }
+.set-section {
+  margin: 18px 0 0;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.set-section:first-child {
+  margin-top: 12px;
+}
+.set-section + .set-row {
+  padding-top: 9px;
+}
 
 .set-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 13px 0;
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hairline);
 }
 .set-row:last-child {
   border-bottom: none;
@@ -2247,7 +2347,7 @@ body.is-resizing {
 .set-label {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   font-size: 13.5px;
   min-width: 0;
 }
@@ -2294,14 +2394,16 @@ body.is-resizing {
   font: inherit;
   font-size: 13px;
   color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-sm);
   border-radius: var(--r-sm);
   outline: none;
-  transition: border-color var(--t-fast);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 .set-text:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .set-note {
   margin: 14px 0 0;
@@ -2441,7 +2543,7 @@ body.is-resizing {
 .segmented {
   display: flex;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-md);
   padding: 2px;
   gap: 2px;
@@ -2458,8 +2560,79 @@ body.is-resizing {
 }
 .segmented button.is-on {
   color: var(--text);
-  background: var(--bg);
-  box-shadow: 0 1px 2px color-mix(in oklch, black 12%, transparent);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+}
+
+@media (max-width: 640px) {
+  .settings {
+    width: 96vw;
+    height: 88vh;
+    max-height: 88vh;
+  }
+  .settings-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .settings-tabs {
+    flex-direction: row;
+    padding: 7px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--hairline);
+    scrollbar-width: none;
+  }
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-tabs button {
+    width: auto;
+    flex: none;
+    padding: 7px 10px;
+    white-space: nowrap;
+  }
+  .settings-tabs button.is-on::before {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+  .settings-page-head {
+    padding: 14px 18px 11px;
+  }
+  .settings-body {
+    padding: 0 18px 18px;
+  }
+  .settings-foot {
+    padding: 9px 18px;
+  }
+  .set-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .set-control {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .set-control .set-text {
+    width: 100%;
+  }
+  .set-control input[type="range"] {
+    flex: 1;
+    min-width: 0;
+  }
+  .set-keys-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .set-keys-filter {
+    width: 100%;
+  }
 }
 
 /* 空状态：顺便把快捷键教给用户 */

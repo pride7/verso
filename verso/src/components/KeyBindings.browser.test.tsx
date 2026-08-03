@@ -61,7 +61,7 @@ describe("快捷键设置", () => {
     await tick();
     cap(0).click();
     await tick();
-    expect(cap(0).textContent).toBe("按下组合键…");
+    expect(cap(0).textContent).toBe("请按组合键…");
 
     press({ code: "KeyK", ctrlKey: true, altKey: true });
     await tick();
@@ -77,7 +77,7 @@ describe("快捷键设置", () => {
     press({ code: "ControlLeft", key: "Control", ctrlKey: true });
     await tick();
     // 还在录，没被这一发按键收尾
-    expect(cap(0).textContent).toBe("按下组合键…");
+    expect(cap(0).textContent).toBe("请按组合键…");
   });
 
   it("不带 Ctrl/Alt 的键会把打字吃掉，不收", async () => {
@@ -89,7 +89,7 @@ describe("快捷键设置", () => {
     await tick();
     expect(overrides["note.new"]).toBeUndefined();
     expect(document.querySelector(".set-keys-warn")).not.toBeNull();
-    expect(cap(0).textContent).toBe("按下组合键…");
+    expect(cap(0).textContent).toBe("请按组合键…");
   });
 
   it("Backspace 解绑，和「没改过」不是一回事", async () => {

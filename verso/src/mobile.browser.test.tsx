@@ -264,6 +264,26 @@ describe("手机竖屏下的布局", () => {
     expect(app.right).toBeLessThanOrEqual(PHONE.w + 0.5);
   });
 
+  it("设置面板在窄屏改成横向分类，设置项上下排列", async () => {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="设置"]')!.click();
+      await settle(300);
+    });
+
+    const modal = box(".settings")!;
+    const tabs = box(".settings-tabs")!;
+    const row = box(".set-row")!;
+    const label = box(".set-label")!;
+    const control = box(".set-control")!;
+
+    expect(modal.left).toBeGreaterThanOrEqual(0);
+    expect(modal.right).toBeLessThanOrEqual(PHONE.w);
+    expect(tabs.height).toBeLessThan(56);
+    expect(row.right).toBeLessThanOrEqual(modal.right);
+    expect(control.top).toBeGreaterThanOrEqual(label.bottom);
+  });
+
   it("回到宽屏，侧栏变回占一列的样子", async () => {
     await mount();
     await act(async () => {

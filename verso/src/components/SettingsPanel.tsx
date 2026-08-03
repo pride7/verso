@@ -41,14 +41,25 @@ export type Tab =
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "appearance", label: "外观" },
-  { id: "editor", label: "编辑器" },
+  { id: "editor", label: "编辑" },
   { id: "keys", label: "快捷键" },
   { id: "terminal", label: "终端" },
-  { id: "snippets", label: "公式 snippet" },
-  { id: "slash", label: "/ 菜单" },
+  { id: "snippets", label: "公式补全" },
+  { id: "slash", label: "斜杠菜单" },
   { id: "sync", label: "同步" },
-  { id: "update", label: "更新" },
+  { id: "update", label: "软件更新" },
 ];
+
+const TAB_DESCRIPTIONS: Record<Tab, string> = {
+  appearance: "主题、字体与界面显示",
+  editor: "阅读、标签页、模板与版本记录",
+  keys: "查看并修改命令快捷键",
+  terminal: "内嵌终端的显示设置",
+  snippets: "自定义 LaTeX 输入规则",
+  slash: "管理内置命令与自定义条目",
+  sync: "配置远程仓库与访问凭据",
+  update: "检查版本与配置自动更新",
+};
 
 /**
  * 预设主题色：名字、色相、鲜艳度。
@@ -195,21 +206,21 @@ function SyncSettings({
   useEffect(() => setUrl(remote?.url ?? ""), [remote?.url]);
 
   if (!remote) {
-    return <p className="set-note">先打开一个 vault。</p>;
+    return <p className="set-note">请先打开一个笔记库。</p>;
   }
 
   return (
     <div className="set-sync">
       <p className="set-note">
-        填一个仓库地址，之后状态栏上会多一个「同步」。它会把这台机器上的改动推上去、
-        把别处的改动取下来 —— 你不需要知道底下是 git。
+        配置远程 Git 仓库后，可通过状态栏中的「同步」上传本机更改并获取远程更改。
       </p>
 
       <div className="set-row">
         <div className="set-label">
           <span>仓库地址</span>
           <span className="set-hint">
-            GitHub / GitLab / 自建都行，要 <code>https://</code> 开头的那个地址。留空 = 不同步
+            支持 GitHub、GitLab 及自托管服务。请输入以 <code>https://</code> 开头的仓库地址；
+            留空将停用同步。
           </span>
         </div>
         <div className="set-control">
@@ -217,7 +228,7 @@ function SyncSettings({
             type="text"
             className="set-text"
             value={url}
-            placeholder="https://github.com/你/你的笔记.git"
+            placeholder="https://github.com/用户名/笔记仓库.git"
             onChange={(e) => setUrl(e.target.value)}
           />
           <button
@@ -237,8 +248,8 @@ function SyncSettings({
             <span className="set-hint">
               {/* 说清楚它存哪儿 —— 一个仓库令牌等于那个仓库的写权限，
                   人有权知道自己把它交到了哪里 */}
-              GitHub 的 Personal access token（要 repo 权限）。存在系统钥匙串里，不写进设置文件
-              {tokenSaved && " · 已存过一个"}
+              GitHub Personal Access Token，需具备仓库读写权限。凭据仅存储于系统密钥链
+              {tokenSaved && " · 已保存"}
             </span>
           </div>
           <div className="set-control">
@@ -246,7 +257,7 @@ function SyncSettings({
               type="password"
               className="set-text"
               value={token}
-              placeholder={tokenSaved ? "已存过，填新的可覆盖" : "ghp_…"}
+              placeholder={tokenSaved ? "已保存；输入新令牌以替换" : "ghp_…"}
               onChange={(e) => setToken(e.target.value)}
             />
             <button
@@ -257,7 +268,7 @@ function SyncSettings({
                 setToken("");
               }}
             >
-              {token ? "保存" : "删掉"}
+              {token ? "保存" : "删除"}
             </button>
           </div>
         </div>
@@ -265,8 +276,8 @@ function SyncSettings({
 
       {remote.url && (
         <p className="set-note set-note-dim">
-          同步的是 <code>{remote.branch}</code> 这一支。两边改了同一篇时会停下来告诉你是哪几篇，
-          不会自动合 —— 那种时候自作主张合一半比不合更糟。
+          当前同步分支：<code>{remote.branch}</code>。若同一文档在两端均有修改，同步将暂停并列出
+          冲突文档，不会自动合并。
         </p>
       )}
     </div>
@@ -301,7 +312,7 @@ function UpdateSettings({
         <div className="set-label">
           <span>当前版本</span>
           <span className="set-hint">
-            新版本发在 GitHub 上。检查更新会连一次网，除此之外这个软件不联网
+            更新由 GitHub Releases 提供。仅在检查或下载更新时联网。
           </span>
         </div>
         <div className="set-control">
@@ -314,12 +325,11 @@ function UpdateSettings({
 
       {!supported && (
         <p className="set-note">
-          这个平台不支持自动更新。手机上的安装包由应用商店或你自己装的那个 APK
-          管，一个应用没有权限就地替换自己。
+          当前平台不支持应用内更新，请通过应用商店或安装包更新。
         </p>
       )}
 
-      {state.phase === "latest" && <p className="set-note">已经是最新的。</p>}
+      {state.phase === "latest" && <p className="set-note">当前已是最新版本。</p>}
 
       {state.phase === "error" && (
         <ul className="set-errors">
@@ -338,7 +348,7 @@ function UpdateSettings({
           {state.notes && <pre className="set-update-notes">{state.notes}</pre>}
           <div className="set-actions">
             <button className="set-save" onClick={update.dismiss}>
-              以后再说
+              稍后
             </button>
             <button className="btn-primary" onClick={update.download}>
               下载
@@ -349,15 +359,15 @@ function UpdateSettings({
 
       {state.phase === "downloading" && (
         <p className="set-note">
-          正在下载 {state.version} —— {progressText(state.received, state.total)}
+          正在下载 {state.version} · {progressText(state.received, state.total)}
         </p>
       )}
 
       {state.phase === "ready" && (
         <div className="set-update-found">
           <p className="set-note">
-            {state.version} 已经下好了。重启之后它就生效 —— 现在重启的话，手里
-            没保存的东西会先落盘、按你的设置记一个版本。
+            {state.version} 已下载完成。重启并安装前，应用会保存当前内容，并按照版本记录设置
+            处理尚未记录的更改。
           </p>
           <div className="set-actions">
             <button className="btn-primary" onClick={update.install}>
@@ -369,10 +379,9 @@ function UpdateSettings({
 
       <div className="set-row">
         <div className="set-label">
-          <span>启动时检查一次</span>
+          <span>启动时自动检查</span>
           <span className="set-hint">
-            开着的话，打开软件几秒后悄悄问一次。问不到就当没问过 —— 没网、
-            GitHub 连不上都不会弹任何东西
+            应用启动后自动检查更新。网络不可用或检查失败时不显示提示。
           </span>
         </div>
         <div className="set-control">
@@ -383,7 +392,7 @@ function UpdateSettings({
                 className={auto === v ? "is-on" : undefined}
                 onClick={() => onAutoChange(v)}
               >
-                {v ? "检查" : "不检查"}
+                {v ? "启用" : "停用"}
               </button>
             ))}
           </div>
@@ -445,6 +454,7 @@ export function SettingsPanel({
         ? settings.slashHidden.filter((x) => x !== label)
         : [...settings.slashHidden, label],
     });
+  const activeTab = TABS.find((item) => item.id === tab)!;
 
   return (
     <div className="overlay" onMouseDown={onClose}>
@@ -456,29 +466,40 @@ export function SettingsPanel({
         aria-label="设置"
       >
         <header className="settings-head">
-          <nav className="settings-tabs">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={t.id === tab ? "is-on" : undefined}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
+          <strong className="settings-title">设置</strong>
           <button className="modal-close" onClick={onClose} title="关闭 (Esc)" aria-label="关闭">
             <Icon name="close" />
           </button>
         </header>
 
-        <div className="settings-body">
+        <div className="settings-layout">
+          <nav className="settings-tabs" aria-label="设置分类">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                className={t.id === tab ? "is-on" : undefined}
+                onClick={() => setTab(t.id)}
+                aria-current={t.id === tab ? "page" : undefined}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+
+          <section className="settings-main" aria-labelledby="settings-page-title">
+            <div className="settings-page-head">
+              <h2 id="settings-page-title">{activeTab.label}</h2>
+              <p>{TAB_DESCRIPTIONS[tab]}</p>
+            </div>
+
+            <div className="settings-body">
           {tab === "appearance" && (
             <>
+              <h3 className="set-section">颜色</h3>
               <div className="set-row">
                 <div className="set-label">
                   <span>主题</span>
-                  <span className="set-hint">深浅两套共用一组中性灰，只翻转明度</span>
+                  <span className="set-hint">浅色与深色主题使用一致的中性灰阶体系。</span>
                 </div>
                 <div className="set-control">
                   <div className="segmented">
@@ -505,7 +526,7 @@ export function SettingsPanel({
                 <div className="set-label">
                   <span>主题色</span>
                   <span className="set-hint">
-                    界面本身是黑白灰，这个颜色只出现在链接、焦点环、选中标记上
+                    仅用于链接、焦点、光标和选中标记。
                   </span>
                 </div>
                 <div className="set-control">
@@ -532,7 +553,7 @@ export function SettingsPanel({
 
               <Slider
                 label="色相"
-                hint="沿着色环转。鲜艳度为 0 时它不起作用"
+                hint="调整强调色的色相；鲜艳度为 0 时不生效。"
                 value={settings.accentHue}
                 min={0}
                 max={359}
@@ -543,7 +564,7 @@ export function SettingsPanel({
               />
               <Slider
                 label="鲜艳度"
-                hint="拉到 0 就是完全无彩的石墨风"
+                hint="设置为 0 时使用无彩色石墨方案。"
                 value={settings.accentChroma}
                 min={0}
                 max={0.16}
@@ -553,9 +574,10 @@ export function SettingsPanel({
                 onChange={(v) => onChange({ accentChroma: v })}
               />
 
+              <h3 className="set-section">字体</h3>
               <Slider
                 label="界面字号"
-                hint="侧栏、状态栏、各种面板"
+                hint="应用于侧栏、状态栏和设置面板等界面元素。"
                 value={settings.uiFontSize}
                 min={11}
                 max={20}
@@ -566,17 +588,17 @@ export function SettingsPanel({
               />
 
               <TextRow
-                label="界面与正文字体"
-                hint="填一个已装好的字体名，留空用内置回退"
+                label="界面及正文字体"
+                hint="输入系统中已安装的字体名称；留空时使用默认字体栈。"
                 value={settings.bodyFont}
-                placeholder="例如 Source Han Sans SC"
+                placeholder="例如：Source Han Sans SC"
                 onChange={(v) => onChange({ bodyFont: v })}
               />
               <TextRow
                 label="等宽字体"
-                hint="代码块、公式源码、终端默认都用它"
+                hint="应用于代码块、公式源码，并作为终端默认字体。"
                 value={settings.monoFont}
-                placeholder="例如 JetBrains Mono"
+                placeholder="例如：JetBrains Mono"
                 onChange={(v) => onChange({ monoFont: v })}
               />
             </>
@@ -584,11 +606,12 @@ export function SettingsPanel({
 
           {tab === "editor" && (
             <>
+              <h3 className="set-section">版本记录</h3>
               <div className="set-row">
                 <div className="set-label">
-                  <span>切到别的程序时记一个版本</span>
+                  <span>切换应用时记录版本</span>
                   <span className="set-hint">
-                    「做完一件事了」的天然时刻。没有改动时不记，反复切窗口不会造出一串空版本
+                    仅在存在未记录的更改时执行，不会生成空版本。
                   </span>
                 </div>
                 <div className="set-control">
@@ -599,7 +622,7 @@ export function SettingsPanel({
                         className={settings.autoCommitOnBlur === v ? "is-on" : undefined}
                         onClick={() => onChange({ autoCommitOnBlur: v })}
                       >
-                        {v ? "记" : "不记"}
+                        {v ? "启用" : "停用"}
                       </button>
                     ))}
                   </div>
@@ -607,9 +630,9 @@ export function SettingsPanel({
               </div>
               <div className="set-row">
                 <div className="set-label">
-                  <span>关软件之前记一个版本</span>
+                  <span>退出前记录版本</span>
                   <span className="set-hint">
-                    合上电脑就走的话，「停手多久」那一档等于不存在 —— 停手的那一刻就是关窗那一刻
+                    关闭应用前保存当前内容，并在存在更改时记录版本。
                   </span>
                 </div>
                 <div className="set-control">
@@ -620,15 +643,15 @@ export function SettingsPanel({
                         className={settings.autoCommitOnClose === v ? "is-on" : undefined}
                         onClick={() => onChange({ autoCommitOnClose: v })}
                       >
-                        {v ? "记" : "不记"}
+                        {v ? "启用" : "停用"}
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
               <Slider
-                label="自动记版本"
-                hint="停手这么久之后，把改动记成一个版本。0 = 不自动记"
+                label="空闲后自动记录版本"
+                hint="停止编辑达到指定时长后记录版本；设为 0 可停用。"
                 value={settings.autoCommitIdleMin}
                 min={0}
                 max={60}
@@ -637,9 +660,11 @@ export function SettingsPanel({
                 fallback={DEFAULT_SETTINGS.autoCommitIdleMin}
                 onChange={(v) => onChange({ autoCommitIdleMin: v })}
               />
+
+              <h3 className="set-section">文档与标签页</h3>
               <Slider
-                label="打开时展开最近几条进展"
-                hint="项目日志（## 2026-08-01 14:30）旧的自动折叠起来。0 = 不折叠"
+                label="默认展开的日志条数"
+                hint="打开项目日志时保留最近几条进展为展开状态；设为 0 时不自动折叠。"
                 value={settings.journalKeep}
                 min={0}
                 max={12}
@@ -650,7 +675,7 @@ export function SettingsPanel({
               />
               <TextRow
                 label="模板目录"
-                hint="这个目录下的每篇 .md 就是一个模板。留空 = 关掉模板功能"
+                hint="目录内每个 Markdown 文件均可作为模板；留空可停用模板功能。"
                 value={settings.templateDir}
                 placeholder="templates"
                 onChange={(v) => onChange({ templateDir: v })}
@@ -658,17 +683,17 @@ export function SettingsPanel({
 
               <div className="set-row">
                 <div className="set-label">
-                  <span>点侧栏文件时</span>
+                  <span>点击侧栏文档时</span>
                   <span className="set-hint">
-                    Ctrl/⌘+点 和中键总是开新标签，不受这里影响
+                    按住 Ctrl/⌘ 单击或使用鼠标中键时，始终在新标签页中打开。
                   </span>
                 </div>
                 <div className="set-control">
                   <div className="segmented">
                     {(
                       [
-                        ["new", "开新标签"],
-                        ["replace", "替换当前"],
+                        ["new", "新建标签"],
+                        ["replace", "替换当前标签"],
                       ] as const
                     ).map(([v, label]) => (
                       <button
@@ -683,9 +708,10 @@ export function SettingsPanel({
                 </div>
               </div>
 
+              <h3 className="set-section">阅读排版</h3>
               <Slider
                 label="正文字号"
-                hint="中文比西文需要更大字号"
+                hint="调整正文与标题的基础字号。"
                 value={settings.bodyFontSize}
                 min={12}
                 max={28}
@@ -696,7 +722,7 @@ export function SettingsPanel({
               />
               <Slider
                 label="行高"
-                hint="中文密度高，1.5 会显得拥挤"
+                hint="调整正文行距；较高的行距更适合中文长文阅读。"
                 value={settings.lineHeight}
                 min={1.2}
                 max={2.4}
@@ -707,7 +733,7 @@ export function SettingsPanel({
               />
               <Slider
                 label="正文栏宽"
-                hint="约 34 汉字。超过 40 字眼睛回扫容易丢行"
+                hint="控制正文最大宽度，默认约为 34 个汉字。"
                 value={settings.contentWidth}
                 min={24}
                 max={80}
@@ -717,7 +743,7 @@ export function SettingsPanel({
                 onChange={(v) => onChange({ contentWidth: v })}
               />
               <p className="set-note">
-                窗口拉宽时留白增加，而不是行变长 —— 这是长时间阅读最影响眼睛的一项。
+                正文达到最大宽度后，扩大窗口只会增加两侧留白，以保持稳定的阅读行长。
               </p>
             </>
           )}
@@ -744,13 +770,13 @@ export function SettingsPanel({
               />
               <TextRow
                 label="终端字体"
-                hint="留空则跟随上面的等宽字体"
+                hint="留空时使用外观设置中的等宽字体。"
                 value={settings.terminalFont}
                 placeholder="跟随等宽字体"
                 onChange={(v) => onChange({ terminalFont: v })}
               />
               <p className="set-note">
-                终端里跑 AI CLI 时字号可以调小一点，能多看到几行上下文。
+                较小的字号可在终端中显示更多上下文。
               </p>
             </>
           )}
@@ -775,7 +801,7 @@ export function SettingsPanel({
           {tab === "slash" && (
             <div className="set-snippets">
               <p className="set-note">
-                写正文时打 <code>/</code> 弹出来的那个菜单。用不上的关掉，常用的自己加。
+                管理输入 <code>/</code> 时显示的内置命令；可停用不需要的条目。
               </p>
 
               <ul className="set-slash">
@@ -795,7 +821,7 @@ export function SettingsPanel({
               </ul>
 
               <p className="set-note">
-                自己加的条目。<code>$0</code> 标出插入后光标停的位置，和公式 snippet 一个写法。
+                自定义条目使用 JSON 格式；<code>$0</code> 表示内容插入后的光标位置。
               </p>
               <textarea
                 className="set-code"
@@ -816,15 +842,15 @@ export function SettingsPanel({
               <div className="set-actions">
                 <span className="set-hint">
                   {slashCheck.errors.length
-                    ? `${slashCheck.items.length} 条可用，${slashCheck.errors.length} 条有问题`
-                    : `${slashCheck.items.length} 条`}
+                    ? `${slashCheck.items.length} 条有效，${slashCheck.errors.length} 条无效`
+                    : `${slashCheck.items.length} 条自定义条目`}
                 </span>
                 <button
                   className="btn-primary"
                   disabled={!slashDirty}
                   onClick={() => onChange({ slashCustom: slashText })}
                 >
-                  {slashDirty ? "应用" : "已应用"}
+                  {slashDirty ? "应用更改" : "已应用"}
                 </button>
               </div>
             </div>
@@ -833,8 +859,8 @@ export function SettingsPanel({
           {tab === "snippets" && (
             <div className="set-snippets">
               <p className="set-note">
-                格式与 Obsidian Latex Suite 相同，可以把现有配置整段粘过来。
-                这些会与内置的 135 条合并，同触发词时你写的优先。
+                格式兼容 Obsidian Latex Suite，可直接导入现有配置。自定义规则会与内置的
+                135 条规则合并；触发词相同时优先使用自定义规则。
               </p>
               <textarea
                 className="set-code"
@@ -857,8 +883,8 @@ export function SettingsPanel({
               <div className="set-actions">
                 <span className="set-hint">
                   {snippetCheck.errors.length
-                    ? `${snippetCheck.specs.length} 条可用，${snippetCheck.errors.length} 条有问题`
-                    : `${snippetCheck.specs.length} 条`}
+                    ? `${snippetCheck.specs.length} 条有效，${snippetCheck.errors.length} 条无效`
+                    : `${snippetCheck.specs.length} 条自定义规则`}
                 </span>
                 <button
                   className="btn-primary"
@@ -867,23 +893,25 @@ export function SettingsPanel({
                   disabled={!snippetDirty}
                   onClick={() => onChange({ customSnippets: snippetText })}
                 >
-                  {snippetDirty ? "应用" : "已应用"}
+                  {snippetDirty ? "应用更改" : "已应用"}
                 </button>
               </div>
             </div>
           )}
-        </div>
+            </div>
 
-        <footer className="settings-foot">
-          <button
-            className="set-reset-all"
-            onClick={async () => {
-              if (await confirm("把所有设置恢复成默认值？")) onReset();
-            }}
-          >
-            全部恢复默认
-          </button>
-        </footer>
+            <footer className="settings-foot">
+              <button
+                className="set-reset-all"
+                onClick={async () => {
+                  if (await confirm("确定将全部设置恢复为默认值吗？")) onReset();
+                }}
+              >
+                恢复全部默认设置
+              </button>
+            </footer>
+          </section>
+        </div>
       </div>
     </div>
   );

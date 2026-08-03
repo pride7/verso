@@ -118,9 +118,11 @@ describe("主题切换", () => {
     for (const name of [
       "bg",
       "surface",
+      "rail",
       "raised",
       "text",
       "muted",
+      "muted-2",
       "border",
       "hairline",
       "accent",
