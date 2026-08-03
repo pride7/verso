@@ -281,6 +281,8 @@ jobs:
             echo
             echo "> Windows 另有 \`.msi\`（需要 MSI 部署的场景用；日常装 setup.exe 即可）。"
             echo "> \`.sig\` 和 \`latest.json\` 是自动更新用的，不用下载。"
-            echo "> macOS 的包暂未签名公证，首次打开需在「系统设置 → 隐私与安全性」里放行。"
+            echo "> macOS 的包暂未签名公证，首次打开会提示「已损坏，无法打开」（quarantine + ad-hoc"
+            echo "> 签名在 Gatekeeper 眼里就是这样，包本身没坏）。装好后在终端执行"
+            echo "> \`xattr -cr /Applications/Verso.app\` 即可打开；只需这一次，之后应用内自动更新不受影响。"
           } >> body.md
           gh release edit "$TAG" --notes-file body.md
