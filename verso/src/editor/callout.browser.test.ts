@@ -240,14 +240,14 @@ describe("表格必须能改", () => {
     expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
   });
 
-  // 这是这个功能的底线：渲染完还能改回去。第一版注册了 atomicRanges
-  // 又让 widget 吞掉事件，结果表格写完就锁死了
-  it("点一下就回到源码", async () => {
+  // 这是这个功能的底线：渲染完还能改。第一版注册了 atomicRanges
+  // 又让 widget 吞掉事件，结果表格写完就锁死了。
+  // v0.6.20 起点一格是**就地编辑**（§4.9），不再退回源码 —— 底线不变：
+  // 点了必须能改到字
+  it("点一格就能改字", async () => {
     const v = mount(DOC);
     await settle();
     const cell = v.dom.querySelector<HTMLElement>(".cm-table td")!;
-    // 必须带真实坐标 —— CodeMirror 靠 clientX/clientY 反查文档位置，
-    // 不给的话按 (0,0) 算，落在表格外面，光标根本没进来
     const box = cell.getBoundingClientRect();
     cell.dispatchEvent(
       new MouseEvent("mousedown", {
@@ -258,8 +258,10 @@ describe("表格必须能改", () => {
       }),
     );
     await settle();
-    expect(v.dom.querySelector(".cm-table")).toBeNull();
-    expect(v.dom.textContent).toContain("|---|---|");
+    const editing = v.dom.querySelector<HTMLElement>(".cm-table-cell.is-editing")!;
+    expect(editing).not.toBeNull();
+    expect(editing.getAttribute("contenteditable")).toBe("plaintext-only");
+    expect(document.activeElement).toBe(editing);
   });
 
   it("方向键也能走进去 —— 不能只有鼠标进得去", async () => {

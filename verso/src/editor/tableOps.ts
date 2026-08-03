@@ -282,6 +282,48 @@ export function applyOp(t: TableData, op: TableOp, row: number, col: number): Ta
 }
 
 /**
+ * 单元格文字要过的那道闸：GFM 的一格里放不下换行，粘贴进来的折成空格。
+ * 首尾空白顺手去掉 —— `splitRow` 解析时本来就会 trim，留着只会让
+ * 「改没改过」的判断出假阳性。
+ */
+export function normalizeCell(s: string): string {
+  return s.replace(/\s*\r?\n\s*/g, " ").trim();
+}
+
+/**
+ * 改一格的文字。渲染态的就地编辑（table.ts）走这条。
+ *
+ * 不塞进 `applyOp` 的枚举里：那套 op 都是无参的结构操作，为这一条给所有
+ * 调用点背上一个可选的 text 参数不值得。
+ *
+ * 没改动（或位置不存在）返回 `null`，理由同 `applyOp`：调用方靠它避免
+ * 一次空的撤销记录。
+ */
+export function setCell(t: TableData, row: number, col: number, text: string): TableData | null {
+  if (col < 0 || col >= t.header.length) return null;
+  const cells = row === HEADER ? t.header : t.rows[row];
+  if (!cells) return null;
+  const v = normalizeCell(text);
+  if ((cells[col] ?? "") === v) return null;
+  const n = clone(t);
+  (row === HEADER ? n.header : n.rows[row])[col] = v;
+  return n;
+}
+
+/** `setCell` 的源码版：一整张表的源码 → 改完一格的源码 */
+export function rewriteCell(
+  src: string,
+  row: number,
+  col: number,
+  text: string,
+): string | null {
+  const data = parseTable(src);
+  if (!data) return null;
+  const next = setCell(data, row, col, text);
+  return next && formatTable(next, indentOf(src));
+}
+
+/**
  * 一整张表的源码 → 做完一次操作的源码。渲染态的把手走这条。
  * 做不了（或表格解析不了）返回 `null`。
  */

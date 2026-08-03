@@ -153,6 +153,22 @@ export const versoTheme = EditorView.theme({
     whiteSpace: "nowrap",
   },
   ".cm-table tbody tr:last-child td": { borderBottom: "none" },
+  // 点哪格改哪格（§4.9），整格都是点击面积，所以整格都给文字光标
+  ".cm-table th, .cm-table td, .cm-table .cm-table-cell": { cursor: "text" },
+  // 单元格内容的那层 span：渲染态/编辑态在这层切换。block 让空格子也有
+  // 一整格的可点面积，minHeight 让空行不塌成一条缝
+  ".cm-table .cm-table-cell": {
+    display: "block",
+    minHeight: "1.4em",
+    outline: "none",
+  },
+  // 编辑态：一圈重音色细环标出「现在改的是这一格」。显示的是这一格的源码，
+  // 字体不换 —— 格子里的内容多半是正文，不是代码
+  ".cm-table .cm-table-cell.is-editing": {
+    whiteSpace: "pre-wrap",
+    borderRadius: "var(--r-xs)",
+    boxShadow: "0 0 0 2px color-mix(in oklch, var(--accent) 40%, transparent)",
+  },
 
   // ---- 表格的行/列把手（§4.9）----
   //
@@ -168,7 +184,7 @@ export const versoTheme = EditorView.theme({
     opacity: 0,
     cursor: "pointer",
     transition: "opacity var(--t-fast), background var(--t-fast)",
-    // 藏起来的时候不能挡住单元格 —— 点单元格是进源码改字的唯一入口
+    // 藏起来的时候不能挡住单元格 —— 点单元格是就地改字的入口
     pointerEvents: "none",
   },
   // 列把手：贴在表头上沿，横着一条，宽度就是这一列的宽度。

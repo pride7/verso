@@ -16,6 +16,7 @@ import {
   formatTable,
   HEADER,
   parseTable,
+  rewriteCell,
   rewriteTable,
   tableAt,
   tableOpSpec,
@@ -174,6 +175,39 @@ describe("列", () => {
     expect(next.align).toEqual(["right", "left"]);
     expect(next.rows).toEqual([["2", "1"]]);
     expect(applyOp(t, "col-move-left", HEADER, 0)).toBeNull();
+  });
+});
+
+describe("改一格的文字（就地编辑走这条）", () => {
+  it("写回那一格，整张表跟着重排", () => {
+    expect(rewriteCell(T, 0, 1, "改")!.split("\n")).toEqual([
+      "| 甲  | 乙  |",
+      "| --- | --- |",
+      "| 1   | 改  |",
+      "| 3   | 4   |",
+    ]);
+  });
+
+  it("表头也改得了", () => {
+    expect(rewriteCell(T, HEADER, 0, "新")!.split("\n")[0]).toBe("| 新  | 乙  |");
+  });
+
+  it("没改动返回 null，不留空的撤销记录 —— 首尾空白不算改动", () => {
+    expect(rewriteCell(T, 0, 0, "1")).toBeNull();
+    expect(rewriteCell(T, 0, 0, " 1 ")).toBeNull();
+  });
+
+  it("换行折成空格 —— GFM 的一格里放不下换行", () => {
+    expect(rewriteCell(T, 0, 0, "a\nb")).toContain("| a b | 2   |");
+  });
+
+  it("竖线转义回去，再解析还是同一格", () => {
+    expect(parseTable(rewriteCell(T, 0, 0, "a | b")!)!.rows[0][0]).toBe("a | b");
+  });
+
+  it("位置不存在返回 null", () => {
+    expect(rewriteCell(T, 9, 0, "x")).toBeNull();
+    expect(rewriteCell(T, 0, 9, "x")).toBeNull();
   });
 });
 

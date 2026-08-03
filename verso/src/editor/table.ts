@@ -10,20 +10,26 @@
  * 代价是光标不能停在渲染态里。所以沿用块级公式那条规则：**光标碰到就整块
  * 回到源码**，移开再渲染。这也是这个编辑器里所有"块"的统一规则。
  *
- * ## 改文字回源码，改结构不回源码
+ * ## 结构和文字都在渲染态上改，光标都不进去
  *
  * 「插一行」「删一列」这类**结构**操作在源码上做的代价极不成比例：插一列
  * 要在每一行的同一个位置各加一根竖线，人手做一次要数五六遍。所以渲染态的
  * 表格上挂了把手（列头上一条横杠、每行左边一条竖杠），点开是菜单，改的是
  * 文件里的那张表 —— 全部走 `tableOps.ts` 那套纯函数。
  *
- * **这些按钮有意不动光标**：光标一进表格范围整块就退回源码，而用户刚点的是
- * 渲染态上的按钮，退回源码等于把他扔进另一个界面。改完仍然是渲染态，可以
+ * **把手和菜单有意不动光标**：光标一进表格范围整块就退回源码，而用户刚点的
+ * 是渲染态上的按钮，退回源码等于把他扔进另一个界面。改完仍然是渲染态，可以
  * 接着点下一个。
  *
- * 单元格里的**文字**反过来 —— 点一下进源码去改。那里有 `[[链接]]`、公式
- * snippet、行内格式快捷键，整套编辑能力都在；在渲染态里做一个 contenteditable
- * 单元格等于把这些重写一遍，还要自己处理输入法与撤销。
+ * 单元格里的**文字**同理（v0.6.20 起）：点一格，那一格就地变成一个
+ * plaintext-only 的 contenteditable，显示这一格的源码，失焦或按键导航时写回
+ * 文件。Tab / Enter / 方向键在格子间走，Tab 走过最后一格自动加一行 ——
+ * Notion / 思源的手感。输入法与格内撤销交给浏览器：这只是一格纯文本，
+ * 不是把编辑器重写一遍。上一版「点单元格整块退回源码去改」要求用户在
+ * 源码里数竖线找格子，被判为不好用。
+ *
+ * 代价是格内没有 snippet、`[[` 补全那套能力 —— 要用它们时用方向键把光标
+ * 走进表格（或 Ctrl+E 切源码模式），整块照旧退回源码，那条路没有堵。
  *
  * ## 为什么在 StateField 里
  *
@@ -45,14 +51,28 @@ import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import {
   type Align,
   applyOp,
+  formatTable,
   HEADER,
+  indentOf,
+  normalizeCell,
   parseTable,
-  rewriteTable,
+  rewriteCell,
+  setCell,
   type TableData,
   type TableOp,
 } from "./tableOps";
 
 export { parseTable } from "./tableOps";
+
+/** 打开一格编辑时光标落在哪：全选（键盘导航）、头尾（跨格的方向键）、点击点 */
+type Caret = "all" | "start" | "end" | { x: number; y: number };
+
+/**
+ * 写回文件会让整个 widget 重建（src 变了，`eq` 不等），「接着编辑下一格」
+ * 的目标只能寄存在模块级，由新建的那个 widget 认领。按表格的起点配对 ——
+ * 只改表格内部的文字时起点不动。
+ */
+let pendingEdit: { from: number; row: number; col: number; caret: Caret } | null = null;
 
 /**
  * 把手和菜单的图标。
@@ -179,6 +199,206 @@ class TableWidget extends WidgetType {
       view.scrollDOM.removeEventListener("scroll", closeMenu);
     });
 
+    // ---------------------------------------------------------- 就地编辑
+    // `cellAt[0]` 是表头那行的内容 span，`cellAt[r + 1]` 是第 r 行的
+
+    const cellAt: HTMLElement[][] = [];
+    let editing: { row: number; col: number; el: HTMLElement } | null = null;
+
+    const rawOf = (row: number, col: number) =>
+      (row === HEADER ? data.header[col] : data.rows[row]?.[col]) ?? "";
+
+    /** 摘掉编辑态（不写回），返回编辑后的文字 */
+    const closeEditor = (): string => {
+      const e = editing!;
+      editing = null;
+      const text = e.el.textContent ?? "";
+      e.el.removeEventListener("keydown", onCellKey);
+      e.el.removeEventListener("blur", onCellBlur);
+      e.el.removeAttribute("contenteditable");
+      e.el.classList.remove("is-editing");
+      // 真写回时整个 widget 会重建，这一句只服务「没改动」的收场
+      e.el.replaceChildren(renderInline(normalizeCell(text)));
+      return text;
+    };
+
+    /** 把一格的文字写回文件。真的写了返回 true（widget 随之整个重建） */
+    const commitCell = (row: number, col: number, text: string): boolean => {
+      const to = this.from + this.src.length;
+      if (view.state.doc.sliceString(this.from, to) !== this.src) return false;
+      const next = rewriteCell(this.src, row, col, text);
+      if (!next) return false;
+      view.dispatch({ changes: { from: this.from, to, insert: next }, userEvent: "input.table" });
+      return true;
+    };
+
+    const placeCaret = (el: HTMLElement, at: Caret) => {
+      const sel = window.getSelection();
+      if (!sel) return;
+      // 点哪儿光标落哪儿。编辑态换成了源码文本，坐标未必严丝合缝，
+      // caretRangeFromPoint 给的是最近的位置 —— 比一律跳到末尾贴心
+      const clicked = typeof at === "object" ? document.caretRangeFromPoint?.(at.x, at.y) : null;
+      let range = clicked && el.contains(clicked.startContainer) ? clicked : null;
+      if (!range) {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        if (at !== "all") r.collapse(at === "start");
+        range = r;
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+    };
+
+    const openEditor = (row: number, col: number, caret: Caret) => {
+      const el = cellAt[row === HEADER ? 0 : row + 1]?.[col];
+      if (!el) return;
+      editing = { row, col, el };
+      el.textContent = rawOf(row, col);
+      // plaintext-only：格式靠 Markdown 标记表达，粘贴也顺带只收纯文本
+      el.setAttribute("contenteditable", "plaintext-only");
+      el.classList.add("is-editing");
+      el.addEventListener("keydown", onCellKey);
+      el.addEventListener("blur", onCellBlur);
+      el.focus();
+      placeCaret(el, caret);
+    };
+
+    /** 收掉当前编辑并写回。点到别处（失焦）、Escape 都走这条 */
+    const finishEdit = () => {
+      if (!editing) return;
+      const { row, col } = editing;
+      commitCell(row, col, closeEditor());
+    };
+
+    /** 移到另一格接着编辑。写回会重建 widget，目标格先寄存给新 widget 认领 */
+    const go = (row: number, col: number, caret: Caret = "all") => {
+      if (!editing) return;
+      const { row: r0, col: c0 } = editing;
+      const text = closeEditor();
+      pendingEdit = { from: this.from, row, col, caret };
+      if (!commitCell(r0, c0, text)) {
+        pendingEdit = null;
+        openEditor(row, col, caret);
+      }
+    };
+
+    /**
+     * Tab 走过最后一格：加一行接着编辑 —— Notion 连续录入的手感。
+     * 当前格的字和新行必须在**一次** dispatch 里落地：分两次的话第一次
+     * 重建就把寄存的目标格消费掉了。
+     */
+    const growAndGo = () => {
+      if (!editing) return;
+      const { row, col } = editing;
+      const text = closeEditor();
+      const to = this.from + this.src.length;
+      if (view.state.doc.sliceString(this.from, to) !== this.src) return;
+      const base = setCell(data, row, col, text) ?? data;
+      const next = applyOp(base, "row-below", row, col);
+      if (!next) return;
+      pendingEdit = { from: this.from, row: row === HEADER ? 0 : row + 1, col: 0, caret: "all" };
+      view.dispatch({
+        changes: { from: this.from, to, insert: formatTable(next, indentOf(this.src)) },
+        userEvent: "input.table",
+      });
+    };
+
+    /** 光标是否顶在编辑格的头/尾 —— 左右方向键要不要跨格全看这个 */
+    const caretEdge = (el: HTMLElement) => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return { start: false, end: false };
+      const r = sel.getRangeAt(0);
+      const pre = r.cloneRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(r.startContainer, r.startOffset);
+      const post = r.cloneRange();
+      post.selectNodeContents(el);
+      post.setStart(r.endContainer, r.endOffset);
+      return { start: pre.toString() === "", end: post.toString() === "" };
+    };
+
+    const onCellKey = (e: KeyboardEvent) => {
+      // 输入法组词中的 Enter/方向键是在跟候选框说话，不是跟表格
+      if (!editing || e.isComposing) return;
+      const { row, col, el } = editing;
+      const last = data.rows.length - 1;
+      const cols = data.header.length;
+      const nav = (r: number, c: number, caret: Caret = "all") => {
+        e.preventDefault();
+        go(r, c, caret);
+      };
+      switch (e.key) {
+        case "Tab":
+          if (e.shiftKey) {
+            if (col > 0) nav(row, col - 1);
+            else if (row === 0) nav(HEADER, cols - 1);
+            else if (row > 0) nav(row - 1, cols - 1);
+            else e.preventDefault(); // 表头第一格，前面没有了；别让 Tab 跑去切焦点
+          } else if (col < cols - 1) nav(row, col + 1);
+          else if (row === HEADER && last >= 0) nav(0, 0);
+          else if (row !== HEADER && row < last) nav(row + 1, 0);
+          else {
+            e.preventDefault();
+            growAndGo();
+          }
+          break;
+        case "Enter":
+          // Enter 到底不加行（手滑攒空行），要加行用 Tab 或把手
+          e.preventDefault();
+          if (row === HEADER && last >= 0) go(0, col);
+          else if (row !== HEADER && row < last) go(row + 1, col);
+          else {
+            finishEdit();
+            view.focus();
+          }
+          break;
+        case "Escape":
+          e.preventDefault();
+          finishEdit();
+          view.focus();
+          break;
+        case "ArrowLeft":
+          if (col > 0 && caretEdge(el).start) nav(row, col - 1, "end");
+          break;
+        case "ArrowRight":
+          if (col < cols - 1 && caretEdge(el).end) nav(row, col + 1, "start");
+          break;
+        case "ArrowUp":
+          if (row === 0) nav(HEADER, col);
+          else if (row > 0) nav(row - 1, col);
+          break;
+        case "ArrowDown":
+          if (row === HEADER && last >= 0) nav(0, col);
+          else if (row !== HEADER && row < last) nav(row + 1, col);
+          break;
+      }
+    };
+
+    const onCellBlur = () => finishEdit();
+
+    /**
+     * 点到哪格编辑哪格。挂在 `<table>` 上做委托 —— 把手（`.cm-table-ui`）
+     * 有自己的事件，编辑中的格子里再点是挪光标，都放过。
+     */
+    const cellDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t || t.closest(".cm-table-ui")) return;
+      const cell = t.closest<HTMLElement>("td, th");
+      if (!cell || cell.dataset.col === undefined) return;
+      if (editing?.el.contains(t)) return;
+      // 不拦的话浏览器会先把焦点甩到 contenteditable=false 的 widget 上，
+      // 表现成编辑器光标丢一下再回来
+      e.preventDefault();
+      const row = Number(cell.dataset.row);
+      const col = Number(cell.dataset.col);
+      const caret = { x: e.clientX, y: e.clientY };
+      if (editing) go(row, col, caret);
+      else openEditor(row, col, caret);
+    };
+
+    // ---------------------------------------------------------- 结构操作
+
     /** 做一次结构改动：整张表重排后写回文件 */
     const run = (op: TableOp, row: number, col: number) => {
       closeMenu();
@@ -186,10 +406,12 @@ class TableWidget extends WidgetType {
       // 位置对不上就什么都别做。widget 的 from 来自建它时那一次 build，
       // 而写错位置的后果是把别处的正文吃掉 —— 这类损坏没有征兆
       if (view.state.doc.sliceString(this.from, to) !== this.src) return;
-      const text = rewriteTable(this.src, op, row, col);
-      if (!text) return;
+      // 正编着的那格先把字收进来，不然点一下把手就把没写回的字扔了
+      const base = editing ? (setCell(data, editing.row, editing.col, closeEditor()) ?? data) : data;
+      const next = applyOp(base, op, row, col) ?? (base !== data ? base : null);
+      if (!next) return;
       view.dispatch({
-        changes: { from: this.from, to, insert: text },
+        changes: { from: this.from, to, insert: formatTable(next, indentOf(this.src)) },
         userEvent: "input.table",
       });
       // 有意不设 selection：光标一进表格范围整块就退回源码，而点按钮的人
@@ -276,14 +498,26 @@ class TableWidget extends WidgetType {
       return b;
     };
 
+    /** 一格的内容 span：渲染态/编辑态在这层切换，把手仍然直接挂在格子上 */
+    const content = (row: number, col: number, text: string): HTMLElement => {
+      const span = document.createElement("span");
+      span.className = "cm-table-cell";
+      // 走 renderInline：它只构造 DOM 节点、从不拼 HTML 字符串。
+      // 单元格内容是用户写的，而笔记可能来自分享或 AI 生成（§7.5）
+      span.appendChild(renderInline(text));
+      (cellAt[row === HEADER ? 0 : row + 1] ??= [])[col] = span;
+      return span;
+    };
+
     const table = document.createElement("table");
+    table.addEventListener("mousedown", cellDown);
     const thead = table.createTHead();
     const hr = thead.insertRow();
     data.header.forEach((cell, i) => {
       const th = document.createElement("th");
-      // 走 renderInline：它只构造 DOM 节点、从不拼 HTML 字符串。
-      // 单元格内容是用户写的，而笔记可能来自分享或 AI 生成（§7.5）
-      th.appendChild(renderInline(cell));
+      th.dataset.row = String(HEADER);
+      th.dataset.col = String(i);
+      th.appendChild(content(HEADER, i, cell));
       th.style.textAlign = data.align[i] ?? "left";
       // 列把手在表头上沿。表头那一行同时也是「行把手」的落点（只提供
       // 「在下方插入行」）—— 一张还没有数据行的表全靠它才加得出第一行
@@ -298,13 +532,23 @@ class TableWidget extends WidgetType {
       // 按表头的列数补齐/截断，否则少写一个竖线整张表就错位
       for (let i = 0; i < data.header.length; i++) {
         const td = tr.insertCell();
-        td.appendChild(renderInline(row[i] ?? ""));
+        td.dataset.row = String(r);
+        td.dataset.col = String(i);
+        td.appendChild(content(r, i, row[i] ?? ""));
         td.style.textAlign = data.align[i] ?? "left";
         if (i === 0) td.appendChild(grip("is-row", `第 ${r + 1} 行`, ROW_ITEMS, r, 0));
       }
     });
 
     wrap.appendChild(table);
+
+    // 上一个 widget 寄存的「接着编辑这一格」。这时还在 CM 的 update 里，
+    // DOM 尚未挂进文档，焦点落不住 —— 等一拍
+    if (pendingEdit && pendingEdit.from === this.from) {
+      const p = pendingEdit;
+      pendingEdit = null;
+      setTimeout(() => openEditor(p.row, p.col, p.caret), 0);
+    }
     return wrap;
   }
 
@@ -313,18 +557,17 @@ class TableWidget extends WidgetType {
   }
 
   /**
-   * **表格本身的事件必须交给编辑器处理**（返回 false）。
+   * `<table>` 里的一切事件都归 widget 自己：点格子是就地编辑、点把手是
+   * 结构菜单、编辑格里的按键是 contenteditable 的输入 —— 交给 CodeMirror
+   * 的话，点击会把光标送进表格范围，整块当场退回源码，就地编辑就不存在了。
    *
-   * 返回 true 的话点击到不了 CodeMirror，光标就永远进不了表格 —— 表格
-   * 写完即锁死，单元格里的字再也改不了。
-   *
-   * 例外是把手和菜单：那些是 widget 自己的控件，点它们不该把光标送进表格
-   * （送进去整块就退回源码了，而用户要的正是留在渲染态上接着改）。
+   * 表格外面那圈（`.cm-table` 的内边距）仍然交回编辑器（返回 false），
+   * 点那里等于点表格旁边的正文。
    */
   ignoreEvent(event: Event) {
     const t = event.target;
     const el = t instanceof Element ? t : t instanceof Node ? t.parentElement : null;
-    return !!el?.closest(".cm-table-ui");
+    return !!el?.closest(".cm-table-ui, .cm-table table");
   }
 }
 
@@ -376,8 +619,8 @@ const tableField = StateField.define<DecorationSet>({
  * 视图那边保留 atomicRanges 是因为它的 widget 本身可交互（点单元格改属性），
  * 光标没有进去的必要。
  *
- * 表格上的把手（插行插列）不受影响：它们在 `ignoreEvent` 里被单独放行，
- * 走的是 widget 自己的事件，从头到尾没有光标参与。
+ * 表格上的把手和单元格的就地编辑不受影响：它们在 `ignoreEvent` 里被整体
+ * 放行，走的是 widget 自己的事件，从头到尾没有光标参与。
  */
 export const tables: Extension = [parseRefresh, tableField];
 

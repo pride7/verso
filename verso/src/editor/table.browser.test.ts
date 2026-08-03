@@ -1,9 +1,10 @@
 /**
- * 渲染态表格上的结构编辑。DESIGN.md §4.9
+ * 渲染态表格上的结构编辑与单元格就地编辑。DESIGN.md §4.9
  *
- * 在真实浏览器里跑：这一层全是 DOM 事件与 `ignoreEvent` 的分工 —— 把手要
- * 被 widget 自己吃掉、单元格要放给编辑器。两者只差一个判断，而判错的表现
- * （表格锁死 / 点一下就退回源码）在单元测试里一条都验不了。
+ * 在真实浏览器里跑：这一层全是 DOM 事件、焦点与 `ignoreEvent` 的分工 ——
+ * 表格里的一切都归 widget 自己（点格子是就地编辑、点把手是菜单），只有
+ * 键盘把光标走进来才交还编辑器退回源码。分工判错的表现（表格锁死 /
+ * 一点就退回源码 / 编辑格聚不上焦）在单元测试里一条都验不了。
  *
  * 纯逻辑（插到第几行、竖线怎么对齐）在 `tableOps.test.ts` 里，那份在 Node 跑。
  */
@@ -91,7 +92,7 @@ describe("把手", () => {
     await settle();
     const grip = cols(v)[0];
     expect(Number(getComputedStyle(grip).opacity)).toBe(0);
-    // 藏着的时候不能挡住单元格 —— 点单元格是进源码改字的唯一入口
+    // 藏着的时候不能挡住单元格 —— 点单元格是就地改字的入口
     expect(getComputedStyle(grip).pointerEvents).toBe("none");
   });
 
@@ -215,10 +216,84 @@ describe("改完仍然是渲染态", () => {
     expect(v.dom.querySelector(".cm-table-menu")).toBeNull();
   });
 
-  it("点单元格照旧回到源码 —— 放行把手不能把整块事件都放行", async () => {
+});
+
+/** 正在编辑的那格（就地编辑的 contenteditable span） */
+function editingCell(v: EditorView) {
+  return v.dom.querySelector<HTMLElement>(".cm-table-cell.is-editing");
+}
+
+function press(el: HTMLElement, key: string, init: KeyboardEventInit = {}) {
+  el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
+}
+
+describe("单元格就地编辑", () => {
+  it("点一格就地进入编辑，表格不退回源码", async () => {
     const v = mount(DOC);
     await settle();
     click(v.dom.querySelector(".cm-table td")!);
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+    const cell = editingCell(v)!;
+    expect(cell).not.toBeNull();
+    // 编辑态显示的是这一格的源码
+    expect(cell.textContent).toBe("1");
+    expect(document.activeElement).toBe(cell);
+  });
+
+  it("失焦写回文件，写完还渲染着", async () => {
+    const v = mount(DOC);
+    await settle();
+    click(v.dom.querySelector(".cm-table td")!);
+    const cell = editingCell(v)!;
+    cell.textContent = "改过";
+    cell.blur();
+    await settle();
+    expect(v.state.doc.toString()).toContain("| 改过 | 2   |");
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+    expect(editingCell(v)).toBeNull();
+  });
+
+  it("Tab 写回当前格、移到下一格接着编辑", async () => {
+    const v = mount(DOC);
+    await settle();
+    click(v.dom.querySelector(".cm-table td")!);
+    const cell = editingCell(v)!;
+    cell.textContent = "新";
+    press(cell, "Tab");
+    await settle();
+    expect(v.state.doc.toString()).toContain("| 新  | 2   |");
+    // widget 已经重建过一轮，下一格（同行第二格）接着处于编辑态
+    expect(editingCell(v)?.textContent).toBe("2");
+  });
+
+  it("最后一格按 Tab 自动加一行，接着编辑新行 —— 连续录入不用碰鼠标", async () => {
+    const v = mount(DOC);
+    await settle();
+    const tds = v.dom.querySelectorAll<HTMLElement>(".cm-table td");
+    click(tds[tds.length - 1]);
+    press(editingCell(v)!, "Tab");
+    await settle();
+    expect(v.state.doc.toString().split("\n")).toContain("|     |     |");
+    expect(rows(v)).toHaveLength(4);
+    expect(editingCell(v)).not.toBeNull();
+  });
+
+  it("Enter 走到下一行同一列；Escape 收掉编辑态", async () => {
+    const v = mount(DOC);
+    await settle();
+    click(v.dom.querySelector(".cm-table td")!);
+    press(editingCell(v)!, "Enter");
+    const below = editingCell(v)!;
+    expect(below.textContent).toBe("3");
+    press(below, "Escape");
+    expect(editingCell(v)).toBeNull();
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+  });
+
+  it("键盘把光标走进表格，整块照旧退回源码 —— 进源码那条路没有堵", async () => {
+    const v = mount(DOC);
+    await settle();
+    v.dispatch({ selection: { anchor: DOC.indexOf("| 1") + 2 } });
     await settle();
     expect(v.dom.querySelector(".cm-table")).toBeNull();
     expect(v.dom.textContent).toContain("|---|---|");
