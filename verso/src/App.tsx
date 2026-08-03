@@ -26,6 +26,7 @@ import { HistoryView } from "./components/HistoryView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { setSlashAction } from "./editor/completion";
+import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { journalInsert } from "./lib/journal";
 import { normalizeIcon, pushRecentIcon } from "./lib/emoji";
@@ -1400,6 +1401,11 @@ export default function App() {
     const hasNote = !!note;
     const cur = note?.path ?? null;
     const node = cur ? tree.flatMap(flatten).find((n) => n.path === cur) : undefined;
+    // §4.9 表格的结构操作。渲染态的表格上有把手可以点，这里是键盘那一路 ——
+    // 做不成要说一声（光标不在表格里最常见），静默失败会让人以为软件坏了
+    const table = (op: TableOp) => () => {
+      if (!editorRef.current?.tableOp(op)) setNotice("光标不在表格里");
+    };
     return [
       {
         id: "note.new",
@@ -1681,6 +1687,60 @@ export default function App() {
         defaultKeys: "Mod+Alt+X",
         enabled: hasNote,
         run: () => editorRef.current?.toggleFormat("strike"),
+      },
+      // §4.9 表格。**默认一个键位都不绑** —— 这七条谁也不值得占一个全局
+      // 快捷键，而它们真正的入口是渲染态表格上的把手。放进命令面板是为了
+      // §0 那条反过来的一半：不能假设有鼠标。要的人可以在设置里绑
+      {
+        id: "table.rowAbove",
+        group: "表格",
+        label: "在上方插入行",
+        enabled: hasNote,
+        run: table("row-above"),
+      },
+      {
+        id: "table.rowBelow",
+        group: "表格",
+        label: "在下方插入行",
+        enabled: hasNote,
+        run: table("row-below"),
+      },
+      {
+        id: "table.rowDelete",
+        group: "表格",
+        label: "删除这一行",
+        enabled: hasNote,
+        run: table("row-delete"),
+      },
+      {
+        id: "table.colLeft",
+        group: "表格",
+        label: "在左侧插入列",
+        enabled: hasNote,
+        run: table("col-left"),
+      },
+      {
+        id: "table.colRight",
+        group: "表格",
+        label: "在右侧插入列",
+        enabled: hasNote,
+        run: table("col-right"),
+      },
+      {
+        id: "table.colDelete",
+        group: "表格",
+        label: "删除这一列",
+        enabled: hasNote,
+        run: table("col-delete"),
+      },
+      // 三条对齐命令会把「表格」这一组撑长一倍，而对齐是个来回试的动作 ——
+      // 一条命令按三次转一圈，比在菜单里挑三次快
+      {
+        id: "table.align",
+        group: "表格",
+        label: "这一列的对齐（左 → 中 → 右）",
+        enabled: hasNote,
+        run: table("align-cycle"),
       },
       {
         id: "formula.symbols",

@@ -11,6 +11,7 @@ import {
   unfoldAllHeadings,
 } from "../editor/fold";
 import { toggleFormatSpec, type InlineFormat } from "../editor/format";
+import { tableOpSpec, type TableOp } from "../editor/tableOps";
 import { foldTargets } from "../lib/journal";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { expand } from "../editor/snippets/match";
@@ -50,6 +51,14 @@ export interface EditorHandle {
   selectedText: () => string;
   /** 开关一种行内格式（粗体、斜体…，§4.8）。逻辑在 `editor/format.ts` */
   toggleFormat: (kind: InlineFormat) => void;
+  /**
+   * 对光标所在的表格做一次结构操作（插行插列…，§4.9）。逻辑在
+   * `editor/tableOps.ts`，渲染态上的把手走的是同一套。
+   *
+   * 返回**做没做成** —— 光标不在表格里时命令面板得说一声，静默失败会让人
+   * 以为是软件坏了
+   */
+  tableOp: (op: TableOp) => boolean;
   /**
    * 按行替换。思维导图的每一次改动都走它（§4.7）。
    *
@@ -324,6 +333,18 @@ export function Editor({
         });
         // 快捷键是在全局那一层截下来的，焦点可能根本不在编辑器里
         view.focus();
+      },
+      tableOp: (op: TableOp) => {
+        const view = viewRef.current;
+        if (!view) return false;
+        const spec = tableOpSpec(view.state, op);
+        // 光标不在表格里、或者这一步做不了（删掉唯一一列之类）。**不产生
+        // 一次空的改动** —— 那会在撤销栈里留下一步什么都没做的记录
+        if (!spec) return false;
+        view.dispatch(spec);
+        // 快捷键是在全局那一层截下来的，焦点可能根本不在编辑器里
+        view.focus();
+        return true;
       },
       replaceLines: (fromLine: number, toLine: number, insert: string) => {
         const view = viewRef.current;

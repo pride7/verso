@@ -54,7 +54,12 @@ export function CommandPalette({ commands, onClose }: Props) {
       name: `${c.group} ${c.label}`,
       path: c.id,
     }));
-    return rankNotes(items, query, 40);
+    // **上限要高于命令总数。** 这个数原来是 40，而命令表已经有五十来条 ——
+    // 什么都没输入时列的是「定义顺序的前 40 条」，于是新加一条命令就会把
+    // 末尾某条挤出初始列表。那条命令仍然搜得到，但打开面板扫一眼是找它的
+    // 主要方式，等于悄悄地弄丢了一个功能（加表格那组命令时正是这么发现的）。
+    // 命令是有限且可数的，不像笔记会上千，全列出来没有代价
+    return rankNotes(items, query, 200);
   }, [available, query]);
 
   useEffect(() => setActive(0), [query]);

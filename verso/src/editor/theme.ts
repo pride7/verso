@@ -144,6 +144,8 @@ export const versoTheme = EditorView.theme({
     // 只画横线不画竖线 —— 竖线会把表格变成网格纸，横向扫读反而更难
     borderBottom: "1px solid var(--hairline)",
     verticalAlign: "top",
+    // 把手绝对定位在单元格上，所以每一格都得是定位上下文
+    position: "relative",
   },
   ".cm-table thead th": {
     fontWeight: "600",
@@ -151,6 +153,105 @@ export const versoTheme = EditorView.theme({
     whiteSpace: "nowrap",
   },
   ".cm-table tbody tr:last-child td": { borderBottom: "none" },
+
+  // ---- 表格的行/列把手（§4.9）----
+  //
+  // **平时一根都不显示**，鼠标进了这张表才浮现。常显的把手会让一篇笔记
+  // 看起来像一张后台管理表（同 §4 折叠箭头那条）。浮现时也只有 32% 的
+  // 不透明度 —— 它是"可以点这里"的暗示，不是内容。
+  ".cm-table-grip": {
+    position: "absolute",
+    padding: 0,
+    border: "none",
+    borderRadius: "999px",
+    background: "var(--muted)",
+    opacity: 0,
+    cursor: "pointer",
+    transition: "opacity var(--t-fast), background var(--t-fast)",
+    // 藏起来的时候不能挡住单元格 —— 点单元格是进源码改字的唯一入口
+    pointerEvents: "none",
+  },
+  // 列把手：贴在表头上沿，横着一条，宽度就是这一列的宽度。
+  // 落在 .cm-table 的上内边距那 0.5em 里，不占表格自己的空间
+  ".cm-table-grip.is-col": { top: "-7px", left: "1px", right: "1px", height: "5px" },
+  // 行把手：竖着一条，落在第一格的左内边距里（那里有 12px，够放）
+  ".cm-table-grip.is-row": { left: "3px", top: "4px", bottom: "4px", width: "4px" },
+  ".cm-table:hover .cm-table-grip": { opacity: 0.32, pointerEvents: "auto" },
+  ".cm-table .cm-table-grip:hover, .cm-table .cm-table-grip.is-open": {
+    opacity: 1,
+    background: "var(--accent)",
+  },
+  // 触屏上没有 hover，一根把手都摸不出来 —— §1.2「不能假设有鼠标」。
+  // 那里常显一份更淡的
+  "@media (hover: none)": {
+    ".cm-table .cm-table-grip": { opacity: 0.22, pointerEvents: "auto" },
+  },
+
+  // 把手菜单。fixed 定位的理由见 table.ts：外面那层是 overflow-x: auto，
+  // absolute 的菜单会被裁掉下半截
+  ".cm-table-menu": {
+    position: "fixed",
+    zIndex: "20",
+    minWidth: "150px",
+    margin: 0,
+    padding: "4px",
+    listStyle: "none",
+    background: "var(--raised)",
+    borderRadius: "var(--r-md)",
+    boxShadow: "var(--shadow-md)",
+    fontFamily: "var(--font-body)",
+    fontWeight: "400",
+    // 表头里的菜单不该跟着表头一起加粗、也不该被 nowrap 影响
+    whiteSpace: "nowrap",
+    textAlign: "left",
+  },
+  ".cm-table-menu li": { listStyle: "none", margin: 0, padding: 0 },
+  ".cm-table-menu button": {
+    // 每一条都带图标：一列纯文字菜单要逐行读，带图标之后眼睛能直接跳到那条
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    width: "100%",
+    padding: "5px 8px",
+    border: "none",
+    borderRadius: "var(--r-sm)",
+    background: "transparent",
+    fontFamily: "inherit",
+    fontSize: "12.5px",
+    color: "var(--text)",
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  ".cm-table-menu button > svg": { flex: "none", color: "var(--muted)" },
+  ".cm-table-menu button:hover": { background: "var(--hover-bg)" },
+  ".cm-table-menu button:hover > svg": { color: "var(--text)" },
+  // 对齐那一行：图标 + 标签 + 三个小按钮，同 database 视图的「类型」那一行
+  ".cm-table-menu-sub": {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "5px 8px",
+    fontSize: "12.5px",
+    color: "var(--text)",
+  },
+  ".cm-table-menu-sub > svg": { flex: "none", color: "var(--muted)" },
+  ".cm-table-aligns": { display: "flex", gap: "2px", marginLeft: "auto" },
+  ".cm-table-aligns button": {
+    width: "22px",
+    justifyContent: "center",
+    padding: "3px",
+    border: "none",
+    borderRadius: "var(--r-xs)",
+    background: "transparent",
+    color: "var(--muted)",
+    lineHeight: 0,
+    cursor: "pointer",
+  },
+  ".cm-table-aligns button:hover": { background: "var(--hover-bg)", color: "var(--text)" },
+  ".cm-table-aligns button.is-on": {
+    background: "color-mix(in oklch, var(--accent) 14%, transparent)",
+    color: "var(--accent)",
+  },
   // 单元格里的行内代码。和正文里那套药丸保持一致
   ".cm-inline-code": {
     fontFamily: "var(--font-mono)",
