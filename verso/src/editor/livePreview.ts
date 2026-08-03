@@ -39,7 +39,7 @@ import {
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
 import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
-import { BulletWidget, CalloutWidget, MathWidget, TaskWidget } from "./widgets";
+import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
 const hideMark = Decoration.replace({});
@@ -268,6 +268,18 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
             );
             // 标题已经进 widget 了，把原文那段也吃掉，否则会重复显示一遍
             if (rest) marks.push(hideMark.range(to, state.doc.lineAt(to).to));
+            return false;
+          }
+
+          // ---- 分割线 ----
+          //
+          // `---`（以及 `***` `___`）渲染成一条水平细线。frontmatter 不会
+          // 走到这里：编辑器文档是 note.body，两道 `---` 归属性条管（§2.3）；
+          // 紧跟在段落下面的 `---` 是 setext 标题的下划线，节点名不同，
+          // 也不受影响。单行节点，ViewPlugin 里可以安全替换。
+          case "HorizontalRule": {
+            if (touched(state, from, to)) return false;
+            marks.push(Decoration.replace({ widget: new HrWidget(from) }).range(from, to));
             return false;
           }
 

@@ -126,6 +126,18 @@ export const versoTheme = EditorView.theme({
     padding: "0 2px",
   },
 
+  // ---- 分割线 ----
+  // `---` 的渲染态。inline-block 撑满行宽，vertical-align 让它落在行的
+  // 视觉中线附近而不是趴在基线上
+  ".cm-hr": {
+    display: "inline-block",
+    width: "100%",
+    height: "2px",
+    borderRadius: "999px",
+    background: "var(--hairline)",
+    verticalAlign: "middle",
+  },
+
   // ---- GFM 表格 ----
   ".cm-table": {
     // 同样避开纵向 margin（见上面那条注释），块级 widget 也进高度图
