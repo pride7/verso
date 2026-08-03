@@ -26,6 +26,7 @@ import { HistoryView, type DiffSelection } from "./components/HistoryView";
 import { DiffView } from "./components/DiffView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
+import { VaultManager, VaultSwitcher, VaultWelcome } from "./components/VaultSwitcher";
 import { setSlashAction } from "./editor/completion";
 import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
@@ -53,7 +54,16 @@ import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/tre
 import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
-import type { FileChange, GitStatus, NoteContent, RemoteInfo, NoteRef, TreeNode, VaultInfo } from "./types";
+import type {
+  FileChange,
+  GitStatus,
+  NoteContent,
+  RecentVault,
+  RemoteInfo,
+  NoteRef,
+  TreeNode,
+  VaultInfo,
+} from "./types";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -105,6 +115,14 @@ export function countChars(text: string): number {
 
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
+  /** 换库装载 workspace 的短窗口里，不能让旧标签被 effect 写进新仓库。 */
+  const activatingVault = useRef(false);
+  /** 这台设备记住的仓库。目录本身不在这里，只有快速入口（§2.1）。 */
+  const [recentVaults, setRecentVaults] = useState<RecentVault[]>([]);
+  const [vaultManagerOpen, setVaultManagerOpen] = useState(false);
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  /** 非 null 时锁住所有仓库入口，避免两次打开并发替换后端的当前 vault。 */
+  const [switchingVault, setSwitchingVault] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [noteList, setNoteList] = useState<NoteRef[]>([]);
   const [note, setNote] = useState<NoteContent | null>(null);
@@ -164,6 +182,7 @@ export default function App() {
    *
    * 用 ref 而不是 state：读它的地方是 `openVault` 那个长期存在的 callback
    */
+  const [mobile, setMobile] = useState(false);
   const mobileRef = useRef(false);
   useEffect(() => {
     // 老后端没有这个命令时 invoke 是**同步抛**的，包住整个调用点
@@ -172,6 +191,7 @@ export default function App() {
         .isMobile()
         .then((v) => {
           mobileRef.current = v;
+          setMobile(v);
         })
         .catch(() => {});
     } catch {
@@ -324,6 +344,15 @@ export default function App() {
       setNoteList(list);
     } catch (e) {
       setError((e as Error).message);
+    }
+  }, []);
+
+  const refreshRecentVaults = useCallback(async () => {
+    try {
+      setRecentVaults(await api.recentVaults());
+    } catch {
+      // 老后端没有这条命令时继续沿用单仓库界面；快捷入口不该让应用启动失败。
+      setRecentVaults([]);
     }
   }, []);
 
@@ -586,7 +615,7 @@ export default function App() {
    * 回到原处」—— 崩溃时丢掉最后一次操作会比多写几次文件更让人恼火。
    */
   useEffect(() => {
-    if (!vault) return;
+    if (!vault || activatingVault.current) return;
     // try/catch 包住整个调用而不是只 .catch()：这一条**存不下也不该拦住任何
     // 事**，而同步抛出的错（比如后端还没起来）会直接把整个 App 打掉
     try {
@@ -625,35 +654,27 @@ export default function App() {
     setTabState(next);
   }, []);
 
-  const openVault = useCallback(async () => {
-    try {
-      // 手机上没有目录选择器（Tauri 移动端没实现，点下去毫无反应），
-      // 位置由 Rust 挑。**失败时那句错误要显示出来** —— 手机上没有终端、
-      // 看不了日志，那是唯一能知道为什么的地方
-      if (mobileRef.current) {
-        const info = await api.openDefaultVault();
+  /** 后端已经换好 vault 后，把所有前端的 per-vault 状态一起接过去。 */
+  const activateVault = useCallback(
+    async (info: VaultInfo, fallback?: string | null) => {
+      activatingVault.current = true;
+      try {
         setVault(info);
         setNote(null);
         setBody("");
+        setDiffSelection(null);
+        setExternalChange(false);
         setError(null);
         await refresh();
-        await restoreTabs(null);
-        return;
+        // 标签、编辑器历史与滚动位置都是 per-vault，绝不能从上一个库带过来。
+        await restoreTabs(fallback);
+        await refreshRecentVaults();
+      } finally {
+        activatingVault.current = false;
       }
-      const path = await pickVaultFolder();
-      if (!path) return;
-      const info = await api.openVault(path);
-      setVault(info);
-      setNote(null);
-      setBody("");
-      setError(null);
-      await refresh();
-      // 标签是 per-vault 的，换库要换成新库自己那一组
-      await restoreTabs(null);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }, [refresh, restoreTabs]);
+    },
+    [refresh, restoreTabs, refreshRecentVaults],
+  );
 
   /**
    * 换页之后把滚动位置放回去。
@@ -840,20 +861,22 @@ export default function App() {
    */
   const commitNow = useCallback(
     async (message?: string) => {
-      if (committing.current) return;
+      if (committing.current) return false;
       committing.current = true;
       try {
         // 外部 AI 改了文件、编辑器自己却是干净的情况下绝不能先保存：那会拿
         // 内存里的旧正文盖掉 AI 的修改。只有最后 800ms 的键入还没落盘才冲盘。
-        if (dirtyRef.current && !(await saveNow())) return;
+        if (dirtyRef.current && !(await saveNow())) return false;
         await api.gitCommit(message);
         // 反馈就是状态栏那个点自己变成「已记录」—— 再弹一个提示条是噪音，
         // 而这件事本来就该悄悄发生
         refreshGit();
         // 历史侧栏同时要把「当前改动」清掉，并把刚记的版本放到最上面。
         setRevision((v) => v + 1);
+        return true;
       } catch (e) {
         setError((e as Error).message);
+        return false;
       } finally {
         committing.current = false;
       }
@@ -1255,13 +1278,12 @@ export default function App() {
 
   // 启动时自动重开上次的 vault 和笔记，回到离开时的位置
   useEffect(() => {
+    void refreshRecentVaults();
     void (async () => {
       try {
         const restored = await api.reopenLastVault();
         if (!restored) return;
-        setVault(restored.vault);
-        await refresh();
-        await restoreTabs(restored.lastNote);
+        await activateVault(restored.vault, restored.lastNote);
       } catch {
         /* 上次的目录没了就停在欢迎页 */
       }
@@ -1363,6 +1385,90 @@ export default function App() {
     if (settingsRef.current.autoCommitOnClose) await commitNow();
     else if (dirtyRef.current) await saveNow();
   }, [saveNow, commitNow]);
+
+  /**
+   * 快速切库不能绕过关窗时的安全网：正文先落盘，配置要求时再记一个版本，
+   * 最后把当前标签状态明确写回旧仓库。失败就留在原处。
+   */
+  const prepareVaultSwitch = useCallback(async () => {
+    if (!vault) return true;
+    const ready = settingsRef.current.autoCommitOnClose
+      ? await commitNow()
+      : !dirtyRef.current || (await saveNow());
+    if (!ready) return false;
+    try {
+      await api.workspaceSet(tabsRef.current);
+      return true;
+    } catch (e) {
+      setError((e as Error).message);
+      return false;
+    }
+  }, [vault, commitNow, saveNow]);
+
+  const switchToVault = useCallback(
+    async (path: string) => {
+      if (switchingVault || path === vault?.root) {
+        if (path === vault?.root) setVaultManagerOpen(false);
+        return;
+      }
+      setSwitchingVault(path);
+      setVaultError(null);
+      try {
+        if (!(await prepareVaultSwitch())) {
+          setVaultError("当前仓库未能完成保存，已取消切换。");
+          return;
+        }
+        const info = await api.openVault(path);
+        await activateVault(info, null);
+        setVaultManagerOpen(false);
+      } catch (e) {
+        const message = (e as Error).message;
+        setError(message);
+        setVaultError(message);
+        await refreshRecentVaults();
+      } finally {
+        setSwitchingVault(null);
+      }
+    },
+    [switchingVault, vault?.root, prepareVaultSwitch, activateVault, refreshRecentVaults],
+  );
+
+  const openVault = useCallback(async () => {
+    if (switchingVault) return;
+    setVaultError(null);
+    try {
+      // 手机上没有目录选择器，也没有多仓库管理：位置仍由 Rust 挑。
+      if (mobileRef.current) {
+        setSwitchingVault("__default__");
+        const info = await api.openDefaultVault();
+        await activateVault(info, null);
+        return;
+      }
+      const path = await pickVaultFolder();
+      if (path) await switchToVault(path);
+    } catch (e) {
+      const message = (e as Error).message;
+      setError(message);
+      setVaultError(message);
+    } finally {
+      setSwitchingVault(null);
+    }
+  }, [switchingVault, activateVault, switchToVault]);
+
+  const forgetVault = useCallback(
+    async (path: string) => {
+      if (path === vault?.root) return;
+      try {
+        await api.forgetVault(path);
+        await refreshRecentVaults();
+      } catch (e) {
+        const message = (e as Error).message;
+        setError(message);
+        setVaultError(message);
+      }
+    },
+    [vault?.root, refreshRecentVaults],
+  );
 
   /**
    * 关窗。Rust 那边先把关窗拦下来发 `app:closing`，我们做完再让它关。
@@ -1654,7 +1760,7 @@ export default function App() {
       },
       {
         id: "vault.history",
-        group: "vault",
+        group: "仓库",
         label: "版本历史",
         run: () => pickView("history"),
       },
@@ -1893,13 +1999,19 @@ export default function App() {
       },
       {
         id: "vault.switch",
-        group: "vault",
-        label: "切换 vault",
-        run: () => void openVault(),
+        group: "仓库",
+        label: mobile ? "打开仓库" : "管理仓库",
+        run: () => {
+          if (mobile) void openVault();
+          else {
+            setVaultError(null);
+            setVaultManagerOpen(true);
+          }
+        },
       },
       {
         id: "vault.commit",
-        group: "vault",
+        group: "仓库",
         label: "记一个版本",
         // 不绑默认键位：它是低频的兜底操作，日常靠自动记
         enabled: !!git?.enabled && (git?.dirty ?? 0) > 0,
@@ -1907,7 +2019,7 @@ export default function App() {
       },
       {
         id: "vault.sync",
-        group: "vault",
+        group: "仓库",
         label: "同步",
         // 不绑默认键位：它会走网络、可能要好几秒，不该是手滑就触发的动作
         enabled: !!remote?.url && !syncing,
@@ -1915,7 +2027,7 @@ export default function App() {
       },
       {
         id: "vault.commitNamed",
-        group: "vault",
+        group: "仓库",
         label: "记一个版本并写说明…",
         // 自动生成的说明只说「动了哪几篇」，说不出「为什么」。
         // 做完一件完整的事时，自己写一句在历史里价值大得多
@@ -1927,7 +2039,7 @@ export default function App() {
       },
       {
         id: "vault.reindex",
-        group: "vault",
+        group: "仓库",
         label: "重建索引",
         run: () =>
           api
@@ -1958,6 +2070,7 @@ export default function App() {
     renameNode,
     reloadFromDisk,
     openVault,
+    mobile,
     setTermOpen,
     updateSettings,
   ]);
@@ -1986,14 +2099,41 @@ export default function App() {
 
   if (!vault) {
     return (
-      <div className="welcome">
-        <h1>Verso</h1>
-        <p className="welcome-sub">本地优先的笔记本</p>
-        <button className="btn-primary" onClick={openVault}>
-          {mobileRef.current ? "开始使用" : "打开 vault 目录"}
-        </button>
-        {error && <p className="error">{error}</p>}
-      </div>
+      <>
+        <div className="welcome">
+          <h1>Verso</h1>
+          <p className="welcome-sub">本地优先的笔记本</p>
+          {mobile ? (
+            <button className="btn-primary" onClick={() => void openVault()}>
+              开始使用
+            </button>
+          ) : (
+            <VaultWelcome
+              vaults={recentVaults}
+              switching={switchingVault}
+              onSwitch={(path) => void switchToVault(path)}
+              onOpenFolder={() => void openVault()}
+              onManage={() => {
+                setVaultError(null);
+                setVaultManagerOpen(true);
+              }}
+            />
+          )}
+          {error && <p className="error">{error}</p>}
+        </div>
+        {vaultManagerOpen && (
+          <VaultManager
+            vaults={recentVaults}
+            current={null}
+            switching={switchingVault}
+            error={vaultError}
+            onSwitch={(path) => void switchToVault(path)}
+            onOpenFolder={() => void openVault()}
+            onForget={(path) => void forgetVault(path)}
+            onClose={() => setVaultManagerOpen(false)}
+          />
+        )}
+      </>
     );
   }
 
@@ -2163,14 +2303,24 @@ export default function App() {
 
           {/* 当前在哪个库 —— 常驻底部，点它换库。和 Obsidian 一个位置 */}
           <footer className="sidebar-foot">
-            <button
-              className="vault-name"
-              title={`${vault.root}\n点击切换 vault`}
-              onClick={openVault}
-            >
-              <Icon name="vault" size={13} />
-              <span>{vault.name}</span>
-            </button>
+            {mobile ? (
+              <div className="vault-name is-static" title={vault.root}>
+                <Icon name="vault" size={14} />
+                <span>{vault.name}</span>
+              </div>
+            ) : (
+              <VaultSwitcher
+                vaults={recentVaults}
+                current={vault}
+                switching={switchingVault}
+                onSwitch={(path) => void switchToVault(path)}
+                onOpenFolder={() => void openVault()}
+                onManage={() => {
+                  setVaultError(null);
+                  setVaultManagerOpen(true);
+                }}
+              />
+            )}
           </footer>
 
           {/* 拖右边缘调宽度。双击回默认 */}
@@ -2308,6 +2458,7 @@ export default function App() {
 
       {termOpen && (
         <TerminalPanel
+          key={vault.root}
           height={termHeight}
           onHeightChange={(h) => {
             setTermHeight(h);
@@ -2433,6 +2584,19 @@ export default function App() {
           onTokenChange={(token) => void setToken(token)}
           update={updater}
           initialTab={settingsTab}
+        />
+      )}
+
+      {vaultManagerOpen && !mobile && (
+        <VaultManager
+          vaults={recentVaults}
+          current={vault}
+          switching={switchingVault}
+          error={vaultError}
+          onSwitch={(path) => void switchToVault(path)}
+          onOpenFolder={() => void openVault()}
+          onForget={(path) => void forgetVault(path)}
+          onClose={() => setVaultManagerOpen(false)}
         />
       )}
 

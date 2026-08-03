@@ -326,6 +326,69 @@ button {
 .btn-primary:active {
   transform: translateY(1px);
 }
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+.btn-quiet {
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 12px;
+}
+.btn-quiet:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.welcome-vaults {
+  width: min(360px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.welcome-vault-label {
+  padding: 0 9px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.025em;
+}
+.welcome-vault-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  text-align: left;
+  transition: background var(--t-fast), box-shadow var(--t-fast);
+}
+.welcome-vault-item:hover {
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+}
+.welcome-vault-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome-vault-item > small,
+.welcome-vault-item > svg:last-child {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+.welcome-vault-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+}
 
 /* ---------- 布局：§6.3 ---------- */
 
@@ -736,9 +799,13 @@ button {
 /* ---------- 底部：当前在哪个库 ---------- */
 
 .sidebar-foot {
+  position: relative;
   flex: none;
   padding: 6px 8px 8px;
   border-top: 1px solid var(--hairline);
+}
+.vault-switcher {
+  position: relative;
 }
 /* 换库是低频操作，所以放这儿、也画得很轻。它主要的职责是「告诉你在哪」 */
 .vault-name {
@@ -754,6 +821,8 @@ button {
   transition: color var(--t-fast), background var(--t-fast);
 }
 .vault-name span {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -764,6 +833,268 @@ button {
 .vault-name:hover {
   color: var(--text);
   background: var(--hover-bg);
+}
+.vault-name.is-static {
+  cursor: default;
+}
+.vault-name.is-static:hover {
+  color: var(--muted);
+  background: transparent;
+}
+.vault-chevron {
+  margin-left: auto;
+  transform: rotate(-90deg);
+  transition: transform var(--t-fast);
+}
+.vault-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* 向上打开，当前仓库的按钮位置始终不动。菜单宽度跟侧栏走，窄到 180px 时
+   也不会伸出去盖住正文；长名字在自己的那一行省略。 */
+.vault-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  max-height: min(420px, calc(100vh - 90px));
+  overflow-y: auto;
+  padding: 5px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--t-base);
+}
+.vault-menu-label {
+  padding: 5px 8px 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.035em;
+}
+.vault-menu-item,
+.vault-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 7px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  font-size: 12px;
+}
+.vault-menu-item:hover:not(:disabled),
+.vault-menu-action:hover {
+  background: var(--hover-bg);
+}
+.vault-menu-item:disabled {
+  cursor: default;
+}
+.vault-menu-item:not(.is-current):disabled {
+  opacity: 0.58;
+}
+.vault-menu-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex: none;
+  color: var(--accent);
+}
+.vault-menu-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.vault-menu-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 520;
+}
+.vault-menu-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+}
+.vault-menu-sep {
+  height: 1px;
+  margin: 4px 7px;
+  background: var(--hairline);
+}
+.vault-menu-action {
+  color: var(--text);
+}
+.vault-menu-action svg {
+  flex: none;
+  color: var(--muted);
+}
+
+/* ---------- 仓库管理 ---------- */
+
+.vault-manager {
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modal-in var(--t-base);
+}
+.vault-manager-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 20px 15px;
+  border-bottom: 1px solid var(--hairline);
+}
+.vault-manager-head > div {
+  flex: 1;
+  min-width: 0;
+}
+.vault-manager-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+.vault-manager-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.vault-manager-list {
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 8px;
+}
+.vault-manager-error {
+  margin: 2px 3px 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 7%, transparent);
+  font-size: 11.5px;
+}
+.vault-manager-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 7px 8px;
+  border-radius: var(--r-md);
+}
+.vault-manager-row:hover {
+  background: var(--hover-bg);
+}
+.vault-manager-row.is-current {
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+}
+.vault-manager-icon {
+  display: flex;
+  flex: none;
+  color: var(--muted);
+}
+.vault-manager-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.vault-manager-copy strong {
+  font-size: 13px;
+  font-weight: 580;
+}
+.vault-manager-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.vault-current,
+.vault-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 11px;
+}
+.vault-current {
+  color: var(--accent);
+}
+.vault-unavailable {
+  color: var(--muted);
+}
+.vault-row-action {
+  flex: none;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  font-size: 11.5px;
+}
+.vault-row-action:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.vault-row-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  flex: none;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  opacity: 0;
+}
+.vault-manager-row:hover .vault-row-remove,
+.vault-row-remove:focus-visible {
+  opacity: 1;
+}
+.vault-row-remove:hover {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 9%, transparent);
+}
+@media (hover: none) {
+  .vault-row-remove {
+    opacity: 1;
+  }
+}
+.vault-manager-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--hairline);
+}
+.vault-manager-foot p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.vault-manager-foot .btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+.vault-manager-empty {
+  margin: 0;
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* ---------- 拖右边缘调宽度 ---------- */

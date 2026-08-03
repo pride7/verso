@@ -1,14 +1,14 @@
-//! 记住上次打开的 vault。
+//! 记住打开过的 vault，并保留上次的位置。DESIGN.md §2.1
 //!
 //! 存在**应用配置目录**而不是 `.verso/` —— `.verso/` 是 per-vault 的 UI 状态，
 //! 而「上次打开哪个 vault」是应用级状态，鸡生蛋问题：还没打开 vault 时读不到它。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Recent {
     pub last_vault: Option<String>,
@@ -16,6 +16,18 @@ pub struct Recent {
     /// 否则每次启动都要重新找回自己在写的那篇。
     #[serde(default)]
     pub last_note: Option<String>,
+    /// 成功打开过的仓库，最近使用的在前。只存路径；名字与可用性每次读取时
+    /// 重新算，目录改名/移走后界面才能反映真实情况。
+    #[serde(default)]
+    pub vaults: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentVault {
+    pub root: String,
+    pub name: String,
+    pub available: bool,
 }
 
 fn recent_path(app: &AppHandle) -> Option<PathBuf> {
@@ -23,10 +35,39 @@ fn recent_path(app: &AppHandle) -> Option<PathBuf> {
     Some(dir.join("recent.json"))
 }
 
+fn same_root(a: &str, b: &str) -> bool {
+    if cfg!(windows) {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
+    }
+}
+
+/**
+ * 旧版只有 `lastVault`。读出来时顺手补进清单；同时去重，避免用户从大小写
+ * 不同的路径表示打开同一目录后菜单里长出两条。
+ */
+fn normalize(mut data: Recent) -> Recent {
+    let mut unique: Vec<String> = Vec::new();
+    for root in data.vaults {
+        if !unique.iter().any(|known| same_root(known, &root)) {
+            unique.push(root);
+        }
+    }
+    if let Some(last) = data.last_vault.as_ref() {
+        if !unique.iter().any(|known| same_root(known, last)) {
+            unique.insert(0, last.clone());
+        }
+    }
+    data.vaults = unique;
+    data
+}
+
 pub fn load(app: &AppHandle) -> Recent {
     recent_path(app)
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
+        .map(normalize)
         .unwrap_or_default()
 }
 
@@ -48,6 +89,8 @@ pub fn save_vault(app: &AppHandle, vault_root: &str) {
         cur.last_note = None;
     }
     cur.last_vault = Some(vault_root.to_string());
+    cur.vaults.retain(|root| !same_root(root, vault_root));
+    cur.vaults.insert(0, vault_root.to_string());
     store(app, &cur);
 }
 
@@ -55,4 +98,76 @@ pub fn save_note(app: &AppHandle, note_rel: &str) {
     let mut cur = load(app);
     cur.last_note = Some(note_rel.to_string());
     store(app, &cur);
+}
+
+fn name_of(root: &str) -> String {
+    Path::new(root)
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| root.to_string())
+}
+
+pub fn list(app: &AppHandle) -> Vec<RecentVault> {
+    load(app)
+        .vaults
+        .into_iter()
+        .map(|root| RecentVault {
+            name: name_of(&root),
+            available: Path::new(&root).is_dir(),
+            root,
+        })
+        .collect()
+}
+
+/// 只忘掉应用配置里的入口，绝不碰那个目录本身。当前项也允许清掉：欢迎页上
+/// 上次目录已经失效时，用户必须能把它从列表移除。
+pub fn forget(app: &AppHandle, vault_root: &str) {
+    let mut cur = load(app);
+    cur.vaults.retain(|root| !same_root(root, vault_root));
+    if cur
+        .last_vault
+        .as_deref()
+        .is_some_and(|last| same_root(last, vault_root))
+    {
+        cur.last_vault = None;
+        cur.last_note = None;
+    }
+    store(app, &cur);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_last_vault_is_migrated_into_the_list() {
+        let old: Recent = serde_json::from_str(
+            r#"{"lastVault":"D:/Notes/research","lastNote":"today.md"}"#,
+        )
+        .unwrap();
+        let data = normalize(old);
+        assert_eq!(data.vaults, vec!["D:/Notes/research"]);
+        assert_eq!(data.last_note.as_deref(), Some("today.md"));
+    }
+
+    #[test]
+    fn normalization_keeps_order_and_removes_duplicates() {
+        let data = normalize(Recent {
+            last_vault: Some("D:/Notes/a".into()),
+            last_note: None,
+            vaults: vec![
+                "D:/Notes/b".into(),
+                "D:/Notes/a".into(),
+                "D:/Notes/b".into(),
+            ],
+        });
+        assert_eq!(data.vaults, vec!["D:/Notes/b", "D:/Notes/a"]);
+    }
+
+    #[test]
+    fn name_comes_from_the_last_path_component() {
+        assert_eq!(name_of("D:/Notes/research"), "research");
+        assert_eq!(name_of("/home/me/notebook"), "notebook");
+    }
 }

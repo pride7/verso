@@ -8,7 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { NoteContent, NoteRef, RecentVault, TreeNode, VaultInfo } from "./types";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -17,6 +17,20 @@ const VAULT: VaultInfo = {
   createdGitignore: false,
   renamedBranch: false,
 };
+
+const OTHER_VAULT: VaultInfo = {
+  root: "D:/Notes/lab",
+  name: "lab",
+  createdRepo: false,
+  createdGitignore: false,
+  renamedBranch: false,
+};
+
+const KNOWN: RecentVault[] = [
+  { root: VAULT.root, name: VAULT.name, available: true },
+  { root: OTHER_VAULT.root, name: OTHER_VAULT.name, available: true },
+  { root: "D:/Notes/moved", name: "moved", available: false },
+];
 
 const TREE: TreeNode[] = [
   {
@@ -44,17 +58,37 @@ const NOTE: NoteContent = {
 const NOTES: NoteRef[] = [{ path: "论文.md", name: "论文" }];
 
 const setSettings = vi.fn(async (s: Record<string, unknown>) => s);
+let backendRoot = VAULT.root;
+const openVault = vi.fn(async (path: string) => {
+  backendRoot = path;
+  return path === OTHER_VAULT.root ? OTHER_VAULT : VAULT;
+});
+const pickVaultFolder = vi.fn(async () => null as string | null);
+const writeNote = vi.fn(async (_path: string, _body: string) => 0);
+const workspaceWrites: { root: string; workspace: { tabs: string[]; active: number } }[] = [];
+const workspaceSet = vi.fn(async (workspace: { tabs: string[]; active: number }) => {
+  workspaceWrites.push({ root: backendRoot, workspace: { ...workspace, tabs: [...workspace.tabs] } });
+});
+let knownVaults = KNOWN.slice();
+let reopen: { vault: VaultInfo; lastNote: string | null } | null = {
+  vault: VAULT,
+  lastNote: "论文.md",
+};
 
 vi.mock("./api", () => ({
   api: {
     isMobile: async () => false,
     openDefaultVault: async () => VAULT,
-    reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
-    openVault: async () => VAULT,
+    reopenLastVault: async () => reopen,
+    openVault: (path: string) => openVault(path),
+    recentVaults: async () => knownVaults,
+    forgetVault: async (path: string) => {
+      knownVaults = knownVaults.filter((item) => item.root !== path);
+    },
     tree: async () => TREE,
     listNotes: async () => NOTES,
     readNote: async () => NOTE,
-    writeNote: async () => 0,
+    writeNote: (path: string, body: string) => writeNote(path, body),
     statNote: async () => 0,
     createNote: async () => ({ path: "x.md", id: "x", title: "x" }),
     renameNote: async () => "",
@@ -70,8 +104,9 @@ vi.mock("./api", () => ({
     reorder: async () => {},
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,
+    gitCommit: async () => null,
     workspaceGet: async () => ({ tabs: [], active: 0 }),
-    workspaceSet: async () => {},
+    workspaceSet: (workspace: { tabs: string[]; active: number }) => workspaceSet(workspace),
     getSettings: async () => ({ treeSort: "name" }),
     setSettings: (s: Record<string, unknown>) => setSettings(s),
     openTerminal: async () => {},
@@ -86,7 +121,7 @@ vi.mock("./api", () => ({
   onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
-  pickVaultFolder: async () => null,
+  pickVaultFolder: () => pickVaultFolder(),
 }));
 
 const { default: App } = await import("./App");
@@ -99,6 +134,14 @@ const settle = (ms = 400) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   setSettings.mockClear();
+  openVault.mockClear();
+  pickVaultFolder.mockClear();
+  writeNote.mockClear();
+  workspaceSet.mockClear();
+  workspaceWrites.length = 0;
+  backendRoot = VAULT.root;
+  knownVaults = KNOWN.slice();
+  reopen = { vault: VAULT, lastNote: "论文.md" };
 });
 
 afterEach(() => {
@@ -145,6 +188,123 @@ describe("侧栏头部", () => {
     const foot = el(".sidebar-foot")!;
     expect(foot.textContent).toContain("test-vault");
     expect(foot.querySelector("button")).not.toBeNull();
+  });
+
+  it("底部菜单直接列出已记录仓库，点击即可切换，不再打开文件选择器", async () => {
+    await mountApp();
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(40);
+    const menu = el(".vault-menu")!;
+    expect(menu.textContent).toContain("test-vault");
+    expect(menu.textContent).toContain("lab");
+    expect(menu.textContent).toContain("位置不可用");
+    const menuBox = menu.getBoundingClientRect();
+    const sideBox = el(".sidebar")!.getBoundingClientRect();
+    const footBox = el(".sidebar-foot")!.getBoundingClientRect();
+    expect(menuBox.left).toBeGreaterThanOrEqual(sideBox.left);
+    expect(menuBox.right).toBeLessThanOrEqual(sideBox.right);
+    expect(menuBox.bottom).toBeLessThanOrEqual(footBox.top);
+
+    const lab = [...menu.querySelectorAll<HTMLButtonElement>(".vault-menu-item")].find((button) =>
+      button.textContent?.includes("lab"),
+    )!;
+    await act(async () => {
+      lab.click();
+      await settle(500);
+    });
+
+    expect(openVault).toHaveBeenCalledWith(OTHER_VAULT.root);
+    expect(pickVaultFolder).not.toHaveBeenCalled();
+    expect(el(".sidebar-foot")?.textContent).toContain("lab");
+  });
+
+  it("切换前先保存尚未落盘的正文", async () => {
+    await mountApp();
+    const content = el<HTMLElement>(".cm-content")!;
+    content.focus();
+    await act(async () => {
+      document.execCommand("insertText", false, "切库前刚写的字");
+      await settle(30);
+    });
+
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(30);
+    const lab = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-item")].find(
+      (button) => button.textContent?.includes("lab"),
+    )!;
+    await act(async () => {
+      lab.click();
+      await settle(500);
+    });
+
+    expect(writeNote).toHaveBeenCalled();
+    expect(writeNote.mock.calls[0][1]).toContain("切库前刚写的字");
+    expect(openVault).toHaveBeenCalledWith(OTHER_VAULT.root);
+  });
+
+  it("装载新仓库 workspace 时，不把旧仓库的标签写过去", async () => {
+    await mountApp();
+    workspaceSet.mockClear();
+
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(30);
+    const lab = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-item")].find(
+      (button) => button.textContent?.includes("lab"),
+    )!;
+    await act(async () => {
+      lab.click();
+      await settle(500);
+    });
+
+    // prepareVaultSwitch 会在旧后端上明确保存一次；后端换成 lab 后，第一次写入
+    // 必须已经是 lab 自己读出的空标签，不能还是「论文.md」。
+    const writesAfterOpen = workspaceWrites.filter((entry) => entry.root === OTHER_VAULT.root);
+    expect(writesAfterOpen.length).toBeGreaterThan(0);
+    expect(writesAfterOpen.every(({ workspace }) => !workspace.tabs.includes("论文.md"))).toBe(true);
+  });
+
+  it("管理面板显示完整路径；移除只忘掉入口", async () => {
+    await mountApp();
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(30);
+    const manage = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-action")].find(
+      (button) => button.textContent?.includes("管理仓库"),
+    )!;
+    await act(async () => {
+      manage.click();
+      await settle(50);
+    });
+
+    const panel = el(".vault-manager")!;
+    expect(panel.textContent).toContain(OTHER_VAULT.root);
+    const box = panel.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(box.bottom).toBeLessThanOrEqual(window.innerHeight);
+    const remove = panel.querySelector<HTMLButtonElement>(`[aria-label="从列表移除 lab"]`)!;
+    await act(async () => {
+      remove.click();
+      await settle(80);
+    });
+    expect(el(".vault-manager")?.textContent).not.toContain(OTHER_VAULT.root);
+    // 当前仓库没有移除按钮：不能在仍使用它时制造「当前但不在清单」的怪状态。
+    expect(panel.querySelector(`[aria-label="从列表移除 ${VAULT.name}"]`)).toBeNull();
+  });
+
+  it("上次目录打不开时，欢迎页仍能直接进入其他已记录仓库", async () => {
+    reopen = null;
+    await mountApp();
+    const item = [...document.querySelectorAll<HTMLButtonElement>(".welcome-vault-item")].find(
+      (button) => button.textContent?.includes("lab"),
+    )!;
+    expect(item).not.toBeNull();
+    await act(async () => {
+      item.click();
+      await settle(500);
+    });
+    expect(openVault).toHaveBeenCalledWith(OTHER_VAULT.root);
+    expect(el(".app")).not.toBeNull();
   });
 
   it("排序菜单：打开、选中项带勾、选完就关", async () => {

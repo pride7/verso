@@ -14,6 +14,7 @@ import type {
   NoteMeta,
   NoteRef,
   RemoteInfo,
+  RecentVault,
   SearchHit,
   SyncOutcome,
   TreeNode,
@@ -44,6 +45,10 @@ export async function pickVaultFolder(): Promise<string | null> {
 
 export const api = {
   openVault: (path: string) => call<VaultInfo>("vault_open", { path }),
+  /** 成功打开过的仓库，最近使用的在前；不存在的目录也会返回并标记。 */
+  recentVaults: () => call<RecentVault[]>("vault_recent_list"),
+  /** 只忘记快捷入口，不删除目录或笔记。 */
+  forgetVault: (path: string) => call<void>("vault_recent_forget", { path }),
   /** 启动时自动重开上次的 vault 与笔记；目录没了就返回 null */
   reopenLastVault: () =>
     call<{ vault: VaultInfo; lastNote: string | null } | null>("vault_reopen_last"),

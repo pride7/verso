@@ -126,6 +126,19 @@ fn vault_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Resul
     Ok(info)
 }
 
+/// 这台设备上成功打开过的仓库。目录移走后仍然返回，由前端标成不可用；
+/// 静默删掉的话，用户分不清是路径失效还是软件忘了。
+#[tauri::command]
+fn vault_recent_list(app: AppHandle) -> Vec<recent::RecentVault> {
+    recent::list(&app)
+}
+
+/// 只移除快捷入口，不删除仓库或其中任何文件。
+#[tauri::command]
+fn vault_recent_forget(app: AppHandle, path: String) {
+    recent::forget(&app, &path);
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Reopened {
@@ -878,6 +891,8 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             vault_open,
+            vault_recent_list,
+            vault_recent_forget,
             vault_reopen_last,
             vault_open_default,
             platform_is_mobile,

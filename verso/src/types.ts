@@ -33,6 +33,14 @@ export interface VaultInfo {
   renamedBranch: boolean;
 }
 
+/** 应用配置里记录的仓库入口；目录本身仍是唯一真源。 */
+export interface RecentVault {
+  root: string;
+  name: string;
+  /** false 表示目录被移动、重命名或当前不可访问；保留条目让用户自己处理。 */
+  available: boolean;
+}
+
 export interface NoteContent {
   path: string;
   id: string | null;
