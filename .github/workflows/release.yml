@@ -1,42 +1,45 @@
-# 打包并发布桌面版。DESIGN.md §2.11
+# 构建并发布 Verso 桌面端与 Android 安装包。DESIGN.md §2.11
 #
-# 触发方式是**推一个 tag**，这和 AGENTS.md 里「改版本 → 写 CHANGELOG →
-# 提交 → 打 tag」那套流程是同一条路的最后一步：
+# 推送版本标签时触发；这是 AGENTS.md 所述「更新版本号 → 编写 CHANGELOG →
+# 提交 → 创建标签」发布流程的最后阶段：
 #
 #   node scripts/version.mjs 0.6.14
-#   git commit -am "…" && git tag v0.6.14 && git push --follow-tags
+#   git commit -am "…"
+#   git tag v0.6.14
+#   git push && git push origin v0.6.14
 #
-# 产出的 release 是**草稿**，要自己去 GitHub 上点一下 Publish。理由有两个：
-# 编译要十几分钟，中途发现哪个平台挂了还能删了重来；而 `latest.json` 走的是
-# `releases/latest/download/…` 这个地址，它只认已发布、非预发布的那一个 ——
-# 也就是说**在你点 Publish 之前，没有任何用户会被推到这一版**。
+# 流水线创建的 Release 保持为草稿，由维护者核验全部平台产物后手动发布。
+# 这样既能在单个平台构建失败时重新执行，也能避免未完成版本被自动更新服务发现。
+# `latest.json` 使用 `releases/latest/download/…` 地址，仅指向已正式发布且非预发布的
+# 最新版本；草稿阶段不会向客户端提供更新。
 name: release
 
 on:
   push:
     tags:
       - "v*"
-  # 手动补跑一次用（比如某个平台单独挂了，或给已发的版本补 APK）
+  # 用于重新构建指定版本，例如补充已发布版本的 Android APK。
   workflow_dispatch:
     inputs:
       tag:
-        description: "要打包的 tag，例如 v0.6.14"
+        description: "需要构建的版本标签，例如 v0.6.14"
         required: true
       only:
-        description: "只补哪部分。android = 只跑 APK + 正文指南，不动桌面包"
+        description: "构建范围；android 仅重新生成 APK 并更新下载说明"
         type: choice
         options: [all, android]
         default: all
 
 jobs:
   build:
-    # 手动补 APK 时别把四个桌面包重编一遍 —— tauri-action 往已有 release
-    # 传同名资产会直接失败，而那个 release 里的包本来就是好的
+    name: 构建桌面安装包（${{ matrix.platform }}）
+    # 仅补充 Android APK 时跳过桌面端构建。tauri-action 向现有 Release 上传
+    # 同名资产会失败，且已有桌面端产物无需重复生成。
     if: ${{ github.event_name == 'push' || github.event.inputs.only != 'android' }}
     permissions:
       contents: write
     strategy:
-      # 一个平台挂了，别把另外几个已经编好的一起取消掉
+      # 单个平台失败时，其他平台仍应继续构建，以便保留可用产物和诊断信息。
       fail-fast: false
       matrix:
         include:
@@ -55,11 +58,11 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      # Linux 的依赖比另外两个平台多一截，其中两个是这个项目特有的：
-      # - libssl-dev：git2 的 https 后端在 Linux 上是 OpenSSL
-      #   （Windows 走 schannel、macOS 走 Security.framework，都不用装东西）
-      # - libdbus-1-dev：keyring 在 Linux 上走 secret-service，那是 D-Bus
-      - name: 装 Linux 依赖
+      # Linux 需要额外的系统依赖：
+      # - libssl-dev：git2 在 Linux 上使用 OpenSSL 提供 HTTPS；
+      # - libdbus-1-dev：keyring 通过基于 D-Bus 的 Secret Service 存储凭据。
+      # Windows 使用 Schannel，macOS 使用系统安全框架，不需要安装上述依赖。
+      - name: 安装 Linux 系统依赖
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
@@ -83,17 +86,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: verso/src-tauri -> target
-          # 四个 job 的目标三样，缓存不分开会互相冲掉
+          # 各目标平台必须使用独立缓存，避免不同编译目标相互覆盖。
           key: ${{ matrix.args }}
 
-      - name: 装前端依赖
+      - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
         working-directory: verso
 
-      # release 的正文来自 CHANGELOG 里那一节 —— 它会被 tauri-action 抄进
-      # `latest.json` 的 `notes`，也就是用户在「检查更新」里读到的那段话。
-      # 找不到那一节会直接失败，不会发出一个正文空白的版本
-      - name: 取出这一版的更新日志
+      # Release 正文取自 CHANGELOG 对应版本，并由 tauri-action 写入
+      # `latest.json.notes`，供客户端「检查更新」界面显示。
+      # 若未找到对应版本，脚本将失败，避免创建缺少更新说明的 Release。
+      - name: 提取版本更新说明
         id: notes
         shell: bash
         run: |
@@ -106,15 +109,13 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 更新包必须签名，客户端只认这一把私钥对应的公钥
-          # （公钥写在 tauri.conf.json 的 plugins.updater.pubkey 里）
+          # 自动更新包必须签名；客户端使用 tauri.conf.json 中
+          # plugins.updater.pubkey 配置的公钥验证签名。
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # 这把密钥没有密码，所以这里就是一个空串 —— **不要**改成
-          # `${{ secrets.… }}`。空密码存成 secret 的话，Windows 上
-          # `gh secret set X --body ""` 会把字面的两个引号存进去，
-          # 而报出来的错是「Wrong password for that key」，看不出和引号有关。
-          # 但这一行也不能删：删了 Tauri 会**交互式地问密码**，在 CI 里
-          # 表现成整个 job 卡住直到超时
+          # 当前私钥未设置密码，因此必须显式传入空字符串。不要改用 Secret：
+          # Windows PowerShell 执行 `gh secret set X --body ""` 时可能存入字面引号，
+          # 从而导致密码校验失败。此变量也不能省略，否则 Tauri 会等待交互式密码输入，
+          # 使 CI 任务一直等待直至超时。
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: verso
@@ -123,22 +124,22 @@ jobs:
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
-          # Windows 上 `targets: all` 会同时产出 .msi 和 setup.exe。更新走
-          # NSIS：它能安静地装（installMode: passive），MSI 每次都要过一遍
-          # 用户账户控制
+          # Windows 的 `targets: all` 同时生成 MSI 与 NSIS 安装包。自动更新优先使用
+          # NSIS，以支持 installMode: passive；MSI 安装过程需要用户账户控制确认。
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
-  # 安卓的 arm64 release APK。tauri-action 只管桌面，这个 job 自己编、
-  # 由下面的 finalize 传进同一个草稿 release。
+  # 构建 Android arm64 Release APK。tauri-action 仅处理桌面端，Android 产物
+  # 由本任务生成，并在 finalize 任务中上传至同一草稿 Release。
   #
-  # 签名密钥不进仓库（gen/android/.gitignore 挡着 keystore.properties），
-  # CI 从四个 secret 恢复：
+  # 签名密钥不提交至仓库（gen/android/.gitignore 排除 keystore.properties），
+  # CI 通过以下四个 Secret 恢复签名配置：
   #   ANDROID_KEYSTORE_B64       —— verso-release.jks 的 base64
   #   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
-  # secrets 没配时照样编（对应 build.gradle.kts「拿不到就不配签名」那条：
-  # 构建不该因为没钥匙而失败），但产出的未签名包装不上，会打一条 warning。
+  # 未配置 Secret 时仍允许完成构建，以保持派生仓库可构建；此时产物未签名，
+  # 无法安装，流水线会输出警告。
   android:
+    name: 构建 Android 安装包
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -153,16 +154,15 @@ jobs:
           node-version: lts/*
           cache: pnpm
           cache-dependency-path: verso/pnpm-lock.yaml
-      # AGP（compileSdk 36）要 JDK 17+，runner 的默认 JAVA_HOME 不一定是
+      # AGP（compileSdk 36）要求 JDK 17 或更高版本，不能依赖 runner 默认配置。
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      # NDK 版本和开发机钉在同一个（见 verso/scripts/android-apk.ps1）。
-      # 顺手把 licenses 全点了 —— gradle 会按需自动补装 platforms/build-tools，
-      # 没点过 license 它就停下来
-      - name: 装 NDK
+      # NDK 版本与本地构建脚本保持一致（见 verso/scripts/android-apk.ps1）。
+      # Gradle 可能按需安装 platform 与 build-tools，因此预先接受相关许可证。
+      - name: 安装 Android NDK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.2.12479018" > /dev/null
@@ -177,11 +177,11 @@ jobs:
           workspaces: verso/src-tauri -> target
           key: android
 
-      - name: 装前端依赖
+      - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
         working-directory: verso
 
-      - name: 恢复签名密钥
+      - name: 配置 Android 签名
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -189,7 +189,7 @@ jobs:
           KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           if [ -z "$KS_B64" ]; then
-            echo "::warning::没配 ANDROID_KEYSTORE_B64，这次出的是未签名 APK（装不上）"
+            echo "::warning::未配置 ANDROID_KEYSTORE_B64；本次生成的 APK 未签名，无法安装。"
             exit 0
           fi
           echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/verso-release.jks"
@@ -200,27 +200,26 @@ jobs:
             echo "keyPassword=$KEY_PASS"
           } > verso/src-tauri/gen/android/keystore.properties
 
-      # `tauri android init` 不认 src-tauri/icons/android/，会塞一套默认 logo
-      # 进 res/（AGENTS.md）。仓库里这份现在是对的，但打包前照样覆盖一遍 ——
-      # 哪天有人重新 init 过，坏图标不该悄悄发出去
-      - name: 覆盖真图标
+      # `tauri android init` 不读取 src-tauri/icons/android/，并会在 res/ 中写入
+      # 默认图标（见 AGENTS.md）。构建前始终同步项目图标，避免重新初始化后误用默认资源。
+      - name: 同步 Android 应用图标
         run: |
           cp -r verso/src-tauri/icons/android/mipmap-* verso/src-tauri/gen/android/app/src/main/res/
           cp verso/src-tauri/icons/android/values/* verso/src-tauri/gen/android/app/src/main/res/values/
 
-      # Linux 上符号链接没有 Windows 那道「开发者模式」的坎，这条命令能一口气
-      # 跑到 APK 出炉，不需要 android-apk.ps1 那套拷贝 + 跳步的绕法
-      - name: 打 APK
+      # Linux runner 支持直接创建符号链接，可完整执行 Tauri Android 构建流程，
+      # 无需使用 Windows 本地脚本中的复制与跳步处理。
+      - name: 构建 Android APK
         run: pnpm tauri android build --apk --target aarch64
         working-directory: verso
 
-      # gradle 出来的叫 app-universal-release.apk ——「app」是模块名，不是
-      # 软件名。命名对齐桌面包（Verso_0.6.20_x64-setup.exe → Verso_0.6.20_arm64.apk）。
+      # Gradle 默认生成 app-universal-release.apk，其中 app 是模块名。
+      # 发布资产统一采用 Verso_<版本>_<架构>.<扩展名> 命名。
       #
-      # 变体名不写死：`tauri android build` 走的是 universal 变体，本地
-      # android-apk.ps1 直跑 gradle 出的是 arm64 变体 —— 两者都只含 aarch64
-      # （上面只编了这一个 target），按文件找，谁在用谁
-      - name: 按发布格式命名
+      # 不固定变体名称：`tauri android build` 生成 universal 变体，本地
+      # android-apk.ps1 直接调用 Gradle 时生成 arm64 变体；两者均仅包含上述
+      # aarch64 目标，因此按文件模式定位产物。
+      - name: 规范化 Android 产物名称
         run: |
           VERSION=$(node -p "require('./verso/package.json').version")
           SRC=$(find verso/src-tauri/gen/android/app/build/outputs/apk -name "app-*-release.apk" | head -1)
@@ -233,16 +232,16 @@ jobs:
           path: Verso_*.apk
           if-no-files-found: error
 
-  # 都齐了之后补两件事：
-  # 1. 把 APK 传进同一个 release（草稿或已发布都行）。
-  # 2. 在 release 正文末尾追加「下载哪一个」对照表 —— x64-setup / aarch64 /
-  #    amd64 这些资产名对不认识平台缩写的人毫无信息量。追加发生在
-  #    latest.json 上传之后，所以只出现在 GitHub 页面上，应用内「检查更新」
-  #    读到的还是干净的更新日志。**不要**改成给资产改名：latest.json 里记的
-  #    是原始下载地址，资产一改名，自动更新当场 404。
+  # 所有构建完成后执行以下操作：
+  # 1. 将 Android APK 上传至同一 Release（支持草稿或已发布状态）；
+  # 2. 在 Release 正文末尾追加平台与安装包对照表。
+  # 下载说明在 latest.json 上传后追加，因此仅显示于 GitHub Release 页面，客户端
+  # 「检查更新」仍只读取 CHANGELOG 内容。不得重命名已有资产：latest.json 保存的是
+  # 原始下载地址，重命名会导致自动更新请求返回 404。
   finalize:
+    name: 汇总发布资产与下载说明
     needs: [build, android]
-    # 手动补 APK 时 build 是被跳过的（skipped 不算 failure），也要能走到这里
+    # 仅补充 Android APK 时 build 状态为 skipped，仍需执行本任务。
     if: ${{ !cancelled() && needs.android.result == 'success' && needs.build.result != 'failure' }}
     permissions:
       contents: write
@@ -257,9 +256,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: android-apk
-      - name: 传 APK 进 release
+      - name: 上传 Android APK 至 Release
         run: gh release upload "$TAG" Verso_*_arm64.apk --clobber
-      - name: 正文末尾追加下载指南
+      - name: 更新 Release 下载说明
         run: |
           VERSION="${TAG#v}"
           node scripts/release-notes.mjs "$TAG" > body.md
@@ -267,9 +266,9 @@ jobs:
             echo
             echo "---"
             echo
-            echo "### 下载哪一个？"
+            echo "### 安装包选择"
             echo
-            echo "| 你的系统 | 下载这个 |"
+            echo "| 平台 | 推荐安装包 |"
             echo "|---|---|"
             echo "| Windows 10 / 11 | \`Verso_${VERSION}_x64-setup.exe\` |"
             echo "| macOS（Apple Silicon，M 系列芯片） | \`Verso_${VERSION}_aarch64.dmg\` |"
@@ -279,10 +278,10 @@ jobs:
             echo "| Linux（Fedora / openSUSE） | \`Verso-${VERSION}-1.x86_64.rpm\` |"
             echo "| Linux（其他发行版） | \`Verso_${VERSION}_amd64.AppImage\` |"
             echo
-            echo "> Windows 另有 \`.msi\`（需要 MSI 部署的场景用；日常装 setup.exe 即可）。"
-            echo "> \`.sig\` 和 \`latest.json\` 是自动更新用的，不用下载。"
-            echo "> macOS 的包暂未签名公证，首次打开会提示「已损坏，无法打开」（quarantine + ad-hoc"
-            echo "> 签名在 Gatekeeper 眼里就是这样，包本身没坏）。装好后在终端执行"
-            echo "> \`xattr -cr /Applications/Verso.app\` 即可打开；只需这一次，之后应用内自动更新不受影响。"
+            echo "> Windows 同时提供 MSI 安装包，适用于需要 MSI 部署的环境；一般安装建议使用 setup.exe。"
+            echo "> \`.sig\` 与 \`latest.json\` 由自动更新机制使用，无需手动下载。"
+            echo "> macOS 安装包目前尚未完成 Apple 签名与公证。首次启动时，Gatekeeper 可能显示"
+            echo "> 「已损坏，无法打开」。安装后可在终端执行"
+            echo "> \`xattr -cr /Applications/Verso.app\` 移除隔离属性；此操作仅需执行一次，不影响后续应用内更新。"
           } >> body.md
           gh release edit "$TAG" --notes-file body.md
