@@ -749,11 +749,22 @@ M2 的公式手感盲测已通过（作者手测），项目最大的风险点�
 差的是冲突对比 UI，以及**真机对着 GitHub 跑一遍** —— 现在全部是本地裸仓库
 测出来的（7 条），传输层没有被验证过。
 
-**桌面自动更新已接上**（v0.6.14，§2.11）：updater 插件 + GitHub Releases，
-推 tag 就出四份包。**整条链路一次都还没真的跑过** —— 检查、下载、装、重启
-这几步全靠 Tauri 运行时，浏览器测试一步都验不了（AGENTS.md「browser 测试
-也有它够不着的一层」）。第一次发布时要盯着看的是：CI 四个 job 编不编得过、
-`latest.json` 里是不是 NSIS 那个包、以及**装完之后打开来版本号对不对**。
+**桌面自动更新已接上**（v0.6.14 写的，v0.6.15 第一次真的发出去，§2.11）：
+updater 插件 + GitHub Releases，推 tag 就出四份包。
+
+**流水线本身已经验过**：v0.6.15 那次四个 job 全绿，草稿 release 里
+Windows(nsis+msi) / macOS(arm+intel) / Linux(deb+rpm+AppImage) 齐全，
+`latest.json` 里十一个 target 各带一个签名。
+
+**没验过的是客户端那一半**：检查、下载、装、重启这几步全靠 Tauri 运行时，
+浏览器测试一步都够不着（见上面「browser 测试也有它够不着的一层」）。
+第一次真的从旧版更到新版时要盯着看的是：**装完打开来版本号对不对**。
+
+顺带一条会让人虚惊一场的：草稿 release 里 `latest.json` 的下载地址是
+`api.github.com/repos/…/releases/assets/<id>` 这种形式，不是
+`releases/download/…` —— 草稿的资产还没有公开地址。这是对的，能下下来：
+updater 下载时会带 `Accept: application/octet-stream`
+（`tauri-plugin-updater` 的 `updater.rs`），GitHub 认这个头就回二进制。
 
 **M5a 已经落地**（v0.5.43–46 攒成 v0.6.0）：`git2-rs` 集成、状态栏的状态点、
 按空闲 / 失焦 / 关窗聚合的自动提交、说得出篇名的提交说明、侧栏的版本历史与
