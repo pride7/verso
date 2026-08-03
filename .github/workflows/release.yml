@@ -16,15 +16,23 @@ on:
   push:
     tags:
       - "v*"
-  # 手动补跑一次用（比如某个平台单独挂了）
+  # 手动补跑一次用（比如某个平台单独挂了，或给已发的版本补 APK）
   workflow_dispatch:
     inputs:
       tag:
         description: "要打包的 tag，例如 v0.6.14"
         required: true
+      only:
+        description: "只补哪部分。android = 只跑 APK + 正文指南，不动桌面包"
+        type: choice
+        options: [all, android]
+        default: all
 
 jobs:
   build:
+    # 手动补 APK 时别把四个桌面包重编一遍 —— tauri-action 往已有 release
+    # 传同名资产会直接失败，而那个 release 里的包本来就是好的
+    if: ${{ github.event_name == 'push' || github.event.inputs.only != 'android' }}
     permissions:
       contents: write
     strategy:
@@ -120,3 +128,155 @@ jobs:
           # 用户账户控制
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+  # 安卓的 arm64 release APK。tauri-action 只管桌面，这个 job 自己编、
+  # 由下面的 finalize 传进同一个草稿 release。
+  #
+  # 签名密钥不进仓库（gen/android/.gitignore 挡着 keystore.properties），
+  # CI 从四个 secret 恢复：
+  #   ANDROID_KEYSTORE_B64       —— verso-release.jks 的 base64
+  #   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+  # secrets 没配时照样编（对应 build.gradle.kts「拿不到就不配签名」那条：
+  # 构建不该因为没钥匙而失败），但产出的未签名包装不上，会打一条 warning。
+  android:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: verso/pnpm-lock.yaml
+      # AGP（compileSdk 36）要 JDK 17+，runner 的默认 JAVA_HOME 不一定是
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # NDK 版本和开发机钉在同一个（见 verso/scripts/android-apk.ps1）。
+      # 顺手把 licenses 全点了 —— gradle 会按需自动补装 platforms/build-tools，
+      # 没点过 license 它就停下来
+      - name: 装 NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.2.12479018" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: verso/src-tauri -> target
+          key: android
+
+      - name: 装前端依赖
+        run: pnpm install --frozen-lockfile
+        working-directory: verso
+
+      - name: 恢复签名密钥
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::warning::没配 ANDROID_KEYSTORE_B64，这次出的是未签名 APK（装不上）"
+            exit 0
+          fi
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/verso-release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/verso-release.jks"
+            echo "storePassword=$KS_PASS"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASS"
+          } > verso/src-tauri/gen/android/keystore.properties
+
+      # `tauri android init` 不认 src-tauri/icons/android/，会塞一套默认 logo
+      # 进 res/（AGENTS.md）。仓库里这份现在是对的，但打包前照样覆盖一遍 ——
+      # 哪天有人重新 init 过，坏图标不该悄悄发出去
+      - name: 覆盖真图标
+        run: |
+          cp -r verso/src-tauri/icons/android/mipmap-* verso/src-tauri/gen/android/app/src/main/res/
+          cp verso/src-tauri/icons/android/values/* verso/src-tauri/gen/android/app/src/main/res/values/
+
+      # Linux 上符号链接没有 Windows 那道「开发者模式」的坎，这条命令能一口气
+      # 跑到 APK 出炉，不需要 android-apk.ps1 那套拷贝 + 跳步的绕法
+      - name: 打 APK
+        run: pnpm tauri android build --apk --target aarch64
+        working-directory: verso
+
+      # gradle 出来的叫 app-arm64-release.apk ——「app」是模块名，不是软件名。
+      # 命名对齐桌面包（Verso_0.6.20_x64-setup.exe / Verso_0.6.20_arm64.apk）
+      - name: 按发布格式命名
+        run: |
+          VERSION=$(node -p "require('./verso/package.json').version")
+          SRC=verso/src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release.apk
+          test -f "$SRC"
+          cp "$SRC" "Verso_${VERSION}_arm64.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: Verso_*.apk
+          if-no-files-found: error
+
+  # 都齐了之后补两件事：
+  # 1. 把 APK 传进同一个 release（草稿或已发布都行）。
+  # 2. 在 release 正文末尾追加「下载哪一个」对照表 —— x64-setup / aarch64 /
+  #    amd64 这些资产名对不认识平台缩写的人毫无信息量。追加发生在
+  #    latest.json 上传之后，所以只出现在 GitHub 页面上，应用内「检查更新」
+  #    读到的还是干净的更新日志。**不要**改成给资产改名：latest.json 里记的
+  #    是原始下载地址，资产一改名，自动更新当场 404。
+  finalize:
+    needs: [build, android]
+    # 手动补 APK 时 build 是被跳过的（skipped 不算 failure），也要能走到这里
+    if: ${{ !cancelled() && needs.android.result == 'success' && needs.build.result != 'failure' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+      - name: 传 APK 进 release
+        run: gh release upload "$TAG" Verso_*_arm64.apk --clobber
+      - name: 正文末尾追加下载指南
+        run: |
+          VERSION="${TAG#v}"
+          node scripts/release-notes.mjs "$TAG" > body.md
+          {
+            echo
+            echo "---"
+            echo
+            echo "### 下载哪一个？"
+            echo
+            echo "| 你的系统 | 下载这个 |"
+            echo "|---|---|"
+            echo "| Windows 10 / 11 | \`Verso_${VERSION}_x64-setup.exe\` |"
+            echo "| macOS（Apple Silicon，M 系列芯片） | \`Verso_${VERSION}_aarch64.dmg\` |"
+            echo "| macOS（Intel 芯片） | \`Verso_${VERSION}_x64.dmg\` |"
+            echo "| Android（arm64） | \`Verso_${VERSION}_arm64.apk\` |"
+            echo "| Linux（Debian / Ubuntu） | \`Verso_${VERSION}_amd64.deb\` |"
+            echo "| Linux（Fedora / openSUSE） | \`Verso-${VERSION}-1.x86_64.rpm\` |"
+            echo "| Linux（其他发行版） | \`Verso_${VERSION}_amd64.AppImage\` |"
+            echo
+            echo "> Windows 另有 \`.msi\`（需要 MSI 部署的场景用；日常装 setup.exe 即可）。"
+            echo "> \`.sig\` 和 \`latest.json\` 是自动更新用的，不用下载。"
+            echo "> macOS 的包暂未签名公证，首次打开需在「系统设置 → 隐私与安全性」里放行。"
+          } >> body.md
+          gh release edit "$TAG" --notes-file body.md
