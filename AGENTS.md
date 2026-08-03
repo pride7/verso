@@ -115,7 +115,9 @@ macOS(arm+intel) / Linux 四份包，传到一个**草稿** release。
 ```bash
 node scripts/version.mjs 0.6.14
 # 写 CHANGELOG，提交
-git tag v0.6.14 && git push --follow-tags
+# 这里两条都要。`--follow-tags` **只推带注释的 tag**，而这个仓库用的是轻量
+# tag（`git tag v0.6.14`）—— 只推 main 的话 CI 根本不会触发，而且没有任何报错
+git push && git push origin v0.6.14
 # 十几分钟后去 GitHub 上检查那个草稿，确认没问题再点 Publish
 ```
 
