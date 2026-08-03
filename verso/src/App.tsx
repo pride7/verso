@@ -1214,7 +1214,24 @@ export default function App() {
       void refresh();
       setRevision((v) => v + 1);
       const cur = noteRef.current;
-      if (cur && paths.includes(cur.path)) setExternalChange(true);
+      if (!cur || !paths.includes(cur.path)) return;
+      // **必须比一次 mtime 再报**，不能见到事件就报。
+      //
+      // 我们自己写的那一次同样会让监听器响：原子写是「写临时文件 + rename」，
+      // 一次 rename 在 Windows 上能产生不止一个事件，而 Rust 侧的自写登记
+      // （`watcher.rs` 的 `SelfWrites`）只能抵掉第一个，剩下的漏过来就成了
+      // 一条「文件已被外部程序修改」。
+      //
+      // 后果不是闪一下而已 —— 那条提示上的「保留我的」按的就是保存，
+      // 保存又触发一次监听，提示立刻回来：**点它永远关不掉**。
+      void api
+        .statNote(cur.path)
+        .then((m) => {
+          if (m !== savedMtime.current) setExternalChange(true);
+        })
+        .catch(() => {
+          /* 文件可能已被删除，留给下一次操作报错 —— 和聚焦那条路一致 */
+        });
     }).then((fn) => {
       unlisten = fn;
     });
