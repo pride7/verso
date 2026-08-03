@@ -78,6 +78,7 @@
 | ↳ 移动端公式工具条（§5.5） | `v0.6.3` ✅ |
 | ↳ 文档图标（frontmatter `icon`，§2.3） | `v0.6.13` ✅ |
 | ↳ 桌面自动更新 + 发布流水线（原属 M7，提前，§2.11） | `v0.6.14` ✅ |
+| ↳ 行内格式快捷键：Ctrl+B 加粗等（§4.8） | `v0.6.15` ✅ |
 | M6 移动端 | `v0.8.0` |
 | M7 发布 | `v0.9.0` |
 
@@ -129,9 +130,15 @@ git push && git push origin v0.6.14
 1. **`~/.tauri/verso.key` 是不可再生的。** 更新包用它签名，公钥编在
    `tauri.conf.json` 里。这把私钥丢了，所有已经装出去的客户端就**永远**收不到
    更新了 —— 只能重新发一个换了公钥的包，然后指望每个用户手动去装一次。
-   备份它，同时它必须存在于 GitHub secrets 里：
-   `TAURI_SIGNING_PRIVATE_KEY`（私钥文件的**内容**）与
-   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（生成时用的是空密码，这一条设成空字符串）。
+   备份它，同时它必须存在于 GitHub secret `TAURI_SIGNING_PRIVATE_KEY` 里
+   （私钥文件的**内容**）。
+
+   **密码不是 secret，是 workflow 里写死的空串**，这一条踩过：这把密钥没有
+   密码，而 Windows 的 PowerShell 里 `gh secret set X --body ""` 会把**字面的
+   两个引号**存进去。报出来的错是 `failed to decode secret key: incorrect
+   updater private key password: Wrong password for that key` —— 编译跑满
+   七分钟才到那一步，而错误信息看不出和引号有任何关系。
+   顺带：那一行也**不能删**，删了 Tauri 会交互式地问密码，CI 里表现成 job 卡死。
 2. **本地打桌面包现在要先给环境变量**，否则 `tauri build` 会因为「有公钥没私钥」
    直接失败（`createUpdaterArtifacts` 打开着）：
 
@@ -146,7 +153,12 @@ git push && git push origin v0.6.14
    带 `platforms` 字段。** 别顺手挪进 `default.json` —— 那样
    `tauri android build` 会在 ACL 解析阶段报「找不到 updater:default」，
    而那条错误看不出和自动更新有任何关系。`tauriConfig.test.ts` 钉住了这一点。
-4. **macOS 那两个包没签名也没公证**，Gatekeeper 会拦。要等有 Apple 开发者账号。
+4. **macOS 上 git2 的 `https` 要 OpenSSL**，所以那个 target 单独开了
+   `vendored-openssl`（从源码编）。Cargo.toml 里原来写着「macOS 走
+   Security.framework」—— 是错的，第一次跑 CI 就撞上
+   `Could not find directory of OpenSSL installation`。Homebrew 装的那份也不行：
+   CI 要在 arm64 机器上顺带产出 x86_64 的包，而 brew 只有本机架构那一份。
+5. **macOS 那两个包没签名也没公证**，Gatekeeper 会拦。要等有 Apple 开发者账号。
    CI 里那两个 job 编得出来，但装的人得手动放行。
 
 ## 构建与测试

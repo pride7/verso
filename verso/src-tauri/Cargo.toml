@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.6.14"
+version = "0.6.15"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -50,7 +50,7 @@ base64 = "0.22"
 # - ssh：libssh2，配合 ssh-agent 或 ~/.ssh 下的默认密钥
 #
 # **`https` 只给桌面开。** Android 上 libgit2 的 https 后端是 OpenSSL
-# （Windows 走 schannel、macOS 走 Security.framework，都不需要额外的东西），
+# （Windows 走 schannel，不需要额外的东西），
 # 而系统里没有可链接的 OpenSSL，只能 vendored 从源码编 —— 那条路在 Windows
 # 主机上要一个「产生 Unix 风格路径、且 core 模块齐全」的 perl，git 自带的
 # MSYS perl 被精简过（缺 Locale::Maketext::Simple、ExtUtils::MakeMaker…），
@@ -61,8 +61,21 @@ base64 = "0.22"
 # 自定义传输层（`git2::transport`），那样连 OpenSSL 都不需要，包也更小。
 # 在那之前，安卓包里 https 仓库同步不了 —— `sync()` 会明确报出这一点，
 # 而不是抛一句 libgit2 的 "unsupported URL protocol"。
-[target.'cfg(not(target_os = "android"))'.dependencies]
+[target.'cfg(not(any(target_os = "android", target_os = "macos")))'.dependencies]
 git2 = { version = "0.20", default-features = false, features = ["https"] }
+
+# macOS 上 `https` 同样要 OpenSSL —— 曾经以为它走 Security.framework，
+# **是错的**，第一次跑 CI 就撞上了：`Could not find directory of OpenSSL
+# installation`。而 macOS 系统里没有可链接的 OpenSSL 头文件（Apple 早就
+# 把它从 SDK 里拿掉了）。
+#
+# 这里能用 vendored 而 Windows 上不能，差别在 perl：macOS 自带一个完整的
+# perl，OpenSSL 的 Configure 跑得起来；Windows 上那条路是打地鼠（见上面）。
+#
+# 顺带解决了交叉编译：CI 在 arm64 的机器上还要产出一份 x86_64 的包，
+# 而 Homebrew 装的 OpenSSL 只有本机那个架构，vendored 是从源码按目标架构编的
+[target.'cfg(target_os = "macos")'.dependencies]
+git2 = { version = "0.20", default-features = false, features = ["https", "vendored-openssl"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 git2 = { version = "0.20", default-features = false }
