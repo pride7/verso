@@ -214,13 +214,17 @@ jobs:
         run: pnpm tauri android build --apk --target aarch64
         working-directory: verso
 
-      # gradle 出来的叫 app-arm64-release.apk ——「app」是模块名，不是软件名。
-      # 命名对齐桌面包（Verso_0.6.20_x64-setup.exe / Verso_0.6.20_arm64.apk）
+      # gradle 出来的叫 app-universal-release.apk ——「app」是模块名，不是
+      # 软件名。命名对齐桌面包（Verso_0.6.20_x64-setup.exe → Verso_0.6.20_arm64.apk）。
+      #
+      # 变体名不写死：`tauri android build` 走的是 universal 变体，本地
+      # android-apk.ps1 直跑 gradle 出的是 arm64 变体 —— 两者都只含 aarch64
+      # （上面只编了这一个 target），按文件找，谁在用谁
       - name: 按发布格式命名
         run: |
           VERSION=$(node -p "require('./verso/package.json').version")
-          SRC=verso/src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release.apk
-          test -f "$SRC"
+          SRC=$(find verso/src-tauri/gen/android/app/build/outputs/apk -name "app-*-release.apk" | head -1)
+          test -n "$SRC" && test -f "$SRC"
           cp "$SRC" "Verso_${VERSION}_arm64.apk"
 
       - uses: actions/upload-artifact@v4
