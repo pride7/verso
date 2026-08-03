@@ -42,6 +42,10 @@ export const versoTheme = EditorView.theme({
   // 必须和 padding 写在**同一条**规则里 —— 这是 JS 对象字面量，
   // 同名键后面的会把前面的整个覆盖掉，分开写会悄悄丢掉一个
   ".cm-line": { padding: "0", position: "relative" },
+  // §6.1 段内行高与段间距是两套尺度。padding 会被 CodeMirror 的高度图计入，
+  // 不能换成 margin；空行本身则缩成同样的 0.9em，避免「段尾留白 + 空行」叠加。
+  ".cm-paragraph-break": { paddingBottom: "0.9em" },
+  ".cm-paragraph-gap": { lineHeight: "0.9em" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "color-mix(in oklch, var(--accent) 22%, transparent)",
