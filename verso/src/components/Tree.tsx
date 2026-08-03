@@ -173,20 +173,20 @@ function TreeItem({
           </button>
         )}
 
-        {isDoc && (
-          <button
-            className="tree-add"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddChild(node);
-              setExpanded(true);
-            }}
-            title="新建子文档"
-            aria-label="新建子文档"
-          >
-            <Icon name="plus" size={13} />
-          </button>
-        )}
+        {/* 纯文件夹也能建子文档（§2.1）—— 只给文档留这个入口的话，
+            文件夹就成了右键菜单才能操作的二等节点 */}
+        <button
+          className="tree-add"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddChild(node);
+            setExpanded(true);
+          }}
+          title="新建子文档"
+          aria-label="新建子文档"
+        >
+          <Icon name="plus" size={13} />
+        </button>
       </div>
 
       {hasChildren && expanded && (

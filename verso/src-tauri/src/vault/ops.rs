@@ -47,10 +47,41 @@ pub fn validate_title(title: &str) -> Result<&str> {
 }
 
 impl Vault {
+    /// 纯文件夹节点（§2.1，无同名 `.md`）的路径没有后缀。结构性操作对它们
+    /// 一样要能用，否则纯文件夹在树上就是既删不掉也动不了的死节点。
+    fn is_folder_node(&self, rel: &str) -> bool {
+        !rel.ends_with(".md")
+    }
+
+    /// 「作为父节点」时的子文档目录：文档 `X.md` → `X`，纯文件夹就是它自己
+    fn container_dir(&self, rel: &str) -> Result<String> {
+        match rel.strip_suffix(".md") {
+            Some(s) => Ok(s.to_string()),
+            None if self.fs.is_dir(&self.resolve(rel)?) => Ok(rel.to_string()),
+            None => Err(Error::Vault(format!("父节点不是文档: {rel}"))),
+        }
+    }
+
     /// 重命名文档。`X.md` 与同名文件夹 `X/` 必须一起改，且要么都成功要么都不变。
+    /// 纯文件夹节点只有目录这一个对象，直接改名。
     pub fn rename_note(&self, rel: &str, new_title: &str) -> Result<String> {
         let title = validate_title(new_title)?;
         let dir = parent_rel(rel);
+
+        if self.is_folder_node(rel) {
+            let new_rel = join(dir, title);
+            if new_rel == rel {
+                return Ok(new_rel);
+            }
+            let new_abs = self.resolve(&new_rel)?;
+            // 同名文档（`Y.md`）也要挡：文件夹改名成 `Y` 等于把自己的内容
+            // 悄悄挂到文档 Y 名下，这种合并该由用户拖拽表达，不该由改名触发
+            if self.fs.exists(&new_abs) || self.fs.exists(&self.resolve(&format!("{new_rel}.md"))?) {
+                return Err(Error::Vault(format!("已存在同名文档或文件夹: {new_rel}")));
+            }
+            self.fs.rename(&self.resolve(rel)?, &new_abs)?;
+            return Ok(new_rel);
+        }
         let new_rel = join(dir, &format!("{title}.md"));
         if new_rel == rel {
             return Ok(new_rel);
@@ -90,19 +121,25 @@ impl Vault {
         Ok(new_rel)
     }
 
-    /// 把文档移到新的父文档之下（`new_parent_doc` 为 None 表示移到 vault 根）。
+    /// 把文档移到新的父节点之下（`new_parent_doc` 为 None 表示移到 vault 根）。
     pub fn move_note(&self, rel: &str, new_parent_doc: Option<&str>) -> Result<String> {
         let name = Path::new(rel)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .ok_or_else(|| Error::Vault(format!("非法路径: {rel}")))?;
 
+        // 被移动的节点自己的子树目录：文档是同名文件夹，纯文件夹是它本身
+        let self_dir = if self.is_folder_node(rel) {
+            rel.to_string()
+        } else {
+            child_dir_of(rel)?
+        };
+
         let target_dir = match new_parent_doc {
             None => String::new(),
             Some(p) => {
-                let d = child_dir_of(p)?;
-                // 不能把一个文档移进它自己的子树，否则整棵子树会从树上消失
-                let self_dir = child_dir_of(rel)?;
+                let d = self.container_dir(p)?;
+                // 不能把一个节点移进它自己的子树，否则整棵子树会从树上消失
                 if d == self_dir || d.starts_with(&format!("{self_dir}/")) {
                     return Err(Error::Vault("不能把文档移动到它自己的子文档下".into()));
                 }
@@ -110,6 +147,20 @@ impl Vault {
                 d
             }
         };
+
+        if self.is_folder_node(rel) {
+            let new_rel = join(&target_dir, &name);
+            if new_rel == rel {
+                return Ok(new_rel);
+            }
+            let new_abs = self.resolve(&new_rel)?;
+            if self.fs.exists(&new_abs) || self.fs.exists(&self.resolve(&format!("{new_rel}.md"))?) {
+                return Err(Error::Vault(format!("目标位置已存在同名文档或文件夹: {new_rel}")));
+            }
+            self.fs.rename(&self.resolve(rel)?, &new_abs)?;
+            self.cleanup_empty_dir(parent_rel(rel))?;
+            return Ok(new_rel);
+        }
 
         let new_rel = join(&target_dir, &name);
         if new_rel == rel {
@@ -142,7 +193,20 @@ impl Vault {
 
     /// 删除文档。`with_children = false` 时保留同名文件夹 —— 树上会降级成
     /// 纯文件夹节点，子文档不会跟着消失（§2.1）。
+    ///
+    /// 纯文件夹节点没有「只删文档留子文档」可言 —— 它就是那个目录，删除
+    /// 即整个移除（前端在弹窗里写明了会连子文档一起删）。
     pub fn delete_note(&self, rel: &str, with_children: bool) -> Result<()> {
+        if self.is_folder_node(rel) {
+            let abs = self.resolve(rel)?;
+            if !self.fs.is_dir(&abs) {
+                return Err(Error::Vault(format!("不是文档: {rel}")));
+            }
+            self.fs.remove_dir_all(&abs)?;
+            self.cleanup_empty_dir(parent_rel(rel))?;
+            return Ok(());
+        }
+
         let abs = self.resolve(rel)?;
         let child = child_dir_of(rel)?;
         let child_abs = self.resolve(&child)?;
@@ -305,6 +369,97 @@ mod tests {
 
         assert!(t.0.join("父.md").is_file(), "父文档要留着");
         assert!(!t.0.join("父").exists(), "空的同名文件夹应当被清掉");
+    }
+
+    /// 造一个纯文件夹节点：建父子文档后只删父文档，`父/` 就降级成纯文件夹
+    fn pure_folder(v: &Vault) -> String {
+        let parent = v.create_note(None, "父").unwrap();
+        v.create_note(Some(&parent.path), "子").unwrap();
+        v.delete_note(&parent.path, false).unwrap();
+        "父".to_string()
+    }
+
+    /// §2.1：纯文件夹不能是死节点 —— 删除、建子文档、改名、移动都要能用
+
+    #[test]
+    fn pure_folder_can_be_deleted() {
+        let (t, v) = setup();
+        let dir = pure_folder(&v);
+
+        v.delete_note(&dir, true).unwrap();
+
+        assert!(!t.0.join("父").exists(), "文件夹应当连内容一起删掉");
+    }
+
+    #[test]
+    fn pure_folder_accepts_new_children() {
+        let (t, v) = setup();
+        let dir = pure_folder(&v);
+
+        let meta = v.create_note(Some(&dir), "新篇").unwrap();
+
+        assert_eq!(meta.path, "父/新篇.md");
+        assert!(t.0.join("父/新篇.md").is_file());
+    }
+
+    #[test]
+    fn create_rejects_nonexistent_folder_parent() {
+        let (_t, v) = setup();
+        // 既不是 .md 也不是磁盘上的目录 —— 前端传错路径不该静悄悄建出文件夹
+        assert!(v.create_note(Some("不存在"), "新篇").is_err());
+    }
+
+    #[test]
+    fn pure_folder_can_be_renamed() {
+        let (t, v) = setup();
+        let dir = pure_folder(&v);
+
+        let new_rel = v.rename_note(&dir, "旧档").unwrap();
+
+        assert_eq!(new_rel, "旧档");
+        assert!(t.0.join("旧档/子.md").is_file(), "子文档要跟着走");
+        assert!(!t.0.join("父").exists());
+    }
+
+    #[test]
+    fn folder_rename_rejects_existing_document_name() {
+        let (_t, v) = setup();
+        let dir = pure_folder(&v);
+        v.create_note(None, "占位").unwrap();
+        // 撞上同名文档等于把文件夹悄悄挂到那篇文档名下，必须挡
+        assert!(v.rename_note(&dir, "占位").is_err());
+    }
+
+    #[test]
+    fn pure_folder_can_be_moved_into_document() {
+        let (t, v) = setup();
+        let dir = pure_folder(&v);
+        let target = v.create_note(None, "目标").unwrap();
+
+        let new_rel = v.move_note(&dir, Some(&target.path)).unwrap();
+
+        assert_eq!(new_rel, "目标/父");
+        assert!(t.0.join("目标/父/子.md").is_file());
+    }
+
+    #[test]
+    fn folder_move_rejects_own_subtree() {
+        let (_t, v) = setup();
+        let dir = pure_folder(&v);
+        // `父/子.md` 在 `父/` 自己的子树里
+        assert!(v.move_note(&dir, Some("父/子.md")).is_err());
+    }
+
+    #[test]
+    fn document_can_be_moved_into_pure_folder() {
+        let (t, v) = setup();
+        let dir = pure_folder(&v);
+        let doc = v.create_note(None, "外面").unwrap();
+
+        let new_rel = v.move_note(&doc.path, Some(&dir)).unwrap();
+
+        assert_eq!(new_rel, "父/外面.md");
+        assert!(t.0.join("父/外面.md").is_file());
     }
 
     #[test]

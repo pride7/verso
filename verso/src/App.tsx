@@ -1103,6 +1103,24 @@ export default function App() {
   /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
   const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
 
+  /**
+   * §2.1「创建为文档」：把纯文件夹升级成文档节点 —— 在旁边补一个同名 `.md`，
+   * 树上两者就合并成一个「既有内容、又能展开」的节点。
+   */
+  const upgradeFolder = useCallback(
+    async (node: TreeNode) => {
+      try {
+        const i = node.path.lastIndexOf("/");
+        const meta = await api.createNote(i < 0 ? null : node.path.slice(0, i), node.name);
+        await refresh();
+        await openPath(meta.path);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [refresh, openPath],
+  );
+
 
   const deleteNode = useCallback(
     async (node: TreeNode) => {
@@ -1110,7 +1128,16 @@ export default function App() {
       // 有子文档时，这一问同时决定「删不删」和「子文档跟不跟着走」，两个按钮
       // 都是「删」—— 所以把结果写在按钮上，别让人对着「确定/取消」猜
       let withChildren = false;
-      if (n > 0) {
+      if (node.kind === "folder") {
+        // 纯文件夹就是那个目录本身，没有「只删文档留子文档」可言 ——
+        // 但会连里面的东西一起删，弹窗必须说清楚
+        const msg =
+          n > 0
+            ? `删除文件夹「${node.name}」和其中 ${n} 个子文档？`
+            : `删除文件夹「${node.name}」？`;
+        if (!(await confirm(msg))) return;
+        withChildren = true;
+      } else if (n > 0) {
         withChildren = await confirm(`「${node.name}」有 ${n} 个子文档。`, {
           okLabel: "连同子文档一起删除",
           cancelLabel: "只删本文档，留下子文档",
@@ -2683,6 +2710,21 @@ export default function App() {
               重命名
             </button>
           </li>
+          {/* §2.1：把纯文件夹升级成文档节点。升级之后图标、打开、拖拽这些
+              文档才有的能力就都有了 */}
+          {menu.node.kind === "folder" && (
+            <li>
+              <button
+                onClick={() => {
+                  const { node } = menu;
+                  setMenu(null);
+                  void upgradeFolder(node);
+                }}
+              >
+                创建为文档
+              </button>
+            </li>
+          )}
           {/* 纯文件夹没有同名 .md，也就没有能放 `icon:` 的 frontmatter ——
               §0 第 1 条要求图标跟着用户的文件走，不另建一份索引外的状态 */}
           {menu.node.kind === "document" && (

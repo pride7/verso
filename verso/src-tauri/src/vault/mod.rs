@@ -186,9 +186,11 @@ impl Vault {
         Ok(self.fs.metadata(&abs)?.mtime_ms)
     }
 
-    /// 新建文档。`parent_doc` 是父文档的 `.md` 相对路径（None = 建在 vault 根）。
+    /// 新建文档。`parent_doc` 是父节点的相对路径（None = 建在 vault 根）。
     ///
-    /// 有父文档时会按 §2.1 建出同名文件夹：父文档 `X.md` 的子文档放进 `X/`。
+    /// 父节点是文档（`X.md`）时按 §2.1 建出同名文件夹，子文档放进 `X/`；
+    /// 是纯文件夹节点时它自己就是那个目录 —— 纯文件夹同样要能建子文档，
+    /// 否则它在树上就是个死节点。
     pub fn create_note(&self, parent_doc: Option<&str>, title: &str) -> Result<NoteMeta> {
         let title = ops::validate_title(title)?;
 
@@ -196,10 +198,13 @@ impl Vault {
             None => String::new(),
             Some(p) => {
                 // 父文档 `数学/线性代数.md` → 子文档目录 `数学/线性代数`
-                let d = p
-                    .strip_suffix(".md")
-                    .ok_or_else(|| Error::Vault(format!("父节点不是文档: {p}")))?
-                    .to_string();
+                let d = match p.strip_suffix(".md") {
+                    Some(s) => s.to_string(),
+                    // 没有 .md 后缀：只认磁盘上真实存在的目录。随便一个字符串
+                    // 都当目录建下去的话，前端传错路径会静悄悄造出一堆文件夹
+                    None if self.fs.is_dir(&self.resolve(p)?) => p.to_string(),
+                    None => return Err(Error::Vault(format!("父节点不是文档: {p}"))),
+                };
                 self.fs.create_dir_all(&self.resolve(&d)?)?;
                 d
             }
