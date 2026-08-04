@@ -31,9 +31,12 @@ const doc = (name: string, path: string): TreeNode => ({
   updated: null,
 });
 
+/** 平台能力开关（目录选择器、终端…）。视口归 page.viewport 管，这个归它管 */
+let mobileFlag = false;
+
 vi.mock("./api", () => ({
   api: {
-    isMobile: async () => false,
+    isMobile: async () => mobileFlag,
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
@@ -126,6 +129,7 @@ async function mount() {
 
 beforeEach(async () => {
   localStorage.clear();
+  mobileFlag = false;
   await page.viewport(PHONE.w, PHONE.h);
 });
 
@@ -482,5 +486,28 @@ describe("公式工具条", () => {
     expect(keyByName("根式"), "「最近」那一页里应该有它").toBeTruthy();
     // 存住了：localStorage 里记的是 insert
     expect(localStorage.getItem("verso.mathbar.recent")).toContain("sqrt");
+  });
+});
+
+/**
+ * §7.3：移动端没有可用的 PTY，终端的一切入口都不该出现 ——
+ * 摆一个点了没反应（或弹一个空面板）的按钮比没有更糟。
+ */
+describe("移动端没有终端", () => {
+  it("终端按钮不渲染，桌面存下的「面板开着」状态也不生效", async () => {
+    mobileFlag = true;
+    // 模拟桌面上开过终端留下的偏好
+    localStorage.setItem("verso.termOpen", "1");
+    await mount();
+
+    expect(document.querySelector('[aria-label="终端"]')).toBeNull();
+    expect(document.querySelector(".term")).toBeNull();
+    // 只是这次不生效，不把桌面的偏好覆盖掉
+    expect(localStorage.getItem("verso.termOpen")).toBe("1");
+  });
+
+  it("桌面照旧有终端按钮", async () => {
+    await mount();
+    expect(document.querySelector('[aria-label="终端"]')).not.toBeNull();
   });
 });

@@ -22,6 +22,8 @@ interface Props {
   mindmapOn: boolean | null;
   onToggleMindmap: () => void;
   termOpen: boolean;
+  /** 移动端没有终端（§7.3 没有可用的 PTY），整个按钮不渲染 */
+  showTerm: boolean;
   onToggleTerm: () => void;
   onSystemTerminal: () => void;
   onPalette: () => void;
@@ -63,6 +65,7 @@ export function ActivityBar({
   mindmapOn,
   onToggleMindmap,
   termOpen,
+  showTerm,
   onToggleTerm,
   onSystemTerminal,
   onPalette,
@@ -112,19 +115,21 @@ export function ActivityBar({
       >
         <Icon name="mindmap" />
       </button>
-      <button
-        className={`rail-btn rail-action${termOpen ? " is-on" : ""}`}
-        onClick={onToggleTerm}
-        onContextMenu={(e) => {
-          // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
-          e.preventDefault();
-          onSystemTerminal();
-        }}
-        title={`${hint("终端", keyOf("term.toggle"))}　右键：在系统终端中打开`}
-        aria-label="终端"
-      >
-        <Icon name="terminal" />
-      </button>
+      {showTerm && (
+        <button
+          className={`rail-btn rail-action${termOpen ? " is-on" : ""}`}
+          onClick={onToggleTerm}
+          onContextMenu={(e) => {
+            // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
+            e.preventDefault();
+            onSystemTerminal();
+          }}
+          title={`${hint("终端", keyOf("term.toggle"))}　右键：在系统终端中打开`}
+          aria-label="终端"
+        >
+          <Icon name="terminal" />
+        </button>
+      )}
       <button
         className="rail-btn rail-action"
         onClick={onPalette}

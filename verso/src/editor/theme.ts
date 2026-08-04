@@ -248,6 +248,8 @@ export const versoTheme = EditorView.theme({
   "@media (hover: none)": {
     ".cm-table .cm-table-grip": { opacity: 0.38, pointerEvents: "auto" },
     ".cm-table .cm-table-resize": { opacity: 0.42, pointerEvents: "auto" },
+    // 折叠箭头同理：未折叠的标题在触屏上原本完全摸不到折叠入口
+    ".cm-fold-arrow": { opacity: 0.5 },
   },
 
   // ---- 列宽拖杆（§4.9）----

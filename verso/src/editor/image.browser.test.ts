@@ -95,9 +95,13 @@ describe("图片", () => {
 
     const handle = view.dom.querySelector<HTMLElement>(".cm-img-handle")!;
     const start = img(view)!.getBoundingClientRect();
-    handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: start.right }));
-    document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: start.right + 120 }));
-    document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    // pointer 而不是 mouse —— 实现听的是 pointer 事件（触屏也要能拖，
+    // 见 image.ts 的注释）
+    handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: start.right }));
+    document.dispatchEvent(
+      new PointerEvent("pointermove", { bubbles: true, clientX: start.right + 120 }),
+    );
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await settle();
 
     // 宽度进了文件，不是界面上的临时状态

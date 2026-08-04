@@ -4050,8 +4050,20 @@ textarea:focus-visible {
   .props-del,
   .cm-img-handle,
   .dbview-edit,
+  .dbview-resize,
+  .hist-restore,
   .mm-acts {
     opacity: 1;
+  }
+
+  /* 有未保存改动的标签：桌面上圆点让位给悬停出现的 ×，触屏没有悬停，
+     × 就永远不存在，标签关不掉 —— 这里必须把 × 显回来。它是用
+     display 藏的，上面那组 opacity 救不了它 */
+  .tab.is-dirty:not(:hover) .tab-close {
+    display: revert;
+  }
+  .tab.is-dirty .tab-dot {
+    display: none;
   }
 
   /* 手指的接触面直径约 44px（Apple HIG / Material 都取这个数）。
@@ -4259,6 +4271,8 @@ textarea:focus-visible {
   cursor: ew-resize;
   opacity: 0;
   transition: opacity var(--t-fast);
+  /* 手指按住拖动时不能让页面跟着滚 —— 没有这条，触屏上拖把手 = 滚动 */
+  touch-action: none;
 }
 .cm-img-handle::after {
   content: "";
@@ -5137,6 +5151,8 @@ textarea:focus-visible {
   width: 8px;
   cursor: col-resize;
   z-index: 1;
+  /* 同 .cm-img-handle：手指拖动改列宽时不能让容器跟着横滚 */
+  touch-action: none;
 }
 .dbview-resize::after {
   content: "";
@@ -5152,6 +5168,13 @@ textarea:focus-visible {
 }
 .dbview-resize:hover::after {
   opacity: 0.7;
+}
+/* 触屏上拖杆那条高亮线常显一份淡的 —— 命中区本身是透明的，
+   不显出来等于摸黑找一条 8px 的缝（和编辑器表格的 hover:none 一致） */
+@media (hover: none) {
+  .dbview-resize::after {
+    opacity: 0.35;
+  }
 }
 
 .dbview-scroll {

@@ -181,7 +181,9 @@ export function DatabaseView({
    * 这一刻把**所有列的实际宽度**量下来当基准 —— 一旦有了显式宽度，表格就切到
    * 定宽布局，没量过的列会立刻重排，整张表在手底下跳一下。
    */
-  const startResize = (col: string, e: React.MouseEvent) => {
+  // pointer 而不是 mouse：触屏上拖杆是常显的（hover:none 那块 CSS），
+  // 挂 mouse 事件的话看得见拖不动 —— 和编辑器表格（table.ts）同一套
+  const startResize = (col: string, e: React.PointerEvent) => {
     e.preventDefault();
     // 不让它冒泡到表头按钮上去 —— 否则拖完一放手就顺手排了个序
     e.stopPropagation();
@@ -196,7 +198,7 @@ export function DatabaseView({
 
   useEffect(() => {
     if (!resizing) return;
-    const move = (e: MouseEvent) => {
+    const move = (e: PointerEvent) => {
       const next = {
         ...resizing.base,
         [resizing.key]: clampColW(resizing.base[resizing.key] + (e.clientX - resizing.startX)),
@@ -211,14 +213,17 @@ export function DatabaseView({
       });
       setResizing(null);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    // 触屏上系统手势可能中途抢走指针，cancel 也要收尾
+    window.addEventListener("pointercancel", up);
     // 拖动全程锁成 col-resize 光标，否则划过别的元素就变回箭头
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
     return () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
@@ -918,7 +923,7 @@ export function DatabaseView({
                         停在文字后面，而不是列的边界上 */}
                     <span
                       className="dbview-resize"
-                      onMouseDown={(e) => startResize(c, e)}
+                      onPointerDown={(e) => startResize(c, e)}
                       onDoubleClick={(e) => {
                         e.stopPropagation();
                         onPatch(writeWidths(source, null));

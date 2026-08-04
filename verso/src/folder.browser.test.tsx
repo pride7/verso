@@ -59,6 +59,8 @@ const createUntitled = vi.fn(async (_parent: string | null) => ({
   title: "未命名",
 }));
 const deleteNote = vi.fn(async (_path: string, _withChildren: boolean) => {});
+const moveNote = vi.fn(async (_path: string, _newParentDoc: string | null) => "甲.md");
+const reorderApi = vi.fn(async (_parent: string, _ordered: string[]) => {});
 
 vi.mock("./api", () => ({
   api: {
@@ -87,7 +89,7 @@ vi.mock("./api", () => ({
     createNote: (p: string | null, t: string) => createNote(p, t),
     createUntitled: (p: string | null) => createUntitled(p),
     renameNote: async () => "",
-    moveNote: async () => "",
+    moveNote: (p: string, parent: string | null) => moveNote(p, parent),
     deleteNote: (p: string, w: boolean) => deleteNote(p, w),
     search: async () => [],
     backlinks: async () => [],
@@ -97,7 +99,7 @@ vi.mock("./api", () => ({
     propSet: async () => {},
     propRename: async () => {},
     propSchema: async () => ({}),
-    reorder: async () => {},
+    reorder: (parent: string, ordered: string[]) => reorderApi(parent, ordered),
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,
     workspaceGet: async () => ({ tabs: [], active: 0, pinnedCount: 0 }),
@@ -133,6 +135,8 @@ beforeEach(() => {
   createNote.mockClear();
   createUntitled.mockClear();
   deleteNote.mockClear();
+  moveNote.mockClear();
+  reorderApi.mockClear();
 });
 
 afterEach(() => {
@@ -229,5 +233,67 @@ describe("纯文件夹的树上操作", () => {
     await mountApp();
     const item = await menuItem(rowFor("甲"), "创建为文档");
     expect(item).toBeFalsy();
+  });
+});
+
+/**
+ * 「移动到…」和上移/下移 —— 拖拽的可点击等价物（M6）。
+ * 触摸屏上 HTML5 拖放完全不可用，没有这几条，手机上就无法调整树结构。
+ */
+describe("不靠拖拽的移动与排序", () => {
+  it("右键 → 移动到…：弹选择器，选中某篇就移过去", async () => {
+    await mountApp();
+    await click((await menuItem(rowFor("甲"), "移动到…"))!);
+
+    const items = [...document.querySelectorAll<HTMLElement>(".qs-item")];
+    // 第一条固定是「顶层」；自己不在候选里
+    expect(items[0]?.textContent).toContain("顶层");
+    expect(items.some((i) => i.textContent?.includes("代数"))).toBe(true);
+    expect(
+      items.filter((i) => i.querySelector(".qs-name")?.textContent === "甲"),
+    ).toHaveLength(0);
+
+    const target = items.find((i) => i.textContent?.includes("代数"))!;
+    await act(async () => {
+      target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await settle(300);
+    });
+    expect(moveNote).toHaveBeenCalledWith("甲.md", "数学/代数.md");
+    expect(document.querySelector(".qs-item"), "选完选择器要关掉").toBeFalsy();
+  });
+
+  it("选「顶层」= 移到仓库根", async () => {
+    await mountApp();
+    await click((await menuItem(rowFor("甲"), "移动到…"))!);
+    const top = document.querySelector<HTMLElement>(".qs-item")!;
+    await act(async () => {
+      top.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await settle(300);
+    });
+    expect(moveNote).toHaveBeenCalledWith("甲.md", null);
+  });
+
+  it("上移/下移按屏幕顺序调整，落到 reorder", async () => {
+    await mountApp();
+    const up = await menuItem(rowFor("甲"), "上移");
+    const down = [...document.querySelectorAll<HTMLElement>(".ctx button")].find(
+      (b) => b.textContent === "下移",
+    );
+    expect(up && down, "文档的菜单里要有上移/下移").toBeTruthy();
+
+    // 顶层只有两项：一端能动、另一端灰着
+    const enabled = [up!, down!].filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(enabled).toHaveLength(1);
+
+    await click(enabled[0]);
+    expect(reorderApi).toHaveBeenCalledTimes(1);
+    const [parent, ordered] = reorderApi.mock.calls[0];
+    expect(parent).toBe("");
+    expect(ordered).toContain("甲.md");
+  });
+
+  it("纯文件夹的菜单里没有上移/移动到… —— 它当不了拖拽源，菜单口径一致", async () => {
+    await mountApp();
+    expect(await menuItem(rowFor("数学"), "移动到…")).toBeFalsy();
   });
 });

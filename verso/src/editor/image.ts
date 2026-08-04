@@ -99,7 +99,10 @@ export class ImageWidget extends WidgetType {
     const handle = document.createElement("span");
     handle.className = "cm-img-handle";
     handle.title = "拖动改变宽度";
-    handle.addEventListener("mousedown", (e) => this.startResize(e, view, img));
+    // pointer 事件而不是 mouse：触屏上把手是常显的（styles.css 的
+    // hover:none 块），但 mousedown 在手指下永远不来 —— 看得见拖不动。
+    // 表格列宽（table.ts）用的就是 pointerdown，这里保持同一套
+    handle.addEventListener("pointerdown", (e) => this.startResize(e, view, img));
     box.appendChild(handle);
 
     // 点图片把光标送回源码 —— 和公式 widget 一致，这是唯一能改到 `![[]]` 的路
@@ -113,20 +116,21 @@ export class ImageWidget extends WidgetType {
     return box;
   }
 
-  private startResize(e: MouseEvent, view: EditorView, img: HTMLImageElement) {
+  private startResize(e: PointerEvent, view: EditorView, img: HTMLImageElement) {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startW = img.getBoundingClientRect().width;
     let next = Math.round(startW);
 
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       next = Math.max(MIN_W, Math.round(startW + (ev.clientX - startX)));
       img.style.width = `${next}px`;
     };
     const up = () => {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", up);
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.removeEventListener("pointercancel", up);
       // 宽度和原来一样就别写文件 —— 只是点了一下把手不该产生一次修改
       if (next === this.width) return;
       view.dispatch({
@@ -134,8 +138,10 @@ export class ImageWidget extends WidgetType {
         userEvent: "input.image.resize",
       });
     };
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up);
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+    // 触屏上系统手势（滚动、返回）可能中途抢走指针 —— cancel 也要收尾
+    document.addEventListener("pointercancel", up);
   }
 
   /** 事件由 widget 自己处理，别让 CM6 再去动光标 */

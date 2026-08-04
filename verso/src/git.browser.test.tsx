@@ -37,6 +37,9 @@ let dirty = 0;
 /** 打开着的那篇在磁盘上的样子。同步拉取会改它 —— 测「自动换成磁盘版」用 */
 let noteMtime = 0;
 let noteBody = "正文\n";
+/** 假装在手机上 —— 后台恢复扫描只在移动端跑 */
+let mobileFlag = false;
+const rebuildIndex = vi.fn(async () => ({}));
 /** 调用顺序 —— 「先保存再提交」全靠它验 */
 const calls: string[] = [];
 
@@ -169,7 +172,7 @@ vi.mock("./lib/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
 
 vi.mock("./api", () => ({
   api: {
-    isMobile: async () => false,
+    isMobile: async () => mobileFlag,
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
@@ -242,7 +245,7 @@ vi.mock("./api", () => ({
     getSettings: async () => settingsPatch,
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},
-    rebuildIndex: async () => ({}),
+    rebuildIndex: () => rebuildIndex(),
     ptyOpen: async () => "1",
     ptyWrite: async () => {},
     ptyResize: async () => {},
@@ -278,6 +281,8 @@ beforeEach(() => {
   dirty = 0;
   noteMtime = 0;
   noteBody = "正文\n";
+  mobileFlag = false;
+  rebuildIndex.mockClear();
   calls.length = 0;
   gitCommit.mockClear();
   gitRestore.mockClear();
@@ -934,5 +939,39 @@ describe("同步", () => {
       await settle(300);
     });
     expect(vaultSync).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * §2.7 移动端补充：后台恢复时的全量刷新。iOS 后台收不到文件事件、安卓
+ * FUSE 上的监听不可靠 —— 后台里另一台设备推了新内容，恢复时必须主动对账。
+ */
+describe("后台恢复（移动端）", () => {
+  it("回到前台：重建索引，并发现打开的笔记被外面改过", async () => {
+    mobileFlag = true;
+    await mount();
+    rebuildIndex.mockClear();
+
+    // 后台期间另一台设备同步了新内容
+    noteMtime = 9;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await settle(300);
+    });
+
+    expect(rebuildIndex).toHaveBeenCalled();
+    expect(document.body.textContent).toContain("文件已被外部程序修改");
+  });
+
+  it("桌面不走这条 —— 聚焦那条路已经覆盖，别重复全量重建", async () => {
+    await mount();
+    rebuildIndex.mockClear();
+
+    noteMtime = 9;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await settle(300);
+    });
+    expect(rebuildIndex).not.toHaveBeenCalled();
   });
 });

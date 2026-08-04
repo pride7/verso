@@ -15,6 +15,7 @@ import { OutlineFloat, OutlineView, useActiveHeading } from "./components/Outlin
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
 import { ConflictView } from "./components/ConflictView";
+import { MoveTargetPicker } from "./components/MoveTargetPicker";
 import { SettingsPanel, type Tab as SettingsTab } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
@@ -197,6 +198,10 @@ export default function App() {
         .then((v) => {
           mobileRef.current = v;
           setMobile(v);
+          // 移动端没有终端（§7.3：iOS/Android 没有可用的 PTY）。termOpen
+          // 存在 localStorage，桌面上开过的状态不该在手机上把面板顶出来。
+          // 用 Raw：只关这一次，不把「0」写回存储去覆盖用户在桌面的偏好
+          if (v) setTermOpenRaw(false);
         })
         .catch(() => {});
     } catch {
@@ -211,6 +216,9 @@ export default function App() {
     return clampSidebar(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_SIDEBAR_W);
   });
   const [menu, setMenu] = useState<Menu | null>(null);
+  /** 「移动到…」选择器正在为哪个节点服务。null = 没开。
+      拖拽移动在触摸屏上完全不可用，这是它的可点击等价物（M6） */
+  const [moveFor, setMoveFor] = useState<TreeNode | null>(null);
   /**
    * 模板选择器开着做什么：插进当前笔记，还是用它新建一篇（`parent` 是父文档）。
    * null = 没开。
@@ -1314,6 +1322,20 @@ export default function App() {
     [tree, settings.treeSort, updateSettings, refresh, openPath],
   );
 
+  /**
+   * 这一行在**屏幕顺序**里的兄弟组（路径列表）。右键菜单的上移/下移用 ——
+   * 和拖拽排序一样，起点是用户看到的顺序，不是文件里记着的（见 reorder）。
+   */
+  const displaySiblings = useCallback(
+    (path: string) => {
+      const cut = path.lastIndexOf("/");
+      const parent = cut < 0 ? "" : path.slice(0, cut);
+      const host = parent ? tree.flatMap(flatten).find((n) => n.childDir === parent) : undefined;
+      return sortTree(parent ? (host?.children ?? []) : tree, settings.treeSort).map((n) => n.path);
+    },
+    [tree, settings.treeSort],
+  );
+
   // 提示自己消失。它是一次性的说明，不是状态，赖着不走就成了侧栏里的一行垃圾
   useEffect(() => {
     if (!sortNotice) return;
@@ -1427,6 +1449,44 @@ export default function App() {
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+  }, [refresh]);
+
+  // §2.7 移动端补充：App 从后台恢复时主动做一次全量刷新。
+  //
+  // iOS 后台期间收不到文件事件；安卓共享存储那层 FUSE 的 inotify 本来就
+  // 不可靠 —— 在后台的这段时间里，另一台设备可能推了新内容、别的 app
+  // 可能改了文件，监听器一概不知道。恢复的那一刻把文档树、索引、打开的
+  // 这篇全部对一遍，代价是几百毫秒的一次重建（500 篇 < 1s，§3）。
+  //
+  // 桌面不走这条：窗口聚焦那条路（上面的 onFocus）已经覆盖同样的场景，
+  // 而桌面的 visibilitychange 和 focus 几乎总是一起来，重复跑一次全量
+  // 重建纯属浪费。
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !mobileRef.current) return;
+      void refresh();
+      setGitActivity((v) => v + 1);
+      try {
+        void api
+          .rebuildIndex()
+          .then(() => setRevision((v) => v + 1))
+          .catch(() => {});
+      } catch {
+        /* 老后端没有这个命令 */
+      }
+      const n = noteRef.current;
+      if (!n) return;
+      void api
+        .statNote(n.path)
+        .then((m) => {
+          if (m !== savedMtime.current) setExternalChange(true);
+        })
+        .catch(() => {
+          /* 文件可能已被删除，留给下一次操作报错 —— 和聚焦那条路一致 */
+        });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
   // 后端的非致命提示。以前发了没人听，等于白发
@@ -2069,20 +2129,26 @@ export default function App() {
         defaultKeys: "Mod+/",
         run: () => setSymbolOpen(true),
       },
-      {
-        id: "term.toggle",
-        group: "终端",
-        label: "打开／关闭终端面板",
-        // 沿用 VS Code 的肌肉记忆（§7.3）
-        defaultKeys: "Mod+`",
-        run: () => setTermOpen((v) => !v),
-      },
-      {
-        id: "term.system",
-        group: "终端",
-        label: "在系统终端中打开",
-        run: () => api.openTerminal(null).catch((e: Error) => setError(e.message)),
-      },
+      // 移动端整组不出现（§7.3：iOS/Android 没有可用的 PTY）——
+      // 摆一条点了没反应的命令比没有更糟
+      ...(mobile
+        ? []
+        : [
+            {
+              id: "term.toggle",
+              group: "终端",
+              label: "打开／关闭终端面板",
+              // 沿用 VS Code 的肌肉记忆（§7.3）
+              defaultKeys: "Mod+`",
+              run: () => setTermOpen((v) => !v),
+            },
+            {
+              id: "term.system",
+              group: "终端",
+              label: "在系统终端中打开",
+              run: () => api.openTerminal(null).catch((e: Error) => setError(e.message)),
+            },
+          ]),
       {
         id: "view.theme",
         group: "外观",
@@ -2284,6 +2350,7 @@ export default function App() {
         mindmapOn={note ? mindmapOpen : null}
         onToggleMindmap={() => setMindmapOpen((v) => !v)}
         termOpen={termOpen}
+        showTerm={!mobile}
         onToggleTerm={() => setTermOpen((v) => !v)}
         onSystemTerminal={() =>
           api.openTerminal(null).catch((err) => setError((err as Error).message))
@@ -2551,12 +2618,14 @@ export default function App() {
             {/* 键位从命令表里现取：用户改过之后，这里教的必须是他自己那一套 */}
             <ul className="empty-keys">
               {(
-                [
+                ([
                   ["note.switch", "跳转到某篇笔记"],
                   ["view.palette", "命令面板"],
                   ["note.search", "全文搜索"],
-                  ["term.toggle", "终端"],
-                ] as const
+                  // 移动端没有终端，也没有能按这些快捷键的键盘可言，
+                  // 但前三条至少还有对应的界面入口，终端这条纯属误导
+                  ...(mobile ? [] : ([["term.toggle", "终端"]] as const)),
+                ] as const)
               ).map(([id, what]) => {
                 const k = keyOf(id);
                 return k ? (
@@ -2578,7 +2647,7 @@ export default function App() {
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 
-      {termOpen && (
+      {termOpen && !mobile && (
         <TerminalPanel
           key={vault.root}
           height={termHeight}
@@ -2733,6 +2802,20 @@ export default function App() {
         />
       )}
 
+      {moveFor && (
+        <MoveTargetPicker
+          notes={noteList}
+          icons={iconMap}
+          moving={{ path: moveFor.path, childDir: moveFor.childDir, name: moveFor.name }}
+          onPick={(target) => {
+            const n = moveFor;
+            setMoveFor(null);
+            void moveNode(n.path, target);
+          }}
+          onClose={() => setMoveFor(null)}
+        />
+      )}
+
       {switcherOpen && (
         <QuickSwitcher
           notes={noteList}
@@ -2846,6 +2929,55 @@ export default function App() {
               </button>
             </li>
           )}
+          {/* 上移/下移/移动到…：拖拽的可点击等价物（M6）。触摸屏上
+              HTML5 拖放完全不可用，没有这几条，手机上就无法调整结构。
+              和拖拽一样只给文档 —— 纯文件夹没有同名文档，当不了拖拽源 */}
+          {menu.node.kind === "document" &&
+            (() => {
+              const sibs = displaySiblings(menu.node.path);
+              const idx = sibs.indexOf(menu.node.path);
+              return (
+                <>
+                  <li>
+                    <button
+                      disabled={idx <= 0}
+                      onClick={() => {
+                        const { node } = menu;
+                        const target = sibs[idx - 1];
+                        setMenu(null);
+                        void reorder(node.path, target, "before");
+                      }}
+                    >
+                      上移
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      disabled={idx < 0 || idx >= sibs.length - 1}
+                      onClick={() => {
+                        const { node } = menu;
+                        const target = sibs[idx + 1];
+                        setMenu(null);
+                        void reorder(node.path, target, "after");
+                      }}
+                    >
+                      下移
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      onClick={() => {
+                        const { node } = menu;
+                        setMenu(null);
+                        setMoveFor(node);
+                      }}
+                    >
+                      移动到…
+                    </button>
+                  </li>
+                </>
+              );
+            })()}
           <li>
             <button
               onClick={() => {

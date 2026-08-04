@@ -1134,11 +1134,14 @@ describe("列宽可调（§2.6）", () => {
     )!;
     const handle = th.querySelector<HTMLElement>(".dbview-resize")!;
     const x = handle.getBoundingClientRect().left;
-    handle.dispatchEvent(new MouseEvent("mousedown", { clientX: x, bubbles: true, cancelable: true }));
+    // pointer 而不是 mouse —— 实现听的是 pointer 事件（触屏也要能拖）
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", { clientX: x, bubbles: true, cancelable: true }),
+    );
     await settle(60);
-    window.dispatchEvent(new MouseEvent("mousemove", { clientX: x + dx, bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: x + dx, bubbles: true }));
     await settle(60);
-    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await settle(200);
   }
 
@@ -1226,13 +1229,15 @@ describe("列头菜单里该有什么", () => {
 
     const handle = view.dom.querySelector<HTMLElement>('th[data-col="status"] .dbview-resize')!;
     const x = handle.getBoundingClientRect().left;
-    handle.dispatchEvent(new MouseEvent("mousedown", { clientX: x, bubbles: true, cancelable: true }));
+    handle.dispatchEvent(
+      new PointerEvent("pointerdown", { clientX: x, bubbles: true, cancelable: true }),
+    );
     // 按下和移动之间必须让一拍：监听器是在 effect 里挂的，同一拍里发出去的
-    // mousemove 还没人接
+    // pointermove 还没人接
     await settle(60);
-    window.dispatchEvent(new MouseEvent("mousemove", { clientX: x + 50, bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: x + 50, bubbles: true }));
     await settle(60);
-    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await settle(250);
 
     expect((await open()).some((t) => t?.includes("宽度复位"))).toBe(true);
