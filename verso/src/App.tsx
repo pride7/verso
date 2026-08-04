@@ -1019,6 +1019,29 @@ export default function App() {
         if (out.pushed > 0) bits.push(`传出 ${out.pushed} 个版本`);
         setNotice(bits.length ? bits.join("，") : "已经是最新的");
       }
+
+      // 同步改了磁盘上正打开的这篇（拉取和冲突定稿都算）时，直接换成
+      // 磁盘版，**不要**弹「文件已被外部程序修改」—— 拉哪边的决定用户
+      // 刚在同步/冲突面板里做过，再问一次是重复，而且那条横幅上的
+      // 「保留我的」会把刚被否掉的旧内容救活，等于白解决一轮。
+      // 只在没有新的未保存输入时换：同步跑着的几秒里用户还在打字的话，
+      // 静默覆盖会丢字，那种罕见情况留给横幅去问。
+      const cur = noteRef.current;
+      if (cur && !dirtyRef.current) {
+        try {
+          if ((await api.statNote(cur.path)) !== savedMtime.current) {
+            const content = await api.readNote(cur.path);
+            setNote(content);
+            setBody(content.body);
+            savedMtime.current = content.mtimeMs;
+            setSaveState("saved");
+            setExternalChange(false);
+          }
+        } catch {
+          // 这篇可能被同步删掉了 —— 树的刷新会把它收走，这里不报
+        }
+      }
+
       refreshGit();
       await refresh();
       setRevision((v) => v + 1);

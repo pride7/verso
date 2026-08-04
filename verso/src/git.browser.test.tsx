@@ -34,6 +34,9 @@ const doc = (name: string, path: string): TreeNode => ({
 
 /** 后端说现在有几个改动。每条测试自己定 */
 let dirty = 0;
+/** 打开着的那篇在磁盘上的样子。同步拉取会改它 —— 测「自动换成磁盘版」用 */
+let noteMtime = 0;
+let noteBody = "正文\n";
 /** 调用顺序 —— 「先保存再提交」全靠它验 */
 const calls: string[] = [];
 
@@ -179,14 +182,14 @@ vi.mock("./api", () => ({
         title: "甲",
         frontmatter: {},
         frontmatterText: null,
-        body: "正文\n",
-        mtimeMs: 0,
+        body: noteBody,
+        mtimeMs: noteMtime,
       }) as NoteContent,
     writeNote: async () => {
       calls.push("save");
       return 0;
     },
-    statNote: async () => 0,
+    statNote: async () => noteMtime,
     createNote: async () => ({ path: "x.md", id: null, title: "x" }),
     createUntitled: async () => ({ path: "x.md", id: null, title: "x" }),
     renameNote: async () => "",
@@ -273,6 +276,8 @@ const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   dirty = 0;
+  noteMtime = 0;
+  noteBody = "正文\n";
   calls.length = 0;
   gitCommit.mockClear();
   gitRestore.mockClear();
@@ -866,6 +871,35 @@ describe("同步", () => {
       await settle(400);
     });
     expect(vaultSyncResolve).toHaveBeenCalledWith([{ path: "乙.md", content: null }]);
+  });
+
+  /**
+   * 同步拉下来的改动要**直接换进**打开着的笔记。不换的话，文件监听会
+   * 紧跟着弹「文件已被外部程序修改」—— 拉哪边用户刚决定过，再问一次
+   * 是重复；更糟的是横幅上的「保留我的」会把刚被否掉的旧内容存回去，
+   * 一轮冲突解决等于白做（作者真机实测撞上的）
+   */
+  it("拉取改了打开的笔记时直接换成磁盘版，不弹外部修改横幅", async () => {
+    vaultSync.mockImplementationOnce(async () => {
+      // 拉取改写了磁盘上的这篇
+      noteMtime = 5;
+      noteBody = "手机上写的新内容\n";
+      return { committed: null, pulled: 1, pushed: 0, conflicts: [] };
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    expect(document.querySelector(".cm-content")?.textContent).toContain("手机上写的新内容");
+
+    // 拉取产生的文件监听事件随后才到 —— mtime 已对上，不该再弹横幅
+    await act(async () => {
+      fireVaultChanged?.(["甲.md"]);
+      await settle(200);
+    });
+    expect(document.body.textContent).not.toContain("文件已被外部程序修改");
   });
 
   it("同步失败把后端那句话原样显示出来", async () => {
