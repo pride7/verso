@@ -260,6 +260,49 @@ impl Vault {
         Err(Error::Vault("同一个目录下未命名文档太多了".into()))
     }
 
+    /// 在模板目录里直接建一篇模板。§4.6
+    ///
+    /// 模板目录可能还不存在，所以不能直接走 `create_untitled(Some(dir))`：
+    /// 普通新建有意拒绝凭空出现的父目录，而模板面板里的「新建模板」本来就
+    /// 应当负责把配置好的目录建出来。路径仍先过 `resolve`，不能因为要建目录
+    /// 就绕开 vault 的越界防线。
+    pub fn create_template(&self, dir: &str) -> Result<NoteMeta> {
+        let raw = dir.trim().replace('\\', "/");
+        let clean = raw.trim_matches('/');
+        if clean.is_empty() {
+            return Err(Error::Vault("请先在设置里填写模板目录".into()));
+        }
+        let abs = self.resolve(clean)?;
+        // `模板/./每日`、重复斜杠这类写法落盘后应当回到统一的 vault 相对路径，
+        // 否则新文件虽然建出来了，却和前端按 `/` 匹配的模板目录对不上。
+        let normalized = Path::new(clean)
+            .components()
+            .filter_map(|c| match c {
+                Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        if normalized.is_empty() {
+            return Err(Error::Vault("模板目录不能是笔记库根目录".into()));
+        }
+        self.fs.create_dir_all(&abs)?;
+
+        const BASE: &str = "未命名模板";
+        for n in 1..1000 {
+            let title = if n == 1 {
+                BASE.to_string()
+            } else {
+                format!("{BASE} {n}")
+            };
+            match self.create_note(Some(&normalized), &title) {
+                Err(Error::Vault(m)) if m.starts_with("已存在同名文档") => continue,
+                other => return other,
+            }
+        }
+        Err(Error::Vault("同一个目录下未命名模板太多了".into()))
+    }
+
     /// 源码模式（§4.2）里手改 frontmatter：用一段 YAML 原文换掉文件里那一段，
     /// **正文一个字节都不动**。
     ///
@@ -840,6 +883,40 @@ created: 2026-01-01T00:00:00+08:00
             v.create_untitled(Some("../外面.md")),
             Err(Error::PathEscape(_))
         ));
+    }
+
+    #[test]
+    fn create_template_makes_the_configured_directory_and_numbers_itself() {
+        let dir = std::env::temp_dir().join(format!("verso-template-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        assert_eq!(
+            v.create_template("资料/模板").unwrap().path,
+            "资料/模板/未命名模板.md"
+        );
+        assert_eq!(
+            v.create_template("资料\\模板/").unwrap().path,
+            "资料/模板/未命名模板 2.md"
+        );
+        assert!(dir.join("资料/模板").is_dir());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_template_rejects_empty_and_escaping_directories() {
+        let dir = std::env::temp_dir().join(format!("verso-template-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        assert!(v.create_template("  ").is_err());
+        assert!(matches!(
+            v.create_template("../../外面"),
+            Err(Error::PathEscape(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

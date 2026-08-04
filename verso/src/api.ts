@@ -65,6 +65,8 @@ export const api = {
    */
   createUntitled: (parentDoc: string | null) =>
     call<NoteMeta>("note_create_untitled", { parentDoc }),
+  /** 在配置的模板目录里新建「未命名模板」，目录不存在时由后端建立 */
+  createTemplate: (dir: string) => call<NoteMeta>("template_create", { dir }),
   statNote: (path: string) => call<number>("note_stat", { path }),
   /**
    * 粘贴板里的图片落盘到 `attachments/`，返回 vault 相对路径。

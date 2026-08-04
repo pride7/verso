@@ -446,6 +446,14 @@ fn note_create_untitled(state: State<'_, AppState>, parent_doc: Option<String>) 
     Ok(meta)
 }
 
+/// 模板面板里直接新建。目录不存在时一并建立，路径校验仍由 Vault 负责。
+#[tauri::command]
+fn template_create(state: State<'_, AppState>, dir: String) -> Result<NoteMeta> {
+    let meta = state.with_vault(|v| v.create_template(&dir))?;
+    state.reindex(&meta.path);
+    Ok(meta)
+}
+
 /// 窗口重新获得焦点时，前端拿它比对已打开文件的 mtime。
 /// §7.4：有了终端跑 AI 之后，外部修改从边界情况变成日常主路径。
 #[tauri::command]
@@ -919,6 +927,7 @@ pub fn run() {
             frontmatter_write,
             note_create,
             note_create_untitled,
+            template_create,
             note_stat,
             note_list,
             note_rename,

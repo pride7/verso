@@ -748,6 +748,20 @@ export default function App() {
     [noteList, settings.templateDir],
   );
 
+  /** 模板面板里直接新建。目录不存在也由后端一起建好，再在原地改名。 */
+  const createTemplate = useCallback(async () => {
+    const dir = settingsRef.current.templateDir;
+    if (!dir.trim()) return;
+    try {
+      const meta = await api.createTemplate(dir);
+      await refresh();
+      await openPath(meta.path);
+      setRenaming(meta.path);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [refresh, openPath]);
+
   /** 读一个模板并展开变量。`title`/`path` 按**目标笔记**算，不是模板自己 */
   const renderTemplate = useCallback(
     async (tplPath: string, target: { title: string; path: string }) => {
@@ -2323,6 +2337,10 @@ export default function App() {
                 onInsert={(t) => void insertTemplate(t.path)}
                 onCreate={(t) => void createFromTemplate(t.path, null)}
                 onOpen={(p) => void openPath(p)}
+                onNew={() => void createTemplate()}
+                renamingPath={renaming}
+                onRenameSubmit={(path, title) => void submitRename(path, title)}
+                onRenameCancel={() => setRenaming(null)}
               />
             )}
             {sidebarView === "history" && (

@@ -56,6 +56,12 @@ const createUntitled = vi.fn(async () => {
   bodies["未命名.md"] = "";
   return { path: "未命名.md", id: null, title: "未命名" };
 });
+const createTemplate = vi.fn(async (dir: string) => {
+  const path = `${dir}/未命名模板.md`;
+  tree = [...tree, doc("未命名模板", path)];
+  bodies[path] = "";
+  return { path, id: null, title: "未命名模板" };
+});
 const writeNote = vi.fn(async (path: string, body: string) => {
   bodies[path] = body;
   return 0;
@@ -84,6 +90,7 @@ vi.mock("./api", () => ({
     statNote: async () => 0,
     createNote: async () => ({ path: "x.md", id: null, title: "x" }),
     createUntitled: () => createUntitled(),
+    createTemplate: (dir: string) => createTemplate(dir),
     renameNote: async () => "",
     moveNote: async () => "",
     deleteNote: async () => {},
@@ -133,6 +140,7 @@ beforeEach(() => {
   ];
   bodies["甲.md"] = "原有正文\n";
   createUntitled.mockClear();
+  createTemplate.mockClear();
   writeNote.mockClear();
   writeFrontmatter.mockClear();
 });
@@ -319,8 +327,47 @@ describe("侧栏里的模板面板", () => {
 
     const empty = document.querySelector(".side-empty")?.textContent ?? "";
     expect(empty).toContain("templates/");
-    // 顺带把变量写法教了 —— 不知道能写什么的话，模板就只是一段死文本
-    expect(empty).toContain("{{title}}");
+  });
+
+  it("不用预先建立目录，可以在空面板里直接新建并就地改名", async () => {
+    tree = [doc("甲", "甲.md")];
+    await mountApp();
+    await openPanel();
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".tpl-new")!.click();
+      await settle(500);
+    });
+
+    expect(createTemplate).toHaveBeenCalledWith("templates");
+    expect(document.querySelector<HTMLInputElement>(".tpl-rename")?.value).toBe("未命名模板");
+    expect(document.querySelector(".cm-content")?.textContent).toBe("");
+  });
+
+  it("变量说明列全变量、日期格式和正文边界", async () => {
+    await mountApp();
+    await openPanel();
+
+    const details = document.querySelector<HTMLDetailsElement>(".tpl-help")!;
+    await act(async () => {
+      details.querySelector<HTMLElement>("summary")!.click();
+      await settle(100);
+    });
+
+    expect(details.open).toBe(true);
+    const help = details.textContent ?? "";
+    for (const variable of [
+      "{{title}}",
+      "{{path}}",
+      "{{date}}",
+      "{{time}}",
+      "{{selection}}",
+      "{{cursor}}",
+    ]) {
+      expect(help).toContain(variable);
+    }
+    expect(help).toContain("YYYY年M月D日");
+    expect(help).toContain("变量只替换正文");
   });
 });
 
