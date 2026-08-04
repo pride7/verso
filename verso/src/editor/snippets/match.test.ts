@@ -67,6 +67,26 @@ describe("触发词匹配", () => {
     expect(fire("a <=>")!.text).toBe("\\iff");
   });
 
+  /**
+   * `_`/`^` 后面的 `{}` 是分组，展开成 `\left\{ \right\}` 会得到
+   * `h_\left\{` 这种非法 LaTeX（KaTeX 当场报错）。真实用户报过这条。
+   */
+  it("上下标后面的 {} 保持普通分组，不做自适应定界符", () => {
+    const sub = fire("h_{}")!;
+    expect(sub.line).toBe("h_{}");
+    expect(sub.tabstops).toEqual([2, 3]); // 光标落在花括号里
+    expect(fire("h^{}")!.line).toBe("h^{}");
+    // 不挨着上下标时仍然是自适应花括号
+    expect(fire("A {}")!.text).toBe("\\left\\{  \\right\\}");
+  });
+
+  it("命令名后面的 {} 是参数，同样保持普通分组", () => {
+    expect(fire("\\mathbf{}")!.line).toBe("\\mathbf{}");
+    expect(fire("\\text{}")!.line).toBe("\\text{}");
+    // 手打 \frac 时第二个参数的 {} 前面是 `}`
+    expect(fire("\\frac{a}{}")!.line).toBe("\\frac{a}{}");
+  });
+
   it("函数名自动加反斜杠", () => {
     expect(fire("sin")!.text).toBe("\\sin");
     expect(fire("arctan")!.text).toBe("\\arctan");

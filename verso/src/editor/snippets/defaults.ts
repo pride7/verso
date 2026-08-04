@@ -182,6 +182,17 @@ const delimiters: SnippetSpec[] = [
   { trigger: "()", replacement: "\\left( $0 \\right)$1", options: "mA", description: "自适应圆括号" },
   { trigger: "[]", replacement: "\\left[ $0 \\right]$1", options: "mA", description: "自适应方括号" },
   { trigger: "{}", replacement: "\\left\\{ $0 \\right\\}$1", options: "mA", description: "自适应花括号" },
+  {
+    // 命令名（`\mathbf` `\frac`…）、`_`、`^`、`{`、`}` 后面的花括号是
+    // 参数或分组，不是可见的定界符 —— `h_\left\{`、`\mathbf\left\{` 都是
+    // 非法 LaTeX，KaTeX 当场报错；`\frac{a}\left\{` 同理（手打 \frac 时
+    // 第二个参数的 `{}` 前面是 `}`）。靠更长的触发词（默认优先级 = 长度）
+    // 抢在上面那条 `{}` 前面，展开成普通 `{}` 并把光标留在里面。
+    trigger: "(\\\\[A-Za-z]+|[_^{}])\\{\\}",
+    replacement: "[[0]]{$0}$1",
+    options: "mAr",
+    description: "命令与上下标后的花括号保持普通分组",
+  },
   { trigger: "abs", replacement: "\\left| $0 \\right|$1", options: "mAw", description: "绝对值 模" },
   { trigger: "norm", replacement: "\\left\\| $0 \\right\\|$1", options: "mAw", description: "范数" },
   { trigger: "ceil", replacement: "\\left\\lceil $0 \\right\\rceil$1", options: "mAw", description: "向上取整" },
