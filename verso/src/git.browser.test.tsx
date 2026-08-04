@@ -121,7 +121,33 @@ const vaultSync = vi.fn(async () => ({
   committed: null,
   pulled: 2,
   pushed: 1,
-  conflicts: [] as string[],
+  conflicts: [] as { path: string; local: string | null; remote: string | null }[],
+}));
+const vaultSyncResolve = vi.fn(async (_resolutions: unknown) => ({
+  committed: null,
+  pulled: 1,
+  pushed: 1,
+  conflicts: [],
+}));
+/** 冲突面板对比本地↔远端用。固定一段「第一行两边不同」的 diff */
+const textDiff = vi.fn(async (path: string, _old: string, _next: string) => ({
+  path,
+  kind: "modified" as const,
+  additions: 1,
+  deletions: 1,
+  binary: false,
+  hunks: [
+    {
+      oldStart: 1,
+      oldLines: 1,
+      newStart: 1,
+      newLines: 1,
+      lines: [
+        { kind: "deleted" as const, oldLine: 1, newLine: null, text: "本地的第一行" },
+        { kind: "added" as const, oldLine: null, newLine: 1, text: "远端的第一行" },
+      ],
+    },
+  ],
 }));
 const tokenSet = vi.fn(async (_url: string, _token: string) => null);
 
@@ -208,6 +234,8 @@ vi.mock("./api", () => ({
     syncTokenSet: (url: string, token: string) => tokenSet(url, token),
     syncTokenHas: async () => false,
     vaultSync: () => vaultSync(),
+    vaultSyncResolve: (resolutions: unknown) => vaultSyncResolve(resolutions),
+    textDiff: (path: string, old: string, next: string) => textDiff(path, old, next),
     getSettings: async () => settingsPatch,
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},
@@ -761,15 +789,22 @@ describe("同步", () => {
   });
 
   /**
-   * 冲突走 `error` 而不是那句会自己消失的话 —— 它需要人去处理，
-   * 一闪而过等于没说。而且要说清是**哪几篇**
+   * 冲突弹解决面板（§2.8 ConflictView），不再是一句让人自己想办法的报错。
+   * 这条走完整回路：弹出 → 逐段选边 → 提交的定稿是「本地全文里那一段
+   * 换成远端」→ 面板关掉
    */
-  it("冲突时说清是哪几篇，并且留在屏幕上", async () => {
+  it("冲突弹出解决面板，选完边提交正确的定稿", async () => {
     vaultSync.mockResolvedValueOnce({
       committed: null,
       pulled: 0,
       pushed: 0,
-      conflicts: ["数学/线性代数.md", "乙.md"],
+      conflicts: [
+        {
+          path: "数学/线性代数.md",
+          local: "本地的第一行\n共同的第二行",
+          remote: "远端的第一行\n共同的第二行",
+        },
+      ],
     });
     await mount();
     await act(async () => {
@@ -777,11 +812,60 @@ describe("同步", () => {
       await settle(400);
     });
 
-    const msg = document.querySelector(".error")?.textContent ?? "";
-    expect(msg).toContain("数学/线性代数");
-    expect(msg).toContain("乙");
-    expect(msg).not.toContain(".md");
+    const modal = document.querySelector(".conflict-modal");
+    expect(modal, "冲突要弹面板").toBeTruthy();
+    expect(modal!.textContent).toContain("线性代数");
     expect(document.querySelector(".status-notice"), "冲突不该同时报一句好消息").toBeFalsy();
+
+    // 没选完之前提交按钮点不动 —— 不做默认选择，不自作主张
+    const submitBtn = () => document.querySelector<HTMLButtonElement>(".conflict-submit")!;
+    expect(submitBtn().disabled).toBe(true);
+
+    // 点「远端」那一栏
+    await act(async () => {
+      const panes = [...document.querySelectorAll<HTMLButtonElement>(".conflict-pane")];
+      expect(panes.length).toBe(2);
+      panes[1].click();
+      await settle(100);
+    });
+    expect(submitBtn().disabled).toBe(false);
+
+    await act(async () => {
+      submitBtn().click();
+      await settle(400);
+    });
+
+    // 定稿 = 本地全文里被选中的那一段换成远端的行
+    expect(vaultSyncResolve).toHaveBeenCalledWith([
+      { path: "数学/线性代数.md", content: "远端的第一行\n共同的第二行" },
+    ]);
+    expect(document.querySelector(".conflict-modal"), "解决完面板要关掉").toBeFalsy();
+  });
+
+  it("整篇二选一：远端删了这篇时不画 diff，选「接受删除」提交 null", async () => {
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{ path: "乙.md", local: "本地还改过", remote: null }],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    const quick = [...document.querySelectorAll<HTMLButtonElement>(".conflict-quick button")];
+    const accept = quick.find((b) => b.textContent?.includes("接受删除"))!;
+    await act(async () => {
+      accept.click();
+      await settle(100);
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".conflict-submit")!.click();
+      await settle(400);
+    });
+    expect(vaultSyncResolve).toHaveBeenCalledWith([{ path: "乙.md", content: null }]);
   });
 
   it("同步失败把后端那句话原样显示出来", async () => {

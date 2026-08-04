@@ -80,6 +80,18 @@ fn relax_owner_check() {
 
 /// 幂等：已经是仓库就不动它，已有 .gitignore 也不覆盖
 /// （用户可能已经加了自己的规则）。
+/// 仓库级关掉 autocrlf/eol 转换。
+///
+/// 用户机器上常见 `core.autocrlf=true`（Git for Windows 安装时的推荐项），
+/// 它会让**同步悄悄改写笔记的行尾**：B 推上去的 LF，A 一拉取 checkout 出来
+/// 变 CRLF —— 文件字节变了、diff 里满屏「整篇都改了」，而用户什么都没做。
+/// 笔记的字节应当原样进原样出，vault 仓库一律仓库级覆盖，不动全局配置
+fn forbid_eol_rewrites(repo: &git2::Repository) {
+    if let Ok(mut config) = repo.config() {
+        let _ = config.set_bool("core.autocrlf", false);
+    }
+}
+
 pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
     #[cfg(target_os = "android")]
     relax_owner_check();
@@ -88,12 +100,14 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
     let created_repo = match git2::Repository::open(root) {
         Ok(repo) => {
             renamed_branch = migrate_empty_master(&repo);
+            forbid_eol_rewrites(&repo);
             false
         }
         Err(_) => {
             let mut opts = git2::RepositoryInitOptions::new();
             opts.initial_head(INITIAL_BRANCH);
-            git2::Repository::init_opts(root, &opts)?;
+            let repo = git2::Repository::init_opts(root, &opts)?;
+            forbid_eol_rewrites(&repo);
             true
         }
     };
@@ -1172,25 +1186,10 @@ fn line_text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
-fn file_diff_from_git(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
-    let delta = diff
-        .deltas()
-        .next()
-        .ok_or_else(|| Error::Vault(format!("{path} 在这里没有变化")))?;
-    let kind = diff_kind(delta.status());
-    let Some(patch) = git2::Patch::from_diff(diff, 0)? else {
-        // libgit2 对二进制文件不给 patch。仍然给出文件级变化，让界面能明确
-        // 说明“有变化但不能逐行比较”，而不是像没点中一样空白。
-        return Ok(FileDiff {
-            path: path.to_string(),
-            kind,
-            additions: 0,
-            deletions: 0,
-            binary: true,
-            hunks: Vec::new(),
-        });
-    };
-
+/// 从一个 Patch 里抽出 (新增行数, 删除行数, hunk 列表)。
+/// `diff_file` 和 `diff_texts` 共用 —— 两边的渲染结构必须一字不差，
+/// 冲突 UI 直接复用历史对比的那套组件
+fn hunks_from_patch(patch: &git2::Patch<'_>) -> Result<(usize, usize, Vec<DiffHunk>)> {
     let (_, additions, deletions) = patch.line_stats()?;
     let mut hunks = Vec::with_capacity(patch.num_hunks());
     for hunk_index in 0..patch.num_hunks() {
@@ -1221,10 +1220,56 @@ fn file_diff_from_git(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
             lines,
         });
     }
+    Ok((additions, deletions, hunks))
+}
 
+fn file_diff_from_git(diff: &git2::Diff<'_>, path: &str) -> Result<FileDiff> {
+    let delta = diff
+        .deltas()
+        .next()
+        .ok_or_else(|| Error::Vault(format!("{path} 在这里没有变化")))?;
+    let kind = diff_kind(delta.status());
+    let Some(patch) = git2::Patch::from_diff(diff, 0)? else {
+        // libgit2 对二进制文件不给 patch。仍然给出文件级变化，让界面能明确
+        // 说明“有变化但不能逐行比较”，而不是像没点中一样空白。
+        return Ok(FileDiff {
+            path: path.to_string(),
+            kind,
+            additions: 0,
+            deletions: 0,
+            binary: true,
+            hunks: Vec::new(),
+        });
+    };
+
+    let (additions, deletions, hunks) = hunks_from_patch(&patch)?;
     Ok(FileDiff {
         path: path.to_string(),
         kind,
+        additions,
+        deletions,
+        binary: false,
+        hunks,
+    })
+}
+
+/// 两段文本的逐行差异，结构与 `diff_file` 完全一致。
+/// 冲突 UI 用它对比「本地 vs 远端」—— 旧的一侧是本地、新的一侧是远端，
+/// 前端按 hunk 选边后用本地全文 + hunk 行号拼定稿
+pub fn diff_texts(path: &str, old: &str, new: &str) -> Result<FileDiff> {
+    let mut opts = git2::DiffOptions::new();
+    opts.context_lines(3);
+    let patch = git2::Patch::from_buffers(
+        old.as_bytes(),
+        None,
+        new.as_bytes(),
+        None,
+        Some(&mut opts),
+    )?;
+    let (additions, deletions, hunks) = hunks_from_patch(&patch)?;
+    Ok(FileDiff {
+        path: path.to_string(),
+        kind: "modified",
         additions,
         deletions,
         binary: false,

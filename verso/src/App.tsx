@@ -14,6 +14,7 @@ import { Editor, type EditorHandle } from "./components/Editor";
 import { OutlineFloat, OutlineView, useActiveHeading } from "./components/Outline";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
+import { ConflictView } from "./components/ConflictView";
 import { SettingsPanel, type Tab as SettingsTab } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
@@ -55,6 +56,7 @@ import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type {
+  ConflictFile,
   FileChange,
   GitIdentity,
   GitStatus,
@@ -62,6 +64,8 @@ import type {
   RecentVault,
   RemoteInfo,
   NoteRef,
+  SyncOutcome,
+  SyncResolution,
   TreeNode,
   VaultInfo,
 } from "./types";
@@ -839,6 +843,8 @@ export default function App() {
   const [identity, setIdentity] = useState<GitIdentity | null>(null);
   /** 正在同步。同步要走网络，可能要好几秒 */
   const [syncing, setSyncing] = useState(false);
+  /** 同步撞上的冲突。非 null 时弹 ConflictView，选完边重放同步（§2.8） */
+  const [conflicts, setConflicts] = useState<ConflictFile[] | null>(null);
   /** 正在提交。挡住重入：自动提交和手动点可能撞在一起 */
   const committing = useRef(false);
 
@@ -1001,18 +1007,13 @@ export default function App() {
    * 就够了，留在界面上反而要人动手关掉。**只有冲突留着**：那是需要人去
    * 处理的事，一闪而过等于没说。
    */
-  const syncNow = useCallback(async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      if (dirtyRef.current && !(await saveNow())) return;
-      const out = await api.vaultSync();
+  /** 同步结果的统一收尾：冲突弹面板，其余报一句话就散 */
+  const handleSyncOutcome = useCallback(
+    async (out: SyncOutcome) => {
       if (out.conflicts.length > 0) {
-        const names = out.conflicts.map((p) => p.replace(/\.md$/, "")).join("、");
-        setError(
-          `「${names}」两边都改过，这次没有同步。先把这几篇改成你要的样子，再同步一次`,
-        );
+        setConflicts(out.conflicts);
       } else {
+        setConflicts(null);
         const bits = [];
         if (out.pulled > 0) bits.push(`拿到 ${out.pulled} 个版本`);
         if (out.pushed > 0) bits.push(`传出 ${out.pushed} 个版本`);
@@ -1021,12 +1022,41 @@ export default function App() {
       refreshGit();
       await refresh();
       setRevision((v) => v + 1);
+    },
+    [refreshGit, refresh],
+  );
+
+  const syncNow = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      if (dirtyRef.current && !(await saveNow())) return;
+      await handleSyncOutcome(await api.vaultSync());
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSyncing(false);
     }
-  }, [syncing, saveNow, refreshGit, refresh]);
+  }, [syncing, saveNow, handleSyncOutcome]);
+
+  /** 冲突 UI 的提交按钮：带着逐篇定稿重放同步（§2.8） */
+  const resolveConflicts = useCallback(
+    async (resolutions: SyncResolution[]) => {
+      if (syncing) return;
+      setSyncing(true);
+      try {
+        const out = await api.vaultSyncResolve(resolutions);
+        await handleSyncOutcome(out);
+        // 两次同步之间远端又动了 —— 面板留着，换成新一轮的内容
+        if (out.conflicts.length > 0) setNotice("远端又有了新改动，再确认一轮");
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [syncing, handleSyncOutcome],
+  );
 
   /** 配远端。改完立刻重问一次 —— needsToken 会跟着 URL 变 */
   const setRemoteUrl = useCallback(
@@ -2638,6 +2668,15 @@ export default function App() {
 
       {paletteOpen && (
         <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+      )}
+
+      {conflicts && (
+        <ConflictView
+          conflicts={conflicts}
+          busy={syncing}
+          onCancel={() => setConflicts(null)}
+          onSubmit={(r) => void resolveConflicts(r)}
+        />
       )}
 
       {settingsOpen && (

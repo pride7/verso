@@ -25,13 +25,18 @@
 //! https + 个人访问令牌本来也是 §2.8 写的主路径（「粘贴仓库 URL + token
 //! 即可」），GitHub / GitLab / Gitea 都支持。ssh 等签名的事解决了再说。
 //!
-//! ## 冲突这一版只检测不解决
+//! ## 冲突：检测 → 交给人选 → 带着选择重放
 //!
-//! 撞上冲突就整个撤回（`rebase.abort()`），报出是哪几篇，工作区一个字节都
-//! 不动。段落级的对比 UI 留给下一版 —— 在能稳定复现之前，**把冲突留在原地
-//! 让人用别的工具处理，比自作主张合一半强得多**。
+//! 撞上冲突时仍然整个撤回（`rebase.abort()`），工作区一个字节不动 —— 但
+//! 现在会把每篇的**本地内容和远端内容**一起带回去，前端用它画逐段对比、
+//! 让人选边（ConflictView）。选完调 `sync_with` 带着「路径 → 定稿内容」
+//! 重放整条链：变基再撞上这几篇时，用定稿内容落解、继续走完、推上去。
+//!
+//! 两次 sync 之间远端可能又动了 —— 无所谓，重放会重新 fetch，撞上新冲突
+//! 就再报一轮。**绝不自作主张合一半**：没给定稿的文件照旧撤回。
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Serialize;
@@ -54,6 +59,18 @@ pub struct RemoteInfo {
     pub needs_token: bool,
 }
 
+/// 一篇撞上冲突的笔记，两边的完整内容都带上 —— 冲突 UI 靠它画对比、
+/// 拼定稿。笔记就是几 KB 的文本，整篇过一趟 IPC 无所谓
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFile {
+    pub path: String,
+    /// 本地当前的样子（工作区）。本地删了这篇、或不是文本时为 None
+    pub local: Option<String>,
+    /// 远端那一版（FETCH_HEAD）。远端删了这篇、或不是文本时为 None
+    pub remote: Option<String>,
+}
+
 /// 同步的结果。给界面报一句人话用
 #[derive(Debug, Clone, Serialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +82,7 @@ pub struct SyncOutcome {
     /// 推上去几个版本
     pub pushed: usize,
     /// 撞上冲突的文件。**非空就意味着这次同步什么都没做**
-    pub conflicts: Vec<String>,
+    pub conflicts: Vec<ConflictFile>,
 }
 
 /// 当前分支名。仓库还没有任何提交时 HEAD 指向一个不存在的分支，
@@ -205,16 +222,22 @@ fn count_between(repo: &git2::Repository, from: Option<git2::Oid>, to: git2::Oid
 
 /// 把本地这一串提交接到远端那一串后面。
 ///
-/// 返回冲突的文件名；空 vec 表示接好了。撞上冲突时**整个撤回**，
-/// 工作区回到变基之前的样子。
-fn rebase_onto(repo: &git2::Repository, upstream: git2::Oid) -> Result<Vec<String>> {
+/// 返回冲突的文件名；空 vec 表示接好了。撞上冲突时先看 `resolutions` 里
+/// 有没有这几篇的定稿：**全都有**就用定稿落解、继续走；缺任何一篇则
+/// **整个撤回**（工作区回到变基之前的样子），把全部冲突报出去 —— 不做
+/// 「解决一半」这种状态，UI 每轮拿到的都是完整清单。
+fn rebase_onto(
+    repo: &git2::Repository,
+    upstream: git2::Oid,
+    resolutions: &HashMap<String, Option<String>>,
+) -> Result<Vec<String>> {
     let upstream = repo.find_annotated_commit(upstream)?;
     let sig = super::git::signature(repo)?;
     let mut rebase = repo.rebase(None, Some(&upstream), None, None)?;
 
     while let Some(op) = rebase.next() {
         op?;
-        let index = repo.index()?;
+        let mut index = repo.index()?;
         if index.has_conflicts() {
             let mut names: Vec<String> = index
                 .conflicts()?
@@ -228,8 +251,35 @@ fn rebase_onto(repo: &git2::Repository, upstream: git2::Oid) -> Result<Vec<Strin
                 .collect();
             names.sort();
             names.dedup();
-            rebase.abort()?;
-            return Ok(names);
+
+            if names.iter().all(|n| resolutions.contains_key(n)) {
+                // 只对**索引里真在冲突**的路径动手 —— resolutions 的键来自
+                // 前端，不能拿它当路径清单去写文件
+                let workdir = repo
+                    .workdir()
+                    .ok_or_else(|| Error::Vault("裸仓库没有工作区".into()))?;
+                for name in &names {
+                    let abs = workdir.join(name);
+                    match &resolutions[name] {
+                        Some(content) => {
+                            if let Some(dir) = abs.parent() {
+                                std::fs::create_dir_all(dir)?;
+                            }
+                            std::fs::write(&abs, content)?;
+                            index.add_path(Path::new(name))?;
+                        }
+                        // None = 定稿是「接受删除」
+                        None => {
+                            let _ = std::fs::remove_file(&abs);
+                            index.remove_path(Path::new(name))?;
+                        }
+                    }
+                }
+                index.write()?;
+            } else {
+                rebase.abort()?;
+                return Ok(names);
+            }
         }
         // 这一步没有实际改动（远端已经有一模一样的内容）时 commit 会报
         // `unchanged`，跳过它而不是当失败 —— 两台机器改出同样的内容很常见
@@ -267,11 +317,44 @@ fn fast_forward(repo: &git2::Repository, branch: &str, target: git2::Oid) -> Res
     Ok(())
 }
 
+/// 冲突文件的两边内容。本地读工作区 —— abort 之后那就是变基前的样子；
+/// 远端读 FETCH_HEAD 那个提交的树。读不出来（删除、二进制）就是 None
+fn conflict_files(
+    root: &Path,
+    repo: &git2::Repository,
+    remote_tip: git2::Oid,
+    names: Vec<String>,
+) -> Vec<ConflictFile> {
+    let tree = repo.find_commit(remote_tip).ok().and_then(|c| c.tree().ok());
+    names
+        .into_iter()
+        .map(|path| {
+            let local = std::fs::read_to_string(root.join(&path)).ok();
+            let remote = tree.as_ref().and_then(|t| {
+                let entry = t.get_path(Path::new(&path)).ok()?;
+                let blob = repo.find_blob(entry.id()).ok()?;
+                std::str::from_utf8(blob.content()).ok().map(str::to_string)
+            });
+            ConflictFile { path, local, remote }
+        })
+        .collect()
+}
+
 /// 同步一次。
 ///
 /// 顺序是**先提交再取远端**：工作区不干净时变基会失败，而「按同步之前得先
 /// 手动保存一下」是没人会记得的规矩。
 pub fn sync(root: &Path, token: Option<String>) -> Result<SyncOutcome> {
+    sync_with(root, token, &HashMap::new())
+}
+
+/// 带「冲突定稿」的同步 —— 冲突 UI 选完边之后走这条。
+/// `resolutions`：路径 → 定稿内容，None 表示接受删除。
+pub fn sync_with(
+    root: &Path,
+    token: Option<String>,
+    resolutions: &HashMap<String, Option<String>>,
+) -> Result<SyncOutcome> {
     let repo = git2::Repository::open(root)?;
     let mut remote = repo
         .find_remote(REMOTE)
@@ -316,11 +399,11 @@ pub fn sync(root: &Path, token: Option<String>) -> Result<SyncOutcome> {
                 fast_forward(&repo, &branch, theirs)?;
             } else {
                 out.pulled = count_between(&repo, base, theirs);
-                let conflicts = rebase_onto(&repo, theirs)?;
-                if !conflicts.is_empty() {
+                let names = rebase_onto(&repo, theirs, resolutions)?;
+                if !names.is_empty() {
                     // 冲突时连拉取都不算数：这次同步什么都没发生
                     return Ok(SyncOutcome {
-                        conflicts,
+                        conflicts: conflict_files(root, &repo, theirs, names),
                         pulled: 0,
                         pushed: 0,
                         committed: out.committed,
@@ -443,7 +526,7 @@ mod tests {
         let out = sync(&a, None).unwrap();
         assert!(out.committed.is_some(), "本地改动应当先被提交掉");
         assert!(out.pushed >= 1);
-        assert_eq!(out.conflicts, Vec::<String>::new());
+        assert!(out.conflicts.is_empty());
 
         // 远端真的有了
         let remote = git2::Repository::open_bare(&origin).unwrap();
@@ -481,7 +564,7 @@ mod tests {
         std::fs::write(b.join("丙.md"), "三").unwrap();
         let out = sync(&b, None).unwrap();
 
-        assert_eq!(out.conflicts, Vec::<String>::new(), "改的不是同一篇，不该冲突");
+        assert!(out.conflicts.is_empty(), "改的不是同一篇，不该冲突");
         assert_eq!(read(&b, "乙.md").as_deref(), Some("二"), "对面的改动要拿到");
         assert_eq!(read(&b, "丙.md").as_deref(), Some("三"), "自己的改动不能丢");
 
@@ -518,7 +601,12 @@ mod tests {
         std::fs::write(b.join("甲.md"), "B 改的").unwrap();
         let out = sync(&b, None).unwrap();
 
-        assert_eq!(out.conflicts, vec!["甲.md".to_string()]);
+        // 冲突要带回两边的内容 —— 冲突 UI 全靠它画对比
+        assert_eq!(out.conflicts.len(), 1);
+        let c = &out.conflicts[0];
+        assert_eq!(c.path, "甲.md");
+        assert_eq!(c.local.as_deref(), Some("B 改的"), "本地 = 自己工作区的样子");
+        assert_eq!(c.remote.as_deref(), Some("A 改的"), "远端 = 对面推上来的样子");
         assert_eq!(out.pulled, 0);
         assert_eq!(out.pushed, 0);
         assert_eq!(
@@ -538,6 +626,64 @@ mod tests {
             .peel_to_commit()
             .unwrap();
         assert!(tip.message().unwrap_or_default().contains("甲"));
+    }
+
+    /// 冲突 UI 的完整回路：报冲突 → 用户选边拼出定稿 → 带着定稿重放 →
+    /// 两台机器最终一字不差
+    #[test]
+    fn resolved_conflict_syncs_and_both_sides_converge() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        std::fs::write(a.join("甲.md"), "原来的").unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::write(a.join("甲.md"), "A 改的").unwrap();
+        sync(&a, None).unwrap();
+        std::fs::write(b.join("甲.md"), "B 改的").unwrap();
+        assert_eq!(sync(&b, None).unwrap().conflicts.len(), 1);
+
+        // 用户在 UI 里拼出的定稿（模拟「两边都要」）
+        let mut fixes = HashMap::new();
+        fixes.insert("甲.md".to_string(), Some("A 改的\nB 改的".to_string()));
+        let out = sync_with(&b, None, &fixes).unwrap();
+        assert!(out.conflicts.is_empty(), "{:?}", out.conflicts);
+        assert!(out.pushed >= 1, "定稿要推得出去：{out:?}");
+        assert_eq!(read(&b, "甲.md").as_deref(), Some("A 改的\nB 改的"));
+
+        // A 那边一同步就拿到定稿；历史干净、没有残留的变基状态
+        sync(&a, None).unwrap();
+        assert_eq!(read(&a, "甲.md").as_deref(), Some("A 改的\nB 改的"));
+        let repo = git2::Repository::open(&b).unwrap();
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+    }
+
+    /// 远端删了、本地改了 —— 定稿可以是「接受删除」（content = None）
+    #[test]
+    fn resolution_can_accept_a_deletion() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        std::fs::write(a.join("甲.md"), "原来的").unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::remove_file(a.join("甲.md")).unwrap();
+        sync(&a, None).unwrap();
+        std::fs::write(b.join("甲.md"), "B 又改了").unwrap();
+        let out = sync(&b, None).unwrap();
+        assert_eq!(out.conflicts.len(), 1);
+        assert_eq!(out.conflicts[0].remote, None, "远端删了，remote 该是 None");
+        assert_eq!(out.conflicts[0].local.as_deref(), Some("B 又改了"));
+
+        let mut fixes = HashMap::new();
+        fixes.insert("甲.md".to_string(), None);
+        let out = sync_with(&b, None, &fixes).unwrap();
+        assert!(out.conflicts.is_empty(), "{:?}", out.conflicts);
+        assert_eq!(read(&b, "甲.md"), None, "接受删除后文件要真的没了");
+        let repo = git2::Repository::open(&b).unwrap();
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
     }
 
     /// 同步完再按一次不该做任何事 —— 状态栏会因此一直显示「有改动」

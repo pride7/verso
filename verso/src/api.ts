@@ -18,6 +18,7 @@ import type {
   RecentVault,
   SearchHit,
   SyncOutcome,
+  SyncResolution,
   TreeNode,
   VaultInfo,
   PropDef,
@@ -173,6 +174,12 @@ export const api = {
   syncTokenHas: (url: string) => call<boolean>("sync_token_has", { url }),
   /** 同步一次：提交 → 取远端 → 接到一起 → 推上去 */
   vaultSync: () => call<SyncOutcome>("vault_sync"),
+  /** 冲突 UI 选完边之后：带着逐篇定稿重放同步。可能报出新一轮冲突 */
+  vaultSyncResolve: (resolutions: SyncResolution[]) =>
+    call<SyncOutcome>("vault_sync_resolve", { resolutions }),
+  /** 两段文本的逐行差异（纯计算）。冲突 UI 拿它对比本地与远端 */
+  textDiff: (path: string, old: string, next: string) =>
+    call<FileDiff>("text_diff", { path, old, new: next }),
 
   /**
    * 手机上没有目录选择器，欢迎页那个按钮走这条：Rust 自己挑一个能用的位置

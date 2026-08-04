@@ -202,6 +202,21 @@ export interface RemoteInfo {
   needsToken: boolean;
 }
 
+/** 一篇撞上冲突的笔记，两边完整内容都带上 —— 冲突 UI 靠它画对比、拼定稿 */
+export interface ConflictFile {
+  path: string;
+  /** 本地当前的样子。本地删了这篇、或不是文本时为 null */
+  local: string | null;
+  /** 远端那一版。远端删了这篇时为 null */
+  remote: string | null;
+}
+
+/** 冲突 UI 的一条定稿。content 为 null = 接受删除 */
+export interface SyncResolution {
+  path: string;
+  content: string | null;
+}
+
 /** 一次同步的结果 */
 export interface SyncOutcome {
   /** 这次顺手提交掉的本地改动 */
@@ -209,7 +224,7 @@ export interface SyncOutcome {
   pulled: number;
   pushed: number;
   /** **非空就意味着这次同步什么都没做** */
-  conflicts: string[];
+  conflicts: ConflictFile[];
 }
 
 export interface IndexStats {

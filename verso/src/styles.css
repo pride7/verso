@@ -6452,6 +6452,160 @@ body.is-row-resizing {
   color: var(--danger);
 }
 
+/* ---------- 同步冲突解决（§2.8 ConflictView）---------- */
+
+.conflict-modal {
+  width: min(960px, 94vw);
+  max-height: 84vh;
+}
+.conflict-head {
+  position: relative;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+.conflict-head h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.conflict-head p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.conflict-head .modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+.conflict-body {
+  overflow-y: auto;
+  padding: 8px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.conflict-file-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0 8px;
+}
+.conflict-file-head h3 {
+  margin: 0;
+  font-size: 13.5px;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conflict-quick {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.conflict-quick button {
+  font: 500 11.5px var(--font-ui);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.conflict-quick button:hover {
+  color: var(--text);
+}
+.conflict-quick button.is-chosen {
+  color: var(--selected-text);
+  background: var(--selected-bg);
+  border-color: transparent;
+}
+.conflict-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+/* 每个 hunk 一行两栏，点哪栏就用哪边 */
+.conflict-hunk {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.conflict-pane {
+  text-align: left;
+  font: 12px/1.62 var(--font-mono);
+  color: var(--text);
+  background: color-mix(in oklch, var(--muted) 4%, transparent);
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: 8px 10px 8px;
+  cursor: pointer;
+  min-width: 0;
+  overflow-x: auto;
+}
+.conflict-pane:hover {
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--hairline));
+}
+.conflict-pane.is-chosen {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+}
+.conflict-pane-tag {
+  display: block;
+  font: 600 10.5px var(--font-ui);
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.conflict-pane.is-chosen .conflict-pane-tag {
+  color: var(--accent-ink, var(--accent));
+}
+.conflict-pane pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 本地栏里被远端动过的行、远端栏里的新行 —— 沿用 diff 的红绿口径 */
+.conflict-pane pre.is-deleted {
+  background: color-mix(in oklch, var(--danger) 9%, transparent);
+}
+.conflict-pane pre.is-added {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+.conflict-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--hairline);
+}
+.conflict-foot button {
+  font: 500 12.5px var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.conflict-foot button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.conflict-foot .conflict-submit {
+  color: var(--selected-text);
+  background: var(--selected-bg);
+  border-color: transparent;
+}
+
+@media (max-width: 640px) {
+  /* 手机上左右两栏太挤，叠成上下 —— 点击选边的交互不变 */
+  .conflict-hunk {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 640px) {
   .diff-head {
     min-height: 52px;

@@ -876,6 +876,37 @@ fn sync_token_has(url: String) -> bool {
 /// 不然搜索和 database 视图看到的还是旧内容。
 #[tauri::command]
 fn vault_sync(state: State<'_, AppState>) -> Result<vault::sync::SyncOutcome> {
+    sync_and_reindex(&state, &std::collections::HashMap::new())
+}
+
+/// 冲突 UI 的一条定稿：这篇笔记最终该是什么内容。`content` 为 None =
+/// 接受删除
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResolution {
+    pub path: String,
+    pub content: Option<String>,
+}
+
+/// 带着冲突定稿再同步一次（§2.8 冲突 UI 的提交按钮）。
+/// 重放整条链：取远端 → 变基（撞上定稿覆盖的文件就用定稿落解）→ 推。
+/// 两次同步之间远端又动了的话，可能报出新一轮冲突 —— UI 原样再走一遍。
+#[tauri::command]
+fn vault_sync_resolve(
+    state: State<'_, AppState>,
+    resolutions: Vec<SyncResolution>,
+) -> Result<vault::sync::SyncOutcome> {
+    let map = resolutions
+        .into_iter()
+        .map(|r| (r.path, r.content))
+        .collect();
+    sync_and_reindex(&state, &map)
+}
+
+fn sync_and_reindex(
+    state: &State<'_, AppState>,
+    resolutions: &std::collections::HashMap<String, Option<String>>,
+) -> Result<vault::sync::SyncOutcome> {
     let (root, url) = state.with_vault(|v| {
         Ok((
             v.root.clone(),
@@ -883,11 +914,18 @@ fn vault_sync(state: State<'_, AppState>) -> Result<vault::sync::SyncOutcome> {
         ))
     })?;
     let token = vault::secret::token_get(&url);
-    let out = vault::sync::sync(&root, token)?;
+    let out = vault::sync::sync_with(&root, token, resolutions)?;
     if out.pulled > 0 {
-        rebuild_index(&state);
+        rebuild_index(state);
     }
     Ok(out)
+}
+
+/// 两段文本的逐行差异。冲突 UI 拿它对比「本地 vs 远端」——
+/// 内容前端已经有了（随冲突带回），这里只是纯计算，不碰 vault
+#[tauri::command]
+fn text_diff(path: String, old: String, new: String) -> Result<vault::git::FileDiff> {
+    vault::git::diff_texts(&path, &old, &new)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -973,6 +1011,8 @@ pub fn run() {
             sync_token_set,
             sync_token_has,
             vault_sync,
+            vault_sync_resolve,
+            text_diff,
             workspace_get,
             workspace_set,
             settings_get,
