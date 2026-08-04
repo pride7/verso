@@ -49,7 +49,9 @@ export const versoTheme = EditorView.theme({
     pointerEvents: "none",
   },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
-  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
+  // 原生选区（不用 drawSelection，理由见 index.ts）。底色只贴着文字画，
+  // 不整行铺满 —— 排好版的文章里选中一段，应当像在纸上划记号
+  "::selection": {
     backgroundColor: "color-mix(in oklch, var(--accent) 22%, transparent)",
   },
   ".cm-activeLine": { backgroundColor: "transparent" },

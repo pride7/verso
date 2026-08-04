@@ -9,7 +9,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { Compartment, type Extension } from "@codemirror/state";
-import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection } from "@codemirror/view";
+import { EditorView, keymap, dropCursor, rectangularSelection } from "@codemirror/view";
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 
@@ -128,7 +128,11 @@ function linkClickHandler(onFollowLink: (target: string) => void) {
 export function createExtensions(cb: EditorCallbacks): Extension[] {
   return [
     history(),
-    drawSelection(),
+    // 有意不用 drawSelection：它自绘的选区把中间行整行铺满（代码编辑器
+    // 风格），在排好版的文章里显得一大块底色悬在文字外。原生 ::selection
+    // 只贴着文字画，和 Obsidian 一致。它的另一个卖点是多光标/矩形选区的
+    // 渲染，而本项目从未启用 allowMultipleSelections，用不上。
+    // 颜色在 theme.ts 的 `::selection`，光标色是 .cm-content 的 caret-color
     dropCursor(),
     rectangularSelection(),
     EditorView.lineWrapping,

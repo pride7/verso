@@ -99,7 +99,9 @@ describe("光标与文字位置", () => {
     expect(Math.abs(lines[0].getBoundingClientRect().height - lines[1].getBoundingClientRect().height)).toBeLessThan(0.5);
     expect(view.contentDOM.querySelector(".cm-paragraph-break, .cm-paragraph-gap")).toBeNull();
 
-    const caret = view.dom.querySelector<HTMLElement>(".cm-cursor-primary")!.getBoundingClientRect();
+    // 用 coordsAtPos 量光标：不再用 drawSelection 之后没有 .cm-cursor-primary
+    // 这个 DOM 了，原生光标是合成器画的，只有这条 API 能拿到它的几何
+    const caret = view.coordsAtPos(view.state.selection.main.head)!;
     await userEvent.keyboard("新");
     await settle();
     const secondLine = [...view.contentDOM.querySelectorAll<HTMLElement>(".cm-line")][1];
@@ -123,7 +125,8 @@ describe("光标与文字位置", () => {
     expect(view.state.doc.toString()).toBe("上一段\n\n后文");
     const spacer = view.contentDOM.querySelector(".cm-paragraph-space");
     expect(spacer).not.toBeNull();
-    const caret = view.dom.querySelector<HTMLElement>(".cm-cursor-primary")!.getBoundingClientRect();
+    // coordsAtPos 的理由同上一条测试
+    const caret = view.coordsAtPos(view.state.selection.main.head)!;
 
     await userEvent.keyboard("新");
     await settle(100);
