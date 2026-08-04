@@ -23,6 +23,7 @@ import { insertMarkdownLineBreak } from "./lineBreak";
 import { listRenumber } from "./listRenumber";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
+import { mathPreview } from "./mathPreview";
 import { paragraphSpacing } from "./paragraphSpacing";
 import { imagePaste, type SaveImage } from "./paste";
 import { snippetEngine } from "./snippets";
@@ -54,7 +55,9 @@ const snippetCompartment = new Compartment();
  * Markdown 源码，不是纯文本。标题仍然大、代码仍然是等宽，只是 `##`、
  * `**` 这些标记不再被藏起来，公式和表格也不再被渲染成最终形态。
  */
-const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables, paragraphSpacing];
+// mathPreview 也在这组里：源码模式的本意是「只看源码」，光标扫过每个
+// 公式都弹预览会变成干扰
+const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables, paragraphSpacing, mathPreview];
 
 /**
  * 预览装饰单独放一个 compartment，理由和 snippet 那个一样：

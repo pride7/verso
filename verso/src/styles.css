@@ -3544,6 +3544,28 @@ textarea:focus-visible {
   display: none;
 }
 
+/* ---------- 公式输入预览（§5.3）---------- */
+
+/* 类名写两遍的理由同上：要压过 CodeMirror 注入的 .cm-tooltip 基础样式 */
+.cm-tooltip.cm-math-preview.cm-math-preview {
+  background: var(--raised);
+  border: none;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  padding: 8px 14px;
+  color: var(--text);
+  /* 长公式在预览里自己滚，别把 tooltip 撑出编辑器 */
+  max-width: min(72vw, 680px);
+  overflow-x: auto;
+  /* 和正文的公式之间留一线距离，别贴着源码行 */
+  margin-bottom: 6px;
+}
+
+/* KaTeX 的块级模式自带上下 margin，预览盒子里不需要 */
+.cm-math-preview .katex-display {
+  margin: 0;
+}
+
 /* ---------- 大纲：侧栏面板 + 右侧浮动目录 ---------- */
 
 /* 行距比文档树紧一档：一篇长文的标题数远多于文档树的节点数，

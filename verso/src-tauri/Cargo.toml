@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.6.35"
+version = "0.6.36"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
