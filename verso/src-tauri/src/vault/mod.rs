@@ -93,7 +93,10 @@ impl Vault {
 
         let g = git::ensure_repo(&root)?;
         let info = VaultInfo {
-            root: root.to_string_lossy().into_owned(),
+            // 报给前端的是「人话」写法：canonicalize 在 Windows 上给的是
+            // `\\?\D:\…`，那个前缀会原样出现在欢迎页、仓库管理器和 recent.json
+            // 里。内部 I/O 仍用上面的 verbatim `root`，只有跨出边界这一份剥掉
+            root: crate::winpath::for_external(&root).to_string_lossy().into_owned(),
             name: root
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
@@ -505,6 +508,31 @@ mod tests {
             Path::new("/vault").join("数学").join("线性代数.md")
         );
         assert_eq!(v.resolve("./a.md").unwrap(), Path::new("/vault").join("a.md"));
+    }
+
+    /// 报给前端的 root 必须是人话写法：Windows 上 canonicalize 给的是
+    /// `\\?\D:\…`，那个前缀曾经原样出现在欢迎页的 vault 列表里
+    #[test]
+    fn info_root_has_no_verbatim_prefix() {
+        let dir = std::env::temp_dir().join(format!("verso-open-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (v, info) = Vault::open(dir.clone()).unwrap();
+
+        assert!(
+            !info.root.starts_with(r"\\?\"),
+            "前端看到的 root 不该带 verbatim 前缀：{}",
+            info.root
+        );
+        // 剥前缀只动报给前端的那一份；内部 I/O 仍用 canonicalize 的结果
+        assert!(v.root.is_dir());
+        assert_eq!(
+            std::fs::canonicalize(&info.root).unwrap(),
+            std::fs::canonicalize(&v.root).unwrap(),
+            "两种写法必须指向同一个目录"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 建一个临时 vault，写入一篇带 frontmatter 的笔记

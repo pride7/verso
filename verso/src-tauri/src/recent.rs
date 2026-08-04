@@ -43,6 +43,15 @@ fn same_root(a: &str, b: &str) -> bool {
     }
 }
 
+/// 剥掉 Windows 的 `\\?\` 前缀。早期版本把 canonicalize 出来的 verbatim 路径
+/// 原样存进了 recent.json，读出来时统一成人话写法 —— 否则欢迎页会显示
+/// `\\?\D:\…`，还会和新格式的同一目录并存成两条。
+fn plain(root: &str) -> String {
+    crate::winpath::for_external(Path::new(root))
+        .to_string_lossy()
+        .into_owned()
+}
+
 /**
  * 旧版只有 `lastVault`。读出来时顺手补进清单；同时去重，避免用户从大小写
  * 不同的路径表示打开同一目录后菜单里长出两条。
@@ -50,10 +59,12 @@ fn same_root(a: &str, b: &str) -> bool {
 fn normalize(mut data: Recent) -> Recent {
     let mut unique: Vec<String> = Vec::new();
     for root in data.vaults {
+        let root = plain(&root);
         if !unique.iter().any(|known| same_root(known, &root)) {
             unique.push(root);
         }
     }
+    data.last_vault = data.last_vault.map(|last| plain(&last));
     if let Some(last) = data.last_vault.as_ref() {
         if !unique.iter().any(|known| same_root(known, last)) {
             unique.insert(0, last.clone());
@@ -169,5 +180,26 @@ mod tests {
     fn name_comes_from_the_last_path_component() {
         assert_eq!(name_of("D:/Notes/research"), "research");
         assert_eq!(name_of("/home/me/notebook"), "notebook");
+    }
+
+    /// 早期版本存进去的是 `\\?\D:\…`。读出来必须剥掉前缀，并且和新格式的
+    /// 同一目录合并成一条 —— 否则欢迎页一个仓库显示两遍，其中一条还带着前缀
+    #[test]
+    fn verbatim_windows_paths_are_cleaned_and_deduped() {
+        let data = normalize(Recent {
+            last_vault: Some(r"\\?\D:\Documents\Verso\xsfeng".into()),
+            last_note: Some("today.md".into()),
+            vaults: vec![
+                r"\\?\D:\Documents\Verso\xsfeng".into(),
+                r"D:\Documents\Verso\xsfeng".into(),
+                r"\\?\D:\Projects\notebook\test-vault".into(),
+            ],
+        });
+        assert_eq!(
+            data.vaults,
+            vec![r"D:\Documents\Verso\xsfeng", r"D:\Projects\notebook\test-vault"]
+        );
+        assert_eq!(data.last_vault.as_deref(), Some(r"D:\Documents\Verso\xsfeng"));
+        assert_eq!(data.last_note.as_deref(), Some("today.md"), "笔记路径不该被动");
     }
 }
