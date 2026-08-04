@@ -687,6 +687,22 @@ fn git_commit(
     state.with_vault(|v| vault::git::commit_all(&v.root, message.as_deref()))
 }
 
+/// 生效的提交署名（仓库级优先，其次全局；都没有时提交挂「Verso」）
+#[tauri::command]
+fn git_identity_get(state: State<'_, AppState>) -> Result<vault::git::Identity> {
+    state.with_vault(|v| vault::git::identity_get(&v.root))
+}
+
+/// 把署名写进 vault 仓库级配置，跟着 vault 走。空串 = 清掉，回到全局配置
+#[tauri::command]
+fn git_identity_set(
+    state: State<'_, AppState>,
+    name: String,
+    email: String,
+) -> Result<vault::git::Identity> {
+    state.with_vault(|v| vault::git::identity_set(&v.root, &name, &email))
+}
+
 /// 最近的若干次提交。侧栏的历史面板用（§2.8）
 #[tauri::command]
 fn git_history(
@@ -935,6 +951,8 @@ pub fn run() {
             git_diff_file,
             git_discard_file,
             git_restore_file,
+            git_identity_get,
+            git_identity_set,
             sync_remote_get,
             sync_remote_set,
             sync_token_set,

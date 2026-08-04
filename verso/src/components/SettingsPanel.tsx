@@ -5,7 +5,7 @@ import { confirm } from "../lib/dialog";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
 import { APP_VERSION, progressText, updatesSupported, type UpdateApi } from "../lib/update";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
-import type { RemoteInfo } from "../types";
+import type { GitIdentity, RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
 import {
@@ -27,8 +27,11 @@ interface Props {
   remote: RemoteInfo | null;
   /** 这个远端在系统钥匙串里存过令牌没有 */
   tokenSaved: boolean;
+  /** 提交署名。null = 还没打开 vault */
+  identity: GitIdentity | null;
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
+  onIdentityChange: (name: string, email: string) => void;
   /** §2.11 更新。状态机在 App 上，这里只是它的一个界面 */
   update: UpdateApi;
   /** 打开时停在哪一页。状态栏那个「有新版本」直接跳到「更新」 */
@@ -174,30 +177,42 @@ function TextRow({
 /**
  * 同步那一页。DESIGN.md §2.8
  *
- * 界面上只有两样东西：**仓库地址**和**令牌**。没有 branch、没有 remote 名字、
- * 没有 push/pull 的选项 —— 那些概念对着一个笔记软件的用户没有意义，而它们
- * 全都有一个唯一合理的取值。
+ * 界面上只有三样东西：**仓库地址**、**令牌**和**提交署名**。没有 branch、
+ * 没有 remote 名字、没有 push/pull 的选项 —— 那些概念对着一个笔记软件的
+ * 用户没有意义，而它们全都有一个唯一合理的取值。
  *
- * 地址和令牌都**不是设置项**：地址存在仓库自己的 `.git/config` 里（跟着
+ * 三样都**不是设置项**：地址和署名存在仓库自己的 `.git/config` 里（跟着
  * vault 走，换台机器重新填一次是对的），令牌存在系统钥匙串里。所以这一页
  * 不走 `onChange`，而是各自有自己的回调。
  */
 function SyncSettings({
   remote,
   tokenSaved,
+  identity,
   onRemoteChange,
   onTokenChange,
+  onIdentityChange,
 }: {
   remote: RemoteInfo | null;
   tokenSaved: boolean;
+  identity: GitIdentity | null;
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
+  onIdentityChange: (name: string, email: string) => void;
 }) {
-  // 两个输入框都**按下「保存」才提交**，不是边打边存：地址打到一半就去连
+  // 输入框都**按下「保存」才提交**，不是边打边存：地址打到一半就去连
   // 远端毫无意义，而令牌每敲一个字符写一次钥匙串更是荒唐
   const [url, setUrl] = useState(remote?.url ?? "");
   const [token, setToken] = useState("");
+  const [name, setName] = useState(identity?.name ?? "");
+  const [email, setEmail] = useState(identity?.email ?? "");
   useEffect(() => setUrl(remote?.url ?? ""), [remote?.url]);
+  useEffect(() => {
+    setName(identity?.name ?? "");
+    setEmail(identity?.email ?? "");
+  }, [identity?.name, identity?.email]);
+  const identityDirty =
+    name.trim() !== (identity?.name ?? "") || email.trim() !== (identity?.email ?? "");
 
   if (!remote) {
     return <p className="set-note">请先打开一个笔记库。</p>;
@@ -209,7 +224,7 @@ function SyncSettings({
         配置远程 Git 仓库后，可通过状态栏中的「同步」上传本机更改并获取远程更改。
       </p>
 
-      <div className="set-row">
+      <div className="set-row set-sync-stack-row">
         <div className="set-label">
           <span>仓库地址</span>
           <span className="set-hint">
@@ -267,6 +282,48 @@ function SyncSettings({
           </div>
         </div>
       )}
+
+      <div className="set-row set-sync-stack-row set-identity-row">
+        <div className="set-label">
+          <span>提交署名</span>
+          <span className="set-hint">
+            {/* 说清楚写到哪儿：只写这个笔记库，不动整台机器的 git 配置 */}
+            记录版本时使用的用户名和邮箱。仅对当前笔记库生效，不会更改全局 Git
+            配置。留空时沿用全局署名；若未设置，则使用「Verso」。
+          </span>
+        </div>
+        <div className="set-control">
+          <label className="set-identity-field">
+            <span className="set-field-label">用户名</span>
+            <input
+              type="text"
+              className="set-text"
+              aria-label="署名"
+              value={name}
+              placeholder="例如：pride7"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label className="set-identity-field">
+            <span className="set-field-label">邮箱</span>
+            <input
+              type="email"
+              className="set-text"
+              aria-label="署名邮箱"
+              value={email}
+              placeholder="you@example.com"
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          <button
+            className="set-save"
+            disabled={!identityDirty}
+            onClick={() => onIdentityChange(name.trim(), email.trim())}
+          >
+            保存
+          </button>
+        </div>
+      </div>
 
       {remote.url && (
         <p className="set-note set-note-dim">
@@ -410,8 +467,10 @@ export function SettingsPanel({
   onClose,
   remote,
   tokenSaved,
+  identity,
   onRemoteChange,
   onTokenChange,
+  onIdentityChange,
   update,
   initialTab,
 }: Props) {
@@ -820,8 +879,10 @@ export function SettingsPanel({
             <SyncSettings
               remote={remote}
               tokenSaved={tokenSaved}
+              identity={identity}
               onRemoteChange={onRemoteChange}
               onTokenChange={onTokenChange}
+              onIdentityChange={onIdentityChange}
             />
           )}
 

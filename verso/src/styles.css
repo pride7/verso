@@ -5697,6 +5697,39 @@ textarea:focus-visible {
 .set-sync .set-control {
   gap: 6px;
 }
+/* 同步页的内容都需要先读说明再填写。说明独占一行，输入区放到下一行，
+   不让较长的地址或多个输入框把左侧文字挤成窄栏。 */
+.set-sync-stack-row {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+}
+.set-sync-stack-row .set-control {
+  width: 100%;
+}
+.set-sync-stack-row > .set-control > .set-text,
+.set-identity-field {
+  flex: 1;
+  min-width: 0;
+}
+.set-sync-stack-row > .set-control > .set-text {
+  width: auto;
+}
+.set-identity-row .set-control {
+  align-items: flex-end;
+}
+.set-identity-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.set-identity-field .set-text {
+  width: 100%;
+}
+.set-field-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
 /* 地址和令牌都是「填完按保存」，不是边打边生效 —— 打到一半就去连远端
    毫无意义。所以这两页比别处多一个按钮 */
 .set-save {

@@ -428,6 +428,57 @@ pub(super) fn signature(repo: &git2::Repository) -> Result<git2::Signature<'stat
     }
 }
 
+/// 提交署名。设置「同步」页读写的就是它。
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Identity {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+/// 生效的署名：仓库级配置优先，其次本机全局。两者都没有时是 None ——
+/// 那时提交挂的是上面 `signature()` 的回落身份「Verso」。
+pub fn identity_get(root: &Path) -> Result<Identity> {
+    let repo = git2::Repository::open(root)?;
+    let cfg = repo.config()?.snapshot()?;
+    let get = |key: &str| {
+        cfg.get_string(key)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    Ok(Identity {
+        name: get("user.name"),
+        email: get("user.email"),
+    })
+}
+
+/// 把署名写进 vault 仓库级配置（`.git/config`）。**不动全局** —— 一个笔记
+/// 软件没有资格改用户整台机器的 git 身份。传空串 = 清掉仓库级的那一条，
+/// 回到全局配置。
+pub fn identity_set(root: &Path, name: &str, email: &str) -> Result<Identity> {
+    let entries = [("user.name", name.trim()), ("user.email", email.trim())];
+    // 先整体校验再写：名字合法、邮箱非法时不能只写进去一半。
+    // git 的身份行是 `名字 <邮箱>`，这几个字符会把它撕开 ——
+    // libgit2 建 Signature 时也会拒绝，但那时报的错跟「保存」对不上号
+    if entries.iter().any(|(_, v)| v.contains(['<', '>', '\n'])) {
+        return Err(Error::Vault("署名和邮箱里不能有尖括号或换行".into()));
+    }
+
+    let repo = git2::Repository::open(root)?;
+    let mut local = repo.config()?.open_level(git2::ConfigLevel::Local)?;
+    for (key, value) in entries {
+        if value.is_empty() {
+            // 本来就没配过时 remove 会报错 —— 那不是错误
+            let _ = local.remove(key);
+        } else {
+            local.set_str(key, value)?;
+        }
+    }
+    drop(local);
+    identity_get(root)
+}
+
 /// 把工作区的全部改动提交掉。没有改动时返回 `None`，**不产生空提交**。
 ///
 /// `message` 为 None 时自动生成。暂存用 `add_all` + `update_all` 两步：
@@ -884,6 +935,76 @@ mod commit_tests {
         let s = status(&dir);
         assert!(!s.enabled);
         assert_eq!(s.dirty, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    fn temp_vault() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("verso-ident-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        ensure_repo(&dir).unwrap();
+        commit_all(&dir, Some("初始化")).unwrap();
+        dir
+    }
+
+    /// 设置里存的署名要真的出现在之后的提交上 —— 不然历史侧栏里
+    /// 多台机器全显示「Verso」，分不清是谁改的
+    #[test]
+    fn saved_identity_signs_the_next_commit() {
+        let dir = temp_vault();
+        let id = identity_set(&dir, " 冯 ", "x@example.com").unwrap();
+        assert_eq!(id.name.as_deref(), Some("冯"), "首尾空白要修剪掉");
+        assert_eq!(id.email.as_deref(), Some("x@example.com"));
+
+        std::fs::write(dir.join("甲.md"), "一").unwrap();
+        commit_all(&dir, None).unwrap();
+        let h = history(&dir, 1).unwrap();
+        assert_eq!(h[0].author_name, "冯");
+        assert_eq!(h[0].author_email.as_deref(), Some("x@example.com"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 清空 = 只删仓库级的条目，回到全局配置 —— 绝不动 `~/.gitconfig`
+    #[test]
+    fn empty_clears_only_the_repo_level_entry() {
+        let dir = temp_vault();
+        identity_set(&dir, "某人", "a@b.c").unwrap();
+        identity_set(&dir, "", "").unwrap();
+        // 再清一次也不该报错（remove 一个不存在的键）
+        identity_set(&dir, "", "").unwrap();
+
+        let repo = git2::Repository::open(&dir).unwrap();
+        let local = repo
+            .config()
+            .unwrap()
+            .open_level(git2::ConfigLevel::Local)
+            .unwrap();
+        assert!(local.get_string("user.name").is_err(), "仓库级条目应当被删掉");
+        assert!(local.get_string("user.email").is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `名字 <邮箱>` 这一行会被尖括号撕开 —— 在「保存」这一步就要拦下来，
+    /// 不能等到提交时被 libgit2 静默换成回落身份
+    #[test]
+    fn angle_brackets_and_newlines_are_rejected() {
+        let dir = temp_vault();
+        assert!(identity_set(&dir, "a<b>", "x@y.z").is_err());
+        assert!(identity_set(&dir, "好名字", "a@b\nc").is_err());
+        // 拦下来之后什么都不该写进去
+        let repo = git2::Repository::open(&dir).unwrap();
+        let local = repo
+            .config()
+            .unwrap()
+            .open_level(git2::ConfigLevel::Local)
+            .unwrap();
+        assert!(local.get_string("user.name").is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -7,6 +7,7 @@ import type {
   CommitInfo,
   FileChange,
   FileDiff,
+  GitIdentity,
   GitStatus,
   HistoryEntry,
   IndexStats,
@@ -155,6 +156,11 @@ export const api = {
     call<void>("git_restore_file", { commit, path }),
 
   // —— §2.8 远端同步 ——
+  /** 生效的提交署名（仓库级优先，其次全局；都没有时提交挂「Verso」） */
+  gitIdentityGet: () => call<GitIdentity>("git_identity_get"),
+  /** 写署名进仓库级配置，跟着 vault 走。空串 = 清掉，回到全局配置 */
+  gitIdentitySet: (name: string, email: string) =>
+    call<GitIdentity>("git_identity_set", { name, email }),
   /** 当前配的远端。没配过时 `url` 是 null */
   syncRemoteGet: () => call<RemoteInfo>("sync_remote_get"),
   /** 配远端。空串 = 不要远端了 */

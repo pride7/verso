@@ -185,6 +185,13 @@ export interface CommitInfo {
   files: number;
 }
 
+/** 提交署名。存在 vault 仓库级 git 配置里，跟着 vault 走 */
+export interface GitIdentity {
+  /** null = 没配过（生效的是本机全局配置，再没有就是「Verso」） */
+  name: string | null;
+  email: string | null;
+}
+
 /** §2.8 当前配的远端。和 Rust 的 `vault::sync::RemoteInfo` 一一对应 */
 export interface RemoteInfo {
   /** 没配过时是 null */

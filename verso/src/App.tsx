@@ -56,6 +56,7 @@ import { keyLabel } from "./lib/platform";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type {
   FileChange,
+  GitIdentity,
   GitStatus,
   NoteContent,
   RecentVault,
@@ -820,6 +821,8 @@ export default function App() {
   const [remote, setRemote] = useState<RemoteInfo | null>(null);
   /** 这个远端存过令牌没有。**令牌本身永远不到前端** */
   const [tokenSaved, setTokenSaved] = useState(false);
+  /** 提交署名。null = 没打开 vault 或者后端不支持 */
+  const [identity, setIdentity] = useState<GitIdentity | null>(null);
   /** 正在同步。同步要走网络，可能要好几秒 */
   const [syncing, setSyncing] = useState(false);
   /** 正在提交。挡住重入：自动提交和手动点可能撞在一起 */
@@ -850,6 +853,12 @@ export default function App() {
         .catch(() => setRemote(null));
     } catch {
       setRemote(null);
+    }
+    // 独立的 try：署名取不到只该让署名显示为空，不能连远端配置一起打断
+    try {
+      void api.gitIdentityGet().then(setIdentity).catch(() => setIdentity(null));
+    } catch {
+      setIdentity(null);
     }
   }, []);
 
@@ -1018,6 +1027,15 @@ export default function App() {
     },
     [],
   );
+
+  /** 存提交署名。写进 vault 仓库级 git 配置；两项都空 = 回到本机全局配置 */
+  const setGitIdentity = useCallback(async (name: string, email: string) => {
+    try {
+      setIdentity(await api.gitIdentitySet(name, email));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
 
   /** 存/删令牌。空串 = 删掉 */
   const setToken = useCallback(
@@ -2607,8 +2625,10 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           remote={remote}
           tokenSaved={tokenSaved}
+          identity={identity}
           onRemoteChange={(url) => void setRemoteUrl(url)}
           onTokenChange={(token) => void setToken(token)}
+          onIdentityChange={(name, email) => void setGitIdentity(name, email)}
           update={updater}
           initialTab={settingsTab}
         />

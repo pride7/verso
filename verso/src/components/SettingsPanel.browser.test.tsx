@@ -19,7 +19,11 @@ afterEach(() => {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
 
-function mountSettings(tab: Tab, patch: Partial<Settings> = {}) {
+function mountSettings(
+  tab: Tab,
+  patch: Partial<Settings> = {},
+  extra: Partial<Parameters<typeof SettingsPanel>[0]> = {},
+) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const changes: Partial<Settings>[] = [];
@@ -34,8 +38,10 @@ function mountSettings(tab: Tab, patch: Partial<Settings> = {}) {
       onClose={() => {}}
       remote={null}
       tokenSaved={false}
+      identity={null}
       onRemoteChange={() => {}}
       onTokenChange={() => {}}
+      onIdentityChange={() => {}}
       update={{
         state: { phase: "idle" },
         check: () => {},
@@ -44,6 +50,7 @@ function mountSettings(tab: Tab, patch: Partial<Settings> = {}) {
         dismiss: () => {},
       }}
       initialTab={tab}
+      {...extra}
     />,
   );
   return { host, changes };
@@ -166,5 +173,74 @@ describe("斜杠菜单设置表格", () => {
       items: [{ label: "结论", detail: "", template: "> [!success] 结论\n> $0" }],
       errors: [],
     });
+  });
+});
+
+describe("同步设置：提交署名", () => {
+  const REMOTE = { url: null, branch: "main", needsToken: false };
+
+  it("显示生效的署名，改动后才能保存，名字和邮箱一起交回去", async () => {
+    const calls: [string, string][] = [];
+    const { host } = mountSettings("sync", {}, {
+      remote: REMOTE,
+      identity: { name: "旧名", email: null },
+      onIdentityChange: (name: string, email: string) => calls.push([name, email]),
+    });
+    await settle();
+
+    const name = host.querySelector<HTMLInputElement>('[aria-label="署名"]')!;
+    const email = host.querySelector<HTMLInputElement>('[aria-label="署名邮箱"]')!;
+    expect(name.value).toBe("旧名");
+    expect(email.value).toBe("");
+
+    // 同一页还有仓库地址的「保存」，必须取署名这一行里的那个
+    const save = name.closest(".set-row")!.querySelector("button")!;
+    // 没改过时保存无意义，禁用比让人怀疑没生效好
+    expect(save.disabled).toBe(true);
+
+    await userEvent.fill(name, "冯");
+    await userEvent.fill(email, "x@example.com");
+    expect(save.disabled).toBe(false);
+    await userEvent.click(save);
+    expect(calls).toEqual([["冯", "x@example.com"]]);
+  });
+
+  it("没配远端时署名照样能编辑 —— 它管的是本地提交,不依赖远端", async () => {
+    const { host } = mountSettings("sync", {}, { remote: REMOTE, identity: { name: null, email: null } });
+    await settle();
+    expect(host.querySelector('[aria-label="署名"]')).not.toBeNull();
+  });
+
+  it("仓库地址和署名都让说明独占一行，输入区排在下方", async () => {
+    const { host } = mountSettings("sync", {}, {
+      remote: REMOTE,
+      identity: { name: "冯", email: "x@example.com" },
+    });
+    await settle();
+
+    const rows = host.querySelectorAll<HTMLElement>(".set-sync-stack-row");
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const label = row.querySelector<HTMLElement>(".set-label")!;
+      const control = row.querySelector<HTMLElement>(".set-control")!;
+      const rowRect = row.getBoundingClientRect();
+      const labelRect = label.getBoundingClientRect();
+      const controlRect = control.getBoundingClientRect();
+      expect(labelRect.width).toBeGreaterThan(rowRect.width * 0.9);
+      expect(controlRect.top).toBeGreaterThan(labelRect.bottom);
+    }
+  });
+
+  it("用户名和邮箱始终有各自的字段标签", async () => {
+    const { host } = mountSettings("sync", {}, {
+      remote: REMOTE,
+      identity: { name: "冯", email: "x@example.com" },
+    });
+    await settle();
+
+    const labels = [...host.querySelectorAll(".set-identity-field .set-field-label")].map(
+      (label) => label.textContent,
+    );
+    expect(labels).toEqual(["用户名", "邮箱"]);
   });
 });
