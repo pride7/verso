@@ -240,6 +240,21 @@ const PATHS = {
   /** 文本：长短不一的两行，和「大纲」那种规整的缩进线区分开 */
   text: <path d="M3 5h10M3 8.5h10M3 12h6" />,
   plus: <path d="M8 3.5v9M3.5 8h9" />,
+  /** 插入：箭头指进当前位置。和「新建」的加号分开。 */
+  insert: (
+    <>
+      <path d="M2.5 8h7M6.5 4.5 10 8l-3.5 3.5" />
+      <path d="M13 3v10" />
+    </>
+  ),
+  /** 更多操作：触摸屏没有悬停，管理入口必须常显。 */
+  more: (
+    <>
+      <circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+      <circle cx="12.5" cy="8" r="1" fill="currentColor" stroke="none" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3.8 5h8.4l-.6 8.2a1 1 0 0 1-1 .9H5.4a1 1 0 0 1-1-.9Z" />

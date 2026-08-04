@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { Icon } from "./Icon";
 import type { Template } from "../lib/template";
 import { RenameInput } from "./Tree";
@@ -8,6 +10,8 @@ interface Props {
   dir: string;
   /** 有没有打开笔记 —— 没有的话「插入」无处可插 */
   hasNote: boolean;
+  /** 当前笔记。模板不能插进自己，否则会把自己的正文复制一遍。 */
+  activePath: string | null;
   /** 插进当前笔记 */
   onInsert: (t: Template) => void;
   /** 用它新建一篇 */
@@ -16,6 +20,10 @@ interface Props {
   onOpen: (path: string) => void;
   /** 在模板目录里直接新建一篇，并打开就地改名 */
   onNew: () => void;
+  /** 进入列表内的就地改名 */
+  onRename: (path: string) => void;
+  /** 删除模板文件 */
+  onDelete: (t: Template) => void;
   renamingPath: string | null;
   onRenameSubmit: (path: string, title: string) => void;
   onRenameCancel: () => void;
@@ -30,24 +38,48 @@ interface Props {
  * 而且「我有哪些模板」这个问题没有任何地方能回答。摆在侧栏里，它同时是
  * 清单、入口和「这个功能存在」的提示。
  *
- * ## 一行三个动作，主次分明
+ * ## 模板先是文件，再是可插入的内容
  *
- * 整行点下去是**插入**（最高频，写到一半想套个格式）；右边两个小按钮分别是
- * 「用它新建一篇」和「改这个模板本身」。改模板走的是打开那个 `.md`，没有
- * 另一套编辑器 —— 模板就是普通笔记（§0 第 1 条）。
+ * 整行点下去打开模板本身；插入和用它新建各有明确按钮。这样双击改名不会先把
+ * 模板插两遍，列表也和文档树遵守同一套心智模型。右键和常显的「更多」按钮共用
+ * 一份菜单，触摸屏没有右键也能完成重命名、删除（§0 第 1 条、§5.5）。
  */
 export function TemplatesView({
   templates,
   dir,
   hasNote,
+  activePath,
   onInsert,
   onCreate,
   onOpen,
   onNew,
+  onRename,
+  onDelete,
   renamingPath,
   onRenameSubmit,
   onRenameCancel,
 }: Props) {
+  const [menu, setMenu] = useState<{ template: Template; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const close = () => setMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+    };
+  }, []);
+
+  const openMenu = (template: Template, x: number, y: number) => {
+    // 菜单不能伸出视口；侧栏靠左，但纵向仍可能在窗口底部溢出。
+    setMenu({
+      template,
+      x: Math.max(8, Math.min(x, window.innerWidth - 190)),
+      y: Math.max(8, Math.min(y, window.innerHeight - 214)),
+    });
+  };
+
   return (
     <div className="tpl-view">
       <div className="tpl-top">
@@ -114,52 +146,144 @@ export function TemplatesView({
         </p>
       ) : (
         <ul className="tpl-list">
-          {templates.map((t) => (
-            <li key={t.path}>
-              {renamingPath === t.path ? (
-                <div className="tpl-name is-renaming">
-                  <Icon name="template" size={13} />
-                  <RenameInput
-                    name={t.name.slice(t.name.lastIndexOf("/") + 1)}
-                    className="tpl-rename"
-                    onSubmit={(title) => onRenameSubmit(t.path, title)}
-                    onCancel={onRenameCancel}
-                  />
-                </div>
-              ) : (
-                <button
-                  className="tpl-name"
-                  onClick={() => (hasNote ? onInsert(t) : onCreate(t))}
-                  title={
-                    hasNote
-                      ? `插入到当前笔记（${t.path}）`
-                      : `没有打开的笔记，点它会用这个模板新建一篇（${t.path}）`
-                  }
-                >
-                  <Icon name="template" size={13} />
-                  <span>{t.name}</span>
-                </button>
-              )}
-              {renamingPath !== t.path && (
-                <span className="tpl-acts">
+          {templates.map((t) => {
+            const canInsert = hasNote && activePath !== t.path;
+            return (
+              <li
+                key={t.path}
+                className={activePath === t.path ? "is-active" : undefined}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openMenu(t, e.clientX, e.clientY);
+                }}
+              >
+                {renamingPath === t.path ? (
+                  <div className="tpl-name is-renaming">
+                    <Icon name="template" size={13} />
+                    <RenameInput
+                      name={t.name.slice(t.name.lastIndexOf("/") + 1)}
+                      className="tpl-rename"
+                      onSubmit={(title) => onRenameSubmit(t.path, title)}
+                      onCancel={onRenameCancel}
+                    />
+                  </div>
+                ) : (
                   <button
-                    onClick={() => onCreate(t)}
-                    title="用它新建一篇"
-                    aria-label={`用「${t.name}」新建`}
-                  >
-                    <Icon name="plus" size={12} />
-                  </button>
-                  <button
+                    className="tpl-name"
                     onClick={() => onOpen(t.path)}
-                    title="编辑这个模板"
-                    aria-label={`编辑「${t.name}」`}
+                    onDoubleClick={(e) => {
+                      e.preventDefault();
+                      onRename(t.path);
+                    }}
+                    title={`编辑模板；双击可改名（${t.path}）`}
                   >
-                    <Icon name="doc" size={12} />
+                    <Icon name="template" size={13} />
+                    <span>{t.name}</span>
                   </button>
-                </span>
-              )}
-            </li>
-          ))}
+                )}
+                {renamingPath !== t.path && (
+                  <span className="tpl-acts">
+                    <button
+                      disabled={!canInsert}
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={() => onInsert(t)}
+                      title={
+                        canInsert
+                          ? "插入到当前笔记"
+                          : activePath === t.path
+                            ? "不能插入模板自身"
+                            : "请先打开一篇笔记"
+                      }
+                      aria-label={`插入「${t.name}」`}
+                    >
+                      <Icon name="insert" size={12} />
+                    </button>
+                    <button
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={() => onCreate(t)}
+                      title="用它新建一篇"
+                      aria-label={`用「${t.name}」新建`}
+                    >
+                      <Icon name="plus" size={12} />
+                    </button>
+                    <button
+                      onPointerDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        const box = e.currentTarget.getBoundingClientRect();
+                        openMenu(t, box.right, box.bottom + 3);
+                      }}
+                      title="更多操作"
+                      aria-label={`管理「${t.name}」`}
+                    >
+                      <Icon name="more" size={12} />
+                    </button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {menu && (
+        <ul
+          className="ctx tpl-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <li>
+            <button
+              onClick={() => {
+                onOpen(menu.template.path);
+                setMenu(null);
+              }}
+            >
+              编辑模板
+            </button>
+          </li>
+          <li>
+            <button
+              disabled={!hasNote || activePath === menu.template.path}
+              onPointerDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onInsert(menu.template);
+                setMenu(null);
+              }}
+            >
+              插入到当前笔记
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                onCreate(menu.template);
+                setMenu(null);
+              }}
+            >
+              用模板新建文档
+            </button>
+          </li>
+          <li>
+            <button
+              onClick={() => {
+                onRename(menu.template.path);
+                setMenu(null);
+              }}
+            >
+              重命名
+            </button>
+          </li>
+          <li>
+            <button
+              className="ctx-danger"
+              onClick={() => {
+                onDelete(menu.template);
+                setMenu(null);
+              }}
+            >
+              删除模板
+            </button>
+          </li>
         </ul>
       )}
     </div>

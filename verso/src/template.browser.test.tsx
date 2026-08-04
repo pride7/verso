@@ -67,6 +67,29 @@ const writeNote = vi.fn(async (path: string, body: string) => {
   return 0;
 });
 const writeFrontmatter = vi.fn(async () => 0);
+const renameNote = vi.fn(async (path: string, title: string) => {
+  const cut = path.lastIndexOf("/");
+  const newPath = `${cut < 0 ? "" : `${path.slice(0, cut + 1)}`}${title}.md`;
+  tree = tree.map((node) =>
+    node.path === path ? { ...node, name: title, path: newPath } : node,
+  );
+  bodies[newPath] = bodies[path];
+  fronts[newPath] = fronts[path];
+  delete bodies[path];
+  delete fronts[path];
+  return newPath;
+});
+const deleteNote = vi.fn(async (path: string) => {
+  tree = tree.filter((node) => node.path !== path);
+  delete bodies[path];
+  delete fronts[path];
+});
+
+const { confirmDialog } = vi.hoisted(() => ({
+  confirmDialog: vi.fn(async () => true),
+}));
+
+vi.mock("./lib/dialog", () => ({ confirm: confirmDialog }));
 
 vi.mock("./api", () => ({
   api: {
@@ -91,9 +114,9 @@ vi.mock("./api", () => ({
     createNote: async () => ({ path: "x.md", id: null, title: "x" }),
     createUntitled: () => createUntitled(),
     createTemplate: (dir: string) => createTemplate(dir),
-    renameNote: async () => "",
+    renameNote: (path: string, title: string) => renameNote(path, title),
     moveNote: async () => "",
-    deleteNote: async () => {},
+    deleteNote: (path: string) => deleteNote(path),
     search: async () => [],
     backlinks: async () => [],
     allTags: async () => [],
@@ -139,10 +162,16 @@ beforeEach(() => {
     doc("日记", "templates/日记.md"),
   ];
   bodies["甲.md"] = "原有正文\n";
+  bodies["templates/会议纪要.md"] = TPL_BODY;
+  bodies["templates/日记.md"] = "今天：{{date:YYYY年M月D日}}\n";
+  fronts["templates/会议纪要.md"] = "status: 草稿\n";
   createUntitled.mockClear();
   createTemplate.mockClear();
   writeNote.mockClear();
   writeFrontmatter.mockClear();
+  renameNote.mockClear();
+  deleteNote.mockClear();
+  confirmDialog.mockClear();
 });
 
 afterEach(() => {
@@ -290,7 +319,7 @@ describe("侧栏里的模板面板", () => {
     expect(names).toEqual(["会议纪要", "日记"]);
   });
 
-  it("点一行 = 插进当前笔记", async () => {
+  it("单击一行打开模板编辑，不会误插进当前笔记", async () => {
     await mountApp();
     await openPanel();
 
@@ -303,8 +332,36 @@ describe("侧栏里的模板面板", () => {
     });
 
     const text = document.querySelector(".cm-content")!.textContent ?? "";
-    expect(text).toMatch(/今天：\d{4}年/);
-    expect(text).toContain("原有正文");
+    expect(text).toContain("今天：{{date:YYYY年M月D日}}");
+    expect(text).not.toContain("原有正文");
+    expect(bodies["甲.md"]).toBe("原有正文\n");
+  });
+
+  it("插入有独立按钮，编辑模板自身时会禁用", async () => {
+    await mountApp();
+    await openPanel();
+
+    const insert = document.querySelector<HTMLButtonElement>(
+      '.tpl-acts button[aria-label="插入「日记」"]',
+    )!;
+    expect(insert.disabled).toBe(false);
+    await act(async () => {
+      insert.click();
+      await settle(400);
+    });
+    expect(document.querySelector(".cm-content")!.textContent).toMatch(/今天：\d{4}年/);
+
+    const row = [...document.querySelectorAll<HTMLElement>(".tpl-name")].find((b) =>
+      b.textContent?.includes("日记"),
+    )!;
+    await act(async () => {
+      row.click();
+      await settle(400);
+    });
+    expect(
+      document.querySelector<HTMLButtonElement>('.tpl-acts button[aria-label="插入「日记」"]')!
+        .disabled,
+    ).toBe(true);
   });
 
   it("右边的 + 是「用它新建一篇」", async () => {
@@ -318,6 +375,92 @@ describe("侧栏里的模板面板", () => {
 
     expect(createUntitled).toHaveBeenCalledTimes(1);
     expect(writeNote).toHaveBeenCalled();
+  });
+
+  it("双击模板就地改名，并真的写回文件", async () => {
+    await mountApp();
+    await openPanel();
+
+    const row = [...document.querySelectorAll<HTMLElement>(".tpl-name")].find((b) =>
+      b.textContent?.includes("日记"),
+    )!;
+    await act(async () => {
+      await userEvent.dblClick(row);
+      await settle(150);
+    });
+    const input = document.querySelector<HTMLInputElement>(".tpl-rename")!;
+    expect(input.value).toBe("日记");
+
+    await act(async () => {
+      await userEvent.fill(input, "晨间日记");
+      await userEvent.keyboard("{Enter}");
+      await settle(500);
+    });
+    expect(renameNote).toHaveBeenCalledWith("templates/日记.md", "晨间日记");
+    expect(document.querySelector(".tpl-list")?.textContent).toContain("晨间日记");
+  });
+
+  it("右键和常显的更多按钮都有完整管理菜单", async () => {
+    await mountApp();
+    await openPanel();
+
+    const row = [...document.querySelectorAll<HTMLElement>(".tpl-name")].find((b) =>
+      b.textContent?.includes("日记"),
+    )!;
+    await act(async () => {
+      row.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 80,
+          clientY: 180,
+        }),
+      );
+      await settle(100);
+    });
+    const menuText = document.querySelector(".tpl-menu")?.textContent ?? "";
+    for (const action of [
+      "编辑模板",
+      "插入到当前笔记",
+      "用模板新建文档",
+      "重命名",
+      "删除模板",
+    ]) {
+      expect(menuText).toContain(action);
+    }
+
+    await act(async () => {
+      window.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await settle(50);
+      document
+        .querySelector<HTMLButtonElement>('.tpl-acts button[aria-label="管理「日记」"]')!
+        .click();
+      await settle(100);
+    });
+    expect(document.querySelector(".tpl-menu")?.textContent).toContain("重命名");
+  });
+
+  it("可以从更多菜单删除模板", async () => {
+    await mountApp();
+    await openPanel();
+
+    await act(async () => {
+      document
+        .querySelector<HTMLButtonElement>('.tpl-acts button[aria-label="管理「日记」"]')!
+        .click();
+      await settle(100);
+    });
+    const remove = [...document.querySelectorAll<HTMLButtonElement>(".tpl-menu button")].find(
+      (button) => button.textContent?.trim() === "删除模板",
+    )!;
+    await act(async () => {
+      remove.click();
+      await settle(500);
+    });
+
+    expect(confirmDialog).toHaveBeenCalled();
+    expect(deleteNote).toHaveBeenCalledWith("templates/日记.md");
+    expect(document.querySelector(".tpl-list")?.textContent).not.toContain("日记");
   });
 
   it("一个模板都没有时，说清楚往哪儿放", async () => {

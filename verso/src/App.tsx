@@ -2334,10 +2334,16 @@ export default function App() {
                 templates={templates}
                 dir={settings.templateDir}
                 hasNote={!!note}
+                activePath={note?.path ?? null}
                 onInsert={(t) => void insertTemplate(t.path)}
                 onCreate={(t) => void createFromTemplate(t.path, null)}
                 onOpen={(p) => void openPath(p)}
                 onNew={() => void createTemplate()}
+                onRename={setRenaming}
+                onDelete={(t) => {
+                  const node = tree.flatMap(flatten).find((candidate) => candidate.path === t.path);
+                  if (node) void deleteNode(node);
+                }}
                 renamingPath={renaming}
                 onRenameSubmit={(path, title) => void submitRename(path, title)}
                 onRenameCancel={() => setRenaming(null)}
