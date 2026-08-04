@@ -101,6 +101,7 @@
 | ↳ 修：上下标与命令后的 `{}` 误展开成 `\left\{`（§5.4） | `v0.6.35` ✅ |
 | ↳ 公式输入时实时预览（§5.3） | `v0.6.36` ✅ |
 | ↳ 选区改原生绘制，底色只贴文字（§4.2） | `v0.6.37` ✅ |
+| ↳ 安卓 https 同步：rustls 传输层 + 令牌落私有目录（§2.8） | `v0.6.38` ✅ |
 | M6 移动端 | `v0.8.0` |
 | M7 发布 | `v0.9.0` |
 
@@ -416,8 +417,10 @@ platform-tools / platforms;android-34 / build-tools;34.0.0 / ndk;27.2.12479018�
    要一个「产生 Unix 风格路径**且** core 模块齐全」的 perl —— git 自带的 MSYS
    perl 被精简过（缺 `Locale::Maketext::Simple`、`ExtUtils::MakeMaker`…），
    Strawberry Perl 又会被 OpenSSL 的 Configure 以「路径风格不对」当场拒掉。
-   **这是个死结，别再去补 perl 模块**；正解是给 libgit2 注册一个走 rustls 的
-   自定义传输层（`git2::transport`）。
+   **这是个死结，别再去补 perl 模块**。安卓的同步走 `vault/transport.rs`：
+   给 libgit2 注册的 rustls + ureq 自定义传输层，纯 Rust，NDK 直接编。
+   顺带一条：**keyring 也没有安卓后端**（静默退回内存 mock，令牌重启就丢），
+   安卓的令牌在 `vault/secret.rs` 里走应用私有目录的文件。
 3. **`[target.'cfg(…)'.dependencies]` 必须放在 Cargo.toml 末尾。** TOML 里那张
    表一出现，**后面所有的裸依赖行都算进它**。把它插在 `[dependencies]` 中间的
    话，`rusqlite`、`notify`、`blake3`、`portable-pty` 会一起变成「只有安卓才有」，
@@ -431,6 +434,10 @@ platform-tools / platforms;android-34 / build-tools;34.0.0 / ndk;27.2.12479018�
 
 **debug 的 `.so` 有 164 MB**（没 strip），所以 debug APK 172 MB。这不是包大小
 失控，release 会小一个量级。
+
+顺带：`scripts/android-apk.ps1` 是 UTF-8 无 BOM + 中文注释，**必须用 pwsh 7
+跑**。Windows PowerShell 5.1 会按 ANSI 读它，中文注释变乱码后直接报一堆
+ParserError —— 看起来像脚本坏了，其实是壳选错了。
 
 ### ⚠️ 不要用 `cargo check`
 
@@ -781,8 +788,20 @@ M2 的公式手感盲测已通过（作者手测），项目最大的风险点�
 
 **M5b 走了第一步**（v0.6.1）：配远端、一个同步按钮（提交 → 取 → 变基 → 推）、
 令牌进系统钥匙串。**冲突只检测不解决**，撞上就原样退回并报出是哪几篇。
-差的是冲突对比 UI，以及**真机对着 GitHub 跑一遍** —— 现在全部是本地裸仓库
-测出来的（7 条），传输层没有被验证过。
+差的是冲突对比 UI，以及完整的双设备往返验证。
+
+**传输层已对真 GitHub 走通一次**（2026-08-03，作者真机 + 私有仓库 +
+fine-grained PAT）。两条经验：
+
+1. fine-grained 令牌的 **Contents 权限默认是 No access**，不改就连
+   `ls-remote`（纯读）都被拒，而 GitHub 报的是极具误导性的
+   `Write access to repository not granted`（403）。必须设成
+   **Read and write**，且 Repository access 里勾上目标仓库（仓库晚于
+   令牌创建时必然没勾）。
+2. 同步失败时界面把 libgit2 原文直接甩出来（`request failed with status
+   code: 403; class=Http (34)`），用户毫无线索。**待办：把 401/403/网络
+   错误翻译成人话**（令牌无效 / 没有这个仓库的权限 / 网络不通），做冲突
+   UI 时顺手一起。
 
 **桌面自动更新已接上**（v0.6.14 写的，v0.6.15 第一次真的发出去，§2.11）：
 updater 插件 + GitHub Releases，推 tag 就出四份包。

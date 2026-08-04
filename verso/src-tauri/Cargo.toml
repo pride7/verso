@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.6.37"
+version = "0.6.38"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -26,9 +26,9 @@ ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 
-# 同步用的访问令牌存进系统钥匙串（Windows 凭据管理器 / macOS 钥匙串），
-# **不进设置文件**：那是明文 JSON，会被备份、会被同步、会被顺手贴给别人看。
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# keyring（同步令牌的钥匙串存储）在文件末尾的 target 表里 —— 它没有安卓
+# 后端，安卓上会静默退回**内存 mock**（令牌重启就丢，症状极难自查），
+# 所以安卓走 vault/secret.rs 里的文件后端，桌面才用 keyring。
 
 # 索引（§2.5）。bundled 把 SQLite 一起编进来，不依赖系统库；
 # FTS5 是全文搜索必需的。
@@ -56,11 +56,10 @@ base64 = "0.22"
 # MSYS perl 被精简过（缺 Locale::Maketext::Simple、ExtUtils::MakeMaker…），
 # Strawberry 又被 OpenSSL 的 Configure 以「路径风格不对」当场拒掉。
 #
-# 补模块是打地鼠，而且补出来的东西 `scoop update git` 一次就冲掉。**更重要的是
-# 这份功夫大概率是白费的**：安卓上的正解是给 libgit2 注册一个用 rustls 的
-# 自定义传输层（`git2::transport`），那样连 OpenSSL 都不需要，包也更小。
-# 在那之前，安卓包里 https 仓库同步不了 —— `sync()` 会明确报出这一点，
-# 而不是抛一句 libgit2 的 "unsupported URL protocol"。
+# 补模块是打地鼠，而且补出来的东西 `scoop update git` 一次就冲掉。所以
+# 安卓不走 OpenSSL：给 libgit2 注册一个 rustls 的自定义传输层
+# （vault/transport.rs），纯 Rust，NDK 直接编，包还更小。ureq 依赖也在
+# 文件末尾的安卓 target 表里。
 [target.'cfg(not(any(target_os = "android", target_os = "macos")))'.dependencies]
 git2 = { version = "0.20", default-features = false, features = ["https"] }
 
@@ -79,6 +78,16 @@ git2 = { version = "0.20", default-features = false, features = ["https", "vendo
 
 [target.'cfg(target_os = "android")'.dependencies]
 git2 = { version = "0.20", default-features = false }
+# https 传输层（vault/transport.rs）：HTTP 走 ureq、TLS 走 rustls +
+# webpki 内置根证书。全是纯 Rust，NDK 交叉编译不需要 OpenSSL/perl
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+# 同步令牌的钥匙串存储（vault/secret.rs）。**不给安卓**：keyring 没有安卓
+# 后端，会静默退回内存 mock —— 令牌「存进去了」但重启就丢，症状是每次
+# 打开应用都要重填一遍还查不出为什么。安卓在 secret.rs 里走应用私有目录
+# 的文件后端
+[target.'cfg(not(target_os = "android"))'.dependencies]
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 # 自动更新（§2.11）。**只有桌面有。**
 #

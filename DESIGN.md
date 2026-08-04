@@ -85,9 +85,9 @@ Tauri 用**系统 WebView**：Windows = WebView2（Chromium），macOS/iOS = WKW
 | **Obsidian** | SAF 目录选择器，拿到的是 `content://` URI | 不是文件路径，`std::fs` 用不了，`VaultFs` 要在安卓上用 JNI 整套重写，libgit2 也读不了它 |
 
 **走思源那条。** 真实路径意味着 Rust 侧一行都不用改 —— `std::fs`、git2、文件
-监听全部照常；而且笔记在文件管理器里看得见、Syncthing 之类同步得了，正好补上
-安卓暂时不能 git 同步的窟窿（见 §2.8 那条 OpenSSL 的死结）。SAF 那条路留给
-真需要「任意文件夹」时再说。
+监听全部照常；而且笔记在文件管理器里看得见、Syncthing 之类同步得了。SAF 那条路
+留给真需要「任意文件夹」时再说。（安卓的 git 同步曾因 OpenSSL 的死结缺席，
+后来用 rustls 自定义传输层补上了，见 §2.8。）
 
 **手机上不问「选哪个文件夹」**：Tauri 的目录选择器在移动端没有实现，点下去
 毫无反应（v0.6.4 的安卓包就是这个症状）。既然答案基本唯一，就别摆选择题 ——
@@ -614,6 +614,12 @@ vault 本身就是一个 git 仓库。这一个机制同时解决四件事：
 - **只支持 https + 令牌，没有 ssh**：git2 的 `ssh` 特性会链进 libssh2，而
   链进去之后的二进制在开了 Smart App Control 的 Windows 上直接跑不起来
   （`os error 4551`）。那是签名/信誉问题，在给安装包签名之前无解
+- **安卓的 https 走自定义传输层**（`vault/transport.rs`）：安卓那份 libgit2
+  没编 https 后端 —— 它要 OpenSSL，而在 Windows 主机上给安卓交叉编 vendored
+  OpenSSL 是死结（Cargo.toml 里有全过程）。解法是给 libgit2 注册一个 smart
+  传输层：HTTP 走 ureq、TLS 走 rustls + webpki 根证书，纯 Rust，NDK 直接编。
+  认证由传输层自己放进 `Authorization` 头 —— libgit2 的凭据回调不会为自定义
+  传输层工作
 
 冲突 UI 留给第三步。这样切分是因为**本地历史自己就成立**：
 用 AI 改完一整篇之后能一眼 diff、一键回退，那是这个软件最容易丢数据的路径
@@ -630,7 +636,7 @@ vault 本身就是一个 git 仓库。这一个机制同时解决四件事：
 | 自动 commit 产生噪音历史 | 按时间窗聚合：空闲 5 分钟 / App 进入后台 / 手动点同步时才提交。commit message 自动生成（`更新 3 篇笔记`） |
 | Markdown 合并冲突 | 交给 git 的行级三方合并，多数情况自动解决。真冲突时给对比 UI，**粒度是段落而非整文件** |
 | 附件撑大仓库历史 | 单文件 > 5MB 时警告；提供 git-lfs 可选开关 |
-| 移动端凭据 | PAT / SSH key 存进系统钥匙串（iOS Keychain / Android Keystore），不落盘 |
+| 移动端凭据 | 安卓：keyring 没有后端（会**静默退回内存 mock**，令牌重启就丢），落在应用私有目录的文件里（按 uid 隔离）；Android Keystore 加密等真有需求再上。iOS：Keychain（未做） |
 | 用户不会 git | 引导式配置：粘贴仓库 URL + token 即可。仓库不存在时可代为创建 |
 
 **默认 `.gitignore`**（`.verso/` 是纯派生数据，本就不该同步）：

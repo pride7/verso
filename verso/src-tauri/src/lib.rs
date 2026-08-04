@@ -902,14 +902,20 @@ pub fn run() {
         // target 依赖，安卓上根本不存在，`#[cfg(desktop)]` 必须能把整段
         // 代码连同 `use` 一起去掉。
         .setup(|app| {
+            // 令牌存储要知道应用私有数据目录（vault/secret.rs 的安卓文件
+            // 后端靠它定位；桌面走钥匙串，用不上，但 init 没有副作用）
+            {
+                use tauri::Manager;
+                if let Ok(dir) = app.path().app_data_dir() {
+                    vault::secret::init(dir);
+                }
+            }
             #[cfg(desktop)]
             {
                 let handle = app.handle();
                 handle.plugin(tauri_plugin_updater::Builder::new().build())?;
                 handle.plugin(tauri_plugin_process::init())?;
             }
-            #[cfg(not(desktop))]
-            let _ = app;
             Ok(())
         })
         .manage(AppState::default())

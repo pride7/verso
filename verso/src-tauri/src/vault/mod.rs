@@ -7,6 +7,10 @@ pub mod ops;
 pub mod schema;
 pub mod secret;
 pub mod sync;
+// 安卓的 https 传输层。桌面不编它：那边 libgit2 自带 https，而 ureq
+// 依赖也只给了安卓（桌面多一套 rustls 纯属重量）
+#[cfg(target_os = "android")]
+pub mod transport;
 pub mod tree;
 
 use std::path::{Component, Path, PathBuf};
