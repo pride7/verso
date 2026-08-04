@@ -153,6 +153,41 @@ fn callbacks(token: Option<String>) -> git2::RemoteCallbacks<'static> {
     cb
 }
 
+/// 把 libgit2 的网络/认证错误翻成人话。
+///
+/// 原文是 `request failed with status code: 403; class=Http (34)` 这个样子 ——
+/// 状态码对用户毫无线索（403 的实际原因几乎总是令牌权限，而人在这里的第一
+/// 反应是「地址填错了？」，作者本人第一次就猜错了方向）。**只翻网络和认证
+/// 这两类**，其余原样保留：变基、检出这些错误的原文里带着文件名等关键信息，
+/// 包一层反而把线索盖住。
+///
+/// 安卓的自定义传输层（transport.rs）里有一份同样口径的翻译 —— 那边的错误
+/// 不经过 libgit2 的 Http class，走不到这里。
+fn humanize(e: git2::Error) -> Error {
+    let msg = e.message().to_string();
+    let friendly = match e.class() {
+        git2::ErrorClass::Http => {
+            if msg.contains("401") || msg.contains("403") {
+                Some(
+                    "远端不接受这个令牌。检查令牌是否过期、Contents 权限是不是 \
+                     Read and write、仓库有没有勾选"
+                        .to_string(),
+                )
+            } else if msg.contains("404") {
+                Some("仓库不存在，或令牌无权看到它。检查仓库地址".to_string())
+            } else {
+                None
+            }
+        }
+        git2::ErrorClass::Net => Some(format!("连不上远端（{msg}）。检查网络，或稍后再试")),
+        _ => None,
+    };
+    match friendly {
+        Some(f) => Error::Vault(f),
+        None => e.into(),
+    }
+}
+
 /// `a..b` 之间有几个提交。报「拉下来几个 / 推上去几个」用
 fn count_between(repo: &git2::Repository, from: Option<git2::Oid>, to: git2::Oid) -> usize {
     let mut walk = match repo.revwalk() {
@@ -263,7 +298,9 @@ pub fn sync(root: &Path, token: Option<String>) -> Result<SyncOutcome> {
     // 2. 取远端
     let mut opts = git2::FetchOptions::new();
     opts.remote_callbacks(callbacks(token.clone()));
-    remote.fetch(&[&branch], Some(&mut opts), None)?;
+    remote
+        .fetch(&[&branch], Some(&mut opts), None)
+        .map_err(humanize)?;
 
     // 远端还没有这个分支（第一次推）时 FETCH_HEAD 是空的，直接跳到推送
     let fetched = repo.refname_to_id("FETCH_HEAD").ok();
@@ -304,7 +341,9 @@ pub fn sync(root: &Path, token: Option<String>) -> Result<SyncOutcome> {
         if out.pushed > 0 || fetched.is_none() {
             let mut opts = git2::PushOptions::new();
             opts.remote_callbacks(callbacks(token));
-            remote.push(&[&format!("{refname}:{refname}")], Some(&mut opts))?;
+            remote
+                .push(&[&format!("{refname}:{refname}")], Some(&mut opts))
+                .map_err(humanize)?;
         }
     }
 
@@ -337,6 +376,35 @@ mod tests {
 
     fn read(dir: &Path, name: &str) -> Option<String> {
         std::fs::read_to_string(dir.join(name)).ok()
+    }
+
+    /// 403 的实际原因几乎总是令牌权限（fine-grained 令牌的 Contents 默认
+    /// No access），而 libgit2 的原文只有状态码 —— 作者第一次撞上时猜错了
+    /// 方向。这里钉住翻译口径
+    #[test]
+    fn http_and_net_errors_speak_chinese() {
+        let e = |class, msg: &str| {
+            humanize(git2::Error::new(git2::ErrorCode::GenericError, class, msg)).to_string()
+        };
+        let auth = e(git2::ErrorClass::Http, "request failed with status code: 403");
+        assert!(auth.contains("令牌"), "{auth}");
+        assert!(auth.contains("Read and write"), "{auth}");
+        assert!(
+            e(git2::ErrorClass::Http, "unexpected http status code: 401").contains("令牌")
+        );
+        assert!(
+            e(git2::ErrorClass::Http, "request failed with status code: 404").contains("仓库地址")
+        );
+        let net = e(git2::ErrorClass::Net, "failed to resolve address for github.com");
+        assert!(net.contains("连不上远端"), "{net}");
+        assert!(net.contains("github.com"), "原文要保留，线索在里面：{net}");
+
+        // 其余类别原样放行：变基/检出的原文里带着文件名等关键信息
+        let other = e(git2::ErrorClass::Rebase, "could not apply 甲.md");
+        assert!(other.contains("could not apply 甲.md"), "{other}");
+        // HTTP 类别里认不出的状态码也不硬翻
+        let odd = e(git2::ErrorClass::Http, "request failed with status code: 502");
+        assert!(odd.contains("502"), "{odd}");
     }
 
     #[test]
