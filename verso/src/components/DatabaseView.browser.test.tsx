@@ -182,6 +182,25 @@ describe("database 视图在编辑器里", () => {
 
     expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "读完了");
   });
+
+  it("空表的设置面板不能伸出正文左边界被裁掉", async () => {
+    // 空表的顶栏只剩「表格 / 设置 / 新建」，比 320px 的设置面板窄。
+    // 面板曾经用 right:0 硬对齐，整块向左越出 CodeMirror 的内容区；
+    // scroller 会把越界部分裁掉，截图里表现为每一行都少了左半截。
+    viewMock = { ...DEFAULT_VIEW, columns: ["title"], rows: [] };
+    const view = mount();
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    const database = view.dom.querySelector<HTMLElement>(".cm-dbview")!.getBoundingClientRect();
+    const panel = view.dom.querySelector<HTMLElement>(".vset")!.getBoundingClientRect();
+    expect(panel.left, "面板越过了 database / 正文的左边界").toBeGreaterThanOrEqual(
+      database.left - 0.5,
+    );
+    expect(panel.right, "面板伸出了浏览器视口").toBeLessThanOrEqual(window.innerWidth);
+  });
 });
 
 describe("视图本身能操作（§2.6）", () => {
