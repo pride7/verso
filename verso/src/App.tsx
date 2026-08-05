@@ -2750,9 +2750,10 @@ export default function App() {
 
       {symbolOpen && (
         <SymbolPanel
-          onInsert={(latex) => {
+          customSnippets={settings.customSnippets}
+          onInsert={(replacement) => {
             setSymbolOpen(false);
-            editorRef.current?.insert(latex);
+            editorRef.current?.insertSnippet(replacement);
           }}
           onClose={() => setSymbolOpen(false)}
         />

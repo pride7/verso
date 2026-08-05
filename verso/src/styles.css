@@ -2177,8 +2177,8 @@ body.is-table-resizing * {
 }
 .sym-item {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   padding: 6px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
@@ -2187,11 +2187,24 @@ body.is-table-resizing * {
   background: var(--selected-bg);
   color: var(--selected-text);
 }
+.sym-preview {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  min-height: 22px;
+  overflow: hidden;
+  color: var(--text);
+}
+.sym-preview .katex {
+  font-size: 1em;
+}
 .sym-latex {
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--accent);
-  min-width: 12em;
+  min-width: 10em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3651,6 +3664,11 @@ textarea:focus-visible {
   font-size: 12.5px;
   line-height: 1.35;
   color: var(--text);
+}
+.outline-text .katex,
+.toc-label .katex {
+  /* KaTeX 默认放大到 1.21em；目录行高很紧，跟正文等大才不会顶到相邻条目。 */
+  font-size: 1em;
 }
 /* 圆点已经给出准确等级，文字只留很轻的一档重量差，避免六级标题像六套字号 */
 .outline-text.lv-0 {

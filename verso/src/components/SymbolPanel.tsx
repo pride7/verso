@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { DEFAULT_SNIPPETS } from "../editor/snippets/defaults";
+import { renderInline } from "../editor/inline";
+import { parseCustomSnippets } from "../editor/snippets/custom";
+import { buildSnippets } from "../editor/snippets";
+import { expand } from "../editor/snippets/match";
 import { rankNotes } from "../lib/fuzzy";
 
 interface Props {
-  /** 插入 LaTeX 片段（已去掉跳转点标记） */
-  onInsert: (latex: string) => void;
+  /** 插入原始 snippet，保留 `$0` `$1` 跳转点 */
+  onInsert: (replacement: string) => void;
   onClose: () => void;
+  /** 与编辑器使用同一份自定义配置，搜索结果才不会和实际输入能力分叉 */
+  customSnippets?: string;
 }
 
 /** 最近用过的符号存本地 —— 实测命中率极高，第一格永远是刚用过的那个 */
@@ -18,25 +23,44 @@ interface Entry {
   name: string;
   path: string;
   trigger: string;
+  /** 原始 snippet，交给编辑器展开并建立 tabstop */
+  replacement: string;
+  /** 去掉 tabstop 后供 KaTeX 预览的源码 */
   latex: string;
   description: string;
 }
 
-/** 去掉 `$0` 之类的跳转点标记，面板插入的是干净的 LaTeX */
-function clean(replacement: string): string {
-  return replacement.replace(/\$\d+/g, "").replace(/\[\[\d+\]\]/g, "");
+function entriesFor(customText: string): Entry[] {
+  const custom = parseCustomSnippets(customText).specs;
+  const byTrigger = new Map<string, Entry>();
+  for (const snippet of buildSnippets({ custom })) {
+    // 正则需要真实捕获组、build 需要匹配尺寸，面板里没有上下文可正确实例化。
+    if (!snippet.mathOnly || snippet.regex || snippet.build) continue;
+    const latex = expand(snippet.replacement).text;
+    if (!latex.trim()) continue;
+    byTrigger.set(snippet.trigger, {
+      // 名字里同时放中文描述和触发词，两种都能搜到
+      name: `${snippet.description ?? ""} ${snippet.trigger}`,
+      path: snippet.trigger,
+      trigger: snippet.trigger,
+      replacement: snippet.replacement,
+      latex,
+      description: snippet.description ?? "",
+    });
+  }
+  // 同 trigger 的自定义项排在内置项后面，因此 Map.set 会让面板显示用户那份。
+  return [...byTrigger.values()];
 }
 
-const ENTRIES: Entry[] = DEFAULT_SNIPPETS.filter((s) => s.options.includes("m") && !s.build)
-  .map((s) => ({
-    // 名字里同时放中文描述和触发词，两种都能搜到
-    name: `${s.description ?? ""} ${s.trigger}`,
-    path: s.trigger,
-    trigger: s.trigger,
-    latex: clean(s.replacement),
-    description: s.description ?? "",
-  }))
-  .filter((e) => e.latex.trim().length > 0);
+function FormulaPreview({ latex }: { latex: string }) {
+  const mount = useCallback(
+    (node: HTMLSpanElement | null) => {
+      if (node) node.replaceChildren(renderInline(`$${latex}$`));
+    },
+    [latex],
+  );
+  return <span ref={mount} className="sym-preview" aria-hidden="true" />;
+}
 
 function loadRecent(): string[] {
   try {
@@ -54,23 +78,24 @@ function loadRecent(): string[] {
  * 有用；剩下的符号需要一个能用中文搜的入口 —— 输入「积分」「叉乘」「属于」
  * 就能找到。
  */
-export function SymbolPanel({ onInsert, onClose }: Props) {
+export function SymbolPanel({ onInsert, onClose, customSnippets = "" }: Props) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [recent] = useState(loadRecent);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const entries = useMemo(() => entriesFor(customSnippets), [customSnippets]);
 
   const results = useMemo(() => {
     if (!query.trim()) {
       // 没有查询词时先给最近用过的，再补上全部
-      const byTrigger = new Map(ENTRIES.map((e) => [e.trigger, e]));
+      const byTrigger = new Map(entries.map((e) => [e.trigger, e]));
       const head = recent.map((t) => byTrigger.get(t)).filter((e): e is Entry => !!e);
       const seen = new Set(head.map((e) => e.trigger));
-      return [...head, ...ENTRIES.filter((e) => !seen.has(e.trigger))].slice(0, 60);
+      return [...head, ...entries.filter((e) => !seen.has(e.trigger))].slice(0, 60);
     }
-    return rankNotes(ENTRIES, query, 60).map((r) => r.item);
-  }, [query, recent]);
+    return rankNotes(entries, query, 60).map((r) => r.item);
+  }, [entries, query, recent]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => inputRef.current?.focus(), []);
@@ -81,7 +106,7 @@ export function SymbolPanel({ onInsert, onClose }: Props) {
   const pick = (e: Entry) => {
     const next = [e.trigger, ...recent.filter((t) => t !== e.trigger)].slice(0, RECENT_MAX);
     localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-    onInsert(e.latex);
+    onInsert(e.replacement);
   };
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
@@ -124,6 +149,7 @@ export function SymbolPanel({ onInsert, onClose }: Props) {
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={() => pick(e)}
               >
+                <FormulaPreview latex={e.latex} />
                 <code className="sym-latex">{e.latex}</code>
                 <span className="sym-desc">{e.description}</span>
                 <kbd className="sym-trigger">{e.trigger}</kbd>

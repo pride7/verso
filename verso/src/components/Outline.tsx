@@ -1,5 +1,6 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
+import { renderInline } from "../editor/inline";
 import { activeHeading, outlineDepths, type Heading } from "../lib/outline";
 import type { EditorHandle } from "./Editor";
 
@@ -27,6 +28,21 @@ interface Props {
 
 /** 标题可以是空的（正在敲的 `## ` 就是），列表里得有东西占位 */
 const EMPTY = "（无标题）";
+
+/**
+ * 大纲脱离 CodeMirror 渲染，标题里的 `$…$` 不会自动经过 live preview。
+ * 复用表格那套安全的行内渲染器：只构造 DOM，既能显示 KaTeX，也不会把标题
+ * 里的 HTML 当成可执行内容塞进页面。
+ */
+function OutlineLabel({ text, className }: { text: string; className: string }) {
+  const mount = useCallback(
+    (node: HTMLSpanElement | null) => {
+      if (node) node.replaceChildren(renderInline(text));
+    },
+    [text],
+  );
+  return <span ref={mount} className={className} />;
+}
 
 /**
  * 「视线落在哪一节」。
@@ -99,7 +115,7 @@ export function OutlineView({ headings, activeIndex, onPick }: Props) {
               {/* 数字圆点比写完整的 H1/H2 少占一半宽度；title 与 aria-label
                   仍明确说出它是标题等级，不会被误解成章节编号。 */}
               <span className="outline-level" aria-hidden="true">{h.level}</span>
-              <span className={`outline-text lv-${depths[i]}`}>{text}</span>
+              <OutlineLabel text={text} className={`outline-text lv-${depths[i]}`} />
             </button>
           </li>
         );
@@ -131,7 +147,7 @@ export function OutlineFloat({ headings, activeIndex, onPick }: Props) {
               onClick={() => onPick(h)}
               title={h.text || EMPTY}
             >
-              <span className="toc-label">{h.text || EMPTY}</span>
+              <OutlineLabel text={h.text || EMPTY} className="toc-label" />
               <span className="toc-dash" />
             </button>
           </li>

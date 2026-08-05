@@ -162,6 +162,29 @@ describe("侧栏大纲", () => {
     await userEvent.click(rows[3]);
     expect(picked).toEqual([headings[3].line]);
   });
+
+  it("标题里的行内公式渲染成 KaTeX，错误公式也不会弄丢目录项", async () => {
+    const formulas = parseHeadings([
+      "# 项目总览",
+      "## $\\widehat p_{k,m}$",
+      "## $\\operatorname{TV}_k$",
+      "## $\\Udots$",
+    ].join("\n"));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    root.render(<OutlineView headings={formulas} activeIndex={0} onPick={() => {}} />);
+    await settle();
+
+    const labels = host.querySelectorAll<HTMLElement>(".outline-text");
+    expect(labels).toHaveLength(4);
+    expect(host.querySelectorAll(".outline-text .katex")).toHaveLength(3);
+    expect(labels[1].querySelector(".katex-html")!.textContent).not.toContain("\\widehat");
+    expect(labels[2].querySelector(".katex-html")!.textContent).not.toContain("\\operatorname");
+    // throwOnError:false 会由 KaTeX 用错误色保留原命令，目录项不能因此消失
+    expect(labels[3].querySelector(".katex-html")!.textContent).toContain("\\Udots");
+  });
 });
 
 describe("浮动目录", () => {
@@ -237,5 +260,18 @@ describe("浮动目录", () => {
     // 忘了在列表上开回来的话这一下就点不中
     await userEvent.click(host.querySelectorAll(".toc-item")[2]);
     expect(picked).toEqual([HEADINGS[2].line]);
+  });
+
+  it("展开后同样渲染标题里的公式", async () => {
+    const headings = parseHeadings("# 总览\n## $E = mc^2$");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    root.render(<OutlineFloat headings={headings} activeIndex={0} onPick={() => {}} />);
+    await settle();
+
+    expect(host.querySelectorAll(".toc-label .katex")).toHaveLength(1);
+    expect(host.querySelectorAll<HTMLElement>(".toc-label")[1].textContent).not.toContain("$E");
   });
 });
