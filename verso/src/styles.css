@@ -433,6 +433,37 @@ button {
     "status status";
 }
 
+/* 终端靠右竖排（§7.3）：多一条轨道，终端从标签栏那一行直接通到底 ——
+   换这个布局图的就是竖向空间，不该再在它上面横一条标签栏。
+   宽度由 App 给的 --term-w 定；这里的 460px 只是它还没算出来时的兜底。
+   窄屏不需要对应的规则：那时 App 会强制回吸底（`termDockEffective`）。 */
+.app.term-right {
+  /* 正文列给一个 320px 的下限、终端列写成 `minmax(0, 宽度)`：窗口窄到装不下
+     两栏时，先让终端往回缩，而不是把正文压成一条缝。换成定宽的终端列的话，
+     在 700px 宽的窗口上正文会直接变成 0 —— 而窗口是随时会被拖窄的，
+     这件事不能只在拖把手那里拦 */
+  grid-template-columns:
+    44px var(--sidebar-w, 252px) minmax(320px, 1fr)
+    minmax(0, var(--term-w, 460px));
+  /* 原本第三行是终端那一行，现在终端搬去右边了 —— 这一行必须**显式压成 0**
+     而不是留 `auto`：终端跨这三行，auto 轨道会去分它的 min-content，
+     于是编辑区底下会莫名其妙多出一条空白 */
+  grid-template-rows: auto minmax(0, 1fr) 0 auto;
+  grid-template-areas:
+    "rail sidebar tabs term"
+    "rail sidebar main term"
+    "rail sidebar .    term"
+    "status status status status";
+}
+.app.term-right.sidebar-collapsed {
+  grid-template-columns: 44px minmax(320px, 1fr) minmax(0, var(--term-w, 460px));
+  grid-template-areas:
+    "rail tabs term"
+    "rail main term"
+    "rail .    term"
+    "status status status";
+}
+
 /* ---------- 标签栏 ---------- */
 
 .tabbar {
@@ -2504,6 +2535,14 @@ body.is-table-resizing * {
   position: relative;
 }
 
+/* 靠右竖排（§7.3）是从顶到底的结构分栏，不再把左边两角单独圆起来：
+   右边两角因贴窗口必须是方角，只圆左边会显得面板向一侧鼓出。 */
+.term.dock-right {
+  border-top: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+}
+
 /* 拖拽把手做得比视觉上的分隔线厚，否则很难对准 */
 .term-resizer {
   position: absolute;
@@ -2513,6 +2552,15 @@ body.is-table-resizing * {
   height: 7px;
   cursor: ns-resize;
   z-index: 5;
+}
+.term.dock-right .term-resizer {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: auto;
+  width: 7px;
+  height: auto;
+  cursor: ew-resize;
 }
 .term-resizer:hover {
   background: color-mix(in oklch, var(--accent) 30%, transparent);
@@ -2530,13 +2578,18 @@ body.is-table-resizing * {
 .term-title {
   letter-spacing: 0.02em;
 }
-.term-close {
+.term-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.term-btn {
   color: var(--muted);
   padding: 2px 6px;
   border-radius: var(--r-xs);
   line-height: 1;
 }
-.term-close:hover {
+.term-btn:hover {
   background: var(--hover-bg);
   color: var(--text);
 }

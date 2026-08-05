@@ -5,13 +5,20 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, onPtyData, onPtyExit } from "../api";
 import { keyLabel } from "../lib/platform";
+import { attachTerminal, sanitizeForPaste } from "../lib/termBus";
 import { Icon } from "./Icon";
 import "@xterm/xterm/css/xterm.css";
 
+/** 吸底还是靠右（§7.3）。靠右是给 AI CLI 那条会话流用的 */
+export type TermDock = "bottom" | "right";
+
 interface Props {
-  /** 面板高度（像素），由 App 管理以便持久化 */
-  height: number;
-  onHeightChange: (h: number) => void;
+  dock: TermDock;
+  /** 吸底时是高度、靠右时是宽度（像素）。两个方向各记各的，由 App 持久化 */
+  size: number;
+  onSizeChange: (px: number) => void;
+  /** 不给就不显示那个切换按钮 —— 窄屏没有「靠右」这个选项（§7.3） */
+  onDockToggle?: () => void;
   onClose: () => void;
   /** 设置里的终端字号 */
   fontSize: number;
@@ -104,7 +111,16 @@ function styleFromCss(dark: boolean) {
  * §7.1：vault 是纯 .md，任何 AI CLI 都能直接在上面工作。这个面板就是那条路
  * 的入口 —— 不用切窗口，一边让 AI 改笔记，一边在编辑器里看结果。
  */
-export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark, theme }: Props) {
+export function TerminalPanel({
+  dock,
+  size,
+  onSizeChange,
+  onDockToggle,
+  onClose,
+  fontSize,
+  dark,
+  theme,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const idRef = useRef<string | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -200,6 +216,21 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark,
           term.write("\r\n\x1b[2m[进程已结束]\x1b[0m\r\n");
         });
 
+        /**
+         * 接上「把笔记发给终端」那条通道（§7.6）。
+         *
+         * 用 `term.paste()` 而不是 `write()` / `ptyWrite()` —— 走的是用户自己
+         * 按 Ctrl+V 的同一条路。但**送什么由 `sanitizeForPaste` 说了算**：
+         * 换行不管走哪条路最后都会变成 `\r`，而 `\r` 在 shell 里是执行、在
+         * AI CLI 的输入框里是发送。那条不变量的来龙去脉写在 `termBus.ts` 里。
+         *
+         * 送完抢焦点：送过去的是上下文不是指令，用户接着要在这儿把话打完。
+         */
+        attachTerminal((text) => {
+          term.paste(sanitizeForPaste(text));
+          term.focus();
+        });
+
         term.focus();
       } catch (e) {
         setError((e as Error).message);
@@ -229,6 +260,7 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark,
     return () => {
       disposed = true;
       ro.disconnect();
+      attachTerminal(null);
       unlistenData?.();
       unlistenExit?.();
       // 关闭面板时**杀掉**进程。设计文档原本写「关闭面板不杀进程」，但那样会
@@ -263,14 +295,20 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark,
     }
   }, [fontSize, dark, theme]);
 
-  // 拖拽调整高度
+  /**
+   * 拖拽改尺寸。吸底时拖的是高、靠右时拖的是宽 —— 两个方向的把手都在
+   * 面板**朝着编辑区**的那条边上，所以位移的符号一样（都是往回缩为负）。
+   */
   const startDrag = (e: React.MouseEvent) => {
     e.preventDefault();
-    const startY = e.clientY;
-    const startH = height;
+    const vertical = dock === "bottom";
+    const start = vertical ? e.clientY : e.clientX;
+    const startSize = size;
     const onMove = (ev: MouseEvent) => {
-      const next = Math.min(Math.max(startH + (startY - ev.clientY), 120), window.innerHeight - 200);
-      onHeightChange(next);
+      const delta = start - (vertical ? ev.clientY : ev.clientX);
+      // 上限留出编辑区的活路：拖到只剩一条缝的正文，人是回不来的
+      const max = vertical ? window.innerHeight - 200 : window.innerWidth - 420;
+      onSizeChange(Math.min(Math.max(startSize + delta, vertical ? 120 : 260), Math.max(max, 260)));
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
@@ -280,14 +318,34 @@ export function TerminalPanel({ height, onHeightChange, onClose, fontSize, dark,
     window.addEventListener("mouseup", onUp);
   };
 
+  // 吸底时高度由下面的内联样式定（网格那一行是 auto，跟着内容走）；靠右时宽度
+  // 由 App 的 `--term-w` 定 —— 那是一条网格轨道，得由网格自己知道多宽，元素再
+  // 写一份 width 只会多一处会对不上的真相
   return (
-    <div className="term" style={{ height }}>
+    <div className={`term dock-${dock}`} style={dock === "bottom" ? { height: size } : undefined}>
       <div className="term-resizer" onMouseDown={startDrag} />
       <header className="term-head">
         <span className="term-title">终端{dead && " · 已结束"}</span>
-        <button className="term-close" onClick={onClose} title={`关闭终端 (${keyLabel("Mod+`")})`} aria-label="关闭终端">
-          <Icon name="close" size={13} />
-        </button>
+        <span className="term-actions">
+          {onDockToggle && (
+            <button
+              className="term-btn"
+              onClick={onDockToggle}
+              title={dock === "bottom" ? "把终端靠右竖排" : "把终端放回底部"}
+              aria-label={dock === "bottom" ? "把终端靠右竖排" : "把终端放回底部"}
+            >
+              <Icon name={dock === "bottom" ? "dock-right" : "dock-bottom"} size={13} />
+            </button>
+          )}
+          <button
+            className="term-btn"
+            onClick={onClose}
+            title={`关闭终端 (${keyLabel("Mod+`")})`}
+            aria-label="关闭终端"
+          >
+            <Icon name="close" size={13} />
+          </button>
+        </span>
       </header>
       {error ? <div className="term-error">{error}</div> : <div className="term-host" ref={hostRef} />}
     </div>

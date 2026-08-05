@@ -19,7 +19,7 @@ import { MoveTargetPicker } from "./components/MoveTargetPicker";
 import { SettingsPanel, type Tab as SettingsTab } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TagsView } from "./components/TagsView";
-import { TerminalPanel } from "./components/TerminalPanel";
+import { TerminalPanel, type TermDock } from "./components/TerminalPanel";
 import { Tree } from "./components/Tree";
 import { TabBar } from "./components/TabBar";
 import { TemplatePicker } from "./components/TemplatePicker";
@@ -33,6 +33,7 @@ import { setSlashAction } from "./editor/completion";
 import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { journalInsert } from "./lib/journal";
+import { sendToTerminal } from "./lib/termBus";
 import { normalizeIcon, pushRecentIcon } from "./lib/emoji";
 import { useUpdate } from "./lib/update";
 import { IconPicker } from "./components/IconPicker";
@@ -278,6 +279,44 @@ export default function App() {
     const saved = Number(localStorage.getItem("verso.termHeight"));
     return Number.isFinite(saved) && saved >= 120 ? saved : 280;
   });
+  /**
+   * 终端吸底还是靠右（§7.3）。跑 AI CLI 时那条会话流吃的是竖向空间，
+   * 靠右分栏才看得下去。
+   */
+  const [termDock, setTermDock] = useState<TermDock>(() =>
+    localStorage.getItem("verso.termDock") === "right" ? "right" : "bottom",
+  );
+  /**
+   * 靠右时的宽度。**和高度分开存** —— 「面板高 280」和「分栏宽 280」之间
+   * 没有可比性，共用一个数的话每切一次停靠都要重调一遍。
+   */
+  const [termWidth, setTermWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("verso.termWidth"));
+    return Number.isFinite(saved) && saved >= 260 ? saved : 460;
+  });
+  /**
+   * 实际用哪个方向。窄屏强制吸底 —— 左右分栏在窄窗口上等于把正文压成一条缝；
+   * 但**存下来的偏好不动**，窗口拉宽回来靠右还在（§7.3）。
+   */
+  const termDockEffective: TermDock = narrow ? "bottom" : termDock;
+  const toggleTermDock = useCallback(() => {
+    setTermDock((v) => {
+      const next = v === "bottom" ? "right" : "bottom";
+      localStorage.setItem("verso.termDock", next);
+      return next;
+    });
+  }, []);
+  /**
+   * §7.6 把上下文送进终端。终端没开就先开 —— PTY 起来要几十毫秒，这段窗口里
+   * `termBus` 会替我们把文本排着队，就绪时补发，所以这里不用等。
+   */
+  const sendToTerm = useCallback(
+    (text: string) => {
+      setTermOpen(true);
+      sendToTerminal(text);
+    },
+    [setTermOpen],
+  );
 
   /** 浮动大纲开不开。和终端面板一样跨会话保留 —— 嫌它挡事的人不想每次启动再关一遍 */
   const [tocFloat, setTocFloat] = useState(() => localStorage.getItem("verso.tocFloat") !== "0");
@@ -1695,9 +1734,14 @@ export default function App() {
       if (!hit || hit.enabled === false) return;
       // **终端里键盘归 shell**。Ctrl+N/P/E/B 在 readline、vim、tmux 里全都
       // 有各自的意思，被界面截走的话终端就成了半个终端 —— 而在终端里跑
-      // AI CLI 正是这个软件的主路径（§7.3）。只留两条出路：关掉终端、
-      // 和命令面板
-      if (target?.closest?.(".term") && hit.id !== "term.toggle" && hit.id !== "view.palette") {
+      // AI CLI 正是这个软件的主路径（§7.3）。
+      //
+      // 例外是**对象就是终端面板自己**的那些命令（`term.*`）加上命令面板。
+      // 「把笔记发给终端」尤其不能挡：送完一次焦点就落在终端里（§7.6），
+      // 挡掉的话想再送第二篇就得先点回正文 —— 把刚省下的那一步又加了回来。
+      // 这几个键位也不在 shell 的键位空间里（readline/vim/tmux 都没占
+      // Ctrl+Alt+K 这一档），放行不会让终端缺掉半个。
+      if (target?.closest?.(".term") && !hit.id.startsWith("term.") && hit.id !== "view.palette") {
         return;
       }
       // 挂在 capture 阶段、并且掐断传播：CodeMirror 自己也绑了 Mod-s 和
@@ -2143,6 +2187,45 @@ export default function App() {
               run: () => setTermOpen((v) => !v),
             },
             {
+              id: "term.dock",
+              group: "终端",
+              name: "终端停靠位置",
+              label: termDock === "bottom" ? "终端：靠右竖排" : "终端：放回底部",
+              // 窄屏强制吸底（§7.3），摆一条按了不动的命令比没有更糟
+              enabled: !narrow,
+              run: toggleTermDock,
+            },
+            {
+              id: "term.sendNote",
+              group: "终端",
+              label: "把当前笔记发给终端",
+              // Claude Code 的 VS Code 插件用 Cmd+Alt+K 插入文件引用，
+              // 这里对齐它（§7.6）
+              defaultKeys: "Mod+Alt+K",
+              enabled: hasNote,
+              run: () => {
+                if (cur) sendToTerm(`${settings.terminalMention}${cur} `);
+              },
+            },
+            {
+              id: "term.sendSelection",
+              group: "终端",
+              label: "把选中内容发给终端",
+              defaultKeys: "Mod+Alt+Shift+K",
+              enabled: hasNote,
+              run: () => {
+                const sel = editorRef.current?.selectedText() ?? "";
+                // 和表格那几条一个处理：做不成要说一声，静默失败会让人以为软件坏了
+                if (!sel.trim()) {
+                  setNotice("没有选中内容");
+                  return;
+                }
+                // 末尾**不加换行**：括号粘贴模式没开的对面（普通 shell）会把
+                // 它当成回车，等于替用户按了执行 —— 越过 §7.5 那条边界
+                if (cur) sendToTerm(`${settings.terminalMention}${cur}\n${sel}`);
+              },
+            },
+            {
               id: "term.system",
               group: "终端",
               label: "在系统终端中打开",
@@ -2249,7 +2332,13 @@ export default function App() {
     reloadFromDisk,
     openVault,
     mobile,
+    narrow,
     setTermOpen,
+    // label 在「靠右竖排 / 放回底部」之间换，和 mindmapOpen 同理
+    termDock,
+    toggleTermDock,
+    sendToTerm,
+    settings.terminalMention,
     updateSettings,
   ]);
 
@@ -2337,8 +2426,12 @@ export default function App() {
 
   return (
     <div
-      className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}`}
-      style={{ "--sidebar-w": `${sidebarWidth}px` } as React.CSSProperties}
+      className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}${
+        termOpen && !mobile && termDockEffective === "right" ? " term-right" : ""
+      }`}
+      style={
+        { "--sidebar-w": `${sidebarWidth}px`, "--term-w": `${termWidth}px` } as React.CSSProperties
+      }
     >
       <ActivityBar
         view={sidebarView}
@@ -2650,11 +2743,19 @@ export default function App() {
       {termOpen && !mobile && (
         <TerminalPanel
           key={vault.root}
-          height={termHeight}
-          onHeightChange={(h) => {
-            setTermHeight(h);
-            localStorage.setItem("verso.termHeight", String(h));
+          dock={termDockEffective}
+          size={termDockEffective === "bottom" ? termHeight : termWidth}
+          onSizeChange={(px) => {
+            if (termDockEffective === "bottom") {
+              setTermHeight(px);
+              localStorage.setItem("verso.termHeight", String(px));
+            } else {
+              setTermWidth(px);
+              localStorage.setItem("verso.termWidth", String(px));
+            }
           }}
+          // 窄屏没有「靠右」这个选项，那个按钮就不该在（§7.3）
+          onDockToggle={narrow ? undefined : toggleTermDock}
           onClose={() => setTermOpen(false)}
           fontSize={settings.terminalFontSize}
           dark={effectiveTheme === "dark"}

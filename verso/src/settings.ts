@@ -29,6 +29,14 @@ export interface Settings {
   terminalFontSize: number;
   /** 留空则跟随 monoFont */
   terminalFont: string;
+  /**
+   * 「把笔记发给终端」时加在相对路径前面的前缀（§7.6）。
+   *
+   * 默认 `@` —— Claude Code 和 Codex 都用它引文件。但 §7.1 说了不绑定任何
+   * 工具，所以它是个可改的字符串而不是硬编码：用别的 CLI 的人清空它就得到
+   * 裸路径。
+   */
+  terminalMention: string;
   /** 文档树排序方式 */
   treeSort: TreeSort;
   /**
@@ -120,6 +128,7 @@ export const DEFAULT_SETTINGS: Settings = {
   monoFont: "",
   terminalFontSize: 13.5,
   terminalFont: "",
+  terminalMention: "@",
   treeSort: "name",
   templateDir: "templates",
   journalKeep: 3,
@@ -250,6 +259,10 @@ export function sanitize(s: Settings): Settings {
     contentWidth: num(s.contentWidth, 24, 80, DEFAULT_SETTINGS.contentWidth),
     uiFontSize: num(s.uiFontSize, 11, 20, DEFAULT_SETTINGS.uiFontSize),
     terminalFontSize: num(s.terminalFontSize, 9, 24, DEFAULT_SETTINGS.terminalFontSize),
+    // 空串是有意义的取值（不要前缀），所以只在**不是字符串**时才回落到默认。
+    // 用 `|| DEFAULT` 的话，清空前缀会在下次启动时又变回 `@`
+    terminalMention:
+      typeof s.terminalMention === "string" ? s.terminalMention : DEFAULT_SETTINGS.terminalMention,
   };
 }
 

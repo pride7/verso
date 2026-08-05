@@ -861,6 +861,14 @@ export function SettingsPanel({
                 placeholder="跟随等宽字体"
                 onChange={(v) => onChange({ terminalFont: v })}
               />
+              {/* §7.6：不绑定任何 AI 工具，所以引用前缀是可改的而不是写死的 */}
+              <TextRow
+                label="引用前缀"
+                hint="把笔记发给终端时加在路径前面。Claude Code、Codex 用 @；用别的工具可以清空，得到的就是裸路径。"
+                value={settings.terminalMention}
+                placeholder="不加前缀"
+                onChange={(v) => onChange({ terminalMention: v })}
+              />
               <p className="set-note">
                 较小的字号可在终端中显示更多上下文。
               </p>
