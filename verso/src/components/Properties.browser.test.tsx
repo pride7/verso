@@ -4,10 +4,13 @@
  */
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
+
+const { propSet } = vi.hoisted(() => ({ propSet: vi.fn(async () => {}) }));
 
 vi.mock("../api", () => ({
   api: {
-    propSet: async () => {},
+    propSet,
     propRename: async () => {},
   },
 }));
@@ -20,6 +23,7 @@ afterEach(() => {
   root?.unmount();
   root = null;
   document.body.innerHTML = "";
+  propSet.mockClear();
 });
 
 function render(frontmatter: Record<string, unknown> = { id: "01X", status: "已读", tags: ["深度学习"], 难度: 4 }) {
@@ -80,13 +84,29 @@ describe("属性条", () => {
     expect(box.height).toBeGreaterThan(16);
   });
 
-  it("一个属性都没有时折叠态不占位置", async () => {
+  it("空白笔记也能直接创建第一条属性", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
     root.render(<Properties frontmatter={{ id: "01X" }} path="a.md" onChanged={() => {}} />);
     await tick();
-    expect(document.querySelector(".props")).toBeNull();
+
+    // 没属性时只占一行淡入口，不摆空的属性表和折叠箭头。
+    const add = document.querySelector<HTMLElement>(".props-empty-new")!;
+    expect(add.textContent).toContain("添加属性");
+    expect(document.querySelector(".props-toggle")).toBeNull();
+    expect(document.querySelector(".props-list")).toBeNull();
+
+    await userEvent.click(add);
+    await tick();
+    const input = document.querySelector<HTMLInputElement>(".props-row dt input")!;
+    expect(input.placeholder).toContain("属性名");
+    expect(document.activeElement).toBe(input);
+
+    await userEvent.fill(input, "status");
+    await userEvent.keyboard("{Enter}");
+    await tick();
+    expect(propSet).toHaveBeenCalledWith("a.md", "status", "");
   });
 });
 

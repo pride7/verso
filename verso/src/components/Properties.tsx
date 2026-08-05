@@ -110,8 +110,27 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
     }
   };
 
-  // 一个属性都没有时，折叠态没什么可显示的；展开态仍要留着「新增」那一行
-  if (entries.length === 0 && !open) return null;
+  // 空白笔记也必须有创建**第一条**属性的入口。以前这里直接 return null，
+  // 结果是已有 frontmatter 的人能继续加，真正从零开始的人反而无路可走，
+  // 只能先去模板 / database 绕一圈。入口保持一行淡文字，别让空笔记永远
+  // 顶着一张空表单。
+  if (entries.length === 0 && !open) {
+    return (
+      <div className="props is-empty">
+        <button
+          className="props-new props-empty-new"
+          onClick={() => {
+            setOpen(true);
+            setNewKey("");
+            setError(null);
+          }}
+        >
+          <Icon name="plus" size={12} />
+          添加属性
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={`props${open ? " is-open" : ""}`}>
@@ -232,9 +251,15 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
                     } else if (e.key === "Escape") {
                       e.preventDefault();
                       setNewKey(null);
+                      if (entries.length === 0) setOpen(false);
                     }
                   }}
-                  onBlur={() => !newKey.trim() && setNewKey(null)}
+                  onBlur={() => {
+                    if (!newKey.trim()) {
+                      setNewKey(null);
+                      if (entries.length === 0) setOpen(false);
+                    }
+                  }}
                   spellCheck={false}
                 />
               </dt>

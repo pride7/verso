@@ -1720,6 +1720,16 @@ body.is-table-resizing * {
   background: var(--hover-bg);
 }
 
+/* 没有 frontmatter 时「添加属性」直接长在属性条根上，不经过有 20px 缩进的
+   `.props-list`。单独把外边距归零，让它和上面的面包屑、下面的正文对齐。 */
+.props.is-empty {
+  margin-bottom: 8px;
+}
+.props-empty-new {
+  margin: 0;
+  padding-inline: 2px 7px;
+}
+
 .props-error {
   margin: 6px 0 0 -7px;
   color: var(--danger);
