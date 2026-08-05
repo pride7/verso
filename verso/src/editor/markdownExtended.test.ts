@@ -42,6 +42,30 @@ describe("公式", () => {
     expect(texts("$$E = mc^2$$", "BlockMath")).toEqual(["$$E = mc^2$$"]);
   });
 
+  it("紧跟正文的块公式会打断段落，不被独立等号误判成 Setext 标题", () => {
+    const src = [
+      "正文",
+      "$$",
+      "a=1",
+      "$$",
+      "下一段",
+      "$$",
+      "b",
+      "=",
+      "c",
+      "$$",
+      "结尾",
+    ].join("\n");
+    expect(texts(src, "BlockMath")).toHaveLength(2);
+    expect(texts(src, "SetextHeading1")).toEqual([]);
+  });
+
+  it("引用块里的结束符能闭合公式，不吞掉后文", () => {
+    const src = "> 正文\n> $$\n> a=1\n> $$\n\n下文";
+    expect(texts(src, "BlockMath")).toEqual(["$$\n> a=1\n> $$"]);
+    expect(texts(src, "Paragraph")).toContain("下文");
+  });
+
   /**
    * 这条是行内公式最容易出的假阳性。没有这个启发式，「$5 到 $20」中间那段
    * 普通文字会被整段当成公式渲染掉。

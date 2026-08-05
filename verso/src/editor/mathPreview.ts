@@ -12,6 +12,7 @@ import { showTooltip, type Tooltip } from "@codemirror/view";
 import katex from "katex";
 
 import { mathContextAt } from "./mathContext";
+import { mathSource } from "./mathSource";
 import { parseAdvanced } from "./parseRefresh";
 
 function tooltipFor(state: EditorState): Tooltip | null {
@@ -22,12 +23,7 @@ function tooltipFor(state: EditorState): Tooltip | null {
   // 块级公式没有这个问题 —— 没闭合的 `$$` 解析器也会建出 BlockMath。
   if (!ctx || ctx.open) return null;
 
-  const delim = ctx.kind === "block" ? "$$" : "$";
-  let src = state.doc.sliceString(ctx.from, ctx.to);
-  if (src.startsWith(delim)) src = src.slice(delim.length);
-  // 未闭合的块级公式收尾到文末，末端可能没有 `$$`，所以要判断一下
-  if (src.endsWith(delim)) src = src.slice(0, -delim.length);
-  src = src.trim();
+  const src = mathSource(state, ctx.from, ctx.to, ctx.kind === "block");
   if (!src) return null;
 
   const display = ctx.kind === "block";

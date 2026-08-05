@@ -40,6 +40,7 @@ import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
 import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
 import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
+import { mathSource } from "./mathSource";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
 const hideMark = Decoration.replace({});
@@ -64,12 +65,6 @@ function touched(state: EditorState, from: number, to: number) {
     if (r.from <= to && r.to >= from) return true;
   }
   return false;
-}
-
-function mathSource(state: EditorState, from: number, to: number, display: boolean) {
-  const raw = state.doc.sliceString(from, to);
-  const delim = display ? 2 : 1;
-  return raw.slice(delim, raw.length - delim).trim();
 }
 
 /** 取语法子节点的文本。`![[图.png|300]]` 的目标和别名都靠它拿 */

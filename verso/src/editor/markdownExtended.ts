@@ -144,6 +144,12 @@ const inlineMath: InlineParser = {
 /** 独占若干行的 `$$ … $$`。行内那种由 inlineMath 处理。 */
 const blockMath: BlockParser = {
   name: "VersoBlockMath",
+  // `$$` 是明确的块起点，必须能直接打断上一段正文。否则公式里的独立 `=`
+  // 会抢先命中 Setext 标题，把正文和整块公式一起吞成一级标题。
+  endLeaf(_cx, line) {
+    return line.text.slice(line.pos).startsWith("$$");
+  },
+  before: "SetextHeading",
   parse(cx: BlockContext, line: Line) {
     const text = line.text.slice(line.pos);
     if (!text.startsWith("$$")) return false;
@@ -161,7 +167,8 @@ const blockMath: BlockParser = {
 
     // 跨行：扫到只有 `$$` 的那一行
     while (cx.nextLine()) {
-      if (/^\s*\$\$\s*$/.test(line.text)) {
+      // 引用块和列表会把自己的标记留在 line.pos 之前，只看正文部分。
+      if (/^\$\$\s*$/.test(line.text.slice(line.pos))) {
         const to = cx.lineStart + line.text.length;
         cx.addElement(cx.elt("BlockMath", from, to));
         cx.nextLine();
