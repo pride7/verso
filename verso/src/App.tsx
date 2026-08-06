@@ -2867,9 +2867,14 @@ export default function App() {
           卸载了就没有编辑器可 dispatch，撤销历史也一并没了（§4.7） */}
       {note && mindmapOpen && !diffSelection && (
         <MindMap
+          key={note.path}
+          storageKey={note.path}
           title={note.title}
           body={body}
+          touch={mobile}
           onEdit={(e) => editorRef.current?.replaceLines(e.fromLine, e.toLine, e.insert)}
+          onUndo={() => editorRef.current?.undo()}
+          onRedo={() => editorRef.current?.redo()}
           onGoto={(line) => {
             setMindmapOpen(false);
             // 等这一轮渲染把导图撤掉、编辑器重新可见，再跳
@@ -2959,7 +2964,7 @@ export default function App() {
           本来就可以重叠），于是侧栏收起、终端打开时它自己会跟着挪，
           不需要任何 JS 参与布局。
           只有一条标题时不显示 —— 那不叫目录，只是一块挡视线的东西 */}
-      {note && !diffSelection && tocFloat && headings.length >= 2 && (
+      {note && !diffSelection && !mindmapOpen && tocFloat && headings.length >= 2 && (
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 

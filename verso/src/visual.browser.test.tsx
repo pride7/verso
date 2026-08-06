@@ -109,6 +109,7 @@ fn main() {
 
 - [ ] 补齐数值稳定性那一节
 - [x] 整理参考文献
+- [ ] 把 Golub–Kahan 双对角化那一段重写一遍：先说清楚为什么直接求逆会放大误差，再给数值例子
 `;
 
 const NOTE: NoteContent = {
@@ -495,6 +496,30 @@ describe("视觉工作台", () => {
     await settle(700);
     document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
     await shot("15-light-mindmap");
+    alive();
+  });
+
+  it("浅色 · 思维导图的节点菜单", async () => {
+    // 触摸屏上这是唯一能拿到全部动作的入口（没有悬停、没有右键），
+    // 所以它长什么样、盖住了什么，值得单独看一眼
+    render();
+    await settle(700);
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
+    await settle(300);
+    const target = [...document.querySelectorAll<HTMLElement>(".mm-node")].find(
+      (n) => n.querySelector(".mm-text")?.textContent === "待办",
+    );
+    // 桌面上开菜单只有右键这一条路（节点上那个 ⋯ 只在没有右键的设备上出现）
+    const box = target!.getBoundingClientRect();
+    target!.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.left + 40,
+        clientY: box.bottom - 6,
+      }),
+    );
+    await shot("17-light-mindmap-menu");
     alive();
   });
 

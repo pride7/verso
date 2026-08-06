@@ -1,5 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { redo, undo } from "@codemirror/commands";
 import { useEffect, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
@@ -70,6 +71,9 @@ export interface EditorHandle {
    * 这么一步 —— 在图上敲错一个字，撤销回去正文就面目全非了
    */
   replaceLines: (fromLine: number, toLine: number, insert: string) => void;
+  /** 思维导图仍共用正文编辑器的撤销栈，不另造一份历史。 */
+  undo: () => boolean;
+  redo: () => boolean;
   /** 跳到第 `line` 行（1 起）并把它顶到可视区上沿。大纲点击用 */
   gotoLine: (line: number) => void;
   /** 折叠／展开光标所在的小节 */
@@ -386,6 +390,14 @@ ${insert}` },
             userEvent: "input.mindmap",
           });
         }
+      },
+      undo: () => {
+        const view = viewRef.current;
+        return view ? undo(view) : false;
+      },
+      redo: () => {
+        const view = viewRef.current;
+        return view ? redo(view) : false;
       },
       gotoLine: (line: number) => {
         const view = viewRef.current;

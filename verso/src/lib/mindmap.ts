@@ -170,6 +170,25 @@ function fixEnds(node: MindNode, docLines: number): number {
   return end;
 }
 
+/**
+ * 图上画出来的那棵树的根。
+ *
+ * **一篇笔记通常有两个标题**：文件名，和正文里的那个一级标题。它们说的是同一
+ * 件事，画成两级就成了「recount → Errors Are Evidence → 真正的内容」——
+ * 白占一列，还让人以为那是一层结构。
+ *
+ * 所以：**正文里只有一个顶层标题、且它就是全部内容时，它才是根**，笔记名退回
+ * 到顶栏（那里本来就一直显示着，什么都没丢）。多一个顶层标题、或者标题前面还
+ * 有散落的列表项时不能这么收 —— 那时笔记名是唯一能把它们兜住的东西。
+ *
+ * 注意返回的是**正文里的一行**，不是合成的根：它能改字、能删、能加同级，
+ * 而合成的根不能（改名走文档树）。
+ */
+export function displayRoot(root: MindNode): MindNode {
+  const only = root.children.length === 1 ? root.children[0] : null;
+  return only && only.kind === "heading" ? only : root;
+}
+
 /** 深度优先展平，方便查找和键盘上下移动 */
 export function flatten(node: MindNode, out: MindNode[] = []): MindNode[] {
   out.push(node);
@@ -188,6 +207,45 @@ export function parentOf(root: MindNode, line: number): MindNode | null {
   return null;
 }
 
+/**
+ * 给节点一个不依赖行号的临时身份。
+ *
+ * 行号会在上方插入一行之后整体漂移，拿它记折叠状态会把另一支误折起来。这里用
+ * 「祖先路径 + 节点语义 + 同名序号」作为当前文档内的身份：插删别处不受影响；
+ * 节点自己改名或换父级时丢掉折叠状态反而是安全的，不会误套到别的节点上。
+ */
+export function nodeKeyMap(root: MindNode): Map<number, string> {
+  const out = new Map<number, string>([[root.line, "root"]]);
+  const walk = (node: MindNode, base: string) => {
+    const seen = new Map<string, number>();
+    for (const child of node.children) {
+      const signature = JSON.stringify([child.kind, child.prefix, child.text]);
+      const occurrence = (seen.get(signature) ?? 0) + 1;
+      seen.set(signature, occurrence);
+      const key = `${base}/${signature}#${occurrence}`;
+      out.set(child.line, key);
+      walk(child, key);
+    }
+  };
+  walk(root, "root");
+  return out;
+}
+
+/** 根到目标的行号路径（含两端）。选中节点的连线高亮和搜索上下文共用。 */
+export function ancestorLines(root: MindNode, line: number): number[] {
+  const path: number[] = [];
+  const visit = (node: MindNode): boolean => {
+    path.push(node.line);
+    if (node.line === line) return true;
+    for (const child of node.children) {
+      if (visit(child)) return true;
+    }
+    path.pop();
+    return false;
+  };
+  return visit(root) ? path : [];
+}
+
 // ---------------------------------------------------------------- 改文本
 //
 // 每个操作都算出一个**按行的替换**交给编辑器执行，而不是自己拼出一整篇新
@@ -201,6 +259,8 @@ export interface Edit {
   /** 替换成什么。空串 = 删掉这几行 */
   insert: string;
 }
+
+export type MovePosition = "before" | "after" | "child";
 
 /** 改一个节点的文字。前缀（`## `、`- [x] `）原样保留 */
 export function editText(node: MindNode, text: string): Edit {
@@ -264,6 +324,104 @@ export function editToggleTask(node: MindNode): Edit | null {
   return { fromLine: node.line, toLine: node.line, insert: next + node.text };
 }
 
+/** 标题和列表不能靠拖动互相转换；那会悄悄改变用户选择的 Markdown 结构。 */
+const familyOf = (node: MindNode) => node.kind === "heading" ? "heading" : "list";
+
+/** 把一棵子树的结构前缀调整到新父级，正文和行内 Markdown 原样保留。 */
+function rebaseSubtree(
+  lines: string[],
+  source: MindNode,
+  desiredPrefix: string,
+): string[] | null {
+  const out = [...lines];
+  const desiredHeading = /^( {0,3})(#{1,6})[ \t]+/.exec(desiredPrefix);
+
+  if (source.kind === "heading") {
+    if (!desiredHeading) return null;
+    const delta = desiredHeading[2].length - source.level;
+    for (const node of flatten(source)) {
+      if (node.kind !== "heading") continue;
+      const level = node.level + delta;
+      if (level < 1 || level > 6) return null;
+      const at = node.line - source.line;
+      out[at] = out[at].replace(/^( {0,3})#{1,6}[ \t]+/, `$1${"#".repeat(level)} `);
+    }
+    return out;
+  }
+
+  if (desiredHeading) return null;
+  const desiredIndent = indentWidth(/^([ \t]*)/.exec(desiredPrefix)?.[1] ?? "");
+  const delta = desiredIndent - source.indent;
+  for (const node of flatten(source)) {
+    if (node.kind !== "list" && node.kind !== "task") continue;
+    const indent = node.indent + delta;
+    if (indent < 0) return null;
+    const at = node.line - source.line;
+    out[at] = `${" ".repeat(indent)}${out[at].replace(/^[ \t]*/, "")}`;
+  }
+  return out;
+}
+
+/**
+ * 移动一棵 Markdown 子树。
+ *
+ * - before / after 只在同一父级内重排，原始前缀完全不动；
+ * - child 把它放到目标子树末尾，并只调整必要的标题等级或列表缩进；
+ * - 返回的是覆盖两处之间的**最小连续行范围**，仍走编辑器一次 dispatch，
+ *   不会把整篇正文替换掉，也因此只占一次撤销。
+ */
+export function editMove(
+  body: string,
+  root: MindNode,
+  sourceLine: number,
+  targetLine: number,
+  position: MovePosition,
+): Edit | null {
+  const source = findNode(root, sourceLine);
+  const target = findNode(root, targetLine);
+  if (!source || !target || source.kind === "root" || source.line === target.line) return null;
+  if (flatten(source).some((node) => node.line === target.line)) return null;
+
+  let moved = body.split(/\r\n|\r|\n/).slice(source.line - 1, source.endLine);
+  let boundary: number;
+  if (position === "child") {
+    const prefix = childPrefix(target);
+    const desiredFamily = /^( {0,3})#{1,6}[ \t]+/.test(prefix) ? "heading" : "list";
+    if (familyOf(source) !== desiredFamily) return null;
+    const rebased = rebaseSubtree(moved, source, prefix);
+    if (!rebased) return null;
+    moved = rebased;
+    boundary = target.endLine;
+  } else {
+    const sourceParent = parentOf(root, source.line);
+    const targetParent = parentOf(root, target.line);
+    if (!sourceParent || sourceParent.line !== targetParent?.line) return null;
+    boundary = position === "before" ? target.line - 1 : target.endLine;
+  }
+
+  // 插入边界落在自己的子树里既是循环，也是无意义操作。
+  if (boundary >= source.line && boundary <= source.endLine) return null;
+
+  const lines = body.split(/\r\n|\r|\n/);
+  const sourceStart = source.line - 1;
+  let fromLine: number;
+  let toLine: number;
+  let replacement: string[];
+  if (boundary <= sourceStart) {
+    fromLine = boundary + 1;
+    toLine = source.endLine;
+    replacement = [...moved, ...lines.slice(boundary, sourceStart)];
+  } else {
+    fromLine = source.line;
+    toLine = boundary;
+    replacement = [...lines.slice(source.endLine, boundary), ...moved];
+  }
+
+  const original = lines.slice(fromLine - 1, toLine).join("\n");
+  const insert = replacement.join("\n");
+  return original === insert ? null : { fromLine, toLine, insert };
+}
+
 /** 子树里有几个节点。删之前要不要问一句，看它 */
 export function subtreeSize(node: MindNode): number {
   return flatten(node).length;
@@ -274,7 +432,20 @@ export function subtreeSize(node: MindNode): number {
 // 横向树，根在左。中文长标题不撑碍，深层级也不会爆 —— 幕布、Workflowy 都是
 // 这个路子。**布局不进文件**，每次算出来。
 
-export const NODE_W = 190;
+/**
+ * 节点宽度。
+ *
+ * 190 是「一行字截断」时代的数；改成换行之后它不够用了 —— 右边那排动作按钮
+ * 常占掉 60px（**它们必须占位**：只在悬停时占的话，鼠标一进来文字就重排，
+ * 高度跟着变，整张图会在指针底下抖），剩给文字的不到 130px。230 让文字列
+ * 回到 10 个汉字左右，四行就是 40 字，一条要点基本装得下
+ */
+export const NODE_W = 230;
+/** 拖宽的上下限。窄到一行放不下两个字、宽到一屏只剩两列，都不是「可用」 */
+export const MIN_NODE_W = 150;
+export const MAX_NODE_W = 560;
+export const clampNodeW = (w: number) => Math.min(MAX_NODE_W, Math.max(MIN_NODE_W, Math.round(w)));
+/** 一行字的节点有多高。**是下限不是定值** —— 文字换行之后按实测的来 */
 export const NODE_H = 30;
 export const COL_GAP = 46;
 export const ROW_GAP = 12;
@@ -283,6 +454,10 @@ export interface Placed {
   node: MindNode;
   x: number;
   y: number;
+  /** 这个节点画出来有多宽。带在这里，布局和连线都不必再猜默认值 */
+  w: number;
+  /** 这个节点画出来有多高。换行的节点比 `NODE_H` 高 */
+  h: number;
   depth: number;
   /** 有子节点但被折叠了 —— 界面要给个「还有东西」的提示 */
   collapsed: boolean;
@@ -299,29 +474,58 @@ export interface Layout {
 /**
  * 算坐标。折叠的节点不参与 —— 它们的位置根本不该占地方。
  *
- * 叶子按出现顺序依次往下排，父节点取「第一个和最后一个孩子的中点」。
- * 这是最省事又最好读的一种：兄弟之间等距，父节点永远在自己那一簇的正中。
+ * 叶子按出现顺序依次往下排，父节点取「第一个和最后一个孩子的中点」（比的是
+ * **中线**，不是顶边 —— 高矮不一之后这两者不再是一回事）。这是最省事又最好读
+ * 的一种：兄弟之间等距，父节点永远在自己那一簇的正中。
+ *
+ * `heightOf` 由界面提供，给的是每个节点**量出来的**高度：文字换行之后高度取决
+ * 于字体、字号和用户的排版设置，算不出来只能量。不给就一律按 `NODE_H` 排 ——
+ * 纯函数测试走的就是这条路。
+ *
+ * `widthOf` 可以是统一宽度，也可以逐节点给宽度。后一种情况下，每一列用本列最宽
+ * 的节点给下一列让位：拖宽一个节点只改变它自己，但不会让它压到后面的节点上。
  */
-export function layout(root: MindNode, collapsed: ReadonlySet<number> = new Set()): Layout {
+export function layout(
+  root: MindNode,
+  collapsed: ReadonlySet<number> = new Set(),
+  heightOf: (line: number) => number = () => NODE_H,
+  widthOf: number | ((line: number) => number) = NODE_W,
+): Layout {
   const nodes: Placed[] = [];
   const links: { from: Placed; to: Placed }[] = [];
   let cursor = 0;
 
+  const width = typeof widthOf === "function" ? widthOf : () => widthOf;
+  const columnWidths: number[] = [];
+  const measureColumns = (node: MindNode, depth: number) => {
+    columnWidths[depth] = Math.max(columnWidths[depth] ?? 0, width(node.line));
+    if (collapsed.has(node.line)) return;
+    for (const child of node.children) measureColumns(child, depth + 1);
+  };
+  measureColumns(root, 0);
+  const columnX = columnWidths.map((_, depth) =>
+    depth === 0 ? 0 : columnWidths.slice(0, depth).reduce((sum, w) => sum + w + COL_GAP, 0),
+  );
+
   const walk = (node: MindNode, depth: number): Placed => {
     const isCollapsed = collapsed.has(node.line) && node.children.length > 0;
-    const x = depth * (NODE_W + COL_GAP);
+    const x = columnX[depth];
+    const w = width(node.line);
+    const h = Math.max(heightOf(node.line), NODE_H);
 
     if (isCollapsed || node.children.length === 0) {
       const y = cursor;
-      cursor += NODE_H + ROW_GAP;
-      const placed: Placed = { node, x, y, depth, collapsed: isCollapsed };
+      cursor += h + ROW_GAP;
+      const placed: Placed = { node, x, y, w, h, depth, collapsed: isCollapsed };
       nodes.push(placed);
       return placed;
     }
 
     const kids = node.children.map((c) => walk(c, depth + 1));
-    const y = (kids[0].y + kids[kids.length - 1].y) / 2;
-    const placed: Placed = { node, x, y, depth, collapsed: false };
+    const first = kids[0];
+    const last = kids[kids.length - 1];
+    const y = (first.y + first.h / 2 + last.y + last.h / 2) / 2 - h / 2;
+    const placed: Placed = { node, x, y, w, h, depth, collapsed: false };
     nodes.push(placed);
     for (const k of kids) links.push({ from: placed, to: k });
     return placed;
@@ -329,7 +533,13 @@ export function layout(root: MindNode, collapsed: ReadonlySet<number> = new Set(
 
   walk(root, 0);
 
-  const maxX = Math.max(...nodes.map((n) => n.x));
-  const maxY = Math.max(...nodes.map((n) => n.y));
-  return { nodes, links, width: maxX + NODE_W, height: maxY + NODE_H };
+  // 父节点比自己那一簇还高时，取中线会让它顶出去（y < 0）—— 整片挪回来。
+  // 连线拿的是同一批对象，跟着一起走
+  const minY = Math.min(...nodes.map((n) => n.y));
+  if (minY < 0) for (const p of nodes) p.y -= minY;
+
+  const maxRight = Math.max(...nodes.map((n) => n.x + n.w));
+  // 最靠下的那个未必是最高的那个，比的是各自的底边
+  const maxBottom = Math.max(...nodes.map((n) => n.y + n.h));
+  return { nodes, links, width: maxRight, height: maxBottom };
 }

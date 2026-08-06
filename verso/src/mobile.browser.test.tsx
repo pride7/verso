@@ -512,3 +512,92 @@ describe("移动端没有终端", () => {
     expect(document.querySelector('[aria-label="终端"]')).not.toBeNull();
   });
 });
+
+/**
+ * 手机上的思维导图（§4.7）。
+ *
+ * 导图在手机上是**没有键盘、没有右键、没有滚轮**的：加同级靠 Enter、改字靠
+ * 双击、缩放靠滚轮 —— 三条路在那边一条都不存在。这里量的是补上的那些入口
+ * 真的在屏幕上、真的点得到，而不是「类名对着」。
+ */
+describe("手机上的思维导图", () => {
+  async function openMap() {
+    mobileFlag = true;
+    await mount();
+    // 手机上一开始抽屉是开着的，它盖住整片正文（连带导图）。先收起来，
+    // 这也正是真人进导图前的那一步
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(200);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')!.click();
+      await settle(300);
+    });
+  }
+
+  it("工具条没被标题和提示挤出屏幕", async () => {
+    await openMap();
+    const tools = box(".mm-tools")!;
+    expect(tools.right).toBeLessThanOrEqual(PHONE.w + 1);
+    expect(tools.left).toBeGreaterThan(0);
+    // 按钮一个都不能被压扁 —— 「适应」被挤成竖排的两个字就是这么发现的
+    const bar = box(".mm-bar")!;
+    for (const b of document.querySelectorAll<HTMLElement>(".mm-tools button")) {
+      const r = b.getBoundingClientRect();
+      expect(r.width).toBeGreaterThan(10);
+      expect(r.height, "按钮换行了").toBeLessThan(bar.height);
+    }
+  });
+
+  it("节点上的 ⋯ 在屏幕里，而且点下去碰到的就是它", async () => {
+    await openMap();
+    const btn = document.querySelector<HTMLElement>('.mm-acts button[aria-label="更多动作"]')!;
+    expect(btn, "每个节点都该有这个入口").not.toBeNull();
+    const r = btn.getBoundingClientRect();
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.bottom).toBeLessThanOrEqual(PHONE.h);
+    // 「看得见却点不动」只有命中测试抓得到（AGENTS.md 里那两种成因）
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit && btn.contains(hit), "点在 ⋯ 上，碰到的却是别的东西").toBe(true);
+  });
+
+  it("菜单整个在屏幕里 —— 靠边的节点也不例外", async () => {
+    await openMap();
+    await act(async () => {
+      document.querySelector<HTMLElement>('.mm-acts button[aria-label="更多动作"]')!.click();
+      await settle(150);
+    });
+    const menu = box(".mm-menu")!;
+    expect(menu.left).toBeGreaterThanOrEqual(0);
+    expect(menu.right).toBeLessThanOrEqual(PHONE.w);
+    expect(menu.top).toBeGreaterThanOrEqual(0);
+    expect(menu.bottom).toBeLessThanOrEqual(PHONE.h);
+    await page.screenshot({ path: "__shots__/26-phone-mindmap-menu.png" });
+  });
+
+  it("单指拖背景能平移 —— 手机上这是唯一的平移方式", async () => {
+    await openMap();
+    const layer = document.querySelector<HTMLElement>(".mm-layer")!;
+    const before = layer.style.transform;
+    const canvas = document.querySelector<HTMLElement>(".mm-canvas")!;
+    const at = (type: string, x: number, y: number) =>
+      new PointerEvent(type, {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: x,
+        clientY: y,
+        bubbles: true,
+        cancelable: true,
+      });
+
+    await act(async () => {
+      canvas.dispatchEvent(at("pointerdown", 100, 500));
+      window.dispatchEvent(at("pointermove", 160, 540));
+      window.dispatchEvent(at("pointerup", 160, 540));
+      await settle(80);
+    });
+    expect(layer.style.transform).not.toBe(before);
+  });
+});
