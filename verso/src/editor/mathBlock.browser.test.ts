@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createExtensions } from ".";
+import "katex/dist/katex.min.css";
 import "../styles.css";
 
 const SCREENSHOT_DOC = String.raw`目前主要看的是TV (total variation distance)
@@ -120,5 +121,28 @@ describe("块公式", () => {
     expect(preview).not.toBeNull();
     expect(preview!.textContent).toContain("a=1");
     expect(preview!.textContent).not.toContain(">");
+  });
+
+  it("跨行公式只按渲染结果占高，不保留源码行盒或 KaTeX 默认外边距", async () => {
+    const doc = String.raw`训练可以采用：
+
+$$
+\mathcal L
+=
+\lambda_{edit}+\lambda_{budget}\sum_i r_i
+$$
+
+后文`;
+    const view = mount(doc);
+    await settle();
+    const block = renderedBlocks(view)[0];
+    const display = block.querySelector<HTMLElement>(".katex-display")!;
+
+    // 没有 block:true 时 widget 会落进 .cm-line，上下凭空各多一个正文行盒。
+    expect(block.closest(".cm-line")).toBeNull();
+    expect(getComputedStyle(display).marginTop).toBe("0px");
+    expect(getComputedStyle(display).marginBottom).toBe("0px");
+    expect(parseFloat(getComputedStyle(block).paddingTop)).toBeLessThan(8);
+    expect(block.getBoundingClientRect().height).toBeLessThan(105);
   });
 });

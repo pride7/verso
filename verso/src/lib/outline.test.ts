@@ -24,6 +24,24 @@ describe("parseHeadings", () => {
     expect(parseHeadings(md).map((h) => h.text)).toEqual(["真", "也是真"]);
   });
 
+  it("块公式里的等号和井号不进入大纲", () => {
+    const md = [
+      "# 真标题",
+      "$$",
+      "\\mathcal L",
+      "=",
+      "# 公式里的参数",
+      "$$",
+      "## 后续标题",
+    ].join("\n");
+    expect(parseHeadings(md).map((h) => h.text)).toEqual(["真标题", "后续标题"]);
+  });
+
+  it("未闭合块公式与编辑器一样收尾到文末", () => {
+    const md = ["# 真标题", "$$", "\\mathcal L", "=", "伪标题", "---"].join("\n");
+    expect(parseHeadings(md).map((h) => h.text)).toEqual(["真标题"]);
+  });
+
   it("~~~ 围栏、以及围栏里出现更短的 ``` 都不会提前收口", () => {
     const md = ["~~~~", "```", "# 藏在里面", "```", "~~~~", "# 外面"].join("\n");
     expect(parseHeadings(md).map((h) => h.text)).toEqual(["外面"]);

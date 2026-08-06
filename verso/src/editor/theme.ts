@@ -88,10 +88,12 @@ export const versoTheme = EditorView.theme({
     display: "block",
     textAlign: "center",
     // **padding 不是 margin**：块级 widget 也进高度图，而高度图测的是盒高，
-    // margin 不计入 —— 坐标反查会偏。表格那边早就是这么写的，这里之前漏了
-    padding: "0.9em 0",
+    // margin 不计入 —— 坐标反查会偏。KaTeX 自带的 1em margin 也必须归零，
+    // 否则它和这里的留白叠两遍，一个普通公式就占掉近六行正文
+    padding: "0.45em 0",
     cursor: "pointer",
   },
+  ".cm-math-block .katex-display": { margin: "0" },
   ".cm-math-error": {
     color: "var(--danger)",
     fontFamily: "var(--font-mono)",

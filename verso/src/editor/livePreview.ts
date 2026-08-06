@@ -93,7 +93,7 @@ function computeBlockMath(state: EditorState): DecorationSet {
       const source = mathSource(state, from, to, true);
       if (!source) return false;
       marks.push(
-        Decoration.replace({ widget: new MathWidget(source, true, from) }).range(from, to),
+        Decoration.replace({ widget: new MathWidget(source, true, from), block: true }).range(from, to),
       );
       return false;
     },

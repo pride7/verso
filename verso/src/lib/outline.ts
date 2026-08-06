@@ -27,6 +27,10 @@ export interface Heading {
 
 /** 围栏代码块。缩进 4 空格以上的是代码块内容，不算围栏 */
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+/** 块公式起点；同一行可能已经带闭合的 `$$` */
+const BLOCK_MATH = /^ {0,3}\$\$(.*)$/;
+/** 跨行块公式只接受独占一行的闭合标记，与 markdownExtended 保持一致 */
+const BLOCK_MATH_END = /^ {0,3}\$\$\s*$/;
 /** ATX 标题。`#` 后**必须**有空格，否则 `#标签`（§2.4）会被当成一级标题 */
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/;
 /** setext 的下划线。`===` 是一级，`---` 是二级 */
@@ -65,9 +69,16 @@ export function parseHeadings(body: string): Heading[] {
   const out: Heading[] = [];
   /** 当前围栏的标记字符与长度，null 表示不在围栏里 */
   let fence: { char: string; len: number } | null = null;
+  /** 块公式里的 `=` 不是 setext 下划线，`#` 也不是标题标记 */
+  let math = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    if (math) {
+      if (BLOCK_MATH_END.test(line)) math = false;
+      continue;
+    }
 
     const f = FENCE.exec(line);
     if (f) {
@@ -84,6 +95,14 @@ export function parseHeadings(body: string): Heading[] {
       }
     }
     if (fence) continue;
+
+    const blockMath = BLOCK_MATH.exec(line);
+    if (blockMath) {
+      // `$$x$$` 当行结束；否则与编辑器解析器一样一直收至独占一行的 `$$`，
+      // 没闭合就收至文末。整段都不能参与标题识别。
+      if (!blockMath[1].includes("$$")) math = true;
+      continue;
+    }
 
     const atx = ATX.exec(line);
     if (atx) {
