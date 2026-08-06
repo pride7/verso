@@ -251,6 +251,7 @@ fn vault_reopen_last(app: AppHandle, state: State<'_, AppState>) -> Option<Reope
     // 笔记可能已被删除或改名，存在才恢复
     let last_note = saved
         .last_note
+        .filter(|rel| workspace::is_restorable_path(rel))
         .filter(|rel| v.resolve(rel).map(|p| p.is_file()).unwrap_or(false));
 
     activate(&app, &state, v);
@@ -358,7 +359,11 @@ fn notes_reorder(state: State<'_, AppState>, parent: String, paths: Vec<String>)
 #[tauri::command]
 fn note_read(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<NoteContent> {
     let content = state.with_vault(|v| v.read_note(&path))?;
-    recent::save_note(&app, &path);
+    // AGENTS.md / CLAUDE.md 只能从专用入口明确打开，不能覆盖「上次看的笔记」；
+    // 否则下次启动恢复它，恰好和终端异步挂载撞在一起，看起来像开终端弹出的。
+    if workspace::is_restorable_path(&path) {
+        recent::save_note(&app, &path);
+    }
     Ok(content)
 }
 
