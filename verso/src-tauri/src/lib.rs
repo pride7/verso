@@ -172,6 +172,329 @@ fn vault_clone(
     Ok(info)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedNoteResult {
+    vault: VaultInfo,
+    note: String,
+    notice: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SharedSpaceAccess {
+    members: Vec<String>,
+    pending: Vec<String>,
+    github: bool,
+    verified: bool,
+    warning: Option<String>,
+}
+
+/// 把当前内容节点迁进独立的小型共享空间。后端负责整条事务：确认清单、建库、
+/// 验证空远端、推送、最后才移走原文并切换 vault。
+#[tauri::command]
+fn note_share(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    note: String,
+    path: String,
+    url: String,
+    token: String,
+    name: String,
+    email: String,
+) -> Result<SharedNoteResult> {
+    let token = token.trim().to_string();
+    let destination = state.with_vault(|v| {
+        vault::share::create(
+            v,
+            vault::share::CreateInput {
+                note: &note,
+                destination: std::path::Path::new(&path),
+                url: &url,
+                token: (!token.is_empty()).then(|| token.clone()),
+                name: &name,
+                email: &email,
+                members: &[],
+                label: None,
+            },
+        )
+    })?;
+
+    let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
+    let warning = if token.is_empty() {
+        None
+    } else {
+        vault::secret::token_set(url.trim(), &token)
+            .err()
+            .map(|error| error.to_string())
+    };
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+    if let Some(warning) = warning {
+        let _ = app.emit(
+            "index:error",
+            format!("共享空间已创建，但令牌没有保存：{warning}"),
+        );
+    }
+    Ok(SharedNoteResult {
+        vault: info,
+        note,
+        notice: None,
+    })
+}
+
+#[tauri::command]
+fn note_share_preview(
+    state: State<'_, AppState>,
+    note: String,
+) -> Result<vault::share::SharePreview> {
+    state.with_vault(|v| vault::share::preview(v, &note))
+}
+
+/// 这台设备上可以继续放内容的共享空间。顺序沿用最近打开列表，用户最可能
+/// 继续使用的空间排在前面。
+#[tauri::command]
+fn note_share_space_list(app: AppHandle) -> Vec<vault::share::SharedSpaceInfo> {
+    recent::list(&app)
+        .into_iter()
+        .filter(|item| item.shared && item.available)
+        .filter_map(|item| vault::share::space_info(std::path::Path::new(&item.root)))
+        .collect()
+}
+
+/// 用户选中已有空间后才查远端。列表里的 marker 只负责离线提示，真正决定
+/// 谁能看到内容的是 GitHub 当前协作者与仍待接受的邀请。
+#[tauri::command]
+fn note_share_space_access(space_root: String) -> Result<SharedSpaceAccess> {
+    let root = std::path::Path::new(&space_root);
+    let cached = vault::share::space_info(root)
+        .ok_or_else(|| Error::Vault("目标不是 Verso 共享空间".into()))?;
+    let remote = vault::sync::remote_get(root)?;
+    let Some(url) = remote.url else {
+        return Ok(SharedSpaceAccess {
+            members: cached.members,
+            pending: Vec::new(),
+            github: false,
+            verified: false,
+            warning: Some("这个空间没有远端地址，无法核对成员".into()),
+        });
+    };
+    if !vault::github::is_github_url(&url) {
+        return Ok(SharedSpaceAccess {
+            members: cached.members,
+            pending: Vec::new(),
+            github: false,
+            verified: false,
+            warning: Some("这个空间的成员由远端服务管理，Verso 无法自动核对".into()),
+        });
+    }
+    let Some(token) = token_for_remote(&url) else {
+        return Ok(SharedSpaceAccess {
+            members: cached.members,
+            pending: Vec::new(),
+            github: true,
+            verified: false,
+            warning: Some("缺少这个 GitHub 空间的访问凭据，暂时不能安全地加入内容".into()),
+        });
+    };
+    match vault::github::repository_access(&token, &url) {
+        Ok(access) => Ok(SharedSpaceAccess {
+            members: access.members,
+            pending: access.pending,
+            github: true,
+            verified: true,
+            warning: None,
+        }),
+        Err(error) => Ok(SharedSpaceAccess {
+            members: cached.members,
+            pending: Vec::new(),
+            github: true,
+            verified: false,
+            warning: Some(format!("成员核对失败：{error}")),
+        }),
+    }
+}
+
+/// 把当前节点加入已有共享空间，不创建新仓库，也不改变该空间的成员。
+#[tauri::command]
+fn note_share_to_space(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    note: String,
+    space_root: String,
+    name: String,
+    email: String,
+) -> Result<SharedNoteResult> {
+    let destination = std::path::PathBuf::from(&space_root);
+    let remote = vault::sync::remote_get(&destination)?;
+    let token = remote.url.as_deref().and_then(token_for_remote);
+    let destination = state.with_vault(|v| {
+        vault::share::add_note_to(v, &note, &destination, token, &name, &email)
+    })?;
+    let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+    Ok(SharedNoteResult {
+        vault: info,
+        note,
+        notice: Some("已加入共享空间，没有创建新仓库".into()),
+    })
+}
+
+/// 已连接的 GitHub 账号。令牌本身永远不回到前端。
+#[tauri::command]
+fn github_account_get() -> Result<Option<vault::github::Account>> {
+    let Some(token) = vault::secret::token_get(vault::github::ACCOUNT_SECRET) else {
+        return Ok(None);
+    };
+    vault::github::account(&token).map(Some)
+}
+
+/// 首次连接 GitHub：先向 GitHub 验证，再放进系统安全凭据。
+#[tauri::command]
+fn github_token_set(token: String) -> Result<vault::github::Account> {
+    let token = token.trim();
+    let account = vault::github::account(token)?;
+    vault::secret::token_set(vault::github::ACCOUNT_SECRET, token)?;
+    Ok(account)
+}
+
+#[tauri::command]
+fn github_account_disconnect() -> Result<()> {
+    vault::secret::token_set(vault::github::ACCOUNT_SECRET, "")
+}
+
+/// GitHub.com 的账号连接同时服务普通同步和快速共享；其他托管服务仍使用
+/// 各自远端的窄权限凭据。已有的 per-remote Token 优先，避免改变旧配置语义。
+fn token_for_remote(url: &str) -> Option<String> {
+    vault::secret::token_get(url).or_else(|| {
+        vault::github::is_github_url(url)
+            .then(|| vault::secret::token_get(vault::github::ACCOUNT_SECRET))
+            .flatten()
+    })
+}
+
+fn shared_space_label(collaborators: &[String]) -> String {
+    match collaborators {
+        [only] => format!("与 @{only} 的共享"),
+        [first, rest @ ..] => format!("与 @{first} 等 {} 人的共享", rest.len() + 1),
+        [] => "共享空间".into(),
+    }
+}
+
+fn shared_destination(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
+    let parent = root
+        .parent()
+        .ok_or_else(|| Error::Vault("当前仓库没有可用的父目录，无法建立共享目录".into()))?;
+    let base = parent.join("Verso Shared");
+    std::fs::create_dir_all(&base)?;
+    let mut destination = base.join(name);
+    let mut n = 2;
+    while destination.exists() {
+        destination = base.join(format!("{name}-{n}"));
+        n += 1;
+    }
+    std::fs::create_dir(&destination)?;
+    Ok(destination)
+}
+
+/// GitHub 默认流程：自动建私有仓库、选本地位置、迁移共享节点并邀请成员。
+#[tauri::command]
+fn note_share_github(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    note: String,
+    collaborators: Vec<String>,
+    name: String,
+    email: String,
+) -> Result<SharedNoteResult> {
+    vault::share::validate_identity(&name, &email)?;
+    if collaborators.is_empty() {
+        return Err(Error::Vault("请至少填写一位协作者的 GitHub 用户名".into()));
+    }
+    let collaborators = collaborators
+        .iter()
+        .map(|username| vault::github::validate_username(username))
+        .collect::<Result<Vec<_>>>()?;
+    let token = vault::secret::token_get(vault::github::ACCOUNT_SECRET)
+        .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
+    let repository_name = vault::github::generated_repository_name();
+    let label = shared_space_label(&collaborators);
+
+    // 网络建库之前先把本地范围、名字、目标位置都验证好。这样常见输入错误
+    // 不会在 GitHub 留下一个用户还得手动删除的空仓库。
+    let destination = state.with_vault(|v| {
+        vault::share::preview(v, &note)?;
+        shared_destination(&v.root, &repository_name)
+    })?;
+    let repository = match vault::github::create_private_repository(&token, &repository_name) {
+        Ok(repository) => repository,
+        Err(error) => {
+            let _ = std::fs::remove_dir(&destination);
+            return Err(error);
+        }
+    };
+
+    let moved = state.with_vault(|v| {
+        vault::share::create(
+            v,
+            vault::share::CreateInput {
+                note: &note,
+                destination: &destination,
+                url: &repository.clone_url,
+                token: Some(token.clone()),
+                name: &name,
+                email: &email,
+                members: &collaborators,
+                label: Some(&label),
+            },
+        )
+    });
+    let destination = match moved {
+        Ok(destination) => destination,
+        Err(error) => {
+            let _ = std::fs::remove_dir(&destination);
+            return Err(Error::Vault(format!(
+                "GitHub 私有仓库已经创建（{}），但本地迁移失败：{error}。原文仍在私人区，请处理这个空仓库后重试",
+                repository.html_url
+            )));
+        }
+    };
+
+    let mut invite_failures = Vec::new();
+    for username in &collaborators {
+        if let Err(error) = vault::github::invite(&token, &repository, username) {
+            invite_failures.push(format!("@{username}：{error}"));
+        }
+    }
+
+    let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+
+    let notice = if !invite_failures.is_empty() {
+        Some(format!(
+            "共享空间已创建，但这些邀请未发出：{}。可稍后在 GitHub 仓库设置中重试",
+            invite_failures.join("；")
+        ))
+    } else {
+        Some(format!(
+            "已创建私人共享空间并邀请 {}",
+            collaborators
+                .iter()
+                .map(|username| format!("@{username}"))
+                .collect::<Vec<_>>()
+                .join("、")
+        ))
+    };
+
+    Ok(SharedNoteResult {
+        vault: info,
+        note,
+        notice,
+    })
+}
+
 /// 这台设备上成功打开过的仓库。目录移走后仍然返回，由前端标成不可用；
 /// 静默删掉的话，用户分不清是路径失效还是软件忘了。
 #[tauri::command]
@@ -925,6 +1248,8 @@ fn sync_token_set(url: String, token: String) -> Result<()> {
 #[tauri::command]
 fn sync_token_has(url: String) -> bool {
     vault::secret::token_has(&url)
+        || (vault::github::is_github_url(&url)
+            && vault::secret::token_has(vault::github::ACCOUNT_SECRET))
 }
 
 /// 同步一次：提交本地改动 → 取远端 → 接到一起 → 推上去。
@@ -973,7 +1298,7 @@ fn sync_and_reindex(
             vault::sync::remote_get(&v.root)?.url.unwrap_or_default(),
         ))
     })?;
-    let token = vault::secret::token_get(&url);
+    let token = token_for_remote(&url);
     let out = vault::sync::sync_with(&root, token, resolutions)?;
     if out.pulled > 0 {
         rebuild_index(state);
@@ -1020,6 +1345,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             vault_open,
             vault_clone,
+            note_share,
+            note_share_preview,
+            note_share_space_list,
+            note_share_space_access,
+            note_share_to_space,
+            note_share_github,
+            github_account_get,
+            github_token_set,
+            github_account_disconnect,
             vault_recent_list,
             vault_recent_forget,
             vault_reopen_last,

@@ -23,6 +23,13 @@ function duplicateNames(vaults: RecentVault[]) {
   return new Set([...count].filter(([, n]) => n > 1).map(([name]) => name));
 }
 
+function vaultGroups(vaults: RecentVault[]) {
+  return [
+    { label: "私人", items: vaults.filter((vault) => !vault.shared) },
+    { label: "共享", items: vaults.filter((vault) => vault.shared) },
+  ].filter((group) => group.items.length > 0);
+}
+
 export function VaultSwitcher({
   vaults,
   current,
@@ -34,6 +41,7 @@ export function VaultSwitcher({
 }: SwitcherProps) {
   const [open, setOpen] = useState(false);
   const duplicates = useMemo(() => duplicateNames(vaults), [vaults]);
+  const currentShared = vaults.find((item) => item.root === current?.root)?.shared ?? false;
 
   useEffect(() => {
     if (!open) return;
@@ -50,37 +58,41 @@ export function VaultSwitcher({
   return (
     <div className="vault-switcher" onMouseDown={(event) => event.stopPropagation()}>
       {open && (
-        <div className="vault-menu" role="menu" aria-label="切换仓库">
-          <div className="vault-menu-label">仓库</div>
-          {vaults.map((item) => {
-            const active = item.root === current?.root;
-            return (
-              <button
-                key={item.root}
-                className={`vault-menu-item${active ? " is-current" : ""}`}
-                onClick={() => {
-                  if (active) setOpen(false);
-                  else if (item.available) {
-                    setOpen(false);
-                    onSwitch(item.root);
-                  }
-                }}
-                disabled={!item.available || switching !== null}
-                role="menuitem"
-                title={item.root}
-              >
-                <span className="vault-menu-check">
-                  {active && <Icon name="check" size={13} />}
-                </span>
-                <span className="vault-menu-copy">
-                  <strong>{item.name}</strong>
-                  {(duplicates.has(item.name) || !item.available) && (
-                    <small>{item.available ? item.root : "位置不可用"}</small>
-                  )}
-                </span>
-              </button>
-            );
-          })}
+        <div className="vault-menu" role="menu" aria-label="切换空间">
+          {vaultGroups(vaults).map((group) => (
+            <div className="vault-menu-group" key={group.label}>
+              <div className="vault-menu-label">{group.label}</div>
+              {group.items.map((item) => {
+                const active = item.root === current?.root;
+                return (
+                  <button
+                    key={item.root}
+                    className={`vault-menu-item${active ? " is-current" : ""}`}
+                    onClick={() => {
+                      if (active) setOpen(false);
+                      else if (item.available) {
+                        setOpen(false);
+                        onSwitch(item.root);
+                      }
+                    }}
+                    disabled={!item.available || switching !== null}
+                    role="menuitem"
+                    title={item.root}
+                  >
+                    <span className="vault-menu-check">
+                      {active && <Icon name="check" size={13} />}
+                    </span>
+                    <span className="vault-menu-copy">
+                      <strong>{item.name}</strong>
+                      {(duplicates.has(item.name) || !item.available) && (
+                        <small>{item.available ? item.root : "位置不可用"}</small>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
           <div className="vault-menu-sep" />
           <button
             className="vault-menu-action"
@@ -91,7 +103,7 @@ export function VaultSwitcher({
             role="menuitem"
           >
             <Icon name="settings" size={15} />
-            管理仓库…
+            管理空间…
           </button>
           <button
             className="vault-menu-action"
@@ -113,18 +125,18 @@ export function VaultSwitcher({
             role="menuitem"
           >
             <Icon name="people" size={15} />
-            加入共享仓库…
+            加入共享空间…
           </button>
         </div>
       )}
       <button
         className="vault-name"
-        title={`${current?.root ?? ""}\n切换仓库`}
+        title={`${current?.root ?? ""}\n切换空间`}
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Icon name="vault" size={14} />
+        <Icon name={currentShared ? "people" : "vault"} size={14} />
         <span>{current?.name}</span>
         <Icon name="chevron" size={12} className={`vault-chevron${open ? " is-open" : ""}`} />
       </button>
@@ -160,8 +172,8 @@ export function VaultManager({
       <section className="vault-manager" role="dialog" aria-modal="true" aria-labelledby="vault-manager-title">
         <header className="vault-manager-head">
           <div>
-            <h2 id="vault-manager-title">管理仓库</h2>
-            <p>快速切换这台设备上打开过的笔记目录。</p>
+            <h2 id="vault-manager-title">管理空间</h2>
+            <p>切换私人笔记与受邀加入的共享内容。</p>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={15} />
@@ -171,15 +183,17 @@ export function VaultManager({
         <div className="vault-manager-list">
           {error && <p className="vault-manager-error">{error}</p>}
           {vaults.length === 0 ? (
-            <p className="vault-manager-empty">还没有记录仓库。</p>
+            <p className="vault-manager-empty">还没有记录任何空间。</p>
           ) : (
-            vaults.map((item) => {
-              const active = item.root === current?.root;
-              const busy = switching === item.root;
-              return (
-                <div className={`vault-manager-row${active ? " is-current" : ""}`} key={item.root}>
+            vaultGroups(vaults).map((group) => (
+              <div className="vault-manager-section" key={group.label}>
+                <div className="vault-manager-section-title">{group.label}</div>
+                {group.items.map((item) => {
+                  const active = item.root === current?.root;
+                  const busy = switching === item.root;
+                  return <div className={`vault-manager-row${active ? " is-current" : ""}`} key={item.root}>
                   <span className="vault-manager-icon">
-                    <Icon name="vault" size={16} />
+                    <Icon name={item.shared ? "people" : "vault"} size={16} />
                   </span>
                   <span className="vault-manager-copy">
                     <strong>{item.name}</strong>
@@ -209,9 +223,10 @@ export function VaultManager({
                       <Icon name="close" size={13} />
                     </button>
                   )}
-                </div>
-              );
-            })
+                  </div>;
+                })}
+              </div>
+            ))
           )}
         </div>
 
@@ -219,7 +234,7 @@ export function VaultManager({
           <p>移除记录不会删除目录或笔记。</p>
           <button className="btn-quiet" onClick={onJoin} disabled={switching !== null}>
             <Icon name="people" size={14} />
-            加入共享仓库
+            加入共享空间
           </button>
           <button className="btn-primary" onClick={onOpenFolder} disabled={switching !== null}>
             <Icon name="plus" size={14} />
@@ -253,19 +268,23 @@ export function VaultWelcome({
     <div className="welcome-vaults">
       {usable.length > 0 && (
         <>
-          <div className="welcome-vault-label">已记录的仓库</div>
-          {usable.slice(0, 5).map((item) => (
-            <button
-              className="welcome-vault-item"
-              key={item.root}
-              onClick={() => onSwitch(item.root)}
-              disabled={switching !== null}
-              title={item.root}
-            >
-              <Icon name="vault" size={15} />
-              <span>{item.name}</span>
-              {switching === item.root ? <small>打开中…</small> : <Icon name="chevron" size={12} />}
-            </button>
+          {vaultGroups(usable).map((group) => (
+            <div className="welcome-vault-group" key={group.label}>
+              <div className="welcome-vault-label">{group.label}</div>
+              {group.items.slice(0, 5).map((item) => (
+                <button
+                  className="welcome-vault-item"
+                  key={item.root}
+                  onClick={() => onSwitch(item.root)}
+                  disabled={switching !== null}
+                  title={item.root}
+                >
+                  <Icon name={item.shared ? "people" : "vault"} size={15} />
+                  <span>{item.name}</span>
+                  {switching === item.root ? <small>打开中…</small> : <Icon name="chevron" size={12} />}
+                </button>
+              ))}
+            </div>
           ))}
         </>
       )}
@@ -274,9 +293,9 @@ export function VaultWelcome({
           打开其他文件夹
         </button>
         <button className="btn-quiet" onClick={onJoin} disabled={switching !== null}>
-          加入共享仓库
+          加入共享空间
         </button>
-        {vaults.length > 0 && <button className="btn-quiet" onClick={onManage}>管理仓库…</button>}
+        {vaults.length > 0 && <button className="btn-quiet" onClick={onManage}>管理空间…</button>}
       </div>
     </div>
   );

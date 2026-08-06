@@ -138,6 +138,41 @@ pub fn remote_set(root: &Path, url: &str) -> Result<RemoteInfo> {
     remote_get(root)
 }
 
+/// 新共享空间只能推到一个真正空的远端。已有内容时继续同步虽然在 Git 层
+/// 做得到，却会把未知仓库悄悄并入用户确认过的共享清单。
+pub fn ensure_remote_empty(root: &Path, token: Option<String>) -> Result<()> {
+    let repo = git2::Repository::open(root)?;
+    let mut remote = repo
+        .find_remote(REMOTE)
+        .map_err(|_| Error::Vault("还没配置共享空间的远端地址".into()))?;
+
+    #[cfg(target_os = "android")]
+    {
+        super::transport::ensure_registered();
+        super::transport::set_token(token.clone());
+    }
+
+    // 不用 `Remote::list()`：libgit2 在完全空的本地 bare remote 上会给
+    // git2-rs 返回空指针，debug 版因此触发 UB precondition panic。真实 fetch
+    // 同时完成认证预检，随后只看它落下来的远端分支即可。
+    let mut options = git2::FetchOptions::new();
+    options.remote_callbacks(callbacks(token));
+    remote
+        .fetch(&[] as &[&str], Some(&mut options), None)
+        .map_err(humanize)?;
+    let has_content = repo
+        .references_glob("refs/remotes/origin/*")?
+        .filter_map(std::result::Result::ok)
+        .any(|reference| reference.symbolic_target().is_none());
+
+    if has_content {
+        return Err(Error::Vault(
+            "这个远端仓库已经有内容。请选择一个空仓库，Verso 不会把未知文件混进共享空间".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// 认证回调。
 ///
 /// **必须自己数尝试次数**：认证失败时 libgit2 会反复回调，而我们每次都回

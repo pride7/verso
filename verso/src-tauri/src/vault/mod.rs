@@ -2,14 +2,16 @@ pub mod agents;
 pub mod attach;
 pub mod fs;
 pub mod git;
+pub mod github;
 pub mod note;
 pub mod order;
 pub mod ops;
 pub mod schema;
 pub mod secret;
+pub mod share;
 pub mod sync;
-// 安卓的 https 传输层。桌面不编它：那边 libgit2 自带 https，而 ureq
-// 依赖也只给了安卓（桌面多一套 rustls 纯属重量）
+// 安卓的 https 传输层。桌面不编它：那边 libgit2 自带 https；ureq 虽然也供
+// 桌面的 GitHub API 使用，但传输层注册只能发生在安卓。
 #[cfg(target_os = "android")]
 pub mod transport;
 pub mod tree;
@@ -102,7 +104,11 @@ impl Vault {
         //
         // **写不成不算致命** —— 只读介质、权限不足都可能失败，而那时正确的
         // 行为是照常打开 vault。一份说明文件不该成为「笔记打不开」的理由。
-        let _ = agents::ensure(&root);
+        // 共享空间只包含用户确认过的内容子树和附件。AGENTS.md 虽然在普通
+        // vault 里是基础设施，放进这里却会变成额外共享内容。
+        if !share::is_shared_space(&root) {
+            let _ = agents::ensure(&root);
+        }
         let info = VaultInfo {
             // 报给前端的是「人话」写法：canonicalize 在 Windows 上给的是
             // `\\?\D:\…`，那个前缀会原样出现在欢迎页、仓库管理器和 recent.json

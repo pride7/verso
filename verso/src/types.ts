@@ -39,6 +39,42 @@ export interface RecentVault {
   name: string;
   /** false 表示目录被移动、重命名或当前不可访问；保留条目让用户自己处理。 */
   available: boolean;
+  /** 这个入口属于共享区；底层仍是可独立使用的 Markdown + Git 目录。 */
+  shared: boolean;
+}
+
+/** 创建共享空间前，后端按节点子树与真实文件引用给出的精确清单。 */
+export interface SharePreview {
+  note: string;
+  /** 主文档与同名目录里的全部子文档。 */
+  documents: string[];
+  /** 同名目录中随项目迁移的其他普通文件。 */
+  files: string[];
+  attachments: string[];
+  /** 这些笔记只被正文链接，不会跟着共享。 */
+  linkedNotes: string[];
+}
+
+export interface GitHubAccount {
+  login: string;
+}
+
+export interface SharedSpaceInfo {
+  root: string;
+  name: string;
+  /** 上次由 Verso 邀请的成员；远端权限仍是最终事实。 */
+  members: string[];
+}
+
+export interface SharedSpaceAccess {
+  /** 已经拥有仓库访问权的协作者。 */
+  members: string[];
+  /** 已收到邀请、但尚未接受的人。 */
+  pending: string[];
+  github: boolean;
+  /** GitHub 返回的实时结果；false 时 members 只是离线缓存。 */
+  verified: boolean;
+  warning: string | null;
 }
 
 export interface NoteContent {

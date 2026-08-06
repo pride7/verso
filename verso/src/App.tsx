@@ -37,6 +37,7 @@ import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "./components/VaultSwitcher";
 import { JoinVaultDialog, type JoinVaultInput } from "./components/JoinVaultDialog";
+import { ShareNoteDialog, type ShareNoteInput } from "./components/ShareNoteDialog";
 import { setSlashAction } from "./editor/completion";
 import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
@@ -74,12 +75,15 @@ import type {
   ConflictFile,
   FileChange,
   GitIdentity,
+  GitHubAccount,
   GitStatus,
   HistoryEntry,
   NoteContent,
   RecentVault,
   RemoteInfo,
   NoteRef,
+  SharePreview,
+  SharedSpaceInfo,
   SyncOutcome,
   SyncResolution,
   TreeNode,
@@ -145,6 +149,12 @@ export default function App() {
   const [joinOpen, setJoinOpen] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
+  const [sharePreview, setSharePreview] = useState<SharePreview | null>(null);
+  const [shareSpaces, setShareSpaces] = useState<SharedSpaceInfo[]>([]);
+  const [githubAccount, setGitHubAccount] = useState<GitHubAccount | null>(null);
+  const [githubChecking, setGitHubChecking] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
   /** 非 null 时锁住所有仓库入口，避免两次打开并发替换后端的当前 vault。 */
   const [switchingVault, setSwitchingVault] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -1745,6 +1755,103 @@ export default function App() {
     [joining, switchingVault, prepareVaultSwitch, activateVault],
   );
 
+  const checkShareGitHub = useCallback(() => {
+    setGitHubChecking(true);
+    void api.githubAccount()
+      .then(setGitHubAccount)
+      .catch(() => setGitHubAccount(null))
+      .finally(() => setGitHubChecking(false));
+  }, []);
+
+  const connectGitHub = useCallback(async (token: string) => {
+    const account = await api.githubConnect(token);
+    setGitHubAccount(account);
+    return account;
+  }, []);
+
+  const disconnectGitHub = useCallback(async () => {
+    await api.githubDisconnect();
+    setGitHubAccount(null);
+  }, []);
+
+  const beginShareNote = useCallback(
+    async (node: TreeNode) => {
+      setMenu(null);
+      setShareError(null);
+      setGitHubAccount(null);
+      setShareSpaces([]);
+      setGitHubChecking(false);
+      try {
+        // 清单必须对应用户此刻看到的正文；最后 800ms 还没自动保存时，直接
+        // 从磁盘预检会漏掉刚插入的附件链接。
+        if (node.path === noteRef.current?.path && dirtyRef.current && !(await saveNow())) return;
+        const [preview, spaces] = await Promise.all([
+          api.shareNotePreview(node.path),
+          api.shareSpaces().catch(() => []),
+        ]);
+        setShareSpaces(spaces);
+        setSharePreview(preview);
+        if (spaces.length === 0) checkShareGitHub();
+      } catch (error) {
+        setGitHubChecking(false);
+        setError((error as Error).message);
+      }
+    },
+    [saveNow, checkShareGitHub],
+  );
+
+  const shareNote = useCallback(
+    async (input: ShareNoteInput) => {
+      if (sharing || switchingVault) return;
+      setSharing(true);
+      setSwitchingVault(
+        input.mode === "space"
+          ? input.spaceRoot
+          : input.mode === "existing"
+            ? input.path
+            : "github-share",
+      );
+      setShareError(null);
+      try {
+        if (!(await prepareVaultSwitch())) {
+          setShareError("当前仓库未能完成保存，已取消共享。");
+          return;
+        }
+        const result = input.mode === "space"
+          ? await api.shareNoteToSpace({
+              note: input.note,
+              spaceRoot: input.spaceRoot,
+              name: input.name,
+              email: input.email,
+            })
+          : input.mode === "github"
+          ? await api.shareNoteToGitHub({
+              note: input.note,
+              collaborators: input.collaborators,
+              name: input.name,
+              email: input.email,
+            })
+          : await api.shareNote({
+              note: input.note,
+              url: input.url,
+              path: input.path,
+              token: input.token,
+              name: input.name,
+              email: input.email,
+            });
+        await activateVault(result.vault, result.note);
+        setSharePreview(null);
+        setNotice(result.notice ?? "已移到共享空间");
+      } catch (error) {
+        setShareError((error as Error).message);
+      } finally {
+        setSharing(false);
+        setSwitchingVault(null);
+      }
+    },
+    [sharing, switchingVault, prepareVaultSwitch, activateVault],
+  );
+
   const forgetVault = useCallback(
     async (path: string) => {
       if (path === vault?.root) return;
@@ -2340,7 +2447,7 @@ export default function App() {
       {
         id: "vault.switch",
         group: "仓库",
-        label: mobile ? "打开仓库" : "管理仓库",
+        label: mobile ? "打开仓库" : "管理空间",
         run: () => {
           if (mobile) void openVault();
           else {
@@ -2999,9 +3106,14 @@ export default function App() {
           remote={remote}
           tokenSaved={tokenSaved}
           identity={identity}
+          githubAccount={githubAccount}
+          githubChecking={githubChecking}
           onRemoteChange={(url) => void setRemoteUrl(url)}
           onTokenChange={(token) => void setToken(token)}
           onIdentityChange={(name, email) => void setGitIdentity(name, email)}
+          onGitHubCheck={checkShareGitHub}
+          onGitHubConnect={connectGitHub}
+          onGitHubDisconnect={disconnectGitHub}
           agentsDocAvailable={!!vault}
           onOpenAgentsDoc={() => {
             setSettingsOpen(false);
@@ -3052,6 +3164,27 @@ export default function App() {
           onPickFolder={pickCloneFolder}
           onJoin={(input) => void joinVault(input)}
           onClose={() => !joining && setJoinOpen(false)}
+        />
+      )}
+
+      {sharePreview && !mobile && (
+        <ShareNoteDialog
+          preview={sharePreview}
+          spaces={shareSpaces}
+          identity={identity}
+          githubAccount={githubAccount}
+          githubChecking={githubChecking}
+          onCheckGitHub={checkShareGitHub}
+          onCheckSpaceAccess={api.shareSpaceAccess}
+          onOpenConnectionSettings={() => {
+            setSharePreview(null);
+            openSettings("sync");
+          }}
+          busy={sharing}
+          error={shareError}
+          onPickFolder={pickCloneFolder}
+          onShare={(input) => void shareNote(input)}
+          onClose={() => !sharing && setSharePreview(null)}
         />
       )}
 
@@ -3121,6 +3254,20 @@ export default function App() {
               </button>
             </li>
           )}
+          {menu.node.kind === "document" &&
+            !mobile &&
+            !recentVaults.some((item) => item.root === vault?.root && item.shared) && (
+              <li>
+                <button
+                  onClick={() => {
+                    const { node } = menu;
+                    void beginShareNote(node);
+                  }}
+                >
+                  {menu.node.childDir || menu.node.children.length > 0 ? "共享这个项目…" : "共享这篇…"}
+                </button>
+              </li>
+            )}
           <li>
             <button
               onClick={() => {

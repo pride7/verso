@@ -1,6 +1,6 @@
 [package]
 name = "verso"
-version = "0.7.11"
+version = "0.7.12"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
 authors = ["xsfeng"]
 edition = "2021"
@@ -25,6 +25,9 @@ serde_yaml = "0.9"
 ulid = "1"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+# GitHub 快速共享的 REST 请求；同时被安卓的 libgit2 自定义 https 传输层复用。
+# rustls 让四个平台都不依赖系统 OpenSSL。
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 
 # keyring（同步令牌的钥匙串存储）在文件末尾的 target 表里 —— 它没有安卓
 # 后端，安卓上会静默退回**内存 mock**（令牌重启就丢，症状极难自查），
@@ -58,8 +61,8 @@ base64 = "0.22"
 #
 # 补模块是打地鼠，而且补出来的东西 `scoop update git` 一次就冲掉。所以
 # 安卓不走 OpenSSL：给 libgit2 注册一个 rustls 的自定义传输层
-# （vault/transport.rs），纯 Rust，NDK 直接编，包还更小。ureq 依赖也在
-# 文件末尾的安卓 target 表里。
+# （vault/transport.rs），纯 Rust，NDK 直接编，包还更小。上面的 ureq 同时
+# 供这个传输层和 GitHub 快速共享复用。
 [target.'cfg(not(any(target_os = "android", target_os = "macos")))'.dependencies]
 git2 = { version = "0.20", default-features = false, features = ["https"] }
 
@@ -78,9 +81,8 @@ git2 = { version = "0.20", default-features = false, features = ["https", "vendo
 
 [target.'cfg(target_os = "android")'.dependencies]
 git2 = { version = "0.20", default-features = false }
-# https 传输层（vault/transport.rs）：HTTP 走 ureq、TLS 走 rustls +
-# webpki 内置根证书。全是纯 Rust，NDK 交叉编译不需要 OpenSSL/perl
-ureq = { version = "2", default-features = false, features = ["tls"] }
+# https 传输层（vault/transport.rs）复用上面的 ureq：TLS 走 rustls + webpki
+# 内置根证书。全是纯 Rust，NDK 交叉编译不需要 OpenSSL/perl
 
 # 同步令牌的钥匙串存储（vault/secret.rs）。**不给安卓**：keyring 没有安卓
 # 后端，会静默退回内存 mock —— 令牌「存进去了」但重启就丢，症状是每次

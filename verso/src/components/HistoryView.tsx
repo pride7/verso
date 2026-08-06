@@ -372,7 +372,7 @@ export function HistoryView({
         </header>
         {collaborationEnabled && (!identity?.name || !identity.email) && (
           <p className="collab-identity-note">
-            请先在「设置 → 同步」填写姓名和邮箱，Verso 才能准确区分你和协作者。
+            请先在「设置 → 同步与共享」填写姓名和邮箱，Verso 才能准确区分你和协作者。
           </p>
         )}
         {collaborationEnabled && (

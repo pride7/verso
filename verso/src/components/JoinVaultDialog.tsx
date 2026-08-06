@@ -62,8 +62,8 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
       <section className="join-vault" role="dialog" aria-modal="true" aria-labelledby="join-vault-title">
         <header className="vault-manager-head">
           <div>
-            <h2 id="join-vault-title">加入共享仓库</h2>
-            <p>每个人保留自己的本地副本，通过同一个远端交换修改。</p>
+            <h2 id="join-vault-title">加入共享空间</h2>
+            <p>打开别人邀请你参与的内容，每个人保留自己的本地副本。</p>
           </div>
           <button className="modal-close" onClick={onClose} disabled={busy} aria-label="关闭">
             <Icon name="close" size={15} />
@@ -144,4 +144,3 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
     </div>
   );
 }
-

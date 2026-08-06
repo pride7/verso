@@ -8,7 +8,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { NoteContent, NoteRef, RecentVault, TreeNode, VaultInfo } from "./types";
+vi.mock("./lib/dialog", () => ({ confirm: vi.fn(async () => true) }));
+
+import type { NoteContent, NoteRef, RecentVault, SharedSpaceAccess, TreeNode, VaultInfo } from "./types";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -35,9 +37,10 @@ const JOINED_VAULT: VaultInfo = {
 };
 
 const KNOWN: RecentVault[] = [
-  { root: VAULT.root, name: VAULT.name, available: true },
-  { root: OTHER_VAULT.root, name: OTHER_VAULT.name, available: true },
-  { root: "D:/Notes/moved", name: "moved", available: false },
+  { root: VAULT.root, name: VAULT.name, available: true, shared: false },
+  { root: OTHER_VAULT.root, name: OTHER_VAULT.name, available: true, shared: false },
+  { root: "D:/Notes/article", name: "共同论文", available: true, shared: true },
+  { root: "D:/Notes/moved", name: "moved", available: false, shared: false },
 ];
 
 const TREE: TreeNode[] = [
@@ -77,6 +80,25 @@ const cloneVault = vi.fn(async (_input: Record<string, string>) => {
   backendRoot = JOINED_VAULT.root;
   return JOINED_VAULT;
 });
+const shareCurrentNote = vi.fn(async (_input: Record<string, unknown>) => {
+  backendRoot = JOINED_VAULT.root;
+  return { vault: JOINED_VAULT, note: "论文.md", notice: null };
+});
+const shareGitHub = vi.fn(async (_input: Record<string, unknown>) => {
+  backendRoot = JOINED_VAULT.root;
+  return { vault: JOINED_VAULT, note: "论文.md", notice: "已创建私人共享空间" };
+});
+const shareToSpace = vi.fn(async (_input: Record<string, unknown>) => {
+  backendRoot = JOINED_VAULT.root;
+  return { vault: JOINED_VAULT, note: "论文.md", notice: "已加入共享空间" };
+});
+const checkShareAccess = vi.fn(async (): Promise<SharedSpaceAccess> => ({
+  members: ["person-1"],
+  pending: ["person-3"],
+  github: true,
+  verified: true,
+  warning: null,
+}));
 const writeNote = vi.fn(async (_path: string, _body: string) => 0);
 const workspaceWrites: { root: string; workspace: { tabs: string[]; active: number } }[] = [];
 const workspaceSet = vi.fn(async (workspace: { tabs: string[]; active: number }) => {
@@ -95,6 +117,23 @@ vi.mock("./api", () => ({
     reopenLastVault: async () => reopen,
     openVault: (path: string) => openVault(path),
     cloneVault: (input: Record<string, string>) => cloneVault(input),
+    shareNotePreview: async (note: string) => ({
+      note,
+      documents: [note, "论文/实验.md"],
+      files: [note, "论文/实验.md", "论文/data.csv"],
+      attachments: ["attachments/figure.png"],
+      linkedNotes: ["私人记录.md"],
+    }),
+    shareNote: (input: Record<string, unknown>) => shareCurrentNote(input),
+    shareSpaces: async () => [
+      { root: "D:/Notes/article", name: "共同论文", members: ["person-1"] },
+    ],
+    shareSpaceAccess: () => checkShareAccess(),
+    shareNoteToSpace: (input: Record<string, unknown>) => shareToSpace(input),
+    githubAccount: async () => ({ login: "owner" }),
+    githubConnect: async () => ({ login: "owner" }),
+    githubDisconnect: async () => {},
+    shareNoteToGitHub: (input: Record<string, unknown>) => shareGitHub(input),
     recentVaults: async () => knownVaults,
     forgetVault: async (path: string) => {
       knownVaults = knownVaults.filter((item) => item.root !== path);
@@ -119,6 +158,8 @@ vi.mock("./api", () => ({
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,
     gitCommit: async () => null,
+    gitIdentityGet: async () => ({ name: "林", email: "lin@example.com" }),
+    gitIdentitySet: async (name: string, email: string) => ({ name, email }),
     workspaceGet: async () => ({ tabs: [], active: 0 }),
     workspaceSet: (workspace: { tabs: string[]; active: number }) => workspaceSet(workspace),
     getSettings: async () => ({ treeSort: "name" }),
@@ -153,6 +194,10 @@ beforeEach(() => {
   pickVaultFolder.mockClear();
   pickCloneFolder.mockClear();
   cloneVault.mockClear();
+  shareCurrentNote.mockClear();
+  shareGitHub.mockClear();
+  shareToSpace.mockClear();
+  checkShareAccess.mockClear();
   writeNote.mockClear();
   workspaceSet.mockClear();
   workspaceWrites.length = 0;
@@ -214,6 +259,9 @@ describe("侧栏头部", () => {
     const menu = el(".vault-menu")!;
     expect(menu.textContent).toContain("test-vault");
     expect(menu.textContent).toContain("lab");
+    expect(menu.textContent).toContain("私人");
+    expect(menu.textContent).toContain("共享");
+    expect(menu.textContent).toContain("共同论文");
     expect(menu.textContent).toContain("位置不可用");
     const menuBox = menu.getBoundingClientRect();
     const sideBox = el(".sidebar")!.getBoundingClientRect();
@@ -235,12 +283,12 @@ describe("侧栏头部", () => {
     expect(el(".sidebar-foot")?.textContent).toContain("lab");
   });
 
-  it("不用终端即可填写远端、身份并加入共享仓库", async () => {
+  it("不用终端即可填写远端、身份并加入共享空间", async () => {
     await mountApp();
     el<HTMLButtonElement>(".vault-name")!.click();
     await settle(30);
     const join = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-action")].find(
-      (button) => button.textContent?.includes("加入共享仓库"),
+      (button) => button.textContent?.includes("加入共享空间"),
     )!;
     join.click();
     await settle(60);
@@ -278,6 +326,199 @@ describe("侧栏头部", () => {
     });
     expect(document.querySelector(".join-vault")).toBeNull();
     expect(el(".sidebar-foot")?.textContent).toContain("shared");
+  });
+
+  it("已有空间必须亲自选择，并在移动前核对实际成员", async () => {
+    await mountApp();
+    const row = el<HTMLElement>(".tree-row")!;
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    const share = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("共享这篇"),
+    )!;
+    share.click();
+    await settle(50);
+
+    const dialog = el(".share-note")!;
+    const dialogBox = dialog.getBoundingClientRect();
+    expect(dialogBox.left).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.top).toBeGreaterThanOrEqual(0);
+    expect(dialogBox.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(dialogBox.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(dialog.textContent).toContain("论文/实验.md");
+    expect(dialog.textContent).toContain("论文/data.csv");
+    expect(dialog.textContent).toContain("attachments/figure.png");
+    expect(dialog.textContent).toContain("私人记录");
+    expect(dialog.textContent).toContain("仍是私人内容");
+    expect(dialog.textContent).toContain("共同论文");
+    expect(dialog.textContent).toContain("@person-1");
+
+    const submit = dialog.querySelector<HTMLButtonElement>('.join-actions button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    expect(submit.textContent).toContain("请先选择");
+    const existing = [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")].find(
+      (button) => button.textContent?.includes("共同论文"),
+    )!;
+    await act(async () => {
+      existing.click();
+      await settle(80);
+    });
+    expect(checkShareAccess).toHaveBeenCalledOnce();
+    expect(dialog.textContent).toContain("已加入：@person-1");
+    expect(dialog.textContent).toContain("等待接受：@person-3");
+    expect(submit.disabled).toBe(false);
+
+    await act(async () => {
+      dialog.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await settle(500);
+    });
+
+    expect(shareToSpace).toHaveBeenCalledWith({
+      note: "论文.md",
+      spaceRoot: "D:/Notes/article",
+      name: "林",
+      email: "lin@example.com",
+    });
+    expect(shareGitHub).not.toHaveBeenCalled();
+    expect(pickCloneFolder).not.toHaveBeenCalled();
+    expect(document.querySelector(".share-note")).toBeNull();
+    expect(el(".sidebar-foot")?.textContent).toContain("shared");
+  });
+
+  it("GitHub 成员核对失败时不允许移动私人内容", async () => {
+    checkShareAccess.mockResolvedValueOnce({
+      members: ["person-1"],
+      pending: [],
+      github: true,
+      verified: false,
+      warning: "暂时无法从 GitHub 核对成员。",
+    });
+    await mountApp();
+    el<HTMLElement>(".tree-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    const share = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("共享这篇"),
+    )!;
+    await act(async () => {
+      share.click();
+      await settle(60);
+    });
+
+    const dialog = el(".share-note")!;
+    const existing = [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")].find(
+      (button) => button.textContent?.includes("共同论文"),
+    )!;
+    await act(async () => {
+      existing.click();
+      await settle(80);
+    });
+
+    expect(dialog.textContent).toContain("暂时无法从 GitHub 核对成员。");
+    expect(dialog.textContent).toContain("重新核对");
+    expect(dialog.querySelector<HTMLButtonElement>('.join-actions button[type="submit"]')!.disabled).toBe(true);
+    expect(shareToSpace).not.toHaveBeenCalled();
+  });
+
+  it("成员组合不同时仍可新建 GitHub 私有空间", async () => {
+    await mountApp();
+    el<HTMLElement>(".tree-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    const share = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("共享这篇"),
+    )!;
+    await act(async () => {
+      share.click();
+      await settle(60);
+    });
+    const dialog = el(".share-note")!;
+    const create = [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")].find(
+      (button) => button.textContent?.includes("新建共享空间"),
+    )!;
+    await act(async () => {
+      create.click();
+      await settle(30);
+    });
+    const inputs = [...dialog.querySelectorAll<HTMLInputElement>(".join-field input")];
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle(20);
+      });
+    };
+    await type(inputs[0], "person-2");
+    await act(async () => {
+      dialog.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await settle(500);
+    });
+    expect(shareGitHub).toHaveBeenCalledWith({
+      note: "论文.md",
+      collaborators: ["person-2"],
+      name: "林",
+      email: "lin@example.com",
+    });
+  });
+
+  it("高级入口仍可使用已有的 GitLab 或自托管空仓库", async () => {
+    await mountApp();
+    el<HTMLElement>(".tree-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    const share = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("共享这篇"),
+    )!;
+    await act(async () => {
+      share.click();
+      await settle(60);
+    });
+    const dialog = el(".share-note")!;
+    const create = [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")].find(
+      (button) => button.textContent?.includes("新建共享空间"),
+    )!;
+    await act(async () => {
+      create.click();
+      await settle(30);
+    });
+    const advanced = [...dialog.querySelectorAll<HTMLButtonElement>(".share-mode button")].find(
+      (button) => button.textContent?.includes("使用已有仓库"),
+    )!;
+    await act(async () => {
+      advanced.click();
+      await settle(30);
+    });
+    const inputs = [...dialog.querySelectorAll<HTMLInputElement>(".join-field input")];
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle(20);
+      });
+    };
+    await type(inputs[0], "https://gitlab.example.com/team/article.git");
+    await act(async () => {
+      dialog.querySelector<HTMLButtonElement>(".join-path-row button")!.click();
+      await settle(40);
+    });
+    await type(inputs[2], "gitlab-token");
+    await act(async () => {
+      dialog.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await settle(500);
+    });
+    expect(shareCurrentNote).toHaveBeenCalledWith({
+      note: "论文.md",
+      url: "https://gitlab.example.com/team/article.git",
+      path: JOINED_VAULT.root,
+      token: "gitlab-token",
+      name: "林",
+      email: "lin@example.com",
+    });
   });
 
   it("切换前先保存尚未落盘的正文", async () => {
@@ -330,7 +571,7 @@ describe("侧栏头部", () => {
     el<HTMLButtonElement>(".vault-name")!.click();
     await settle(30);
     const manage = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-action")].find(
-      (button) => button.textContent?.includes("管理仓库"),
+      (button) => button.textContent?.includes("管理空间"),
     )!;
     await act(async () => {
       manage.click();

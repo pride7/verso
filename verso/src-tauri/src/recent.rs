@@ -28,6 +28,9 @@ pub struct RecentVault {
     pub root: String,
     pub name: String,
     pub available: bool,
+    /// 共享节点创建的独立仓库。由仓库根的可删除标记推断，
+    /// 不另存一份会与磁盘事实分叉的应用状态。
+    pub shared: bool,
 }
 
 fn recent_path(app: &AppHandle) -> Option<PathBuf> {
@@ -123,10 +126,22 @@ pub fn list(app: &AppHandle) -> Vec<RecentVault> {
     load(app)
         .vaults
         .into_iter()
-        .map(|root| RecentVault {
-            name: name_of(&root),
-            available: Path::new(&root).is_dir(),
-            root,
+        .map(|root| {
+            let path = Path::new(&root);
+            let shared = crate::vault::share::is_shared_space(path);
+            let name = if shared {
+                crate::vault::share::space_info(path)
+                    .map(|space| space.name)
+                    .unwrap_or_else(|| name_of(&root))
+            } else {
+                name_of(&root)
+            };
+            RecentVault {
+                name,
+                available: path.is_dir(),
+                shared,
+                root,
+            }
         })
         .collect()
 }

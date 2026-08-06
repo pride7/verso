@@ -39,9 +39,14 @@ function mountSettings(
       remote={null}
       tokenSaved={false}
       identity={null}
+      githubAccount={null}
+      githubChecking={false}
       onRemoteChange={() => {}}
       onTokenChange={() => {}}
       onIdentityChange={() => {}}
+      onGitHubCheck={() => {}}
+      onGitHubConnect={async () => ({ login: "owner" })}
+      onGitHubDisconnect={async () => {}}
       agentsDocAvailable={true}
       onOpenAgentsDoc={() => {}}
       onRewriteAgentsDoc={async () => {}}
@@ -247,7 +252,7 @@ describe("同步设置：提交署名", () => {
     expect(host.querySelector('[aria-label="署名"]')).not.toBeNull();
   });
 
-  it("仓库地址和署名都让说明独占一行，输入区排在下方", async () => {
+  it("GitHub 连接、仓库地址和署名都让说明独占一行，输入区排在下方", async () => {
     const { host } = mountSettings("sync", {}, {
       remote: REMOTE,
       identity: { name: "冯", email: "x@example.com" },
@@ -255,7 +260,7 @@ describe("同步设置：提交署名", () => {
     await settle();
 
     const rows = host.querySelectorAll<HTMLElement>(".set-sync-stack-row");
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     for (const row of rows) {
       const label = row.querySelector<HTMLElement>(".set-label")!;
       const control = row.querySelector<HTMLElement>(".set-control")!;
@@ -278,5 +283,43 @@ describe("同步设置：提交署名", () => {
       (label) => label.textContent,
     );
     expect(labels).toEqual(["用户名", "邮箱"]);
+  });
+});
+
+describe("同步与共享：GitHub 连接", () => {
+  const REMOTE = { url: "https://github.com/owner/notes.git", branch: "main", needsToken: true };
+
+  it("账号只在设置中连接一次，当前仓库凭据收进高级入口", async () => {
+    const connect = vi.fn(async () => ({ login: "owner" }));
+    const { host } = mountSettings("sync", {}, {
+      remote: REMOTE,
+      identity: { name: "林", email: "lin@example.com" },
+      onGitHubConnect: connect,
+    });
+    await settle();
+
+    expect(host.textContent).toContain("GitHub 账号只需连接一次");
+    expect(host.querySelector<HTMLDetailsElement>(".set-sync-advanced")!.open).toBe(false);
+    const token = host.querySelector<HTMLInputElement>('[aria-label="GitHub 连接令牌"]')!;
+    await userEvent.fill(token, "secret");
+    await userEvent.click(button(host, "连接"));
+    await settle();
+    expect(connect).toHaveBeenCalledWith("secret");
+  });
+
+  it("已连接时只显示账号与断开入口", async () => {
+    const disconnect = vi.fn(async () => {});
+    const { host } = mountSettings("sync", {}, {
+      remote: REMOTE,
+      identity: { name: "林", email: "lin@example.com" },
+      githubAccount: { login: "pride7" },
+      onGitHubDisconnect: disconnect,
+    });
+    await settle();
+
+    expect(host.textContent).toContain("@pride7");
+    expect(host.querySelector('[aria-label="GitHub 连接令牌"]')).toBeNull();
+    await userEvent.click(button(host, "断开"));
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 });

@@ -8,6 +8,7 @@ import type {
   FileChange,
   FileDiff,
   GitIdentity,
+  GitHubAccount,
   GitStatus,
   HistoryEntry,
   IndexStats,
@@ -17,6 +18,9 @@ import type {
   RemoteInfo,
   RecentVault,
   SearchHit,
+  SharePreview,
+  SharedSpaceInfo,
+  SharedSpaceAccess,
   SyncOutcome,
   SyncResolution,
   TreeNode,
@@ -45,7 +49,7 @@ export async function pickVaultFolder(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
-/** 加入共享仓库时选一个空目录；单独命名，避免对话框仍写着「打开」。 */
+/** 加入已有共享空间时选一个空目录；单独命名，避免对话框仍写着「打开」。 */
 export async function pickCloneFolder(): Promise<string | null> {
   const picked = await open({ directory: true, multiple: false, title: "选择一个空文件夹" });
   return typeof picked === "string" ? picked : null;
@@ -61,6 +65,41 @@ export const api = {
     name: string;
     email: string;
   }) => call<VaultInfo>("vault_clone", input),
+  /** 只读预检：列出节点子树、附件和明确不会共享的关联笔记。 */
+  shareNotePreview: (note: string) => call<SharePreview>("note_share_preview", { note }),
+  /** 可复用的共享空间；把内容加入其中不会新建仓库。 */
+  shareSpaces: () => call<SharedSpaceInfo[]>("note_share_space_list"),
+  /** 选中已有空间后核对真正有权访问的人；marker 里的名单只作离线提示。 */
+  shareSpaceAccess: (spaceRoot: string) =>
+    call<SharedSpaceAccess>("note_share_space_access", { spaceRoot }),
+  shareNoteToSpace: (input: {
+    note: string;
+    spaceRoot: string;
+    name: string;
+    email: string;
+  }) => call<{ vault: VaultInfo; note: string; notice: string | null }>("note_share_to_space", input),
+  /** 把整个内容节点迁进独立小仓库；成功后后端已切换到新共享空间。 */
+  shareNote: (input: {
+    note: string;
+    path: string;
+    url: string;
+    token: string;
+    name: string;
+    email: string;
+  }) => call<{ vault: VaultInfo; note: string; notice: string | null }>("note_share", input),
+  /** 已连接的 GitHub 账号；令牌只在 Rust 侧安全凭据中。 */
+  githubAccount: () => call<GitHubAccount | null>("github_account_get"),
+  /** 首次连接时验证并安全保存 GitHub 令牌。 */
+  githubConnect: (token: string) => call<GitHubAccount>("github_token_set", { token }),
+  githubDisconnect: () => call<void>("github_account_disconnect"),
+  /** 默认共享流程：自动建私有仓库、邀请成员并迁移完整节点。 */
+  shareNoteToGitHub: (input: {
+    note: string;
+    collaborators: string[];
+    name: string;
+    email: string;
+  }) =>
+    call<{ vault: VaultInfo; note: string; notice: string | null }>("note_share_github", input),
   /** 成功打开过的仓库，最近使用的在前；不存在的目录也会返回并标记。 */
   recentVaults: () => call<RecentVault[]>("vault_recent_list"),
   /** 只忘记快捷入口，不删除目录或笔记。 */

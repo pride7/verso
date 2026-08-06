@@ -5,7 +5,7 @@ import { confirm } from "../lib/dialog";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
 import { APP_VERSION, progressText, updatesSupported, type UpdateApi } from "../lib/update";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
-import type { GitIdentity, RemoteInfo } from "../types";
+import type { GitHubAccount, GitIdentity, RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
 import {
@@ -32,6 +32,11 @@ interface Props {
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
   onIdentityChange: (name: string, email: string) => void;
+  githubAccount: GitHubAccount | null;
+  githubChecking: boolean;
+  onGitHubCheck: () => void;
+  onGitHubConnect: (token: string) => Promise<GitHubAccount>;
+  onGitHubDisconnect: () => Promise<void>;
   /** §7.7：直接打开 vault 根目录里真实的 AGENTS.md，不维护第二份副本 */
   agentsDocAvailable: boolean;
   onOpenAgentsDoc: () => void;
@@ -62,7 +67,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "ai", label: "AI 协作" },
   { id: "snippets", label: "公式补全" },
   { id: "slash", label: "斜杠菜单" },
-  { id: "sync", label: "同步" },
+  { id: "sync", label: "同步与共享" },
   { id: "update", label: "软件更新" },
 ];
 
@@ -74,7 +79,7 @@ const TAB_DESCRIPTIONS: Record<Tab, string> = {
   ai: "仓库说明与本地 AI CLI 协作",
   snippets: "自定义 LaTeX 输入规则",
   slash: "管理内置命令与自定义条目",
-  sync: "配置远程仓库与访问凭据",
+  sync: "连接 GitHub，配置当前空间的同步与署名",
   update: "检查版本与配置自动更新",
 };
 
@@ -197,24 +202,38 @@ function SyncSettings({
   remote,
   tokenSaved,
   identity,
+  githubAccount,
+  githubChecking,
   onRemoteChange,
   onTokenChange,
   onIdentityChange,
+  onGitHubCheck,
+  onGitHubConnect,
+  onGitHubDisconnect,
 }: {
   remote: RemoteInfo | null;
   tokenSaved: boolean;
   identity: GitIdentity | null;
+  githubAccount: GitHubAccount | null;
+  githubChecking: boolean;
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
   onIdentityChange: (name: string, email: string) => void;
+  onGitHubCheck: () => void;
+  onGitHubConnect: (token: string) => Promise<GitHubAccount>;
+  onGitHubDisconnect: () => Promise<void>;
 }) {
   // 输入框都**按下「保存」才提交**，不是边打边存：地址打到一半就去连
   // 远端毫无意义，而令牌每敲一个字符写一次钥匙串更是荒唐
   const [url, setUrl] = useState(remote?.url ?? "");
   const [token, setToken] = useState("");
+  const [githubToken, setGitHubToken] = useState("");
+  const [githubBusy, setGitHubBusy] = useState(false);
+  const [githubError, setGitHubError] = useState<string | null>(null);
   const [name, setName] = useState(identity?.name ?? "");
   const [email, setEmail] = useState(identity?.email ?? "");
   useEffect(() => setUrl(remote?.url ?? ""), [remote?.url]);
+  useEffect(() => onGitHubCheck(), [onGitHubCheck]);
   useEffect(() => {
     setName(identity?.name ?? "");
     setEmail(identity?.email ?? "");
@@ -222,15 +241,75 @@ function SyncSettings({
   const identityDirty =
     name.trim() !== (identity?.name ?? "") || email.trim() !== (identity?.email ?? "");
 
-  if (!remote) {
-    return <p className="set-note">请先打开一个笔记库。</p>;
-  }
-
   return (
     <div className="set-sync">
       <p className="set-note">
-        配置远程 Git 仓库后，可通过状态栏中的「同步」上传本机更改并获取远程更改。
+        GitHub 账号只需连接一次，当前空间同步、快速创建共享空间和邀请成员都会复用。
       </p>
+
+      <h3 className="set-section">GitHub 连接</h3>
+      {githubChecking ? (
+        <div className="set-account-card">正在检查 GitHub 连接…</div>
+      ) : githubAccount ? (
+        <div className="set-account-card">
+          <span><Icon name="check" size={14} /> 已连接 <strong>@{githubAccount.login}</strong></span>
+          <button
+            className="set-save"
+            disabled={githubBusy}
+            onClick={() => {
+              setGitHubBusy(true);
+              setGitHubError(null);
+              void onGitHubDisconnect()
+                .catch((error) => setGitHubError((error as Error).message))
+                .finally(() => setGitHubBusy(false));
+            }}
+          >
+            断开
+          </button>
+        </div>
+      ) : (
+        <div className="set-row set-sync-stack-row">
+          <div className="set-label">
+            <span>连接 GitHub</span>
+            <span className="set-hint">
+              在 GitHub App 设备授权上线前，暂时使用 fine-grained token 连接一次；需要
+              Contents 与 Administration 写权限，凭据只保存在这台设备。
+            </span>
+          </div>
+          <div className="set-control">
+            <input
+              type="password"
+              className="set-text"
+              aria-label="GitHub 连接令牌"
+              value={githubToken}
+              placeholder="github_pat_…"
+              autoComplete="off"
+              onChange={(event) => setGitHubToken(event.target.value)}
+            />
+            <button
+              className="set-save"
+              disabled={!githubToken.trim() || githubBusy}
+              onClick={() => {
+                setGitHubBusy(true);
+                setGitHubError(null);
+                void onGitHubConnect(githubToken.trim())
+                  .then(() => setGitHubToken(""))
+                  .catch((error) => setGitHubError((error as Error).message))
+                  .finally(() => setGitHubBusy(false));
+              }}
+            >
+              {githubBusy ? "正在连接…" : "连接"}
+            </button>
+          </div>
+        </div>
+      )}
+      {githubError && <p className="set-note set-sync-error">{githubError}</p>}
+
+      <h3 className="set-section">当前空间同步</h3>
+
+      {!remote && <p className="set-note">请先打开一个笔记库。</p>}
+
+      {remote && <>
 
       <div className="set-row set-sync-stack-row">
         <div className="set-label">
@@ -259,13 +338,15 @@ function SyncSettings({
       </div>
 
       {remote.needsToken && (
+        <details className="set-sync-advanced">
+          <summary>使用当前仓库的其他凭据</summary>
         <div className="set-row">
           <div className="set-label">
             <span>访问令牌</span>
             <span className="set-hint">
               {/* 说清楚它存哪儿 —— 一个仓库令牌等于那个仓库的写权限，
                   人有权知道自己把它交到了哪里 */}
-              GitHub Personal Access Token，需具备仓库读写权限。凭据仅存储于系统密钥链
+              适用于 GitLab、自托管服务或需要覆盖 GitHub 账号连接的仓库。凭据仅存储于系统密钥链
               {tokenSaved && " · 已保存"}
             </span>
           </div>
@@ -289,8 +370,10 @@ function SyncSettings({
             </button>
           </div>
         </div>
+        </details>
       )}
 
+      <h3 className="set-section">版本署名</h3>
       <div className="set-row set-sync-stack-row set-identity-row">
         <div className="set-label">
           <span>提交署名</span>
@@ -339,6 +422,7 @@ function SyncSettings({
           冲突文档，不会自动合并。
         </p>
       )}
+      </>}
     </div>
   );
 }
@@ -476,9 +560,14 @@ export function SettingsPanel({
   remote,
   tokenSaved,
   identity,
+  githubAccount,
+  githubChecking,
   onRemoteChange,
   onTokenChange,
   onIdentityChange,
+  onGitHubCheck,
+  onGitHubConnect,
+  onGitHubDisconnect,
   agentsDocAvailable,
   onOpenAgentsDoc,
   onRewriteAgentsDoc,
@@ -988,9 +1077,14 @@ export function SettingsPanel({
               remote={remote}
               tokenSaved={tokenSaved}
               identity={identity}
+              githubAccount={githubAccount}
+              githubChecking={githubChecking}
               onRemoteChange={onRemoteChange}
               onTokenChange={onTokenChange}
               onIdentityChange={onIdentityChange}
+              onGitHubCheck={onGitHubCheck}
+              onGitHubConnect={onGitHubConnect}
+              onGitHubDisconnect={onGitHubDisconnect}
             />
           )}
 

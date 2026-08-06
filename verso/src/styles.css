@@ -355,6 +355,9 @@ button {
   font-size: 11px;
   letter-spacing: 0.025em;
 }
+.welcome-vault-group + .welcome-vault-group {
+  margin-top: 12px;
+}
 .welcome-vault-item {
   display: flex;
   align-items: center;
@@ -923,6 +926,11 @@ button {
   font-size: 10.5px;
   letter-spacing: 0.035em;
 }
+.vault-menu-group + .vault-menu-group {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--hairline);
+}
 .vault-menu-item,
 .vault-menu-action {
   display: flex;
@@ -1024,6 +1032,17 @@ button {
   min-height: 120px;
   overflow-y: auto;
   padding: 8px;
+}
+.vault-manager-section + .vault-manager-section {
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--hairline);
+}
+.vault-manager-section-title {
+  padding: 3px 8px 4px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.035em;
 }
 .vault-manager-error {
   margin: 2px 3px 8px;
@@ -1154,7 +1173,7 @@ button {
   font-size: 12px;
 }
 
-/* ---------- 加入共享仓库 ---------- */
+/* ---------- 加入 / 创建共享空间 ---------- */
 
 .join-vault {
   width: min(560px, calc(100vw - 32px));
@@ -1234,16 +1253,217 @@ button {
   font-size: 11.5px;
   line-height: 1.5;
 }
-.join-actions {
+  .join-actions {
   display: flex;
   justify-content: flex-end;
   gap: 7px;
   margin: 2px -20px -18px;
   padding: 12px 20px;
-  border-top: 1px solid var(--hairline);
-}
+    border-top: 1px solid var(--hairline);
+  }
+
+  .share-note {
+    width: min(600px, calc(100vw - 32px));
+  }
+  .share-manifest,
+  .share-excluded {
+    padding: 10px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+  .share-manifest {
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  .share-manifest strong,
+  .share-excluded strong {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .share-manifest > div {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .share-manifest > div + div {
+    margin-top: 3px;
+  }
+  .share-manifest small,
+  .share-excluded small {
+    color: var(--muted);
+  }
+  .share-excluded {
+    border-color: color-mix(in oklch, var(--accent) 24%, var(--hairline));
+    background: color-mix(in oklch, var(--accent) 4%, var(--surface));
+  }
+  .share-excluded p,
+  .share-move-note {
+    margin: 0;
+  }
+  .share-mode {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px;
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .share-space-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .share-space-picker > strong {
+    font-weight: 600;
+  }
+  .share-space-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  .share-space-options button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 8px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    color: var(--muted);
+    background: var(--surface);
+    text-align: left;
+    cursor: pointer;
+  }
+  .share-space-options button.is-active {
+    border-color: color-mix(in oklch, var(--accent) 45%, var(--hairline));
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 5%, var(--surface));
+  }
+  .share-space-options button:disabled {
+    cursor: default;
+    opacity: 0.65;
+  }
+  .share-space-options button > span {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+  }
+  .share-space-options b,
+  .share-space-options small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .share-space-options b {
+    color: var(--text);
+    font-size: 11.5px;
+  }
+  .share-space-options small {
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .share-access {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in oklch, var(--danger) 20%, var(--hairline));
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    background: color-mix(in oklch, var(--danger) 3%, var(--surface));
+    font-size: 10.5px;
+    line-height: 1.45;
+  }
+  .share-access.is-verified {
+    align-items: stretch;
+    flex-direction: column;
+    border-color: color-mix(in oklch, var(--accent) 22%, var(--hairline));
+    background: color-mix(in oklch, var(--accent) 4%, var(--surface));
+  }
+  .share-access.is-verified > div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .share-access .is-pending {
+    color: var(--muted-2);
+  }
+  .share-access .btn-quiet {
+    flex: none;
+    padding: 3px 8px;
+  }
+  .share-mode button {
+    min-height: 31px;
+    border: 0;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    background: transparent;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .share-mode button.is-active {
+    color: var(--text);
+    background: var(--raised);
+    box-shadow: 0 1px 3px color-mix(in oklch, var(--text) 10%, transparent);
+  }
+  .share-mode button:disabled {
+    cursor: default;
+    opacity: 0.6;
+  }
+  .share-account {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 11px;
+    border: 1px solid color-mix(in oklch, var(--accent) 22%, var(--hairline));
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    background: color-mix(in oklch, var(--accent) 4%, var(--surface));
+    font-size: 11.5px;
+  }
+  .share-account strong {
+    color: var(--text);
+  }
+  .share-account.is-loading {
+    color: var(--muted);
+  }
+  .share-account.is-missing {
+    justify-content: space-between;
+  }
+  .share-account .btn-quiet {
+    flex: none;
+    padding: 3px 8px;
+  }
+  .share-advanced {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .share-move-note {
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.5;
+  }
 @media (max-width: 520px) {
   .join-identity {
+    grid-template-columns: 1fr;
+  }
+  .share-space-options {
     grid-template-columns: 1fr;
   }
 }
@@ -6133,6 +6353,46 @@ textarea:focus-visible {
 }
 .set-note-dim {
   color: var(--muted-2);
+}
+.set-account-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 12px;
+}
+.set-account-card > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.set-account-card strong {
+  color: var(--text);
+}
+.set-sync-advanced {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.set-sync-advanced > summary {
+  padding: 9px 11px;
+  color: var(--muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.set-sync-advanced[open] > summary {
+  border-bottom: 1px solid var(--hairline);
+}
+.set-sync-advanced .set-row {
+  padding: 10px 11px;
+}
+.set-sync-error {
+  color: var(--danger);
 }
 
 /* AI 说明仍是仓库里的真实 Markdown；设置页只提供入口和维护动作。

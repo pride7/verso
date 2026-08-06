@@ -219,6 +219,8 @@ vi.mock("./api", () => ({
       lastAt: Math.floor(Date.now() / 1000) - 900,
     }),
     gitCommit: async () => null,
+    gitIdentityGet: async () => ({ name: "pride7", email: "xsfeng07@gmail.com" }),
+    gitIdentitySet: async (name: string, email: string) => ({ name, email }),
     gitHistory: async () => [
       {
         id: "a1",
@@ -244,6 +246,9 @@ vi.mock("./api", () => ({
     syncTokenHas: async () => true,
     syncRemoteSet: async (url: string) => ({ url, branch: "main", needsToken: true }),
     syncTokenSet: async () => null,
+    githubAccount: async () => ({ login: "pride7" }),
+    githubConnect: async () => ({ login: "pride7" }),
+    githubDisconnect: async () => {},
     vaultSync: async () => ({ committed: null, pulled: 0, pushed: 0, conflicts: [] }),
     workspaceGet: async () => workspace,
     workspaceSet: async () => {},
@@ -574,7 +579,7 @@ describe("视觉工作台", () => {
     clickRail("设置");
     await settle(200);
     [...document.querySelectorAll<HTMLElement>(".settings-tabs button")]
-      .find((b) => b.textContent === "同步")!
+      .find((b) => b.textContent === "同步与共享")!
       .click();
     await shot("18-light-sync");
     alive();
