@@ -550,6 +550,15 @@ fn prop_set(
     Ok(())
 }
 
+/// 用当前版本重写 vault 里给 AI 看的那份约定说明（§7.7）。
+///
+/// 打开 vault 时只会「缺了才补」—— 这条是唯一会覆盖的路径，所以必须由用户
+/// 主动触发（命令面板），不能自动跑：那份文件用户可能加过自己的话。
+#[tauri::command]
+fn agents_doc_write(state: State<'_, AppState>) -> Result<()> {
+    state.with_vault(|v| vault::agents::rewrite(&v.root))
+}
+
 /// 手动重建索引。索引出问题时的兜底 —— 它是派生数据，重建总能修好。
 #[tauri::command]
 fn index_rebuild(state: State<'_, AppState>) -> Result<index::IndexStats> {
@@ -983,6 +992,7 @@ pub fn run() {
             pty_resize,
             pty_close,
             pty_active_count,
+            agents_doc_write,
             search,
             backlinks,
             dangling_links,

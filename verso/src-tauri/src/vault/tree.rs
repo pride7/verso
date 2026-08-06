@@ -17,6 +17,10 @@ use crate::error::Result;
 /// DESIGN.md §10.2 定了它可配置。等 config.json 落地后从配置读。
 const HIDDEN_DIRS: &[&str] = &[".verso", ".git", ".obsidian", "attachments", "node_modules"];
 
+/// 根目录里供 AI CLI 读取的仓库说明不是笔记，不进入文档树及其下游索引。
+/// 只匹配根目录：子目录里同名的文件仍可能是用户真正写的文档。
+const HIDDEN_ROOT_DOCS: &[&str] = &["AGENTS.md", "CLAUDE.md"];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeKind {
@@ -82,6 +86,9 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
         } else if let Some(stem) = e.name.strip_suffix(".md") {
             if stem.is_empty() {
                 continue; // 文件名就叫 ".md"，忽略
+            }
+            if rel.is_empty() && is_hidden_root_doc(&e.name) {
+                continue;
             }
             docs.insert(stem.to_string(), ());
         }
@@ -149,6 +156,12 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
 
 fn is_hidden_dir(name: &str) -> bool {
     name.starts_with('.') || HIDDEN_DIRS.contains(&name)
+}
+
+/// 保存 / 文件监听的增量索引也要复用同一判断，否则编辑一次隐藏文件后，
+/// 它又会悄悄回到搜索结果里。
+pub(crate) fn is_hidden_root_doc(rel: &str) -> bool {
+    HIDDEN_ROOT_DOCS.contains(&rel)
 }
 
 fn join_rel(rel: &str, name: &str) -> String {
@@ -355,6 +368,28 @@ mod tests {
         let fs = design_doc_vault();
         let tree = scan(&fs, Path::new("/vault"), "").unwrap();
         assert_eq!(tree.len(), 1, "只应剩下「数学」，.verso 和 attachments 要被跳过");
+    }
+
+    #[test]
+    fn hides_only_root_ai_instructions() {
+        let fs = FakeFs::new(&[
+            (
+                "",
+                &[
+                    ("AGENTS.md", false),
+                    ("CLAUDE.md", false),
+                    ("正文.md", false),
+                    ("项目", true),
+                ],
+            ),
+            ("项目", &[("AGENTS.md", false)]),
+        ]);
+        let tree = scan(&fs, Path::new("/vault"), "").unwrap();
+
+        assert!(tree.iter().all(|node| node.name != "AGENTS" && node.name != "CLAUDE"));
+        assert!(tree.iter().any(|node| node.path == "正文.md"));
+        let project = tree.iter().find(|node| node.name == "项目").unwrap();
+        assert!(project.children.iter().any(|node| node.path == "项目/AGENTS.md"));
     }
 
     #[test]

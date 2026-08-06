@@ -32,6 +32,11 @@ interface Props {
   onRemoteChange: (url: string) => void;
   onTokenChange: (token: string) => void;
   onIdentityChange: (name: string, email: string) => void;
+  /** §7.7：直接打开 vault 根目录里真实的 AGENTS.md，不维护第二份副本 */
+  agentsDocAvailable: boolean;
+  onOpenAgentsDoc: () => void;
+  /** 明确确认后，用当前版本的模板覆盖两份 AI CLI 约定文件 */
+  onRewriteAgentsDoc: () => Promise<void>;
   /** §2.11 更新。状态机在 App 上，这里只是它的一个界面 */
   update: UpdateApi;
   /** 打开时停在哪一页。状态栏那个「有新版本」直接跳到「更新」 */
@@ -43,6 +48,7 @@ export type Tab =
   | "editor"
   | "keys"
   | "terminal"
+  | "ai"
   | "snippets"
   | "slash"
   | "sync"
@@ -53,6 +59,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "editor", label: "编辑" },
   { id: "keys", label: "快捷键" },
   { id: "terminal", label: "终端" },
+  { id: "ai", label: "AI 协作" },
   { id: "snippets", label: "公式补全" },
   { id: "slash", label: "斜杠菜单" },
   { id: "sync", label: "同步" },
@@ -64,6 +71,7 @@ const TAB_DESCRIPTIONS: Record<Tab, string> = {
   editor: "阅读、标签页、模板与版本记录",
   keys: "查看并修改命令快捷键",
   terminal: "内嵌终端的显示设置",
+  ai: "仓库说明与本地 AI CLI 协作",
   snippets: "自定义 LaTeX 输入规则",
   slash: "管理内置命令与自定义条目",
   sync: "配置远程仓库与访问凭据",
@@ -471,10 +479,16 @@ export function SettingsPanel({
   onRemoteChange,
   onTokenChange,
   onIdentityChange,
+  agentsDocAvailable,
+  onOpenAgentsDoc,
+  onRewriteAgentsDoc,
   update,
   initialTab,
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? "appearance");
+  const [agentsBusy, setAgentsBusy] = useState(false);
+  const [agentsMessage, setAgentsMessage] = useState<string | null>(null);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
   // 底层仍存 Latex Suite 兼容的 JSON，界面则只操作表格行。这样既能无损接住
   // 旧配置，又不必让日常添加一条规则的人手写括号、引号和转义符。
   const snippetSource = useMemo(
@@ -873,6 +887,92 @@ export function SettingsPanel({
                 较小的字号可在终端中显示更多上下文。
               </p>
             </>
+          )}
+
+          {tab === "ai" && (
+            <div className="set-ai">
+              <p className="set-note">
+                Verso 会在仓库根目录保留两份标准 Markdown 说明，供你在终端里使用的
+                AI CLI 自动读取。它们会参与版本记录和同步，但不会混进普通文档树、
+                搜索结果或 database。
+              </p>
+
+              <div className="set-row">
+                <div className="set-label">
+                  <span><code>AGENTS.md</code></span>
+                  <span className="set-hint">
+                    唯一的规则正文。打开的是仓库里的真实文件，可以加入项目自己的约定。
+                  </span>
+                </div>
+                <div className="set-control">
+                  <button
+                    className="set-save"
+                    disabled={!agentsDocAvailable}
+                    onClick={onOpenAgentsDoc}
+                  >
+                    打开并编辑
+                  </button>
+                </div>
+              </div>
+
+              <div className="set-row">
+                <div className="set-label">
+                  <span><code>CLAUDE.md</code></span>
+                  <span className="set-hint">
+                    Claude Code 的兼容入口，只负责指向 AGENTS.md，避免维护两份重复规则。
+                  </span>
+                </div>
+                <div className="set-control">
+                  <span className="set-hint">由 Verso 维护</span>
+                </div>
+              </div>
+
+              <h3 className="set-section">维护</h3>
+              <div className="set-row">
+                <div className="set-label">
+                  <span>恢复默认说明</span>
+                  <span className="set-hint">
+                    用当前 Verso 版本的模板覆盖两个文件；自己添加的规则也会被替换，
+                    之后仍可从版本历史恢复。
+                  </span>
+                </div>
+                <div className="set-control">
+                  <button
+                    className="set-save"
+                    disabled={!agentsDocAvailable || agentsBusy}
+                    onClick={async () => {
+                      const ok = await confirm(
+                        "这会用当前版本的默认内容覆盖 AGENTS.md 和 CLAUDE.md。你自己添加的规则也会被替换，但可以从版本历史恢复。确定继续吗？",
+                        {
+                          title: "恢复 AI 仓库说明",
+                          okLabel: "覆盖并恢复",
+                          cancelLabel: "取消",
+                          kind: "warning",
+                        },
+                      );
+                      if (!ok) return;
+                      setAgentsBusy(true);
+                      setAgentsMessage(null);
+                      setAgentsError(null);
+                      try {
+                        await onRewriteAgentsDoc();
+                        setAgentsMessage("已恢复当前版本的默认说明");
+                      } catch (e) {
+                        setAgentsError((e as Error).message);
+                      } finally {
+                        setAgentsBusy(false);
+                      }
+                    }}
+                  >
+                    {agentsBusy ? "正在恢复…" : "恢复默认说明"}
+                  </button>
+                </div>
+              </div>
+
+              {!agentsDocAvailable && <p className="set-note">打开一个仓库后才能管理这些文件。</p>}
+              {agentsMessage && <p className="set-note set-ai-success">{agentsMessage}</p>}
+              {agentsError && <p className="set-note set-ai-error">{agentsError}</p>}
+            </div>
           )}
 
           {tab === "update" && (

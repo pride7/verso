@@ -116,6 +116,8 @@ export const api = {
   /** 带某个标签的笔记，含嵌套子标签 */
   notesByTag: (tag: string) => call<NoteRef[]>("notes_by_tag", { tag }),
   rebuildIndex: () => call<IndexStats>("index_rebuild"),
+  /** §7.7 用当前版本重写 vault 里给 AI 看的那份约定说明。会覆盖，只由用户主动触发 */
+  agentsDocWrite: () => call<void>("agents_doc_write"),
 
   // —— §2.6 database 视图 ——
   /** 执行一个 verso-view 代码块，`source` 是块里的原文 */

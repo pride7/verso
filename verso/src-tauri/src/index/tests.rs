@@ -252,6 +252,26 @@ fn update_note_reindexes_a_single_file() {
 }
 
 #[test]
+fn root_ai_instructions_stay_out_of_incremental_indexing() {
+    let (t, v, mut idx) = setup(&[
+        ("AGENTS.md", "只给 AI 看的独特规则词\n"),
+        ("正文.md", "普通笔记\n"),
+    ]);
+    assert!(idx.search("独特规则词", 10).unwrap().is_empty());
+
+    // 编辑器保存和文件监听都会走 update_note；不能因为改了一次就重新出现在搜索里。
+    std::fs::write(t.0.join("AGENTS.md"), "只给 AI 看的另一个独特词\n").unwrap();
+    idx.update_note(&v, "AGENTS.md").unwrap();
+
+    assert!(idx.search("另一个独特词", 10).unwrap().is_empty());
+    let n: i64 = idx
+        .conn()
+        .query_row("SELECT count(*) FROM notes", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+}
+
+#[test]
 fn removing_a_note_clears_its_index_entries() {
     let (_t, _v, mut idx) = sample();
     idx.remove_note("数学/线性代数/奇异值分解.md").unwrap();

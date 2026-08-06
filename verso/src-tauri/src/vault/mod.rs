@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod attach;
 pub mod fs;
 pub mod git;
@@ -96,6 +97,12 @@ impl Vault {
         let root = root.canonicalize().unwrap_or(root);
 
         let g = git::ensure_repo(&root)?;
+        // 给 vault 里的 AI CLI 补一份约定说明（§7.7）。和 .gitignore 一样是
+        // 幂等的：缺了就补，有了不碰。
+        //
+        // **写不成不算致命** —— 只读介质、权限不足都可能失败，而那时正确的
+        // 行为是照常打开 vault。一份说明文件不该成为「笔记打不开」的理由。
+        let _ = agents::ensure(&root);
         let info = VaultInfo {
             // 报给前端的是「人话」写法：canonicalize 在 Windows 上给的是
             // `\\?\D:\…`，那个前缀会原样出现在欢迎页、仓库管理器和 recent.json

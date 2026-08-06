@@ -42,6 +42,9 @@ function mountSettings(
       onRemoteChange={() => {}}
       onTokenChange={() => {}}
       onIdentityChange={() => {}}
+      agentsDocAvailable={true}
+      onOpenAgentsDoc={() => {}}
+      onRewriteAgentsDoc={async () => {}}
       update={{
         state: { phase: "idle" },
         check: () => {},
@@ -61,6 +64,39 @@ function button(host: HTMLElement, label: string): HTMLButtonElement {
   if (!hit) throw new Error(`没有找到按钮「${label}」`);
   return hit;
 }
+
+describe("AI 协作设置", () => {
+  it("把真实规则文件放在专用入口，并确认后才恢复默认内容", async () => {
+    const open = vi.fn();
+    const rewrite = vi.fn(async () => {});
+    const { host } = mountSettings("ai", {}, {
+      onOpenAgentsDoc: open,
+      onRewriteAgentsDoc: rewrite,
+    });
+    await settle();
+
+    expect(host.textContent).toContain("AGENTS.md");
+    expect(host.textContent).toContain("CLAUDE.md");
+    expect(host.textContent).toContain("不会混进普通文档树");
+
+    await userEvent.click(button(host, "打开并编辑"));
+    expect(open).toHaveBeenCalledOnce();
+
+    await userEvent.click(button(host, "恢复默认说明"));
+    await settle();
+    expect(rewrite).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("已恢复当前版本的默认说明");
+  });
+
+  it("没有打开仓库时不允许操作规则文件", async () => {
+    const { host } = mountSettings("ai", {}, { agentsDocAvailable: false });
+    await settle();
+
+    expect(button(host, "打开并编辑").disabled).toBe(true);
+    expect(button(host, "恢复默认说明").disabled).toBe(true);
+    expect(host.textContent).toContain("打开一个仓库后才能管理这些文件");
+  });
+});
 
 describe("公式补全设置表格", () => {
   it("已有 JSON 自动变成表格，迁移入口默认收起", async () => {

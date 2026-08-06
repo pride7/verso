@@ -13,7 +13,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::error::{Error, Result};
-use crate::vault::{note, tree::NodeKind, NoteRef, Vault};
+use crate::vault::{
+    note,
+    tree::{self, NodeKind},
+    NoteRef, Vault,
+};
 
 /// 文件 mtime → 和 frontmatter 里的时间戳同一种写法（本地时区、秒精度）。
 ///
@@ -118,6 +122,11 @@ impl Index {
 
     /// 单篇更新。保存、或监听到外部修改时调用。
     pub fn update_note(&mut self, vault: &Vault, rel: &str) -> Result<()> {
+        // AGENTS.md / CLAUDE.md 是仓库基础设施而非笔记。全量重建靠文档树过滤，
+        // 增量路径也必须在这里兜住，并清掉旧版本可能留下的索引行。
+        if tree::is_hidden_root_doc(rel) {
+            return self.remove_note(rel);
+        }
         let abs = vault.resolve(rel)?;
         if !abs.is_file() {
             return self.remove_note(rel);

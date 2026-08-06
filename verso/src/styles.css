@@ -5976,6 +5976,15 @@ textarea:focus-visible {
   color: var(--muted-2);
 }
 
+/* AI 说明仍是仓库里的真实 Markdown；设置页只提供入口和维护动作。
+   成功 / 失败要留在动作附近，不能只靠几秒后消失的全局提示。 */
+.set-ai-success {
+  color: var(--accent);
+}
+.set-ai-error {
+  color: var(--danger);
+}
+
 /* ---------- 更新设置（§2.11） ---------- */
 .set-version {
   font-family: var(--font-mono);

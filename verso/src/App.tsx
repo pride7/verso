@@ -2299,6 +2299,14 @@ export default function App() {
         },
       },
       {
+        id: "vault.agentsDoc",
+        group: "仓库",
+        label: "打开 AI 仓库说明",
+        enabled: !!vault,
+        // 覆盖是有损动作，统一去设置页读完说明并确认；命令面板不再一按就改文件。
+        run: () => openSettings("ai"),
+      },
+      {
         id: "vault.reindex",
         group: "仓库",
         label: "重建索引",
@@ -2340,6 +2348,8 @@ export default function App() {
     sendToTerm,
     settings.terminalMention,
     updateSettings,
+    vault,
+    openSettings,
   ]);
 
   /**
@@ -2886,6 +2896,26 @@ export default function App() {
           onRemoteChange={(url) => void setRemoteUrl(url)}
           onTokenChange={(token) => void setToken(token)}
           onIdentityChange={(name, email) => void setGitIdentity(name, email)}
+          agentsDocAvailable={!!vault}
+          onOpenAgentsDoc={() => {
+            setSettingsOpen(false);
+            void openPath("AGENTS.md", { newTab: true });
+          }}
+          onRewriteAgentsDoc={async () => {
+            const currentPath = noteRef.current?.path;
+            if (
+              (currentPath === "AGENTS.md" || currentPath === "CLAUDE.md") &&
+              dirtyRef.current
+            ) {
+              await saveNow();
+            }
+            await api.agentsDocWrite();
+            if (currentPath === "AGENTS.md" || currentPath === "CLAUDE.md") {
+              await loadNote(currentPath);
+            }
+            setNotice("已恢复 AGENTS.md 和 CLAUDE.md 的默认说明");
+            setGitActivity((v) => v + 1);
+          }}
           update={updater}
           initialTab={settingsTab}
         />
