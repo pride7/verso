@@ -170,6 +170,68 @@ fn callbacks(token: Option<String>) -> git2::RemoteCallbacks<'static> {
     cb
 }
 
+/// 把一个已有远端安全地克隆进用户选定的空目录。
+///
+/// 不直接在目标目录里下载：网络断掉时 libgit2 会留下一半 `.git`，用户下次
+/// 再选同一目录只会得到「目录非空」。先落到同级临时目录，完整成功后再原子
+/// 换过去；失败只清理由我们用随机名字创建的那一处。
+pub fn clone_remote(url: &str, destination: &Path, token: Option<String>) -> Result<()> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(Error::Vault("请填写共享仓库地址".into()));
+    }
+    if !destination.is_dir() {
+        return Err(Error::Vault(format!(
+            "本地位置不是一个目录：{}",
+            destination.display()
+        )));
+    }
+    if destination.read_dir()?.next().is_some() {
+        return Err(Error::Vault(
+            "请选择一个空文件夹，Verso 不会覆盖里面已有的文件".into(),
+        ));
+    }
+
+    let destination = destination.canonicalize().unwrap_or_else(|_| destination.to_path_buf());
+    let parent = destination
+        .parent()
+        .ok_or_else(|| Error::Vault("不能把磁盘根目录作为共享仓库位置".into()))?;
+    let temp = parent.join(format!(".verso-clone-{}", ulid::Ulid::new()));
+
+    #[cfg(target_os = "android")]
+    {
+        super::transport::ensure_registered();
+        super::transport::set_token(token.clone());
+    }
+
+    let mut fetch = git2::FetchOptions::new();
+    fetch.remote_callbacks(callbacks(token));
+    let mut builder = git2::build::RepoBuilder::new();
+    builder.fetch_options(fetch);
+    if let Err(error) = builder.clone(url, &temp) {
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(humanize(error));
+    }
+
+    // 下载期间用户或别的程序可能往目标里放了东西。此时宁可留下完整临时
+    // 克隆供诊断，也绝不删掉刚出现的用户文件。
+    if destination.read_dir()?.next().is_some() {
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(Error::Vault(
+            "下载期间本地文件夹出现了文件，已取消加入以免覆盖".into(),
+        ));
+    }
+
+    std::fs::remove_dir(&destination)?;
+    if let Err(error) = std::fs::rename(&temp, &destination) {
+        // rename 极少失败；把空目录补回来，让目录选择器里那条路径不至于消失。
+        let _ = std::fs::create_dir_all(&destination);
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 /// 把 libgit2 的网络/认证错误翻成人话。
 ///
 /// 原文是 `request failed with status code: 403; class=Http (34)` 这个样子 ——
@@ -533,6 +595,34 @@ mod tests {
         let head = remote.find_reference("refs/heads/main").unwrap();
         let tree = head.peel_to_commit().unwrap().tree().unwrap();
         assert!(tree.get_name("甲.md").is_some());
+    }
+
+    #[test]
+    fn clone_joins_an_existing_remote_and_refuses_nonempty_destinations() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        std::fs::write(a.join("共享.md"), "来自队友").unwrap();
+        sync(&a, None).unwrap();
+
+        let joined = std::env::temp_dir().join(format!("verso-join-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&joined).unwrap();
+        clone_remote(origin.to_str().unwrap(), &joined, None).unwrap();
+        assert_eq!(read(&joined, "共享.md").as_deref(), Some("来自队友"));
+        assert_eq!(remote_get(&joined).unwrap().url.as_deref(), origin.to_str());
+
+        let occupied = std::env::temp_dir().join(format!("verso-join-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&occupied).unwrap();
+        std::fs::write(occupied.join("不能覆盖.md"), "保留").unwrap();
+        let error = clone_remote(origin.to_str().unwrap(), &occupied, None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("空文件夹"), "{error}");
+        assert_eq!(read(&occupied, "不能覆盖.md").as_deref(), Some("保留"));
+
+        let _ = std::fs::remove_dir_all(origin);
+        let _ = std::fs::remove_dir_all(a);
+        let _ = std::fs::remove_dir_all(joined);
+        let _ = std::fs::remove_dir_all(occupied);
     }
 
     #[test]

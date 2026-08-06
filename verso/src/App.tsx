@@ -4,7 +4,14 @@ import type { EditorState } from "@codemirror/state";
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 
-import { api, onAppClosing, onBackendNotice, onVaultChanged, pickVaultFolder } from "./api";
+import {
+  api,
+  onAppClosing,
+  onBackendNotice,
+  onVaultChanged,
+  pickCloneFolder,
+  pickVaultFolder,
+} from "./api";
 import { confirm } from "./lib/dialog";
 import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
@@ -29,6 +36,7 @@ import { DiffView } from "./components/DiffView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "./components/VaultSwitcher";
+import { JoinVaultDialog, type JoinVaultInput } from "./components/JoinVaultDialog";
 import { setSlashAction } from "./editor/completion";
 import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
@@ -56,12 +64,18 @@ import { attachmentPath } from "./lib/vaultPath";
 import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "./lib/treeSort";
 import { bindingOf, eventSpec, hint } from "./lib/keymap";
 import { keyLabel } from "./lib/platform";
+import {
+  readSeenCommits,
+  unreadCollaborationEntries,
+  writeSeenCommits,
+} from "./lib/collaboration";
 import { useEffectiveTheme, useSettings } from "./settings";
 import type {
   ConflictFile,
   FileChange,
   GitIdentity,
   GitStatus,
+  HistoryEntry,
   NoteContent,
   RecentVault,
   RemoteInfo,
@@ -128,6 +142,9 @@ export default function App() {
   const [recentVaults, setRecentVaults] = useState<RecentVault[]>([]);
   const [vaultManagerOpen, setVaultManagerOpen] = useState(false);
   const [vaultError, setVaultError] = useState<string | null>(null);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [joining, setJoining] = useState(false);
   /** 非 null 时锁住所有仓库入口，避免两次打开并发替换后端的当前 vault。 */
   const [switchingVault, setSwitchingVault] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -888,6 +905,8 @@ export default function App() {
   const [tokenSaved, setTokenSaved] = useState(false);
   /** 提交署名。null = 没打开 vault 或者后端不支持 */
   const [identity, setIdentity] = useState<GitIdentity | null>(null);
+  /** 尚未看过的其他人修改；只影响协作入口上的小点，不是共享数据。 */
+  const [collaborationUnread, setCollaborationUnread] = useState(0);
   /** 正在同步。同步要走网络，可能要好几秒 */
   const [syncing, setSyncing] = useState(false);
   /** 同步撞上的冲突。非 null 时弹 ConflictView，选完边重放同步（§2.8） */
@@ -1046,6 +1065,41 @@ export default function App() {
   useEffect(refreshGit, [refreshGit, vault?.root, revision, gitActivity]);
   // 远端只跟着 vault 变 —— 它不会因为改了一篇笔记而变
   useEffect(refreshRemote, [refreshRemote, vault?.root]);
+
+  // 协作动态直接来自现有版本历史。第一次启用只建立基线，不把几年的旧记录
+  // 一股脑标成未读；之后只数没看过且不是自己的提交。
+  useEffect(() => {
+    if (!vault?.root || !remote?.url) {
+      setCollaborationUnread(0);
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      try {
+        return api.gitHistory(100).catch(() => [] as HistoryEntry[]);
+      } catch {
+        return Promise.resolve([] as HistoryEntry[]);
+      }
+    };
+    void load().then((entries) => {
+      if (!alive) return;
+      const seen = readSeenCommits(vault.root);
+      if (seen === null) writeSeenCommits(vault.root, entries);
+      setCollaborationUnread(unreadCollaborationEntries(entries, seen, identity).length);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [vault?.root, remote?.url, identity, revision, gitActivity]);
+
+  const markCollaborationSeen = useCallback(
+    (entries: HistoryEntry[]) => {
+      if (!vault?.root) return;
+      writeSeenCommits(vault.root, entries);
+      setCollaborationUnread(0);
+    },
+    [vault?.root],
+  );
 
   /**
    * 同步一次。§2.8
@@ -1665,6 +1719,31 @@ export default function App() {
       setSwitchingVault(null);
     }
   }, [switchingVault, activateVault, switchToVault]);
+
+  const joinVault = useCallback(
+    async (input: JoinVaultInput) => {
+      if (joining || switchingVault) return;
+      setJoining(true);
+      setSwitchingVault(input.path);
+      setJoinError(null);
+      try {
+        if (!(await prepareVaultSwitch())) {
+          setJoinError("当前仓库未能完成保存，已取消切换。");
+          return;
+        }
+        const info = await api.cloneVault(input);
+        await activateVault(info, null);
+        setJoinOpen(false);
+        setVaultManagerOpen(false);
+      } catch (e) {
+        setJoinError((e as Error).message);
+      } finally {
+        setJoining(false);
+        setSwitchingVault(null);
+      }
+    },
+    [joining, switchingVault, prepareVaultSwitch, activateVault],
+  );
 
   const forgetVault = useCallback(
     async (path: string) => {
@@ -2390,6 +2469,10 @@ export default function App() {
               switching={switchingVault}
               onSwitch={(path) => void switchToVault(path)}
               onOpenFolder={() => void openVault()}
+              onJoin={() => {
+                setJoinError(null);
+                setJoinOpen(true);
+              }}
               onManage={() => {
                 setVaultError(null);
                 setVaultManagerOpen(true);
@@ -2406,8 +2489,22 @@ export default function App() {
             error={vaultError}
             onSwitch={(path) => void switchToVault(path)}
             onOpenFolder={() => void openVault()}
+            onJoin={() => {
+              setVaultManagerOpen(false);
+              setJoinError(null);
+              setJoinOpen(true);
+            }}
             onForget={(path) => void forgetVault(path)}
             onClose={() => setVaultManagerOpen(false)}
+          />
+        )}
+        {joinOpen && (
+          <JoinVaultDialog
+            busy={joining}
+            error={joinError}
+            onPickFolder={pickCloneFolder}
+            onJoin={(input) => void joinVault(input)}
+            onClose={() => !joining && setJoinOpen(false)}
           />
         )}
       </>
@@ -2430,7 +2527,7 @@ export default function App() {
     search: "搜索",
     tags: "标签",
     template: "模板",
-    history: "历史",
+    history: "动态",
     outline: "大纲",
   };
 
@@ -2448,6 +2545,7 @@ export default function App() {
         onView={pickView}
         keyOf={keyOf}
         sidebarOpen={sidebarOpen}
+        activityUnread={collaborationUnread}
         sourceMode={sourceMode}
         onToggleSourceMode={toggleSourceMode}
         mindmapOn={note ? mindmapOpen : null}
@@ -2574,7 +2672,11 @@ export default function App() {
             )}
             {sidebarView === "history" && (
               <HistoryView
+                root={vault.root}
                 revision={revision}
+                identity={identity}
+                collaborationEnabled={!!remote?.url}
+                onSeen={markCollaborationSeen}
                 selected={diffSelection}
                 onDiff={(selection) => void openDiff(selection)}
                 onRestore={(commit, path) => void restoreFile(commit, path)}
@@ -2607,6 +2709,10 @@ export default function App() {
                 switching={switchingVault}
                 onSwitch={(path) => void switchToVault(path)}
                 onOpenFolder={() => void openVault()}
+                onJoin={() => {
+                  setJoinError(null);
+                  setJoinOpen(true);
+                }}
                 onManage={() => {
                   setVaultError(null);
                   setVaultManagerOpen(true);
@@ -2929,8 +3035,23 @@ export default function App() {
           error={vaultError}
           onSwitch={(path) => void switchToVault(path)}
           onOpenFolder={() => void openVault()}
+          onJoin={() => {
+            setVaultManagerOpen(false);
+            setJoinError(null);
+            setJoinOpen(true);
+          }}
           onForget={(path) => void forgetVault(path)}
           onClose={() => setVaultManagerOpen(false)}
+        />
+      )}
+
+      {joinOpen && !mobile && (
+        <JoinVaultDialog
+          busy={joining}
+          error={joinError}
+          onPickFolder={pickCloneFolder}
+          onJoin={(input) => void joinVault(input)}
+          onClose={() => !joining && setJoinOpen(false)}
         />
       )}
 

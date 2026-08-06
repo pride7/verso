@@ -2,7 +2,13 @@ import { hint } from "../lib/keymap";
 import { Icon, type IconName } from "./Icon";
 
 /** 侧栏当前显示哪个面板 */
-export type SidebarView = "tree" | "search" | "tags" | "template" | "history" | "outline";
+export type SidebarView =
+  | "tree"
+  | "search"
+  | "tags"
+  | "template"
+  | "history"
+  | "outline";
 
 interface Props {
   view: SidebarView;
@@ -16,6 +22,7 @@ interface Props {
   keyOf: (commandId: string) => string | undefined;
   /** 侧栏是否展开。点当前已选中的图标会收起它 */
   sidebarOpen: boolean;
+  activityUnread: number;
   sourceMode: boolean;
   onToggleSourceMode: () => void;
   /** 思维导图开着没有。null = 现在没有打开的笔记，这个按钮不该能按 */
@@ -37,7 +44,7 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] =
   { id: "tags", icon: "tag", label: "标签", cmd: "note.tags" },
   // 模板也是跨文档的东西，排在标签之后、大纲之前
   { id: "template", icon: "template", label: "模板", cmd: "note.templates" },
-  { id: "history", icon: "history", label: "历史", cmd: "vault.history" },
+  { id: "history", icon: "history", label: "动态", cmd: "vault.history" },
   // 大纲是「当前这篇」的视图，排在三个跨文档视图后面
   { id: "outline", icon: "outline", label: "大纲", cmd: "note.outline" },
 ];
@@ -60,6 +67,7 @@ export function ActivityBar({
   onView,
   keyOf,
   sidebarOpen,
+  activityUnread,
   sourceMode,
   onToggleSourceMode,
   mindmapOn,
@@ -85,6 +93,11 @@ export function ActivityBar({
           aria-pressed={sidebarOpen && view === v.id}
         >
           <Icon name={v.icon} />
+          {v.id === "history" && activityUnread > 0 && (
+            <span className="rail-badge" aria-label={`${activityUnread} 条未读动态`}>
+              {activityUnread > 9 ? "9+" : activityUnread}
+            </span>
+          )}
         </button>
       ))}
 

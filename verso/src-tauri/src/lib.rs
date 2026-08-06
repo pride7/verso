@@ -126,6 +126,52 @@ fn vault_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Resul
     Ok(info)
 }
 
+/// 加入一个已有的共享 vault：安全克隆、写入这台设备的提交身份，然后直接打开。
+/// 目标目录必须已经存在且为空；`clone_remote` 会在同级临时目录完整下载后再换入，
+/// 因而断网或认证失败不会把半截仓库留给用户收拾。
+#[tauri::command]
+fn vault_clone(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    url: String,
+    path: String,
+    token: String,
+    name: String,
+    email: String,
+) -> Result<VaultInfo> {
+    let url = url.trim();
+    let name = name.trim();
+    let email = email.trim();
+    if name.is_empty() || email.is_empty() {
+        return Err(Error::Vault("请填写你的姓名和邮箱，用来区分协作者".into()));
+    }
+    if name.contains(['<', '>', '\n']) || email.contains(['<', '>', '\n']) || !email.contains('@') {
+        return Err(Error::Vault("请检查姓名和邮箱格式".into()));
+    }
+    if (url.starts_with("http://") || url.starts_with("https://")) && token.trim().is_empty() {
+        return Err(Error::Vault("这个共享仓库需要你自己的访问令牌".into()));
+    }
+
+    let destination = PathBuf::from(path);
+    vault::sync::clone_remote(url, &destination, (!token.trim().is_empty()).then(|| token.trim().to_string()))?;
+    let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
+    vault::git::identity_set(&v.root, name, email)?;
+
+    // 克隆已经成功时，钥匙串不可用不该把新仓库挡在门外。照常打开，同时把
+    // 「下次同步还得处理令牌」明确报到界面上。
+    let token_warning = if token.trim().is_empty() {
+        None
+    } else {
+        vault::secret::token_set(url, token.trim()).err().map(|e| e.to_string())
+    };
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+    if let Some(warning) = token_warning {
+        let _ = app.emit("index:error", format!("共享仓库已打开，但令牌没有保存：{warning}"));
+    }
+    Ok(info)
+}
+
 /// 这台设备上成功打开过的仓库。目录移走后仍然返回，由前端标成不可用；
 /// 静默删掉的话，用户分不清是路径失效还是软件忘了。
 #[tauri::command]
@@ -973,6 +1019,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             vault_open,
+            vault_clone,
             vault_recent_list,
             vault_recent_forget,
             vault_reopen_last,

@@ -4,7 +4,13 @@ import { createPortal } from "react-dom";
 import { api } from "../api";
 import { Icon } from "./Icon";
 import { relTime } from "../lib/relTime";
-import type { FileChange, HistoryEntry } from "../types";
+import {
+  isOwnEntry,
+  readSeenCommits,
+  unreadCollaborationEntries,
+  writeSeenCommits,
+} from "../lib/collaboration";
+import type { FileChange, GitIdentity, HistoryEntry } from "../types";
 
 export interface DiffSelection {
   path: string;
@@ -14,8 +20,12 @@ export interface DiffSelection {
 }
 
 interface Props {
+  root: string;
   /** vault、外部文件或版本记录变了就重查 */
   revision: number;
+  identity: GitIdentity | null;
+  collaborationEnabled: boolean;
+  onSeen: (entries: HistoryEntry[]) => void;
   selected: DiffSelection | null;
   onDiff: (selection: DiffSelection) => void;
   /** 把某篇笔记回退到某一版 */
@@ -156,15 +166,27 @@ function FileRows({
 }
 
 /**
- * 侧栏里的当前改动与版本历史。DESIGN.md §2.8
+ * 侧栏里的统一动态：当前改动、版本历史与协作者变化。DESIGN.md §2.8
  *
  * 这不是一套 Git 客户端：没有 stage、branch 或 rebase。它只回答两件事——
- * AI 刚才改了什么，以及某一次自动记录具体改了什么。
+ * AI 或队友刚才改了什么，以及某一次自动记录具体改了什么。
  */
-export function HistoryView({ revision, selected, onDiff, onRestore, onDiscard }: Props) {
+export function HistoryView({
+  root,
+  revision,
+  identity,
+  collaborationEnabled,
+  onSeen,
+  selected,
+  onDiff,
+  onRestore,
+  onDiscard,
+}: Props) {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [working, setWorking] = useState<FileChange[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [onlyOthers, setOnlyOthers] = useState(false);
+  const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
   const [hoverCard, setHoverCard] = useState<HoverCardState | null>(null);
   const hoverTimer = useRef<number | null>(null);
   const hideTimer = useRef<number | null>(null);
@@ -276,17 +298,28 @@ export function HistoryView({ revision, selected, onDiff, onRestore, onDiscard }
       if (!alive) return;
       setWorking(changes);
       setHistory(entries);
+      if (collaborationEnabled) {
+        const seen = readSeenCommits(root);
+        setUnreadIds(new Set(unreadCollaborationEntries(entries, seen, identity).map((e) => e.id)));
+        writeSeenCommits(root, entries);
+        onSeen(entries);
+      } else {
+        setUnreadIds(new Set());
+      }
     });
     return () => {
       alive = false;
       leaveEntry();
       resizeCleanup.current?.();
     };
-  }, [revision]);
+  }, [root, revision, identity, collaborationEnabled, onSeen]);
 
   if (history === null || working === null) return <p className="side-empty">读取中…</p>;
 
   const now = new Date();
+  const visibleHistory = history.filter(
+    (entry) => !collaborationEnabled || !onlyOthers || !isOwnEntry(entry, identity),
+  );
   return (
     <div
       ref={rootRef}
@@ -335,16 +368,36 @@ export function HistoryView({ revision, selected, onDiff, onRestore, onDiscard }
 
       <section className="hist-section hist-records" aria-labelledby="history-title">
         <header className="hist-section-head">
-          <h3 id="history-title">版本记录</h3>
+          <h3 id="history-title">活动记录</h3>
         </header>
-        {history.length === 0 ? (
+        {collaborationEnabled && (!identity?.name || !identity.email) && (
+          <p className="collab-identity-note">
+            请先在「设置 → 同步」填写姓名和邮箱，Verso 才能准确区分你和协作者。
+          </p>
+        )}
+        {collaborationEnabled && (
+          <div className="collab-filter" role="group" aria-label="筛选动态">
+            <button className={!onlyOthers ? "is-on" : undefined} onClick={() => setOnlyOthers(false)}>
+              全部
+            </button>
+            <button className={onlyOthers ? "is-on" : undefined} onClick={() => setOnlyOthers(true)}>
+              其他人
+            </button>
+          </div>
+        )}
+        {visibleHistory.length === 0 ? (
           <p className="hist-empty">
-            还没有版本记录。修改内容并停顿片刻后，Verso 会自动记录一个版本。
+            {onlyOthers && collaborationEnabled
+              ? "还没有其他人的修改。同步共享仓库后，变化会出现在这里。"
+              : "还没有活动记录。修改内容并停顿片刻后，Verso 会自动记录一个版本。"}
           </p>
         ) : (
           <ul className="hist">
-            {history.map((entry) => (
-              <li key={entry.id} className={open === entry.id ? "is-open" : undefined}>
+            {visibleHistory.map((entry) => (
+              <li
+                key={entry.id}
+                className={`${open === entry.id ? "is-open" : ""}${unreadIds.has(entry.id) ? " is-unread" : ""}`.trim() || undefined}
+              >
                 <button
                   className="hist-head"
                   onClick={() => setOpen(open === entry.id ? null : entry.id)}
@@ -353,7 +406,11 @@ export function HistoryView({ revision, selected, onDiff, onRestore, onDiscard }
                   aria-describedby={hoverCard?.entry.id === entry.id ? "hist-version-detail" : undefined}
                 >
                   <Icon name="chevron" size={11} className="hist-caret" />
+                  <span className="hist-author">
+                    {isOwnEntry(entry, identity) ? "你" : entry.authorName}
+                  </span>
                   <span className="hist-msg">{entry.message}</span>
+                  {unreadIds.has(entry.id) && <span className="collab-new">新</span>}
                   <span className="hist-when">{relTime(entry.at, now)}</span>
                 </button>
 

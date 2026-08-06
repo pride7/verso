@@ -45,8 +45,22 @@ export async function pickVaultFolder(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
+/** 加入共享仓库时选一个空目录；单独命名，避免对话框仍写着「打开」。 */
+export async function pickCloneFolder(): Promise<string | null> {
+  const picked = await open({ directory: true, multiple: false, title: "选择一个空文件夹" });
+  return typeof picked === "string" ? picked : null;
+}
+
 export const api = {
   openVault: (path: string) => call<VaultInfo>("vault_open", { path }),
+  /** 克隆已有共享仓库、保存提交身份并直接打开。目标目录必须为空。 */
+  cloneVault: (input: {
+    url: string;
+    path: string;
+    token: string;
+    name: string;
+    email: string;
+  }) => call<VaultInfo>("vault_clone", input),
   /** 成功打开过的仓库，最近使用的在前；不存在的目录也会返回并标记。 */
   recentVaults: () => call<RecentVault[]>("vault_recent_list"),
   /** 只忘记快捷入口，不删除目录或笔记。 */

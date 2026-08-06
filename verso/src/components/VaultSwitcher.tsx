@@ -9,6 +9,7 @@ interface CommonProps {
   switching: string | null;
   onSwitch: (root: string) => void;
   onOpenFolder: () => void;
+  onJoin: () => void;
 }
 
 interface SwitcherProps extends CommonProps {
@@ -28,6 +29,7 @@ export function VaultSwitcher({
   switching,
   onSwitch,
   onOpenFolder,
+  onJoin,
   onManage,
 }: SwitcherProps) {
   const [open, setOpen] = useState(false);
@@ -102,6 +104,17 @@ export function VaultSwitcher({
             <Icon name="plus" size={15} />
             打开其他文件夹…
           </button>
+          <button
+            className="vault-menu-action"
+            onClick={() => {
+              setOpen(false);
+              onJoin();
+            }}
+            role="menuitem"
+          >
+            <Icon name="people" size={15} />
+            加入共享仓库…
+          </button>
         </div>
       )}
       <button
@@ -132,6 +145,7 @@ export function VaultManager({
   error,
   onSwitch,
   onOpenFolder,
+  onJoin,
   onForget,
   onClose,
 }: ManagerProps) {
@@ -203,6 +217,10 @@ export function VaultManager({
 
         <footer className="vault-manager-foot">
           <p>移除记录不会删除目录或笔记。</p>
+          <button className="btn-quiet" onClick={onJoin} disabled={switching !== null}>
+            <Icon name="people" size={14} />
+            加入共享仓库
+          </button>
           <button className="btn-primary" onClick={onOpenFolder} disabled={switching !== null}>
             <Icon name="plus" size={14} />
             打开其他文件夹
@@ -218,6 +236,7 @@ interface WelcomeProps {
   switching: string | null;
   onSwitch: (root: string) => void;
   onOpenFolder: () => void;
+  onJoin: () => void;
   onManage: () => void;
 }
 
@@ -226,6 +245,7 @@ export function VaultWelcome({
   switching,
   onSwitch,
   onOpenFolder,
+  onJoin,
   onManage,
 }: WelcomeProps) {
   const usable = vaults.filter((item) => item.available);
@@ -252,6 +272,9 @@ export function VaultWelcome({
       <div className="welcome-vault-actions">
         <button className="btn-primary" onClick={onOpenFolder} disabled={switching !== null}>
           打开其他文件夹
+        </button>
+        <button className="btn-quiet" onClick={onJoin} disabled={switching !== null}>
+          加入共享仓库
         </button>
         {vaults.length > 0 && <button className="btn-quiet" onClick={onManage}>管理仓库…</button>}
       </div>

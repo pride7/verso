@@ -225,6 +225,7 @@ vi.mock("./api", () => ({
     gitDiffFile: (path: string, commit?: string) => gitDiffFile(path, commit),
     gitDiscardFile: (path: string) => gitDiscard(path),
     gitRestoreFile: (commit: string, path: string) => gitRestore(commit, path),
+    gitIdentityGet: async () => ({ name: "Verso", email: "verso@localhost" }),
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
     closeNow: () => closeNow(),
@@ -267,6 +268,7 @@ vi.mock("./api", () => ({
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
   pickVaultFolder: async () => null,
+  pickCloneFolder: async () => null,
 }));
 
 const { default: App } = await import("./App");
@@ -422,10 +424,10 @@ describe("版本记录点", () => {
   });
 });
 
-describe("侧栏里的版本历史", () => {
+describe("侧栏里的动态", () => {
   async function openPanel() {
     await act(async () => {
-      document.querySelector<HTMLElement>('.rail-btn[aria-label="历史"]')!.click();
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="动态"]')!.click();
       await settle(300);
     });
   }
@@ -683,7 +685,7 @@ describe("自动记录的空闲窗口", () => {
       await vi.advanceTimersByTimeAsync(700);
       await mounting;
       await act(async () => {
-        document.querySelector<HTMLElement>('.rail-btn[aria-label="历史"]')!.click();
+        document.querySelector<HTMLElement>('.rail-btn[aria-label="动态"]')!.click();
         await vi.advanceTimersByTimeAsync(400);
       });
       await act(async () => {
@@ -754,6 +756,58 @@ describe("关窗之前", () => {
     await close();
 
     expect(closeNow).toHaveBeenCalled();
+  });
+});
+
+describe("动态里的多人协作", () => {
+  const seenKey = `verso.collaborationSeen:${VAULT.root}`;
+
+  async function openPanel() {
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="动态"]')!.click();
+      await settle(300);
+    });
+  }
+
+  it("首次启用先以当前历史为基线，不把旧记录全标成未读", async () => {
+    await mount();
+    const button = document.querySelector<HTMLElement>('.rail-btn[aria-label="动态"]')!;
+    expect(button).toBeTruthy();
+    expect(button.querySelector(".rail-badge")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(seenKey)!)).toEqual(["aaa", "bbb"]);
+  });
+
+  it("提示其他人的新修改，打开后可筛选并查看差异", async () => {
+    localStorage.setItem(seenKey, JSON.stringify(["bbb"]));
+    await mount();
+
+    const button = document.querySelector<HTMLElement>('.rail-btn[aria-label="动态"]')!;
+    expect(button.querySelector(".rail-badge")?.textContent).toBe("1");
+    await openPanel();
+
+    expect(document.querySelector(".collab-new")?.textContent).toBe("新");
+    expect([...document.querySelectorAll(".hist-author")].map((e) => e.textContent)).toEqual([
+      "pride7",
+      "你",
+    ]);
+    expect(button.querySelector(".rail-badge")).toBeNull();
+
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>(".collab-filter button")]
+        .find((item) => item.textContent === "其他人")!
+        .click();
+      await settle(80);
+    });
+    expect(document.querySelectorAll(".hist > li")).toHaveLength(1);
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".hist-head")!.click();
+      await settle(60);
+      document.querySelector<HTMLButtonElement>(".hist > li .hist-file")!.click();
+      await settle(250);
+    });
+    expect(gitDiffFile).toHaveBeenCalledWith("甲.md", "aaa");
+    expect(document.querySelector(".diff-view")?.textContent).toContain("AI 修改后");
   });
 });
 

@@ -686,6 +686,24 @@ button {
   border-radius: 0 2px 2px 0;
   background: var(--accent);
 }
+.rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  padding: 0 3px;
+  border: 2px solid var(--rail);
+  border-radius: 999px;
+  color: white;
+  background: var(--accent);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
 .sidebar {
   grid-area: sidebar;
@@ -1110,9 +1128,16 @@ button {
   border-top: 1px solid var(--hairline);
 }
 .vault-manager-foot p {
+  flex: 1;
   margin: 0;
   color: var(--muted);
   font-size: 10.5px;
+}
+.vault-manager-foot .btn-quiet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
 }
 .vault-manager-foot .btn-primary {
   display: flex;
@@ -1127,6 +1152,100 @@ button {
   text-align: center;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* ---------- 加入共享仓库 ---------- */
+
+.join-vault {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--t-base);
+}
+.join-vault form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 17px 20px 18px;
+}
+.join-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+.join-field > span:first-child {
+  font-weight: 600;
+}
+.join-field input {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  outline: none;
+}
+.join-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.join-field input[readonly] {
+  color: var(--muted);
+}
+.join-field small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.join-path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.join-path-row input {
+  flex: 1;
+  min-width: 0;
+}
+.join-path-row .btn-quiet {
+  flex: none;
+  height: 34px;
+}
+.join-identity {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+}
+.join-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 7%, transparent);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.join-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin: 2px -20px -18px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--hairline);
+}
+@media (max-width: 520px) {
+  .join-identity {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------- 拖右边缘调宽度 ---------- */
@@ -2543,6 +2662,46 @@ body.is-table-resizing * {
   border-radius: 0;
 }
 
+/* ---------- 动态面板里的协作状态（§2.8） ---------- */
+
+.collab-identity-note {
+  margin: 8px 9px 6px;
+  padding: 8px 9px;
+  color: var(--muted);
+  background: var(--accent-wash);
+  border: 1px solid color-mix(in oklch, var(--accent) 18%, var(--hairline));
+  border-radius: var(--r-sm);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.collab-filter {
+  display: flex;
+  gap: 2px;
+  margin: 8px 9px 4px;
+  padding: 2px;
+  background: var(--hover-bg);
+  border-radius: var(--r-sm);
+}
+.collab-filter button {
+  flex: 1;
+  padding: 4px 7px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.collab-filter button.is-on {
+  color: var(--text);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+}
+.collab-new {
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  font-size: 9px;
+  font-weight: 700;
+}
 /* 拖拽把手做得比视觉上的分隔线厚，否则很难对准 */
 .term-resizer {
   position: absolute;
@@ -6162,6 +6321,10 @@ body.is-row-resizing {
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+.hist > li.is-unread .hist-head::before {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
 .hist-head:hover {
   background: var(--hover-bg);
 }
@@ -6173,6 +6336,16 @@ body.is-row-resizing {
 }
 .hist > li.is-open .hist-caret {
   transform: rotate(90deg);
+}
+.hist-author {
+  flex: none;
+  max-width: 58px;
+  overflow: hidden;
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hist-msg {
   flex: 1;

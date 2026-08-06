@@ -104,6 +104,7 @@ vi.mock("./api", () => ({
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
   pickVaultFolder: async () => null,
+  pickCloneFolder: async () => null,
 }));
 
 const { default: App } = await import("./App");

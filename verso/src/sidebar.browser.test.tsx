@@ -26,6 +26,14 @@ const OTHER_VAULT: VaultInfo = {
   renamedBranch: false,
 };
 
+const JOINED_VAULT: VaultInfo = {
+  root: "D:/Notes/shared",
+  name: "shared",
+  createdRepo: false,
+  createdGitignore: false,
+  renamedBranch: false,
+};
+
 const KNOWN: RecentVault[] = [
   { root: VAULT.root, name: VAULT.name, available: true },
   { root: OTHER_VAULT.root, name: OTHER_VAULT.name, available: true },
@@ -64,6 +72,11 @@ const openVault = vi.fn(async (path: string) => {
   return path === OTHER_VAULT.root ? OTHER_VAULT : VAULT;
 });
 const pickVaultFolder = vi.fn(async () => null as string | null);
+const pickCloneFolder = vi.fn(async () => JOINED_VAULT.root as string | null);
+const cloneVault = vi.fn(async (_input: Record<string, string>) => {
+  backendRoot = JOINED_VAULT.root;
+  return JOINED_VAULT;
+});
 const writeNote = vi.fn(async (_path: string, _body: string) => 0);
 const workspaceWrites: { root: string; workspace: { tabs: string[]; active: number } }[] = [];
 const workspaceSet = vi.fn(async (workspace: { tabs: string[]; active: number }) => {
@@ -81,6 +94,7 @@ vi.mock("./api", () => ({
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => reopen,
     openVault: (path: string) => openVault(path),
+    cloneVault: (input: Record<string, string>) => cloneVault(input),
     recentVaults: async () => knownVaults,
     forgetVault: async (path: string) => {
       knownVaults = knownVaults.filter((item) => item.root !== path);
@@ -122,6 +136,7 @@ vi.mock("./api", () => ({
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
   pickVaultFolder: () => pickVaultFolder(),
+  pickCloneFolder: () => pickCloneFolder(),
 }));
 
 const { default: App } = await import("./App");
@@ -136,6 +151,8 @@ beforeEach(() => {
   setSettings.mockClear();
   openVault.mockClear();
   pickVaultFolder.mockClear();
+  pickCloneFolder.mockClear();
+  cloneVault.mockClear();
   writeNote.mockClear();
   workspaceSet.mockClear();
   workspaceWrites.length = 0;
@@ -216,6 +233,51 @@ describe("侧栏头部", () => {
     expect(openVault).toHaveBeenCalledWith(OTHER_VAULT.root);
     expect(pickVaultFolder).not.toHaveBeenCalled();
     expect(el(".sidebar-foot")?.textContent).toContain("lab");
+  });
+
+  it("不用终端即可填写远端、身份并加入共享仓库", async () => {
+    await mountApp();
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(30);
+    const join = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-action")].find(
+      (button) => button.textContent?.includes("加入共享仓库"),
+    )!;
+    join.click();
+    await settle(60);
+
+    const inputs = [...document.querySelectorAll<HTMLInputElement>(".join-field input")];
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+        setter.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle(20);
+      });
+    };
+    await type(inputs[0], "https://github.com/team/shared.git");
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>(".join-path-row button")][0].click();
+      await settle(40);
+    });
+    await type(inputs[2], "secret-token");
+    await type(inputs[3], "林");
+    await type(inputs[4], "lin@example.com");
+
+    await act(async () => {
+      document.querySelector<HTMLFormElement>(".join-vault form")!.requestSubmit();
+      await settle(500);
+    });
+
+    expect(pickCloneFolder).toHaveBeenCalled();
+    expect(cloneVault).toHaveBeenCalledWith({
+      url: "https://github.com/team/shared.git",
+      path: JOINED_VAULT.root,
+      token: "secret-token",
+      name: "林",
+      email: "lin@example.com",
+    });
+    expect(document.querySelector(".join-vault")).toBeNull();
+    expect(el(".sidebar-foot")?.textContent).toContain("shared");
   });
 
   it("切换前先保存尚未落盘的正文", async () => {
