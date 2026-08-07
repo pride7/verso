@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Icon } from "./Icon";
 import type { Template } from "../lib/template";
+import { fitFloatingMenu } from "../lib/floatingMenu";
 import { RenameInput } from "./Tree";
 
 interface Props {
@@ -60,6 +61,7 @@ export function TemplatesView({
   onRenameCancel,
 }: Props) {
   const [menu, setMenu] = useState<{ template: Template; x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     const close = () => setMenu(null);
@@ -72,13 +74,12 @@ export function TemplatesView({
   }, []);
 
   const openMenu = (template: Template, x: number, y: number) => {
-    // 菜单不能伸出视口；侧栏靠左，但纵向仍可能在窗口底部溢出。
-    setMenu({
-      template,
-      x: Math.max(8, Math.min(x, window.innerWidth - 190)),
-      y: Math.max(8, Math.min(y, window.innerHeight - 214)),
-    });
+    setMenu({ template, x, y });
   };
+
+  useLayoutEffect(() => {
+    if (menu && menuRef.current) fitFloatingMenu(menuRef.current, menu.x, menu.y);
+  }, [menu]);
 
   return (
     <div className="tpl-view">
@@ -227,6 +228,7 @@ export function TemplatesView({
 
       {menu && (
         <ul
+          ref={menuRef}
           className="ctx tpl-menu"
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}

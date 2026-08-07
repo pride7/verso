@@ -13,7 +13,7 @@ function note(path: string, frontmatter: Record<string, unknown> = {}, body = ""
   return { path, id: null, title: path.split("/").pop()!.replace(/\.md$/, ""), frontmatter, frontmatterText: null, body, mtimeMs };
 }
 
-describe("科研项目记录", () => {
+describe("项目记录", () => {
   it("日期日志按普通 Markdown 标题解析", () => {
     expect(parseProgress("## 2026-08-06 09:30\n\n完成基线。\n\n## 2026-08-05 18:00\n\n开始。\n")).toEqual([
       { at: "2026-08-06 09:30", text: "完成基线。" },
@@ -53,7 +53,7 @@ describe("科研项目记录", () => {
       writeNote: async (path, body) => { writes.push([path, body]); return 1; },
       propSet: async (path, key, value) => { props.push([path, key, value]); },
     };
-    const path = await captureProjectEntry(api, "项目.md", { kind: "experiment", title: "消融", content: "去掉路由后下降 3%。" });
+    const path = await captureProjectEntry(api, "项目.md", { kind: "experiment", title: "消融", content: "去掉路由后下降 3%。", useTemplate: true });
     expect(path).toBe("项目/实验/消融.md");
     expect(created).toEqual(["项目/实验.md", "项目/实验/消融.md"]);
     expect(writes[0][0]).toBe(path);
@@ -67,5 +67,18 @@ describe("科研项目记录", () => {
     expect(projectDocumentTemplate("question")).toContain("## 背景与已知事实");
     expect(projectDocumentTemplate("decision")).toContain("## 证据与权衡");
     expect(projectDocumentTemplate("resource")).toContain("## 与项目的关系");
+  });
+
+  it("新研究文档默认不强加模板", async () => {
+    const writes: string[] = [];
+    const api: ProjectApi = {
+      readNote: async (path) => note(path),
+      createNote: async (parent, title) => ({ path: `${parent!.replace(/\.md$/, "")}/${title}.md`, title, id: null }),
+      writeNote: async (_path, body) => { writes.push(body); return 1; },
+      propSet: async () => {},
+    };
+    await captureProjectEntry(api, "项目.md", { kind: "question", title: "为什么", content: "一句摘要" });
+    expect(writes[0]).toBe("一句摘要\n");
+    expect(writes[0]).not.toContain("## ");
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { Icon } from "./Icon";
 import { confirm } from "../lib/dialog";
+import { fitFloatingMenu } from "../lib/floatingMenu";
 import {
   ancestorLines,
   clampNodeW,
@@ -597,9 +598,7 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!menu || !el) return;
-    const box = el.getBoundingClientRect();
-    el.style.left = `${Math.max(6, Math.min(menu.x, window.innerWidth - box.width - 6))}px`;
-    el.style.top = `${Math.max(6, Math.min(menu.y, window.innerHeight - box.height - 6))}px`;
+    fitFloatingMenu(el, menu.x, menu.y, 6);
   }, [menu]);
 
   const openMenu = (line: number, x: number, y: number) => {

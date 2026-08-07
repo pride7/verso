@@ -128,6 +128,17 @@ const WIDE = { w: 1440, h: 900 };
 /** §1.2 的窄屏门槛是 640px，这个尺寸稳稳在里面 */
 const NARROW = { w: 560, h: 900 };
 
+async function waitUntil(check: () => boolean, timeoutMs = 6_000) {
+  const deadline = performance.now() + timeoutMs;
+  while (!check()) {
+    if (performance.now() >= deadline) throw new Error("等待异步界面状态超时");
+    // 每轮单独 act，才能让上一轮定时器触发的 React 更新真正提交。
+    await act(async () => {
+      await settle(100);
+    });
+  }
+}
+
 async function mount() {
   const host = document.createElement("div");
   host.id = "root";
@@ -135,14 +146,14 @@ async function mount() {
   root = createRoot(host);
   await act(async () => {
     root!.render(<App />);
-    // PTY 是异步起的（还要等第一次真实布局）。跑完整 browser 套件时多个
-    // 文件并发争 CPU，固定睡 700ms 偶尔会在 PTY 真正打开前就断言；等待可观察
-    // 的启动结果，既更快，也不会把机器负载误报成产品失败。
     await settle(500);
-    if (localStorage.getItem("verso.termOpen") === "1") {
-      for (let i = 0; i < 20 && opened === 0; i++) await settle(100);
-    }
   });
+  // PTY 是异步起的（还要等第一次真实布局）。完整 browser 套件并发争 CPU 时，
+  // 一次长 act 会攒住中途产生的 React 更新；拆成多轮等待可观察结果，避免把
+  // 机器负载误报成产品失败。
+  if (localStorage.getItem("verso.termOpen") === "1") {
+    await waitUntil(() => opened > 0);
+  }
 }
 
 /** 从某个元素上发一个按键。target 决定了它会不会被「终端里键盘归 shell」挡掉 */

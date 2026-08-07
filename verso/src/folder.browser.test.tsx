@@ -188,6 +188,28 @@ async function menuItem(row: HTMLElement, label: string) {
 }
 
 describe("纯文件夹的树上操作", () => {
+  it("靠近窗口右下角打开的长菜单会完整收进视口", async () => {
+    await mountApp();
+    const row = rowFor("甲");
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: window.innerWidth - 2,
+        clientY: window.innerHeight - 2,
+      }));
+      await settle(80);
+    });
+    const menu = document.querySelector<HTMLElement>(".ctx")!;
+    const box = menu.getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(7);
+    expect(box.top).toBeGreaterThanOrEqual(7);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth - 7);
+    expect(box.bottom).toBeLessThanOrEqual(window.innerHeight - 7);
+    const buttons = [...menu.querySelectorAll("button")];
+    expect(buttons[buttons.length - 1]?.textContent).toBe("删除");
+  });
+
   it("右键 → 删除：弹的是文件夹措辞，带子文档数，然后整个删掉", async () => {
     await mountApp();
     const item = await menuItem(rowFor("数学"), "删除");

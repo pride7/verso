@@ -35,8 +35,19 @@ const BODY = ["## 方法", "", "- 甲", "  - 甲一", "- 乙", "", "## 结论", 
 
 /** 每条测试自己决定这篇笔记的正文（日志那几条要不同的起点） */
 let body = BODY;
+let frontmatter: Record<string, unknown> = {};
+let projectRows: { path: string; title: string; props: Record<string, string> }[] = [];
 
 const writeNote = vi.fn(async (_path: string, _body: string) => 0);
+const propSet = vi.fn(async (_path: string, key: string, value: string | null) => {
+  if (value === null) {
+    const next = { ...frontmatter };
+    delete next[key];
+    frontmatter = next;
+  } else {
+    frontmatter = { ...frontmatter, [key]: value };
+  }
+});
 
 /**
  * 确认框走 `lib/dialog` 而不是 `window.confirm` —— 见 `noGlobalDialog.test.ts`。
@@ -58,7 +69,7 @@ vi.mock("./api", () => ({
         path: "论文.md",
         id: null,
         title: "论文",
-        frontmatter: {},
+        frontmatter,
         frontmatterText: null,
         body,
         mtimeMs: 0,
@@ -74,8 +85,8 @@ vi.mock("./api", () => ({
     backlinks: async () => [],
     allTags: async () => [],
     notesByTag: async () => [],
-    viewQuery: async () => ({ columns: [], rows: [], view: "table", groupBy: null }),
-    propSet: async () => {},
+    viewQuery: async () => ({ columns: [], rows: projectRows, view: "table", groupBy: null, properties: [] }),
+    propSet: (path: string, key: string, value: string | null) => propSet(path, key, value),
     propRename: async () => {},
     propSchema: async () => ({}),
     reorder: async () => {},
@@ -111,7 +122,10 @@ const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   writeNote.mockClear();
+  propSet.mockClear();
   body = BODY;
+  frontmatter = {};
+  projectRows = [];
 });
 
 afterEach(() => {
@@ -120,7 +134,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function open() {
+async function mountApp() {
   const host = document.createElement("div");
   host.id = "root";
   document.body.appendChild(host);
@@ -129,6 +143,10 @@ async function open() {
     root!.render(<App />);
     await settle(600);
   });
+}
+
+async function open() {
+  await mountApp();
   await act(async () => {
     document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')!.click();
     await settle(300);
@@ -181,6 +199,61 @@ async function typeAndEnter(text: string) {
     await settle(300);
   });
 }
+
+describe("项目默认视图", () => {
+  it("打开项目文档直接进入总览，仍可主动回到 Markdown", async () => {
+    frontmatter = { type: "project", status: "进行中" };
+    await mountApp();
+    expect(document.querySelector(".project-dashboard")).not.toBeNull();
+    await click(document.querySelector('.project-icon-btn[aria-label="编辑项目正文"]')!);
+    expect(document.querySelector(".project-dashboard")).toBeNull();
+    expect(document.querySelector(".editor-host")).not.toBeNull();
+  });
+
+  it("左侧项目入口打开跨项目中心，而不是把当前笔记强行设为项目", async () => {
+    await mountApp();
+    expect(document.querySelector(".project-center")).toBeNull();
+    await click(document.querySelector('.rail-btn[aria-label="项目中心"]')!);
+    expect(document.querySelector(".project-center")).not.toBeNull();
+    expect(frontmatter.type).toBeUndefined();
+    await click(document.querySelector('.project-center-head button[aria-label="返回当前笔记"]')!);
+    expect(document.querySelector(".project-center")).toBeNull();
+  });
+
+  it("项目中心快捷键可以随时打开和关闭", async () => {
+    await mountApp();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ctrlKey: true, altKey: true, bubbles: true }));
+      await settle(120);
+    });
+    expect(document.querySelector(".project-center")).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ctrlKey: true, altKey: true, bubbles: true }));
+      await settle(120);
+    });
+    expect(document.querySelector(".project-center")).toBeNull();
+  });
+
+  it("点击当前标签对应的项目卡片也会真正进入单项目总览", async () => {
+    frontmatter = { type: "project", status: "进行中" };
+    projectRows = [{ path: "论文.md", title: "论文", props: { status: "进行中", summary: "当前结论" } }];
+    await mountApp();
+    await click(document.querySelector('.rail-btn[aria-label="项目中心"]')!);
+    expect(document.querySelector(".project-center")).not.toBeNull();
+    await click(document.querySelector(".project-center-card")!);
+    expect(document.querySelector(".project-center")).toBeNull();
+    expect(document.querySelector(".project-dashboard")).not.toBeNull();
+  });
+
+  it("项目中心可以把当前普通笔记原地设为项目", async () => {
+    await mountApp();
+    await click(document.querySelector('.rail-btn[aria-label="项目中心"]')!);
+    await click([...document.querySelectorAll(".project-center-head button")].find((button) => button.textContent === "将当前笔记设为项目")!);
+    expect(frontmatter.type).toBe("project");
+    expect(document.querySelector(".project-center")).toBeNull();
+    expect(document.querySelector(".project-dashboard")).not.toBeNull();
+  });
+});
 
 /** 进入节点编辑态并改好草稿，但不替用户按确认键。 */
 async function draft(nodeText: string, text: string): Promise<HTMLTextAreaElement> {

@@ -28,8 +28,8 @@ interface Props {
   /** 思维导图开着没有。null = 现在没有打开的笔记，这个按钮不该能按 */
   mindmapOn: boolean | null;
   onToggleMindmap: () => void;
-  /** 项目工作台开着没有。null = 没有打开笔记 */
-  projectOn: boolean | null;
+  /** 跨笔记的项目中心开着没有。 */
+  projectOn: boolean;
   onToggleProject: () => void;
   termOpen: boolean;
   /** 移动端没有终端（§7.3 没有可用的 PTY），整个按钮不渲染 */
@@ -136,10 +136,9 @@ export function ActivityBar({
       <button
         className={`rail-btn rail-action${projectOn ? " is-on" : ""}`}
         onClick={onToggleProject}
-        disabled={projectOn === null}
-        title={hint("项目工作台", keyOf("note.project"))}
-        aria-label="项目工作台"
-        aria-pressed={!!projectOn}
+        title={hint("项目中心", keyOf("view.projects"))}
+        aria-label="项目中心"
+        aria-pressed={projectOn}
       >
         <Icon name="project" />
       </button>

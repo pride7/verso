@@ -75,7 +75,7 @@ function firstLine(text: string): string {
     ?.slice(0, 160) ?? "";
 }
 
-/** 工作台摘要不该把模板里的空标题或提示语当成真实结论。 */
+/** 项目总览摘要不该把模板里的空标题或提示语当成真实结论。 */
 function firstContentLine(text: string): string {
   return text
     .split(/\r?\n/)
@@ -218,7 +218,7 @@ function localStamp(now = new Date()): string {
 export async function captureProjectEntry(
   api: ProjectApi,
   projectPath: string,
-  input: { kind: ProjectKind; title: string; content: string },
+  input: { kind: ProjectKind; title: string; content: string; useTemplate?: boolean },
 ): Promise<string> {
   const content = input.content.trim();
 
@@ -246,7 +246,12 @@ export async function captureProjectEntry(
     }
   }
   if (!created) throw new Error("同名记录太多，请换一个标题");
-  await api.writeNote(created.path, projectDocumentTemplate(input.kind, content));
+  const body = input.useTemplate
+    ? projectDocumentTemplate(input.kind, content)
+    : content
+      ? `${content}\n`
+      : "";
+  await api.writeNote(created.path, body);
   await api.propSet(created.path, "type", input.kind);
   await api.propSet(created.path, "status", DEFAULT_STATUS[input.kind]);
   if (content) await api.propSet(created.path, "summary", firstLine(content));

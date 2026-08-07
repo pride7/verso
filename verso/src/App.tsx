@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { EditorState } from "@codemirror/state";
 
@@ -13,6 +13,7 @@ import {
   pickVaultFolder,
 } from "./api";
 import { confirm } from "./lib/dialog";
+import { fitFloatingMenu } from "./lib/floatingMenu";
 import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -36,6 +37,7 @@ import { HistoryView, type DiffSelection } from "./components/HistoryView";
 import { DiffView } from "./components/DiffView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
+import { ProjectCenter } from "./components/ProjectCenter";
 import { ProjectDashboard } from "./components/ProjectDashboard";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "./components/VaultSwitcher";
 import { SharedSpaceDialog } from "./components/SharedSpaceDialog";
@@ -250,6 +252,7 @@ export default function App() {
     return clampSidebar(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_SIDEBAR_W);
   });
   const [menu, setMenu] = useState<Menu | null>(null);
+  const menuRef = useRef<HTMLUListElement>(null);
   /** 「移动到…」选择器正在为哪个节点服务。null = 没开。
       拖拽移动在触摸屏上完全不可用，这是它的可点击等价物（M6） */
   const [moveFor, setMoveFor] = useState<TreeNode | null>(null);
@@ -264,6 +267,8 @@ export default function App() {
   const [mindmapOpen, setMindmapOpen] = useState(false);
   /** 一屏项目总览；正文编辑器仍留在 DOM 中，退出时光标和撤销历史都还在。 */
   const [projectOpen, setProjectOpen] = useState(false);
+  /** 跨笔记的项目中心；从这里进入某一张项目卡，才下钻到单项目总览。 */
+  const [projectCenterOpen, setProjectCenterOpen] = useState(false);
   /**
    * §2.8 的只读差异页。它不进标签状态：这是在检查一次改动，不是一篇文档。
    * null 就显示原笔记。
@@ -550,6 +555,9 @@ export default function App() {
       diffReturnScroll.current = null;
       setNote(content);
       setBody(content.body);
+      const project = isProject(content);
+      setProjectOpen(project);
+      if (project) setMindmapOpen(false);
       savedMtime.current = content.mtimeMs;
       setSaveState("saved");
       setExternalChange(false);
@@ -567,6 +575,7 @@ export default function App() {
       setMindmapOpen(false);
       setDiffSelection(selection);
       if (narrowRef.current) setSidebarOpen(false);
+      setProjectCenterOpen(false);
       setProjectOpen(false);
       requestAnimationFrame(() => {
         if (mainRef.current) mainRef.current.scrollTop = 0;
@@ -597,6 +606,9 @@ export default function App() {
       // 窄屏上侧栏是**盖在正文上的抽屉**：点开一篇之后自己收起来。
       // 不收的话用户还得再关一次，而他刚才那一下表达的正是「我要看这一篇」
       if (narrowRef.current) setSidebarOpen(false);
+      // 项目中心是跨笔记的上一层。点卡片已经明确表达「进入这个项目」，
+      // 即使这篇恰好就在当前标签里，也必须先撤掉中心，才能露出单项目总览。
+      setProjectCenterOpen(false);
       setProjectOpen(false);
       if (noteRef.current && dirtyRef.current) await saveNow();
       // 离开当前页之前记下滚动位置，切回来时还在原处
@@ -802,6 +814,19 @@ export default function App() {
     },
     [refresh, openPath],
   );
+
+  const createProjectAndOpen = useCallback(async () => {
+    try {
+      const meta = await api.createUntitled(null);
+      await api.propSet(meta.path, "type", "project");
+      await api.propSet(meta.path, "status", "进行中");
+      await refresh();
+      await openPath(meta.path);
+      setRenaming(meta.path);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }, [openPath, refresh]);
 
   /**
    * 改名交回来了。空、或者没改，都当作放弃 —— 不去调后端，也就不会因为
@@ -2073,6 +2098,12 @@ export default function App() {
     };
   }, [menu]);
 
+  // 右键点在侧栏底部时，菜单不能继续向下长到窗口外。实际渲染后再量，新增菜单项、
+  // 系统字体和缩放比例都不会让这里的高度预估失效。
+  useLayoutEffect(() => {
+    if (menu && menuRef.current) fitFloatingMenu(menuRef.current, menu.x, menu.y);
+  }, [menu]);
+
   const reloadFromDisk = useCallback(async () => {
     const n = noteRef.current;
     if (!n) return;
@@ -2092,8 +2123,12 @@ export default function App() {
   const toggleProject = useCallback(async () => {
     let current = noteRef.current;
     if (!current) return;
-    if (projectOpen) {
+    if (projectOpen && !projectCenterOpen) {
       setProjectOpen(false);
+      return;
+    }
+    if (projectOpen && projectCenterOpen && isProject(current)) {
+      setProjectCenterOpen(false);
       return;
     }
     if (!isProject(current)) {
@@ -2119,8 +2154,8 @@ export default function App() {
     }
     if (!isProject(current)) {
       const ok = await confirm(
-        `把「${current.title}」设为科研项目？\n\nVerso 会在同名目录里整理进展、实验、问题、决策和资料，正文不会被改动。`,
-        { title: "创建项目工作台", okLabel: "设为项目", cancelLabel: "取消", kind: "info" },
+        `把「${current.title}」设为项目？\n\nVerso 会在同名目录里整理进展、实验、问题、决策和资料，正文不会被改动。`,
+        { title: "启用项目总览", okLabel: "设为项目", cancelLabel: "取消", kind: "info" },
       );
       if (!ok) return;
       if (dirtyRef.current && !(await saveNow())) return;
@@ -2135,8 +2170,9 @@ export default function App() {
       }
     }
     setMindmapOpen(false);
+    setProjectCenterOpen(false);
     setProjectOpen(true);
-  }, [openPath, projectOpen, refresh, reloadFromDisk, saveNow]);
+  }, [openPath, projectCenterOpen, projectOpen, refresh, reloadFromDisk, saveNow]);
 
   /**
    * 设置/去掉一篇笔记的图标（§2.3）。`icon` 为 null = 去掉。
@@ -2331,12 +2367,24 @@ export default function App() {
       {
         id: "note.project",
         group: "笔记",
-        name: "项目工作台",
-        label: projectOpen ? "回到项目正文" : "项目工作台",
+        name: "项目总览",
+        label: projectOpen ? "回到项目正文" : "项目总览",
         // J = Project Journal。和现有「记一条进展」同属一组，但不占 Enter。
         defaultKeys: "Mod+Shift+J",
         enabled: hasNote,
         run: () => void toggleProject(),
+      },
+      {
+        id: "view.projects",
+        group: "视图",
+        name: "项目中心",
+        label: projectCenterOpen ? "回到当前笔记" : "项目中心",
+        // 与单项目总览的 Mod+Shift+J 成对：Alt 表示再向上一层看全部项目。
+        defaultKeys: "Mod+Alt+J",
+        run: () => {
+          setMindmapOpen(false);
+          setProjectCenterOpen((value) => !value);
+        },
       },
       {
         id: "vault.history",
@@ -2702,6 +2750,7 @@ export default function App() {
     // 会一直显示「思维导图」，点它反而是关掉
     mindmapOpen,
     projectOpen,
+    projectCenterOpen,
     toggleProject,
     tocFloat,
     toggleTocFloat,
@@ -2867,8 +2916,11 @@ export default function App() {
         onToggleSourceMode={toggleSourceMode}
         mindmapOn={note ? mindmapOpen : null}
         onToggleMindmap={() => setMindmapOpen((v) => !v)}
-        projectOn={note ? projectOpen : null}
-        onToggleProject={() => void toggleProject()}
+        projectOn={projectCenterOpen}
+        onToggleProject={() => {
+          setMindmapOpen(false);
+          setProjectCenterOpen((value) => !value);
+        }}
         termOpen={termOpen}
         showTerm={!mobile}
         onToggleTerm={() => setTermOpen((v) => !v)}
@@ -3063,7 +3115,8 @@ export default function App() {
           // 点标签就是明确地回到笔记。尤其是点当前标签时，applyTabs 会因为
           // 路径没变而直接返回，不能指望它顺手关掉差异页。
           if (diffSelection) closeDiff();
-          setProjectOpen(false);
+          setProjectCenterOpen(false);
+          setProjectOpen(isProject(note));
           void applyTabs(gotoTab(tabsRef.current, i));
         }}
         onClose={closeTabAt}
@@ -3079,7 +3132,7 @@ export default function App() {
       {/* 思维导图铺满编辑区。**放在 main 外面、和它占同一片区域** ——
           Editor 必须留在 DOM 里：图上的每一次改动都要走它的 dispatch，
           卸载了就没有编辑器可 dispatch，撤销历史也一并没了（§4.7） */}
-      {note && mindmapOpen && !diffSelection && (
+      {note && mindmapOpen && !diffSelection && !projectCenterOpen && (
         <MindMap
           key={note.path}
           storageKey={note.path}
@@ -3098,7 +3151,19 @@ export default function App() {
         />
       )}
 
-      {note && projectOpen && !diffSelection && (
+      {projectCenterOpen && (
+        <ProjectCenter
+          revision={revision}
+          promotableNote={note && !isProject(note) ? note.title : null}
+          onOpen={(path) => void openPath(path)}
+          onNew={() => void createProjectAndOpen()}
+          onPromote={() => void toggleProject()}
+          onClose={() => setProjectCenterOpen(false)}
+          onError={setError}
+        />
+      )}
+
+      {note && projectOpen && !diffSelection && !projectCenterOpen && (
         <ProjectDashboard
           key={note.path}
           project={note}
@@ -3195,7 +3260,7 @@ export default function App() {
           本来就可以重叠），于是侧栏收起、终端打开时它自己会跟着挪，
           不需要任何 JS 参与布局。
           只有一条标题时不显示 —— 那不叫目录，只是一块挡视线的东西 */}
-      {note && !diffSelection && !mindmapOpen && !projectOpen && tocFloat && headings.length >= 2 && (
+      {note && !diffSelection && !mindmapOpen && !projectOpen && !projectCenterOpen && tocFloat && headings.length >= 2 && (
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 
@@ -3225,7 +3290,7 @@ export default function App() {
       {/* §5.5 公式工具条。只在窄屏、且真的打开了一篇笔记时出现 ——
           它占的是软键盘上方那一条，没有编辑对象时那一条不该存在。
           终端开着时也不显示：两个都想占底部，而在手机上根本没有终端 */}
-      {narrow && note && !diffSelection && !termOpen && !mindmapOpen && !projectOpen && (
+      {narrow && note && !diffSelection && !termOpen && !mindmapOpen && !projectOpen && !projectCenterOpen && (
         <MathBar
           onInsert={(replacement) => editorRef.current?.insertSnippet(replacement)}
           onNext={() => editorRef.current?.nextStop()}
@@ -3513,7 +3578,7 @@ export default function App() {
       )}
 
       {menu && (
-        <ul className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
+        <ul ref={menuRef} className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
           {/* Ctrl/⌘+点 和中键都要键盘或三键鼠标。这一条是它们的等价入口 ——
               §0：只能用快捷键完成的操作必须有能点的地方 */}
           {menu.node.kind === "document" && (
