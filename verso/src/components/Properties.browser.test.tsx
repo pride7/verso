@@ -6,12 +6,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 
-const { propSet } = vi.hoisted(() => ({ propSet: vi.fn(async () => {}) }));
+const { propSet, propDefSet, schemaState } = vi.hoisted(() => ({
+  propSet: vi.fn(async () => {}),
+  propDefSet: vi.fn(async () => {}),
+  schemaState: { value: {} as Record<string, { type: string; options?: string[] }> },
+}));
 
 vi.mock("../api", () => ({
   api: {
     propSet,
     propRename: async () => {},
+    propSchema: async () => schemaState.value,
+    propDefSet,
   },
 }));
 
@@ -24,6 +30,8 @@ afterEach(() => {
   root = null;
   document.body.innerHTML = "";
   propSet.mockClear();
+  propDefSet.mockClear();
+  schemaState.value = {};
 });
 
 function render(frontmatter: Record<string, unknown> = { id: "01X", status: "已读", tags: ["深度学习"], 难度: 4 }) {
@@ -31,7 +39,7 @@ function render(frontmatter: Record<string, unknown> = { id: "01X", status: "已
   host.style.cssText = "position:fixed;inset:0;padding:40px";
   document.body.appendChild(host);
   root = createRoot(host);
-  root.render(<Properties frontmatter={frontmatter} path="a.md" onChanged={() => {}} />);
+  root.render(<Properties frontmatter={frontmatter} path="a.md" revision={1} onChanged={() => {}} />);
 }
 
 const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
@@ -88,7 +96,7 @@ describe("属性条", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
-    root.render(<Properties frontmatter={{ id: "01X" }} path="a.md" onChanged={() => {}} />);
+    root.render(<Properties frontmatter={{ id: "01X" }} path="a.md" revision={1} onChanged={() => {}} />);
     await tick();
 
     // 没属性时只占一行淡入口，不摆空的属性表和折叠箭头。
@@ -107,6 +115,30 @@ describe("属性条", () => {
     await userEvent.keyboard("{Enter}");
     await tick();
     expect(propSet).toHaveBeenCalledWith("a.md", "status", "");
+  });
+
+  it("schema 声明为单选的状态使用选项菜单，不退化成文本框", async () => {
+    schemaState.value = {
+      status: { type: "select", options: ["筹备中", "进行中", "计划中", "已暂停", "已完成", "已归档", "待解决", "自定义状态"] },
+    };
+    render({ type: "experiment", status: "进行中", summary: "只放在属性里的摘要" });
+    await tick();
+    await userEvent.click(document.querySelector<HTMLElement>(".props-toggle")!);
+    const statusRow = [...document.querySelectorAll<HTMLElement>(".props-row")]
+      .find((row) => row.querySelector(".props-key")?.textContent === "status")!;
+    await userEvent.click(statusRow.querySelector<HTMLElement>(".props-value")!);
+    await tick();
+
+    expect(statusRow.querySelector(".optpick")).not.toBeNull();
+    expect(statusRow.querySelector(".props-input")).toBeNull();
+    const labels = [...statusRow.querySelectorAll<HTMLButtonElement>(".optpick-list button")]
+      .map((button) => button.textContent?.trim());
+    expect(labels).toEqual(["进行中", "计划中", "已暂停", "已完成", "已归档", "自定义状态"]);
+    const completed = [...statusRow.querySelectorAll<HTMLButtonElement>(".optpick-list button")]
+      .find((button) => button.textContent?.includes("已完成"))!;
+    await userEvent.click(completed);
+    await tick();
+    expect(propSet).toHaveBeenCalledWith("a.md", "status", "已完成");
   });
 });
 

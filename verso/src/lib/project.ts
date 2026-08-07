@@ -1,4 +1,4 @@
-import type { NoteContent, NoteMeta, NoteRef } from "../types";
+import type { NoteContent, NoteMeta, NoteRef, PropSchema } from "../types";
 
 export type ProjectKind = "progress" | "experiment" | "question" | "decision" | "resource";
 
@@ -30,6 +30,8 @@ export interface ProjectApi {
   createNote(parentDoc: string | null, title: string): Promise<NoteMeta>;
   writeNote(path: string, body: string): Promise<number>;
   propSet(path: string, key: string, value: string | null): Promise<void>;
+  propSchema(): Promise<PropSchema>;
+  propDefSet(key: string, def: { type: "select"; options: string[] }): Promise<void>;
 }
 
 const CATEGORY: Record<Exclude<ProjectKind, "progress">, string> = {
@@ -45,6 +47,52 @@ const DEFAULT_STATUS: Record<Exclude<ProjectKind, "progress">, string> = {
   decision: "已决定",
   resource: "已收录",
 };
+
+export type ProjectStatusKind = Exclude<ProjectKind, "progress"> | "project";
+
+/** 项目总览和普通属性条共用的状态词表；顺序也是 UI 的稳定顺序。 */
+export const PROJECT_STATUS_DEFAULTS: Record<ProjectStatusKind, string[]> = {
+  project: ["筹备中", "进行中", "已暂停", "已完成", "已归档"],
+  experiment: ["计划中", "进行中", "已暂停", "已完成", "已归档"],
+  question: ["待解决", "研究中", "已解决", "已搁置"],
+  decision: ["待决定", "已决定", "已废弃"],
+  resource: ["待整理", "已收录", "已归档"],
+};
+
+const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+
+export function isProjectStatusKind(kind: unknown): kind is ProjectStatusKind {
+  return typeof kind === "string" && kind in PROJECT_STATUS_DEFAULTS;
+}
+
+/** 当前文档类型对应的固定选项在前，自定义选项在后；总览和属性条都用这一顺序。 */
+export function projectStatusOptions(kind: unknown, schemaOptions: string[]): string[] {
+  if (!isProjectStatusKind(kind)) return unique(schemaOptions);
+  const builtIn = unique(Object.values(PROJECT_STATUS_DEFAULTS).flat());
+  const custom = schemaOptions.filter((value) => !builtIn.includes(value));
+  return unique([...PROJECT_STATUS_DEFAULTS[kind], ...custom]);
+}
+
+/**
+ * `status` 是 vault 级单选属性。项目创建和总览都走这里，避免专用页面是菜单、
+ * 回到普通属性条却又退化成文本框。已有自定义选项只合并，不覆盖。
+ */
+export async function ensureProjectStatusSchema(
+  api: Pick<ProjectApi, "propSchema" | "propDefSet">,
+  extra: string[] = [],
+): Promise<string[]> {
+  const schema = await api.propSchema();
+  const current = schema.status;
+  const options = unique([
+    ...Object.values(PROJECT_STATUS_DEFAULTS).flat(),
+    ...(current?.options ?? []),
+    ...extra,
+  ]);
+  if (current?.type !== "select" || JSON.stringify(current.options ?? []) !== JSON.stringify(options)) {
+    await api.propDefSet("status", { type: "select", options });
+  }
+  return options;
+}
 
 export const PROJECT_KIND_LABEL: Record<ProjectKind, string> = {
   progress: "进展",
@@ -62,6 +110,7 @@ export function isProject(note: NoteContent | null): boolean {
 }
 
 export async function markAsProject(api: ProjectApi, note: NoteContent): Promise<void> {
+  await ensureProjectStatusSchema(api, [asText(note.frontmatter.status)]);
   await api.propSet(note.path, "type", "project");
   // 已有 status 可能承载用户自己的词汇，不为了项目模式把它覆盖掉。
   if (!asText(note.frontmatter.status).trim()) await api.propSet(note.path, "status", "进行中");
@@ -86,10 +135,8 @@ function firstContentLine(text: string): string {
 
 export function projectDocumentTemplate(
   kind: Exclude<ProjectKind, "progress">,
-  summary = "",
 ): string {
-  const intro = summary.trim();
-  const lead = (prompt: string) => `${intro ? `${intro}\n` : `> ${prompt}\n`}`;
+  const lead = (prompt: string) => `> ${prompt}\n`;
   const templates: Record<typeof kind, string> = {
     experiment: [
       "## 目标与假设",
@@ -233,6 +280,7 @@ export async function captureProjectEntry(
 
   const baseTitle = input.title.trim();
   if (!baseTitle) throw new Error("先写标题");
+  await ensureProjectStatusSchema(api, [DEFAULT_STATUS[input.kind]]);
   const category = CATEGORY[input.kind];
   const categoryPath = await ensureChild(api, projectPath, category, "project-section");
   let created: NoteMeta | null = null;
@@ -247,10 +295,8 @@ export async function captureProjectEntry(
   }
   if (!created) throw new Error("同名记录太多，请换一个标题");
   const body = input.useTemplate
-    ? projectDocumentTemplate(input.kind, content)
-    : content
-      ? `${content}\n`
-      : "";
+    ? projectDocumentTemplate(input.kind)
+    : "";
   await api.writeNote(created.path, body);
   await api.propSet(created.path, "type", input.kind);
   await api.propSet(created.path, "status", DEFAULT_STATUS[input.kind]);

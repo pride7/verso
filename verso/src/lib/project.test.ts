@@ -43,6 +43,7 @@ describe("项目记录", () => {
     const created: string[] = [];
     const writes: [string, string][] = [];
     const props: [string, string, string | null][] = [];
+    const defs: unknown[] = [];
     const api: ProjectApi = {
       readNote: async (path) => note(path),
       createNote: async (parent, title): Promise<NoteMeta> => {
@@ -52,15 +53,19 @@ describe("项目记录", () => {
       },
       writeNote: async (path, body) => { writes.push([path, body]); return 1; },
       propSet: async (path, key, value) => { props.push([path, key, value]); },
+      propSchema: async () => ({}),
+      propDefSet: async (_key, def) => { defs.push(def); },
     };
     const path = await captureProjectEntry(api, "项目.md", { kind: "experiment", title: "消融", content: "去掉路由后下降 3%。", useTemplate: true });
     expect(path).toBe("项目/实验/消融.md");
     expect(created).toEqual(["项目/实验.md", "项目/实验/消融.md"]);
     expect(writes[0][0]).toBe(path);
     expect(writes[0][1]).toContain("## 目标与假设");
-    expect(writes[0][1]).toContain("去掉路由后下降 3%。");
+    expect(writes[0][1]).not.toContain("去掉路由后下降 3%。");
     expect(writes[0][1]).toContain("## 观察与结果");
     expect(props).toContainEqual([path, "type", "experiment"]);
+    expect(props).toContainEqual([path, "summary", "去掉路由后下降 3%。"]);
+    expect(defs).toContainEqual(expect.objectContaining({ type: "select" }));
   });
 
   it("复杂记录允许只有标题，正文得到可删改的轻量模板", async () => {
@@ -71,14 +76,17 @@ describe("项目记录", () => {
 
   it("新研究文档默认不强加模板", async () => {
     const writes: string[] = [];
+    const props: [string, string, string | null][] = [];
     const api: ProjectApi = {
       readNote: async (path) => note(path),
       createNote: async (parent, title) => ({ path: `${parent!.replace(/\.md$/, "")}/${title}.md`, title, id: null }),
       writeNote: async (_path, body) => { writes.push(body); return 1; },
-      propSet: async () => {},
+      propSet: async (path, key, value) => { props.push([path, key, value]); },
+      propSchema: async () => ({}),
+      propDefSet: async () => {},
     };
     await captureProjectEntry(api, "项目.md", { kind: "question", title: "为什么", content: "一句摘要" });
-    expect(writes[0]).toBe("一句摘要\n");
-    expect(writes[0]).not.toContain("## ");
+    expect(writes[0]).toBe("");
+    expect(props).toContainEqual(["项目/问题/为什么.md", "summary", "一句摘要"]);
   });
 });

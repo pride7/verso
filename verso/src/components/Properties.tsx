@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../api";
+import { ensureProjectStatusSchema, isProjectStatusKind, projectStatusOptions } from "../lib/project";
+import type { PropSchema } from "../types";
 import { Icon } from "./Icon";
+import { OptionPicker } from "./ViewSettings";
 
 /** frontmatter 里不值得占视觉空间的内部字段 */
 const INTERNAL = new Set(["id", "title", "created", "updated"]);
@@ -17,6 +20,8 @@ interface Props {
   frontmatter: Record<string, unknown>;
   /** 当前笔记路径，写回属性要用 */
   path: string;
+  /** vault 级属性类型更新后重新读取 schema */
+  revision: number;
   /** 改完之后重新读一遍笔记 —— 显示的必须是磁盘上真正的那份 */
   onChanged: () => void;
 }
@@ -36,7 +41,7 @@ interface Props {
  * `id` 和 `created` 连显示都不显示（在 INTERNAL 里），Rust 侧还会再拒一次 ——
  * 改掉 id 等于换掉这篇笔记的身份，所有指向它的链接都会断。
  */
-export function Properties({ frontmatter, path, onChanged }: Props) {
+export function Properties({ frontmatter, path, revision, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   /** 正在编辑哪个键的**值**。null = 没在编辑 */
   const [editing, setEditing] = useState<string | null>(null);
@@ -46,6 +51,7 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
   const [keyDraft, setKeyDraft] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [schema, setSchema] = useState<PropSchema>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   const entries = Object.entries(frontmatter ?? {}).filter(([k]) => !INTERNAL.has(k));
@@ -62,6 +68,24 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
   useEffect(() => {
     if (editing !== null) inputRef.current?.focus();
   }, [editing]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        // 旧 vault 可能还没有 status 类型定义。直接打开某篇实验/问题文档时也要
+        // 完成迁移，不能要求用户先绕回项目总览打开一次。
+        if (isProjectStatusKind(frontmatter.type)) {
+          await ensureProjectStatusSchema(api, [render(frontmatter.status)]);
+        }
+        const next = await api.propSchema();
+        if (active) setSchema(next);
+      } catch {
+        if (active) setSchema({});
+      }
+    })();
+    return () => { active = false; };
+  }, [frontmatter.status, frontmatter.type, path, revision]);
 
   /**
    * 属性改名走 `prop_rename` 而不是「删旧键 + 建新键」。
@@ -95,6 +119,19 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
       onChanged();
     } catch (e) {
       // 失败时留在编辑态。把人打回只读态、改的内容还丢了，是最糟的处理
+      setError((e as Error).message);
+    }
+  };
+
+  const addOption = async (key: string, option: string) => {
+    const def = schema[key];
+    const type = def?.type === "multi" ? "multi" : "select";
+    const options = [...new Set([...(def?.options ?? []), option])];
+    try {
+      await api.propDefSet(key, { type, options });
+      setSchema((current) => ({ ...current, [key]: { type, options } }));
+      setError(null);
+    } catch (e) {
       setError((e as Error).message);
     }
   };
@@ -194,15 +231,28 @@ export function Properties({ frontmatter, path, onChanged }: Props) {
               </dt>
               <dd>
                 {editing === k ? (
-                  <input
-                    ref={inputRef}
-                    className="props-input"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => onKeyDown(e, k)}
-                    onBlur={() => void save(k, draft)}
-                    spellCheck={false}
-                  />
+                  schema[k]?.type === "select" || schema[k]?.type === "multi" ? (
+                    <OptionPicker
+                      value={render(v)}
+                      options={k === "status"
+                        ? projectStatusOptions(frontmatter.type, schema[k]?.options ?? [])
+                        : schema[k]?.options ?? []}
+                      multi={schema[k]?.type === "multi"}
+                      onSet={(value) => void save(k, value || null)}
+                      onCreateOption={(option) => void addOption(k, option)}
+                      onClose={() => setEditing(null)}
+                    />
+                  ) : (
+                    <input
+                      ref={inputRef}
+                      className="props-input"
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => onKeyDown(e, k)}
+                      onBlur={() => void save(k, draft)}
+                      spellCheck={false}
+                    />
+                  )
                 ) : (
                   <button
                     className="props-value"

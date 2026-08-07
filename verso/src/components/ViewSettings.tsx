@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Icon, type IconName } from "./Icon";
 import {
@@ -6,7 +6,9 @@ import {
   OPS,
   readColumns,
   readKey,
+  readSourceScope,
   readWhere,
+  sourceWithScope,
   writeColumns,
   writeKey,
   writeWhere,
@@ -32,6 +34,16 @@ const VIEWS: { id: string; label: string }[] = [
   { id: "calendar", label: "日历" },
 ];
 
+const OP_LABELS: Record<(typeof OPS)[number], string> = {
+  "=": "等于",
+  "!=": "不等于",
+  ">": "大于",
+  ">=": "大于等于",
+  "<": "小于",
+  "<=": "小于等于",
+  contains: "包含",
+};
+
 /**
  * 视图设置。DESIGN.md §2.6
  *
@@ -48,8 +60,18 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
   const limit = readKey(source, "limit") ?? "";
   const where = readWhere(source);
   const [draftFrom, setDraftFrom] = useState(from);
+  const sourceScope = readSourceScope(from);
+  const filterableProperties = properties.filter((property) => !isBuiltin(property.key));
+
+  useEffect(() => setDraftFrom(from), [from]);
 
   const patchWhere = (conds: Condition[]) => onPatch(writeWhere(source, conds));
+  const patchScope = (scope: "direct" | "recursive") => {
+    const next = sourceWithScope(from, scope);
+    if (!next) return;
+    setDraftFrom(next);
+    onPatch(writeKey(source, "from", `"${next}"`));
+  };
 
   return (
     <div className="vset" onMouseDown={(e) => e.stopPropagation()}>
@@ -126,6 +148,26 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
         />
       </label>
 
+      <div className="vset-row">
+        <span className="vset-label">层级</span>
+        <span className="vset-seg vset-scope" aria-label="来源层级">
+          <button
+            className={sourceScope.scope === "direct" ? "is-on" : undefined}
+            disabled={sourceScope.scope === "custom"}
+            onClick={() => patchScope("direct")}
+          >
+            当前层
+          </button>
+          <button
+            className={sourceScope.scope === "recursive" ? "is-on" : undefined}
+            disabled={sourceScope.scope === "custom"}
+            onClick={() => patchScope("recursive")}
+          >
+            包含子层
+          </button>
+        </span>
+      </div>
+
       <div className="vset-row vset-filters">
         <span className="vset-label">筛选</span>
         <div className="vset-conds">
@@ -137,55 +179,64 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
           ) : (
             <>
               {where.map((c, i) => (
-                <div className="vset-cond" key={i}>
-                  <select
-                    value={c.key}
-                    onChange={(e) =>
-                      patchWhere(where.map((x, j) => (i === j ? { ...x, key: e.target.value } : x)))
-                    }
-                  >
-                    {[...new Set([c.key, ...properties.map((p) => p.key)])].map((k) => (
-                      <option key={k} value={k}>
-                        {propLabel(k)}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={c.op}
-                    onChange={(e) =>
-                      patchWhere(where.map((x, j) => (i === j ? { ...x, op: e.target.value } : x)))
-                    }
-                  >
-                    {OPS.map((o) => (
-                      <option key={o}>{o}</option>
-                    ))}
-                  </select>
-                  <input
-                    defaultValue={c.value}
-                    onBlur={(e) =>
-                      e.target.value !== c.value &&
-                      patchWhere(
-                        where.map((x, j) => (i === j ? { ...x, value: e.target.value } : x)),
-                      )
-                    }
-                  />
-                  <button
-                    className="vset-del"
-                    onClick={() => patchWhere(where.filter((_, j) => j !== i))}
-                    aria-label="删掉这个条件"
-                  >
-                    <Icon name="close" size={12} />
-                  </button>
+                <div className="vset-cond-wrap" key={i}>
+                  {i > 0 && <span className="vset-join">并且</span>}
+                  <div className="vset-cond">
+                    <select
+                      aria-label={`筛选属性 ${i + 1}`}
+                      value={c.key}
+                      onChange={(e) =>
+                        patchWhere(where.map((x, j) => (i === j ? { ...x, key: e.target.value } : x)))
+                      }
+                    >
+                      {[...new Set([c.key, ...filterableProperties.map((p) => p.key)])].map((k) => (
+                        <option key={k} value={k}>
+                          {propLabel(k)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={`筛选关系 ${i + 1}`}
+                      value={c.op}
+                      onChange={(e) =>
+                        patchWhere(where.map((x, j) => (i === j ? { ...x, op: e.target.value } : x)))
+                      }
+                    >
+                      {OPS.map((o) => (
+                        <option key={o} value={o}>
+                          {OP_LABELS[o]}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      aria-label={`筛选值 ${i + 1}`}
+                      defaultValue={c.value}
+                      placeholder="输入要匹配的值"
+                      onBlur={(e) =>
+                        e.target.value !== c.value &&
+                        patchWhere(
+                          where.map((x, j) => (i === j ? { ...x, value: e.target.value } : x)),
+                        )
+                      }
+                    />
+                    <button
+                      className="vset-del"
+                      onClick={() => patchWhere(where.filter((_, j) => j !== i))}
+                      aria-label="删掉这个条件"
+                    >
+                      <Icon name="close" size={12} />
+                    </button>
+                  </div>
                 </div>
               ))}
               <button
                 className="vset-add"
-                disabled={properties.length === 0}
+                disabled={filterableProperties.length === 0}
                 onClick={() =>
-                  patchWhere([...where, { key: properties[0]?.key ?? "", op: "=", value: "" }])
+                  patchWhere([...where, { key: filterableProperties[0]?.key ?? "", op: "=", value: "" }])
                 }
               >
-                <Icon name="plus" size={12} /> 加一个条件
+                <Icon name="plus" size={12} /> 添加筛选条件
               </button>
             </>
           )}

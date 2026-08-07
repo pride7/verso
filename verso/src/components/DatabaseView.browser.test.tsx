@@ -449,7 +449,27 @@ describe("列与设置（§2.6）", () => {
     expect(view.state.doc.toString()).toContain("view: list");
   });
 
-  it("加一个筛选条件", async () => {
+  it("来源层级能在直属文档和全部后代之间切换", async () => {
+    const view = mount();
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    const direct = [...view.dom.querySelectorAll<HTMLButtonElement>(".vset-scope button")].find(
+      (button) => button.textContent?.includes("当前层"),
+    )!;
+    expect(direct.classList.contains("is-on")).toBe(true);
+
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLButtonElement>(".vset-scope button")].find((button) =>
+        button.textContent?.includes("包含子层"),
+      )!,
+    );
+    await settle();
+    expect(view.state.doc.toString()).toContain('from: "论文/**"');
+  });
+
+  it("空筛选可以添加条件并写回代码块", async () => {
     const view = mount();
     await settle();
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
@@ -458,6 +478,27 @@ describe("列与设置（§2.6）", () => {
     await userEvent.click(view.dom.querySelector<HTMLElement>(".vset-add")!);
     await settle();
     expect(view.state.doc.toString()).toMatch(/where: \S+ =/);
+  });
+
+  it("已有筛选用人话显示运算关系，多个条件明确写成并且", async () => {
+    const view = mount(
+      ['from: "论文/*"', "view: table", "where: status = 在读 and 难度 >= 3"].join("\n"),
+    );
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    const operator = view.dom.querySelector<HTMLSelectElement>('[aria-label="筛选关系 1"]')!;
+    expect([...operator.options].map((option) => option.textContent)).toEqual([
+      "等于",
+      "不等于",
+      "大于",
+      "大于等于",
+      "小于",
+      "小于等于",
+      "包含",
+    ]);
+    expect(view.dom.querySelector(".vset-join")?.textContent).toBe("并且");
   });
 });
 

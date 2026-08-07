@@ -228,6 +228,38 @@ fn calendar_and_gallery_keys_are_fetched_even_when_not_listed() {
     );
 }
 
+/// `*` 和 `**` 在路径来源里必须有不同含义。SQLite GLOB 原生的 `*` 会跨过
+/// `/`，如果不额外排除下一段路径，用户根本无法只看项目的一级文档。
+#[test]
+fn view_source_distinguishes_direct_children_from_all_descendants() {
+    let (_t, _v, idx) = setup(&[
+        ("项目.md", "项目主页\n"),
+        ("项目/直属.md", "直属文档\n"),
+        ("项目/实验/嵌套.md", "嵌套文档\n"),
+        ("别处.md", "无关文档\n"),
+    ]);
+
+    let direct: view::ViewSpec = serde_yaml::from_str("from: \"项目/*\"\n").unwrap();
+    let direct_paths: Vec<String> = view::query(idx.conn(), &direct)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(direct_paths, vec!["项目/直属.md".to_string()]);
+
+    let recursive: view::ViewSpec = serde_yaml::from_str("from: \"项目/**\"\n").unwrap();
+    let recursive_paths: Vec<String> = view::query(idx.conn(), &recursive)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(recursive_paths.len(), 2);
+    assert!(recursive_paths.iter().any(|path| path == "项目/直属.md"));
+    assert!(recursive_paths.iter().any(|path| path == "项目/实验/嵌套.md"));
+}
+
 // -------------------------------------------------------------- 增量更新
 
 #[test]

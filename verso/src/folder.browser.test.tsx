@@ -99,6 +99,7 @@ vi.mock("./api", () => ({
     propSet: async () => {},
     propRename: async () => {},
     propSchema: async () => ({}),
+    propDefSet: async () => {},
     reorder: (parent: string, ordered: string[]) => reorderApi(parent, ordered),
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,

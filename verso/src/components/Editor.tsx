@@ -648,6 +648,7 @@ ${insert}` },
         <Properties
           frontmatter={note.frontmatter}
           path={note.path}
+          revision={revision}
           // 改完属性要重读这篇笔记 —— 正文没变，所以编辑器里的光标和
           // 撤销历史都不会被打断
           onChanged={() => cb.current.onChanged()}

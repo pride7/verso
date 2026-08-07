@@ -5,10 +5,12 @@ import {
   nextSort,
   readColumns,
   readKey,
+  readSourceScope,
   readSort,
   readWhere,
   writeColumns,
   writeKey,
+  sourceWithScope,
   writeSort,
   writeWhere,
   formatDate,
@@ -102,6 +104,24 @@ describe("readKey / writeKey", () => {
 
   it("null 是删掉这一行", () => {
     expect(writeKey(SPEC, "view", null).split("\n")).toHaveLength(3);
+  });
+});
+
+describe("来源层级", () => {
+  it("区分直属文档和全部后代", () => {
+    expect(readSourceScope("项目/*")).toEqual({ root: "项目", scope: "direct" });
+    expect(readSourceScope("项目/**")).toEqual({ root: "项目", scope: "recursive" });
+  });
+
+  it("切换层级时只改末尾，不动根目录", () => {
+    expect(sourceWithScope("项目/*", "recursive")).toBe("项目/**");
+    expect(sourceWithScope("项目/**", "direct")).toBe("项目/*");
+    expect(sourceWithScope("研究/项目 A/*", "recursive")).toBe("研究/项目 A/**");
+  });
+
+  it("自由 glob 不擅自改写", () => {
+    expect(readSourceScope("项目/202?-*").scope).toBe("custom");
+    expect(sourceWithScope("项目/202?-*", "direct")).toBeNull();
   });
 });
 

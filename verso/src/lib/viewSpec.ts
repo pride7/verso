@@ -124,6 +124,36 @@ export function writeKey(yaml: string, key: string, value: string | null): strin
   return lines.join("\n");
 }
 
+export type SourceScope = "direct" | "recursive" | "custom";
+
+export interface SourceScopeInfo {
+  root: string;
+  scope: SourceScope;
+}
+
+/**
+ * 把最常见的两种来源读成人话：`目录/*` 只取直属文档，`目录/**` 取全部后代。
+ *
+ * 其他 glob 仍然允许手写，但界面不替用户猜它的根目录和层级。尤其根目录本身
+ * 带通配符时，贸然改写末尾会让查询含义悄悄变化。
+ */
+export function readSourceScope(from: string): SourceScopeInfo {
+  const value = from.trim();
+  const suffix = value.endsWith("/**") ? "/**" : value.endsWith("/*") ? "/*" : null;
+  if (!suffix) return { root: value, scope: "custom" };
+
+  const root = value.slice(0, -suffix.length).replace(/\/+$/, "");
+  if (!root || /[*?\[\]]/.test(root)) return { root, scope: "custom" };
+  return { root, scope: suffix === "/*" ? "direct" : "recursive" };
+}
+
+/** 改来源层级，只在能明确识别根目录时改写。 */
+export function sourceWithScope(from: string, scope: Exclude<SourceScope, "custom">): string | null {
+  const info = readSourceScope(from);
+  if (info.scope === "custom") return null;
+  return `${info.root}/${scope === "direct" ? "*" : "**"}`;
+}
+
 /** `columns: [title, 作者]` → `["title", "作者"]`。没写就是 null（= 由后端决定显示哪些） */
 export function readColumns(yaml: string): string[] | null {
   const raw = readKey(yaml, "columns");

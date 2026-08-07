@@ -3,8 +3,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api } from "../api";
 import {
   captureProjectEntry,
+  ensureProjectStatusSchema,
   loadProjectOverview,
   PROJECT_KIND_LABEL,
+  PROJECT_STATUS_DEFAULTS,
+  projectStatusOptions,
   updateProjectSnapshot,
   type ProjectItem,
   type ProjectKind,
@@ -26,13 +29,6 @@ interface Props {
 const KINDS: ProjectKind[] = ["progress", "experiment", "question", "decision", "resource"];
 const ITEM_KIND_LABEL = { experiment: "实验", question: "问题", decision: "决策", resource: "资料" };
 const CLOSED = /^(已完成|完成|已关闭|关闭|已解决|已归档)$/;
-const STATUS_DEFAULTS: Record<ProjectItem["kind"] | "project", string[]> = {
-  project: ["筹备中", "进行中", "已暂停", "已完成", "已归档"],
-  experiment: ["计划中", "进行中", "已暂停", "已完成", "已归档"],
-  question: ["待解决", "研究中", "已解决", "已搁置"],
-  decision: ["待决定", "已决定", "已废弃"],
-  resource: ["待整理", "已收录", "已归档"],
-};
 
 const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
@@ -107,7 +103,7 @@ function ProjectItemRow({ item, options, showKind = true, onOpen, onStatus }: { 
       <span className="project-item-copy"><strong>{item.title}</strong><small>{item.summary || "暂无摘要"}</small></span>
     </button>
     {showKind && <span className={`project-kind kind-${item.kind}`}>{ITEM_KIND_LABEL[item.kind]}</span>}
-    <StatusSelect value={item.status || STATUS_DEFAULTS[item.kind][0]} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} />
+    <StatusSelect value={item.status || PROJECT_STATUS_DEFAULTS[item.kind][0]} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} />
   </div>;
 }
 
@@ -125,26 +121,21 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
   };
   useEffect(reload, [project, notes, revision]);
   useEffect(() => {
-    void api.propSchema().then((schema) => setCustomStatuses(schema.status?.options ?? [])).catch(() => {});
-  }, [revision]);
+    void ensureProjectStatusSchema(api, [String(project.frontmatter.status ?? "")])
+      .then(setCustomStatuses)
+      .catch(() => {});
+  }, [project, revision]);
 
   const active = useMemo(
     () => overview?.items.filter((item) => (item.kind === "experiment" || item.kind === "question") && !CLOSED.test(item.status)) ?? [],
     [overview],
   );
   const visibleItems = expandedItems ? active : active.slice(0, 3);
-  const builtInStatuses = useMemo(() => unique(Object.values(STATUS_DEFAULTS).flat()), []);
-  const reusableCustomStatuses = useMemo(
-    () => customStatuses.filter((status) => !builtInStatuses.includes(status)),
-    [builtInStatuses, customStatuses],
-  );
-  const optionsFor = (kind: ProjectItem["kind"] | "project") => unique([...STATUS_DEFAULTS[kind], ...reusableCustomStatuses]);
+  const optionsFor = (kind: ProjectItem["kind"] | "project") => projectStatusOptions(kind, customStatuses);
   const setStatus = async (path: string, value: string, custom: boolean) => {
     try {
-      if (custom && !customStatuses.includes(value)) {
-        const options = unique([...builtInStatuses, ...customStatuses, value]);
-        await api.propDefSet("status", { type: "select", options });
-        setCustomStatuses(options);
+      if (custom || !customStatuses.includes(value)) {
+        setCustomStatuses(await ensureProjectStatusSchema(api, [value]));
       }
       await api.propSet(path, "status", value);
       setOverview((current) => current ? {

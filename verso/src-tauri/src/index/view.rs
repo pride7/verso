@@ -15,7 +15,7 @@ use super::local_rfc3339;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct ViewSpec {
-    /// 路径 glob，如 `"论文/**"`
+    /// 路径 glob：`"论文/*"` 只取直属文档，`"论文/**"` 递归取全部后代
     pub from: Option<String>,
     /// 只要带这个标签的
     pub tag: Option<String>,
@@ -235,6 +235,13 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
     if let Some(from) = spec.from.as_deref().filter(|s| !s.trim().is_empty()) {
         sql.push_str(" AND n.path GLOB ?");
         args.push(SqlValue::Text(from.to_string()));
+        // SQLite 的 GLOB 里 `*` 也会匹配 `/`，所以单写 `项目/*` 会把
+        // `项目/实验/第一次.md` 一并查出来。用第二个模式排除仍有下一段路径的
+        // 结果，才符合文件树里「只看下一层」的直觉。`/**` 则保留递归语义。
+        if from.ends_with("/*") {
+            sql.push_str(" AND n.path NOT GLOB ?");
+            args.push(SqlValue::Text(format!("{from}/*")));
+        }
     }
     if let Some(tag) = spec.tag.as_deref().filter(|s| !s.trim().is_empty()) {
         sql.push_str(" AND n.id IN (SELECT note_id FROM tags WHERE tag = ?)");

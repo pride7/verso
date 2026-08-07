@@ -47,7 +47,7 @@ import { setSlashAction } from "./editor/completion";
 import type { TableOp } from "./editor/tableOps";
 import { expandTemplate, pickTemplates } from "./lib/template";
 import { journalInsert } from "./lib/journal";
-import { isProject, markAsProject } from "./lib/project";
+import { ensureProjectStatusSchema, isProject, markAsProject } from "./lib/project";
 import { sendToTerminal } from "./lib/termBus";
 import { normalizeIcon, pushRecentIcon } from "./lib/emoji";
 import { useUpdate } from "./lib/update";
@@ -817,6 +817,7 @@ export default function App() {
 
   const createProjectAndOpen = useCallback(async () => {
     try {
+      await ensureProjectStatusSchema(api, ["进行中"]);
       const meta = await api.createUntitled(null);
       await api.propSet(meta.path, "type", "project");
       await api.propSet(meta.path, "status", "进行中");
