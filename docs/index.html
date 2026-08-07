@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Verso（页）是本地优先的 Markdown 笔记软件：快速输入公式、清楚组织项目，并使用自己的 Git 仓库同步协作。">
+  <meta name="theme-color" content="#103a36">
+  <title>Verso · 页 —— 你的笔记，始终是你的文件</title>
+  <style>
+    :root {
+      --ink: #142b28;
+      --ink-soft: #31504b;
+      --paper: #f8f7f2;
+      --paper-deep: #efeee6;
+      --surface: #ffffff;
+      --line: #d9ddd4;
+      --muted: #687570;
+      --teal: #0d756b;
+      --teal-bright: #43b3a4;
+      --teal-wash: #e2f0eb;
+      --coral: #db765e;
+      --sun: #efc66a;
+      --serif: "Iowan Old Style", "Palatino Linotype", "Noto Serif CJK SC", "Songti SC", STSong, Georgia, serif;
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      --shadow: 0 24px 70px rgba(24, 48, 43, .15);
+      --r-xl: 28px;
+      --r-lg: 18px;
+      --r-md: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased; }
+    body::selection { color: white; background: var(--teal); }
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--sun); outline-offset: 4px; }
+
+    .wrap { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+    .eyebrow { display: flex; align-items: center; gap: 9px; margin: 0 0 14px; color: var(--teal); font: 700 11px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 22px; height: 1px; background: currentColor; }
+    h1, h2, h3, p { margin-top: 0; }
+    h2 { margin-bottom: 16px; font: 600 clamp(28px, 3.25vw, 42px)/1.2 var(--serif); letter-spacing: -.03em; }
+    h3 { margin-bottom: 8px; font-size: 18px; line-height: 1.35; }
+    .lede { max-width: 37em; color: var(--ink-soft); font-size: 18px; line-height: 1.75; }
+    .muted { color: var(--muted); }
+
+    /* Header */
+    .topbar { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent); background: color-mix(in srgb, var(--paper) 90%, transparent); backdrop-filter: blur(18px); }
+    .nav { display: flex; align-items: center; justify-content: space-between; min-height: 70px; gap: 24px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font: 600 25px/1 var(--serif); letter-spacing: -.04em; }
+    .brand-mark { position: relative; width: 25px; height: 31px; overflow: hidden; border: 2px solid var(--teal); border-radius: 3px 3px 9px 3px; }
+    .brand-mark::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-top: 2px solid var(--teal); border-left: 2px solid var(--teal); background: var(--paper); transform: rotate(45deg) translate(3px, 3px); }
+    .brand small { margin-left: 3px; color: var(--muted); font: 500 13px/1 var(--sans); letter-spacing: .16em; }
+    .nav-links { display: flex; align-items: center; gap: 24px; }
+    .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 14px; font-weight: 600; }
+    .nav-links a:hover { color: var(--teal); }
+    .nav-download { padding: 9px 14px; border: 1px solid var(--teal); border-radius: 999px; color: var(--teal) !important; }
+    .nav-download:hover { color: white !important; background: var(--teal); }
+
+    /* Hero */
+    .hero { overflow: hidden; color: #f5f7ef; background: radial-gradient(circle at 76% 24%, rgba(66, 177, 160, .38), transparent 26rem), radial-gradient(circle at 10% 112%, rgba(231, 187, 97, .2), transparent 27rem), #103a36; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(460px, 1.05fr); align-items: center; gap: clamp(38px, 6vw, 86px); min-height: min(770px, calc(100vh - 70px)); padding: 78px 0; }
+    .hero .eyebrow { color: var(--teal-bright); }
+    .hero-title { max-width: 10.5em; margin-bottom: 24px; font: 600 clamp(42px, 5.4vw, 66px)/1.08 var(--serif); letter-spacing: -.045em; }
+    .hero-copy > p { max-width: 33em; margin-bottom: 30px; color: rgba(245, 247, 239, .76); font-size: 18px; line-height: 1.75; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 19px; border: 1px solid transparent; border-radius: 999px; font-size: 15px; font-weight: 700; text-decoration: none; transition: transform .18s ease, background .18s ease, border-color .18s ease; }
+    .button:hover { transform: translateY(-2px); }
+    .button-primary { color: var(--ink); background: var(--sun); }
+    .button-primary:hover { background: #f4d384; }
+    .button-ghost { border-color: rgba(255, 255, 255, .25); color: #f5f7ef; }
+    .button-ghost:hover { border-color: rgba(255, 255, 255, .55); background: rgba(255, 255, 255, .08); }
+    .hero-note { display: flex; align-items: center; gap: 10px; margin-top: 34px; color: rgba(245, 247, 239, .6); font-size: 13px; }
+    .hero-note span { width: 7px; height: 7px; border-radius: 50%; background: var(--teal-bright); box-shadow: 0 0 0 5px rgba(67, 179, 164, .13); }
+
+    /* Application preview */
+    .app-window { position: relative; min-width: 0; overflow: hidden; border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--r-xl); background: #f7f8f5; color: var(--ink); box-shadow: 0 35px 90px rgba(0, 18, 15, .4); transform: rotate(1.4deg); }
+    .app-top { display: flex; align-items: center; justify-content: space-between; height: 42px; padding: 0 15px; border-bottom: 1px solid #dce0dc; background: #edf0ed; color: #77817e; font: 11px var(--mono); }
+    .traffic { display: flex; gap: 6px; }
+    .traffic i { width: 8px; height: 8px; border-radius: 50%; background: #ccd2ce; }
+    .app-body { display: grid; grid-template-columns: 128px 1fr; min-height: 425px; }
+    .app-side { padding: 16px 10px; border-right: 1px solid #dfe3df; background: #f0f2ef; font-size: 10px; color: #7c8682; }
+    .side-title { display: flex; align-items: center; gap: 5px; margin: 4px 7px 14px; color: #47544f; font-size: 11px; font-weight: 700; }
+    .side-title::before { content: "⌂"; color: var(--teal); font-size: 14px; }
+    .tree-line { height: 22px; margin: 1px 0; padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+    .tree-line.active { background: #dcebe6; color: #20675f; font-weight: 700; }
+    .tree-line.indent { padding-left: 18px; }
+    .tree-line.deep { padding-left: 29px; }
+    .app-doc { padding: 37px clamp(26px, 4vw, 52px); background: #fbfcfa; }
+    .crumb { margin-bottom: 28px; color: #82908a; font-size: 10px; }
+    .doc-title { margin: 0 0 13px; font: 600 clamp(25px, 3vw, 36px)/1.15 var(--serif); letter-spacing: -.035em; }
+    .doc-text { max-width: 37em; color: #607069; font-size: 12px; line-height: 1.8; }
+    .formula-card { position: relative; margin: 27px 0 23px; padding: 17px 19px; overflow: hidden; border: 1px solid #dfe6e1; border-radius: 10px; background: white; }
+    .formula-card::before { content: "数学模式"; position: absolute; top: 8px; right: 11px; color: #8a9690; font: 9px var(--mono); }
+    .formula-input { margin-bottom: 12px; color: var(--teal); font: 12px var(--mono); }
+    .formula-render { font: italic 25px/1.2 var(--serif); }
+    .formula-render .frac { display: inline-flex; flex-direction: column; vertical-align: -.62em; margin: 0 .13em; text-align: center; font-size: .82em; }
+    .formula-render .frac span:first-child { padding: 0 .25em; border-bottom: 1px solid currentColor; }
+    .formula-render .frac span:last-child { padding: 0 .25em; }
+    .doc-meta { display: flex; flex-wrap: wrap; gap: 7px; }
+    .doc-meta span { padding: 4px 8px; border-radius: 999px; background: #e7f1ed; color: #287168; font-size: 10px; }
+    .floating-note { position: absolute; right: -14px; bottom: 31px; width: 172px; padding: 13px 14px; border-radius: 12px; background: var(--sun); color: #63460c; box-shadow: 0 14px 30px rgba(0, 25, 20, .16); transform: rotate(-3deg); font-size: 11px; line-height: 1.55; }
+    .floating-note b { display: block; margin-bottom: 3px; font-size: 11px; }
+
+    .proof { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border-top: 1px solid rgba(255, 255, 255, .16); }
+    .proof div { padding: 20px 8px 0 0; }
+    .proof strong { display: block; margin-bottom: 3px; color: #f6f7f0; font: 600 21px/1 var(--serif); }
+    .proof span { color: rgba(245, 247, 239, .58); font-size: 12px; }
+
+    /* Feature overview */
+    .intro { padding: 112px 0 72px; }
+    .intro-head { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-bottom: 39px; }
+    .intro-head .lede { margin-bottom: 3px; max-width: 31em; font-size: 16px; }
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .feature { min-height: 238px; padding: 26px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+    .feature:hover { border-color: color-mix(in srgb, var(--teal) 42%, var(--line)); box-shadow: 0 16px 34px rgba(24, 48, 43, .09); transform: translateY(-4px); }
+    .feature-num { display: flex; align-items: center; justify-content: space-between; margin-bottom: 33px; color: var(--muted); font: 11px var(--mono); }
+    .feature-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--teal-wash); color: var(--teal); font-size: 17px; }
+    .feature p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+    .feature a { display: inline-block; margin-top: 16px; color: var(--teal); font-size: 13px; font-weight: 700; text-decoration: none; }
+    .feature a::after { content: " ↗"; }
+
+    /* Stories */
+    .story { padding: 104px 0; border-top: 1px solid var(--line); }
+    .story-grid { display: grid; grid-template-columns: minmax(0, .84fr) minmax(420px, 1.16fr); align-items: center; gap: clamp(48px, 9vw, 132px); }
+    .story-grid.reverse { grid-template-columns: minmax(420px, 1.16fr) minmax(0, .84fr); }
+    .story-copy { max-width: 34em; }
+    .story-copy p:not(.eyebrow) { color: var(--ink-soft); }
+    .story-points { display: grid; gap: 13px; margin: 27px 0 0; padding: 0; list-style: none; }
+    .story-points li { position: relative; padding-left: 22px; color: var(--ink-soft); font-size: 14px; }
+    .story-points li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--teal); font-weight: 800; }
+    .showcase { padding: 18px; border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--paper-deep); box-shadow: 0 20px 48px rgba(24, 48, 43, .08); }
+
+    /* Project showcase */
+    .project-ui { overflow: hidden; border: 1px solid #d7ddd8; border-radius: 16px; background: #fbfcfa; }
+    .project-ui-head { display: flex; align-items: center; justify-content: space-between; padding: 17px 20px; border-bottom: 1px solid #e1e5e1; }
+    .project-ui-title { font: 600 22px/1 var(--serif); }
+    .tag { padding: 5px 9px; border-radius: 999px; background: #e5f2ed; color: #257168; font-size: 10px; font-weight: 700; }
+    .project-summary { padding: 20px; background: linear-gradient(135deg, #f0f6f2, #fbfcfa); }
+    .project-summary p { margin: 0; font-size: 13px; }
+    .project-summary p + p { margin-top: 9px; color: #687870; }
+    .project-cells { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .project-cells div { padding: 11px; border: 1px solid #e0e6e1; border-radius: 9px; background: white; }
+    .project-cells b { display: block; margin-bottom: 4px; color: #849087; font-size: 10px; }
+    .project-cells span { font-size: 12px; }
+    .project-list { display: grid; gap: 1px; padding: 10px; background: #edf0ed; }
+    .project-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 11px; background: #fbfcfa; font-size: 12px; }
+    .project-row small { display: block; margin-top: 3px; color: #87928b; }
+    .project-row em { color: #24736a; font-size: 10px; font-style: normal; }
+
+    /* Project center showcase */
+    .project-center-ui { overflow: hidden; border: 1px solid #d7ddd8; border-radius: 16px; background: #fbfcfa; }
+    .project-center-head { display: flex; align-items: center; justify-content: space-between; padding: 17px 20px 15px; border-bottom: 1px solid #e1e5e1; }
+    .project-center-head b { display: block; margin-top: 2px; font: 600 22px/1 var(--serif); }
+    .project-center-head small { color: #6b7b74; font-size: 10px; }
+    .project-center-kicker { color: #24736a; font: 700 9px/1 var(--mono); letter-spacing: .09em; }
+    .project-center-action { padding: 7px 10px; border-radius: 7px; background: #27796f; color: white; font-size: 10px; font-weight: 700; }
+    .project-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid #e1e5e1; }
+    .project-metrics div { padding: 13px 14px; border-right: 1px solid #e1e5e1; }
+    .project-metrics div:last-child { border-right: 0; }
+    .project-metrics b { display: block; color: #1a302c; font: 700 22px/1 var(--serif); }
+    .project-metrics span { color: #718078; font-size: 9px; }
+    .project-tools { display: flex; align-items: center; gap: 8px; padding: 12px 14px; }
+    .project-search { flex: 1; padding: 7px 9px; border: 1px solid #e0e5e1; border-radius: 7px; color: #92a09a; background: white; font-size: 10px; }
+    .project-filter { padding: 6px 8px; border-radius: 999px; background: #e8f1ed; color: #287168; font-size: 9px; font-weight: 700; }
+    .project-card-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; padding: 0 14px 14px; }
+    .project-card { min-height: 113px; padding: 12px; border: 1px solid #dfe6e1; border-radius: 9px; background: white; }
+    .project-card.featured { border-color: #8ab9b1; background: linear-gradient(145deg, #edf7f2, #fff); }
+    .project-card-head { display: flex; align-items: center; justify-content: space-between; gap: 7px; color: #27796f; font-size: 9px; font-weight: 700; }
+    .project-card time { color: #93a099; font-size: 9px; font-weight: 400; }
+    .project-card h3 { margin: 11px 0 5px; font-size: 13px; }
+    .project-card p { margin: 0; color: #73817b; font-size: 10px; line-height: 1.45; }
+    .project-card-foot { display: flex; justify-content: space-between; margin-top: 10px; color: #287168; font-size: 9px; }
+
+    /* Mind map showcase */
+    .map-ui { position: relative; min-height: 350px; overflow: hidden; border-radius: 16px; background-color: #fcfdfb; background-image: radial-gradient(#d7dfda 1px, transparent 1px); background-size: 18px 18px; }
+    .map-node { position: absolute; padding: 8px 12px; border: 1px solid #d7dfda; border-radius: 8px; background: white; box-shadow: 0 4px 9px rgba(24, 48, 43, .06); font-size: 12px; white-space: nowrap; }
+    .map-node.root { top: 144px; left: 30px; border-color: #5fa69c; background: #e4f0eb; color: #215e57; font-weight: 700; }
+    .map-node.n1 { top: 57px; left: 216px; }
+    .map-node.n2 { top: 145px; left: 216px; }
+    .map-node.n3 { top: 234px; left: 216px; }
+    .map-node.n4 { top: 25px; right: 25px; }
+    .map-node.n5 { top: 106px; right: 25px; }
+    .map-node.n6 { top: 187px; right: 25px; }
+    .map-node.n7 { top: 268px; right: 25px; }
+    .map-line { position: absolute; height: 1px; background: #aebcb5; transform-origin: left center; }
+    .l1 { top: 159px; left: 130px; width: 95px; transform: rotate(-37deg); }
+    .l2 { top: 160px; left: 130px; width: 87px; }
+    .l3 { top: 161px; left: 130px; width: 96px; transform: rotate(37deg); }
+    .l4 { top: 71px; left: 323px; width: 97px; transform: rotate(-19deg); }
+    .l5 { top: 151px; left: 323px; width: 96px; transform: rotate(-4deg); }
+    .l6 { top: 168px; left: 323px; width: 98px; transform: rotate(10deg); }
+    .l7 { top: 247px; left: 323px; width: 95px; transform: rotate(25deg); }
+
+    /* Sync showcase */
+    .sync-ui { padding: 25px; border-radius: 16px; background: #103a36; color: #edf7f1; }
+    .sync-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 23px; }
+    .sync-head b { font: 600 21px var(--serif); }
+    .sync-head span { display: inline-flex; align-items: center; gap: 6px; color: #86d4c8; font: 11px var(--mono); }
+    .sync-head span::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .activity { display: grid; gap: 10px; }
+    .activity-item { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 11px; padding: 12px; border: 1px solid rgba(255, 255, 255, .11); border-radius: 10px; background: rgba(255, 255, 255, .06); }
+    .avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e6c06b; color: #47380c; font: 11px var(--mono); }
+    .activity-item b { display: block; font-size: 12px; }
+    .activity-item small { display: block; margin-top: 2px; color: rgba(237, 247, 241, .56); font-size: 10px; }
+    .activity-item time { color: rgba(237, 247, 241, .48); font-size: 10px; }
+    .sync-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .13); color: rgba(237, 247, 241, .65); font-size: 11px; }
+
+    /* Download */
+    .download { padding: 106px 0 114px; border-top: 1px solid var(--line); }
+    .download-card { position: relative; overflow: hidden; padding: clamp(31px, 5vw, 58px); border-radius: var(--r-xl); color: #f5f7ef; background: linear-gradient(130deg, #135a52, #103a36 55%, #1f766c); }
+    .download-card::after { content: ""; position: absolute; right: -80px; top: -90px; width: 370px; height: 370px; border: 1px solid rgba(255,255,255,.14); border-radius: 50%; box-shadow: 0 0 0 48px rgba(255,255,255,.035), 0 0 0 96px rgba(255,255,255,.025); }
+    .download-card > * { position: relative; z-index: 1; }
+    .download-card h2 { max-width: 10em; }
+    .download-card p { max-width: 38em; color: rgba(245, 247, 239, .72); }
+    .platforms { display: flex; flex-wrap: wrap; gap: 8px; margin: 27px 0; }
+    .platforms span { padding: 5px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: rgba(245,247,239,.84); font: 11px var(--mono); }
+    .download-note { margin-top: 22px; color: rgba(245,247,239,.57); font-size: 12px; }
+
+    footer { padding: 0 0 48px; color: var(--muted); font-size: 13px; }
+    .footer-inner { display: flex; align-items: flex-end; justify-content: space-between; gap: 30px; padding-top: 28px; border-top: 1px solid var(--line); }
+    .footer-brand { color: var(--ink); font: 600 24px/1 var(--serif); }
+    .footer-brand small { color: var(--muted); font: 500 12px var(--sans); letter-spacing: .13em; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px 20px; }
+    .footer-links a { color: var(--muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--teal); }
+
+    @media (max-width: 900px) {
+      .hero-grid, .story-grid, .story-grid.reverse { grid-template-columns: 1fr; }
+      .hero-grid { gap: 52px; min-height: 0; padding: 76px 0 62px; }
+      .hero-copy { max-width: 660px; }
+      .app-window { max-width: 680px; width: calc(100% - 8px); margin: 0 auto; transform: rotate(.6deg); }
+      .story-grid.reverse .story-copy { order: -1; }
+      .feature-grid { grid-template-columns: repeat(2, 1fr); }
+      .story { padding: 82px 0; }
+    }
+    @media (max-width: 640px) {
+      .wrap { width: min(100% - 32px, 1180px); }
+      .nav { min-height: 62px; }
+      .nav-links a:not(.nav-download) { display: none; }
+      .brand { font-size: 23px; }
+      .hero-title { font-size: clamp(39px, 12vw, 54px); }
+      .hero-copy > p { font-size: 16px; }
+      .app-body { grid-template-columns: 76px 1fr; min-height: 335px; }
+      .app-side { padding: 10px 4px; font-size: 8px; }
+      .side-title { margin: 4px 4px 10px; font-size: 9px; }
+      .tree-line { height: 19px; padding: 3px 4px; }
+      .tree-line.indent { padding-left: 9px; }
+      .tree-line.deep { padding-left: 14px; }
+      .app-doc { padding: 24px 17px; }
+      .doc-title { font-size: 25px; }
+      .doc-text { font-size: 10px; }
+      .formula-card { margin: 17px 0; padding: 13px; }
+      .formula-render { font-size: 19px; }
+      .floating-note { display: none; }
+      .proof { gap: 14px; border: 0; }
+      .proof div { padding: 0; }
+      .proof strong { font-size: 18px; }
+      .proof span { font-size: 10px; }
+      .intro { padding: 76px 0 48px; }
+      .intro-head { display: block; }
+      .intro-head .lede { margin-top: 16px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .feature { min-height: 0; padding: 22px; }
+      .feature-num { margin-bottom: 20px; }
+      .story { padding: 67px 0; }
+      .showcase { padding: 10px; }
+      .map-ui { min-height: 315px; font-size: 10px; }
+      .map-node { font-size: 10px; padding: 7px 9px; }
+      .map-node.root { left: 16px; }
+      .map-node.n1, .map-node.n2, .map-node.n3 { left: 132px; }
+      .map-node.n4, .map-node.n5, .map-node.n6, .map-node.n7 { right: 10px; }
+      .l1, .l2, .l3 { left: 91px; width: 47px; }
+      .l4, .l5, .l6, .l7 { left: 227px; width: 43px; }
+      .project-cells, .project-card-grid { grid-template-columns: 1fr; }
+      .download { padding: 70px 0; }
+      .footer-inner { display: block; }
+      .footer-links { justify-content: flex-start; margin-top: 20px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <nav class="nav wrap" aria-label="主导航">
+      <a class="brand" href="#" aria-label="Verso 首页"><span class="brand-mark" aria-hidden="true"></span>Verso <small>页</small></a>
+      <div class="nav-links">
+        <a href="#features">能力</a>
+        <a href="#project">项目</a>
+        <a href="#sync">协作</a>
+        <a class="nav-download" href="#download">下载</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Local-first Markdown workspace</p>
+          <h1 class="hero-title">本地优先的 Markdown 笔记与项目工作空间</h1>
+          <p>Verso 是一款本地优先的 Markdown 笔记软件，提供高效的公式输入、清晰的项目组织，以及建立在用户自有仓库之上的同步与协作能力。</p>
+          <div class="actions">
+            <a class="button button-primary" href="#download">获取 Verso <span aria-hidden="true">↓</span></a>
+            <a class="button button-ghost" href="#features">了解产品能力 <span aria-hidden="true">↓</span></a>
+          </div>
+          <p class="hero-note"><span aria-hidden="true"></span>笔记始终以标准 .md 文件保存，可使用其他编辑器直接打开</p>
+          <div class="proof" aria-label="产品特点">
+            <div><strong>纯 Markdown</strong><span>不依赖专有数据库</span></div>
+            <div><strong>135 条触发词</strong><span>专为公式输入设计</span></div>
+            <div><strong>自有 Git 仓库</strong><span>同步与协作由你掌控</span></div>
+          </div>
+        </div>
+
+        <div class="app-window" aria-label="Verso 编辑器示意">
+          <div class="app-top"><span>verso · 项目 / 低温相变测量</span><span class="traffic"><i></i><i></i><i></i></span></div>
+          <div class="app-body">
+            <aside class="app-side" aria-label="文档树示意">
+              <div class="side-title">论文</div>
+              <div class="tree-line">理论背景</div>
+              <div class="tree-line active">低温相变测量</div>
+              <div class="tree-line indent">进展</div>
+              <div class="tree-line indent">实验</div>
+              <div class="tree-line deep">08-05 补测</div>
+              <div class="tree-line indent">问题</div>
+              <div class="tree-line">文献笔记</div>
+            </aside>
+            <article class="app-doc">
+              <div class="crumb">项目 / 低温相变测量 / 实验 / 08-05 补测</div>
+              <h2 class="doc-title">关于临界区的补测</h2>
+              <p class="doc-text">二次降温仍然看到滞后。下一步需要排除样品台温漂，再对照不同扫描速率下的结果。</p>
+              <div class="formula-card">
+                <div class="formula-input">\chi(T) = \frac&#123;\partial M&#125;&#123;\partial H&#125;</div>
+                <div class="formula-render">χ(T) = <span class="frac"><span>∂M</span><span>∂H</span></span></div>
+              </div>
+              <div class="doc-meta"><span>实验</span><span>进行中</span><span>待补数据</span></div>
+            </article>
+          </div>
+          <div class="floating-note"><b>下一步</b>换一支热电偶，在相同扫描速率下重测。</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="intro wrap" id="features">
+      <div class="intro-head">
+        <div>
+          <p class="eyebrow">Six capabilities</p>
+          <h2>围绕 Markdown 与文件构建完整工作流。</h2>
+        </div>
+        <p class="lede">Verso 不会把笔记转换为专有数据。编辑、组织、检索与协作均直接建立在 Markdown、文件夹和 Git 之上。</p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature">
+          <div class="feature-num"><span>01</span><span class="feature-icon">⌁</span></div>
+          <h3>纯 Markdown</h3>
+          <p>笔记、属性和数据库视图都能脱离 Verso 存在。删掉索引也不会丢任何内容。</p>
+          <a href="#markdown">文件仍属于你</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>02</span><span class="feature-icon">∑</span></div>
+          <h3>快速公式输入</h3>
+          <p>触发词自动展开、实时预览与 Tab 跳位，使公式输入接近自然书写。</p>
+          <a href="#math">为数学写作而做</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>03</span><span class="feature-icon">↗</span></div>
+          <h3>自有仓库同步</h3>
+          <p>用自己的 GitHub 或 GitLab 仓库同步。历史、冲突和权限都可追溯。</p>
+          <a href="#sync">看见谁改了什么</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>04</span><span class="feature-icon">◌</span></div>
+          <h3>同一内容的导图视图</h3>
+          <p>导图是标题和列表的图形视图，不创建额外副本，也不保存坐标数据。</p>
+          <a href="#mindmap">在图上编辑 Markdown</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>05</span><span class="feature-icon">▦</span></div>
+          <h3>项目中心</h3>
+          <p>集中查看所有项目的状态与关键事项；进入单个项目后，再阅读完整记录。</p>
+          <a href="#project">从全局进入细节</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>06</span><span class="feature-icon">›_</span></div>
+          <h3>让 AI 读懂你的库</h3>
+          <p>在内置终端中使用自行选择的 AI CLI；每项改动仍可检查、比较和恢复。</p>
+          <a href="#ai">在既有工具链中工作</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="story" id="markdown">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">01 · Markdown first</p>
+          <h2>日常编辑与长期保存可以兼得。</h2>
+          <p>整个笔记库就是一个普通文件夹。使用同名文件夹组织子文档时，界面会将 <code>X.md</code> 与 <code>X/</code> 视为同一节点，使内容与相关资料保持在一起。</p>
+          <ul class="story-points">
+            <li>不自动补写你没有要求的 <code>id</code>、<code>title</code> 或时间字段。</li>
+            <li>搜索、标签与反向链接来自可随时重建的本地索引。</li>
+            <li>数据库视图保存在笔记代码块中；编辑单元格即编辑对应的 frontmatter。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="project-ui">
+            <div class="project-ui-head"><span class="project-ui-title">数学</span><span class="tag">普通文件夹</span></div>
+            <div class="project-list">
+              <div class="project-row"><span><b>线性代数</b><small>数学/线性代数.md</small></span><em>有 2 个子文档</em></div>
+              <div class="project-row"><span><b>特征值</b><small>数学/线性代数/特征值.md</small></span><em>Markdown</em></div>
+              <div class="project-row"><span><b>奇异值分解</b><small>数学/线性代数/奇异值分解.md</small></span><em>Markdown</em></div>
+              <div class="project-row"><span><b>泛函分析</b><small>数学/泛函分析.md</small></span><em>Markdown</em></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="math">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="sync-ui">
+            <div class="sync-head"><b>数学模式</b><span>实时预览</span></div>
+            <div class="activity">
+              <div class="activity-item"><span class="avatar">//</span><span><b>输入触发词</b><small>敲到最后一个字符，自动展开</small></span><time>01</time></div>
+              <div class="activity-item"><span class="avatar">Tab</span><span><b>填写占位符</b><small>依次跳到分子、分母与下一个位置</small></span><time>02</time></div>
+              <div class="activity-item"><span class="avatar">∫</span><span><b>立即看到结果</b><small>输入区与公式预览始终在同一个上下文中</small></span><time>03</time></div>
+            </div>
+            <div class="sync-foot"><span>135 条内置触发词</span><span>兼容 Obsidian Latex Suite</span></div>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">02 · Math input</p>
+          <h2>公式输入不应中断写作。</h2>
+          <p>Verso 将公式输入视为核心能力，而非 Markdown 的附加功能。触发词仅在数学环境中生效，即使公式尚未闭合也可立即使用。</p>
+          <ul class="story-points">
+            <li><code>//</code> 生成分式，<code>@a</code> 生成 <code>\alpha</code>，<code>pmat3x3</code> 生成矩阵骨架。</li>
+            <li><code>Tab</code> 在待填位置之间跳转；填写完成后继续跳出括号。</li>
+            <li>桌面有符号搜索，手机有专属公式工具条，不把两种输入方式混为一谈。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="project">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">05 · Project center</p>
+          <h2>先从项目中心掌握全局，再进入单个项目处理细节。</h2>
+          <p>项目中心按状态汇总仓库中的全部项目，并提供检索与筛选。进入项目后，项目总览仅呈现当前结论、下一步和阻碍；完整过程仍保留在可独立阅读的记录中。</p>
+          <ul class="story-points">
+            <li>项目卡片汇总状态、更新时间和待处理事项，点击即可进入对应总览。</li>
+            <li>项目总览固定展示当前结论、状态、下一步、阻碍和最近进展。</li>
+            <li>实验、问题、决策和资料各自是一篇普通 Markdown 子文档。</li>
+            <li>可随时从项目中心或文档树打开原文，不会形成封闭的项目数据。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="project-center-ui" aria-label="项目中心示意">
+            <div class="project-center-head"><span><span class="project-center-kicker">项目</span><b>项目中心</b></span><span class="project-center-action">＋ 新建项目</span></div>
+            <div class="project-metrics"><div><b>3</b><span>全部项目</span></div><div><b>2</b><span>仍在推进</span></div><div><b>1</b><span>已归档</span></div></div>
+            <div class="project-tools"><span class="project-search">⌕　搜索项目</span><span class="project-filter">进行中</span></div>
+            <div class="project-card-grid">
+              <article class="project-card featured"><div class="project-card-head"><span>● 进行中</span><time>08-05</time></div><h3>低温相变测量</h3><p>优先排查样品台温漂</p><div class="project-card-foot"><span>下一步：补测</span><span>进入 →</span></div></article>
+              <article class="project-card"><div class="project-card-head"><span>● 进行中</span><time>08-04</time></div><h3>相图拟合</h3><p>等待新的测量批次</p><div class="project-card-foot"><span>1 项待决策</span><span>进入 →</span></div></article>
+              <article class="project-card"><div class="project-card-head"><span>● 已归档</span><time>07-28</time></div><h3>标定流程</h3><p>结论与原始数据已整理</p><div class="project-card-foot"><span>查看记录</span><span>进入 →</span></div></article>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="mindmap">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="map-ui" aria-label="思维导图示意">
+            <span class="map-line l1"></span><span class="map-line l2"></span><span class="map-line l3"></span>
+            <span class="map-line l4"></span><span class="map-line l5"></span><span class="map-line l6"></span><span class="map-line l7"></span>
+            <span class="map-node root">研究问题</span>
+            <span class="map-node n1">背景</span><span class="map-node n2">方法</span><span class="map-node n3">待验证</span>
+            <span class="map-node n4">已有结果</span><span class="map-node n5">实验设计</span><span class="map-node n6">潜在误差</span><span class="map-node n7">下一步</span>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">04 · Mind map</p>
+          <h2>切换视图，不复制内容。</h2>
+          <p>思维导图由笔记标题与列表即时生成。节点对应正文中的原始行，因此在图上编辑、增加分支或删除子树，始终是在编辑同一篇 Markdown。</p>
+          <ul class="story-points">
+            <li>不保存额外坐标，不会往笔记里塞一份其他软件看不懂的数据。</li>
+            <li><code>Enter</code> 添加同级，<code>Tab</code> 添加子级，<code>Space</code> 折叠。</li>
+            <li>键盘、鼠标与触摸设备都有对应操作方式。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="sync">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">03 · Sync & collaboration</p>
+          <h2>协作聚焦内容，无需面对 Git 命令。</h2>
+          <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需同步；需要回溯时，仍可查看完整且可验证的历史。</p>
+          <ul class="story-points">
+            <li>停手后自动记录版本，提交说明会指出具体修改的笔记。</li>
+            <li>共享一篇笔记可创建独立空间，不必交出整个私有库。</li>
+            <li>多人修改时显示“谁改了什么”；真正冲突才进入按段落或属性处理的面板。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="sync-ui">
+            <div class="sync-head"><b>协作动态</b><span>已同步</span></div>
+            <div class="activity">
+              <div class="activity-item"><span class="avatar">林</span><span><b>更新了《实验方案》</b><small>补充 3 组控制变量 · 已合并</small></span><time>12 分钟前</time></div>
+              <div class="activity-item"><span class="avatar">你</span><span><b>修改了《数据处理》</b><small>更新图 3 的拟合方式 · 已同步</small></span><time>刚刚</time></div>
+              <div class="activity-item"><span class="avatar">周</span><span><b>提交了修改建议</b><small>《相关工作》有 2 处待审阅</small></span><time>昨天</time></div>
+            </div>
+            <div class="sync-foot"><span>你的仓库 · 你的权限</span><span>HTTPS + 系统钥匙串</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="ai">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="sync-ui">
+            <div class="sync-head"><b>终端</b><span>工作目录：笔记库</span></div>
+            <div class="activity">
+              <div class="activity-item"><span class="avatar">›_</span><span><b>@项目/实验/08-05 补测.md</b><small>当前笔记已作为上下文插入</small></span><time>就绪</time></div>
+              <div class="activity-item"><span class="avatar">Δ</span><span><b>未提交改动 · 3 个文件</b><small>可逐文件查看，随时恢复</small></span><time>安全</time></div>
+            </div>
+            <div class="sync-foot"><span>Claude Code · Codex · aider</span><span>不绑定模型或 API Key</span></div>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">06 · Your AI, your tools</p>
+          <h2>让 AI 服务于笔记工作流，而非取代它。</h2>
+          <p>Verso 不替用户选择模型，也不将内容发送至内置服务。它提供与笔记库相连的终端，使你能够使用已信任的 AI CLI 处理纯文本文件。</p>
+          <ul class="story-points">
+            <li>可一键把当前笔记或选区作为上下文插入终端，不会自动执行命令。</li>
+            <li>AI 修改后可直接查看逐行差异；不满意就恢复，不会丢掉原稿。</li>
+            <li>笔记库会带一份 AI 可读的约定说明，降低误改目录和视图定义的风险。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="download" id="download">
+      <div class="wrap">
+        <div class="download-card">
+          <p class="eyebrow">Download</p>
+          <h2>从 Markdown 文件开始，构建自己的工作空间。</h2>
+          <p>安装包通过 GitHub Releases 发布。桌面端安装后可在应用内检查更新；你也可以查看源码、提交反馈或参与开发。</p>
+          <div class="platforms" aria-label="可用平台"><span>Windows</span><span>macOS · Apple Silicon</span><span>macOS · Intel</span><span>Android · arm64</span><span>Linux 构建产物</span></div>
+          <div class="actions">
+            <a class="button button-primary" href="https://github.com/pride7/verso/releases/latest" target="_blank" rel="noopener">下载最新版本 <span aria-hidden="true">↗</span></a>
+            <a class="button button-ghost" href="https://github.com/pride7/verso" target="_blank" rel="noopener">在 GitHub 上查看 <span aria-hidden="true">↗</span></a>
+          </div>
+          <p class="download-note">macOS 安装包尚未完成 Apple 签名与公证，首次启动可能需要手动放行。Linux 产物可下载，但 v1 暂不声明正式支持。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <div class="footer-inner">
+      <div><div class="footer-brand">Verso <small>页</small></div><p>verso folio · 翻过这一页</p></div>
+      <div class="footer-links">
+        <a href="https://github.com/pride7/verso" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/pride7/verso/releases/latest" target="_blank" rel="noopener">下载</a>
+        <a href="https://github.com/pride7/verso/blob/main/CHANGELOG.md" target="_blank" rel="noopener">更新日志</a>
+        <a href="https://github.com/pride7/verso/blob/main/DESIGN.md" target="_blank" rel="noopener">设计文档</a>
+        <a href="https://github.com/pride7/verso/issues" target="_blank" rel="noopener">反馈问题</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
