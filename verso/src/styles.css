@@ -1173,6 +1173,239 @@ button {
   font-size: 12px;
 }
 
+/* ---------- 共享空间管理 ---------- */
+
+.shared-space-dialog {
+  position: relative;
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 40px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--t-base);
+}
+.shared-space-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 18px 20px 22px;
+  overflow-y: auto;
+}
+.shared-space-section h3,
+.shared-unshare-confirm h3 {
+  margin: 0 0 9px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.shared-entry-list,
+.shared-member-list {
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.shared-entry-row,
+.shared-member {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+}
+.shared-entry-row + .shared-entry-row,
+.shared-member + .shared-member {
+  border-top: 1px solid var(--hairline);
+}
+.shared-entry-row > span:first-child,
+.shared-member > span:first-child {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shared-entry-row > span:first-child > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shared-entry-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 580;
+}
+.shared-entry-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.shared-entry-row svg,
+.shared-member svg {
+  flex: none;
+  color: var(--muted);
+}
+.shared-entry-row .btn-quiet,
+.shared-member-add .btn-quiet {
+  flex: none;
+}
+.shared-space-empty,
+.shared-space-hint,
+.shared-space-warning {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.shared-space-remote {
+  margin: -2px 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.shared-space-hint {
+  margin-top: 7px;
+}
+.shared-space-warning {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--hover-bg);
+}
+.shared-member {
+  min-height: 42px;
+  font-size: 12px;
+}
+.shared-member-state {
+  flex: none;
+  color: var(--accent);
+  font-size: 10.5px;
+}
+.shared-member-state.is-pending {
+  color: var(--muted);
+}
+.shared-member button {
+  flex: none;
+  padding: 4px 7px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.shared-member button:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 8%, transparent);
+}
+.shared-member-add {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+}
+.shared-member-add input,
+.shared-unshare-confirm select {
+  min-width: 0;
+  height: 34px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  outline: none;
+}
+.shared-member-add input {
+  flex: 1;
+  padding: 0 9px;
+}
+.shared-member-add input:focus,
+.shared-unshare-confirm select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.shared-unshare-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 28px;
+  background: color-mix(in oklch, var(--raised) 96%, transparent);
+  backdrop-filter: blur(5px);
+}
+.shared-unshare-confirm h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.shared-unshare-confirm > label:not(.shared-unshare-check) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.shared-unshare-confirm select {
+  width: 100%;
+  padding: 0 9px;
+  font-weight: 400;
+}
+.shared-unshare-confirm p {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  background: color-mix(in oklch, var(--danger) 6%, var(--surface));
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.shared-unshare-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.shared-unshare-confirm > div:last-child {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn-danger {
+  padding: 7px 12px;
+  border-radius: var(--r-sm);
+  color: white;
+  background: var(--danger);
+  font-weight: 600;
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(.94);
+}
+.btn-danger:disabled {
+  opacity: .45;
+}
+
+@media (max-width: 560px) {
+  .shared-space-body {
+    padding: 14px;
+  }
+  .shared-entry-row {
+    align-items: flex-start;
+  }
+  .shared-unshare-confirm {
+    padding: 20px;
+  }
+}
+
 /* ---------- 加入 / 创建共享空间 ---------- */
 
 .join-vault {

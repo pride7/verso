@@ -24,17 +24,46 @@ pub struct SharedSpaceInfo {
     pub name: String,
     /// 这是 Verso 上次创建空间时邀请的成员，用来帮助选择；远端权限仍是最终事实。
     pub members: Vec<String>,
+    /// 这个仓库里由分享动作放进来的顶层内容节点。旧标记只有 `entry` 时也会落到这里。
+    pub entries: Vec<String>,
+    pub remote: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SpaceMarker {
     kind: String,
     version: u32,
+    #[serde(default)]
     entry: String,
+    #[serde(default)]
+    entries: Vec<String>,
     #[serde(default)]
     label: Option<String>,
     #[serde(default)]
     members: Vec<String>,
+}
+
+fn read_marker(root: &Path) -> Option<SpaceMarker> {
+    let marker: SpaceMarker =
+        serde_json::from_slice(&std::fs::read(root.join(MARKER)).ok()?).ok()?;
+    (marker.kind == "shared-space" || marker.kind == "shared-note").then_some(marker)
+}
+
+fn marker_entries(marker: &SpaceMarker) -> Vec<String> {
+    let mut entries = marker.entries.clone();
+    if entries.is_empty() && !marker.entry.trim().is_empty() {
+        entries.push(marker.entry.clone());
+    }
+    entries.sort();
+    entries.dedup();
+    entries
+}
+
+fn write_marker(root: &Path, marker: &SpaceMarker) -> Result<()> {
+    let value = serde_json::to_vec_pretty(marker)
+        .map_err(|error| Error::Vault(format!("共享空间标记生成失败：{error}")))?;
+    std::fs::write(root.join(MARKER), value)?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -92,20 +121,36 @@ pub fn space_info(root: &Path) -> Option<SharedSpaceInfo> {
     if !root.is_dir() {
         return None;
     }
-    let marker: SpaceMarker = serde_json::from_slice(&std::fs::read(root.join(MARKER)).ok()?).ok()?;
-    if marker.kind != "shared-space" && marker.kind != "shared-note" {
-        return None;
-    }
-    let name = marker.label.clone().filter(|label| !label.trim().is_empty()).unwrap_or_else(|| {
-        root.file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| root.to_string_lossy().into_owned())
-    });
+    let marker = read_marker(root)?;
+    let name = marker
+        .label
+        .clone()
+        .filter(|label| !label.trim().is_empty())
+        .unwrap_or_else(|| {
+            root.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root.to_string_lossy().into_owned())
+        });
+    let entries = marker_entries(&marker);
     Some(SharedSpaceInfo {
-        root: crate::winpath::for_external(root).to_string_lossy().into_owned(),
+        root: crate::winpath::for_external(root)
+            .to_string_lossy()
+            .into_owned(),
         name,
         members: marker.members,
+        entries,
+        remote: super::sync::remote_get(root)
+            .ok()
+            .and_then(|remote| remote.url),
     })
+}
+
+/// 成员缓存只是离线提示；写它的前提是调用方已经从远端拿到了真实结果。
+pub fn cache_members(root: &Path, members: Vec<String>) -> Result<()> {
+    let mut marker =
+        read_marker(root).ok_or_else(|| Error::Vault("目标不是 Verso 共享空间".into()))?;
+    marker.members = members;
+    write_marker(root, &marker)
 }
 
 fn external(target: &str) -> bool {
@@ -329,14 +374,17 @@ pub fn create(vault: &Vault, input: CreateInput<'_>) -> Result<PathBuf> {
 
         let marker = SpaceMarker {
             kind: "shared-space".into(),
-            version: 1,
+            version: 2,
             entry: preview.note.clone(),
-            label: input.label.map(str::trim).filter(|label| !label.is_empty()).map(str::to_string),
+            entries: vec![preview.note.clone()],
+            label: input
+                .label
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .map(str::to_string),
             members: input.members.to_vec(),
         };
-        let marker = serde_json::to_vec_pretty(&marker)
-            .map_err(|error| Error::Vault(format!("共享空间标记生成失败：{error}")))?;
-        std::fs::write(temp.join(MARKER), marker)?;
+        write_marker(&temp, &marker)?;
         super::git::identity_set(&temp, input.name, input.email)?;
         super::sync::remote_set(&temp, url)?;
         super::sync::ensure_remote_empty(&temp, input.token.clone())?;
@@ -449,7 +497,10 @@ fn add_preview_to(
     let destination = destination
         .canonicalize()
         .map_err(|_| Error::Vault("这个共享空间的位置已经不可用".into()))?;
-    let source_root = vault.root.canonicalize().unwrap_or_else(|_| vault.root.clone());
+    let source_root = vault
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| vault.root.clone());
     if destination.starts_with(&source_root) || source_root.starts_with(&destination) {
         return Err(Error::Vault("不能把当前空间加入它自己或它的子目录".into()));
     }
@@ -479,9 +530,7 @@ fn add_preview_to(
         for rel in preview.documents.iter().chain(preview.files.iter()) {
             let to = temp.join(rel);
             if to.exists() {
-                return Err(Error::Vault(format!(
-                    "共享空间里已经存在同名内容：{rel}"
-                )));
+                return Err(Error::Vault(format!("共享空间里已经存在同名内容：{rel}")));
             }
             if let Some(parent) = to.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -504,6 +553,17 @@ fn add_preview_to(
             }
             std::fs::copy(from, to)?;
         }
+
+        let mut marker = read_marker(&temp)
+            .ok_or_else(|| Error::Vault("远端不是完整的 Verso 共享空间".into()))?;
+        let mut entries = marker_entries(&marker);
+        entries.push(preview.note.clone());
+        entries.sort();
+        entries.dedup();
+        marker.version = 2;
+        marker.entry = entries.first().cloned().unwrap_or_default();
+        marker.entries = entries;
+        write_marker(&temp, &marker)?;
 
         super::git::commit_all(&temp, Some("加入共享内容"))?;
         let outcome = super::sync::sync(&temp, token.clone())?;
@@ -572,6 +632,221 @@ fn add_preview_to(
         return Err(error.into());
     }
     let _ = std::fs::remove_dir_all(&old_destination);
+    Ok(destination)
+}
+
+fn copy_into(
+    root: &Path,
+    from_root: &Path,
+    paths: impl Iterator<Item = String>,
+) -> Result<Vec<PathBuf>> {
+    let mut created = Vec::new();
+    for rel in paths {
+        let copied = (|| -> Result<Option<PathBuf>> {
+            let from = from_root.join(&rel);
+            let to = root.join(&rel);
+            if to.is_file() {
+                if std::fs::read(&from)? == std::fs::read(&to)? {
+                    return Ok(None);
+                }
+                return Err(Error::Vault(format!(
+                    "私人空间里已有不同内容的同名附件：{rel}"
+                )));
+            }
+            if to.exists() {
+                return Err(Error::Vault(format!("私人空间里已经存在同名内容：{rel}")));
+            }
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(from, &to)?;
+            Ok(Some(to))
+        })();
+        match copied {
+            Ok(Some(path)) => created.push(path),
+            Ok(None) => {}
+            Err(error) => {
+                rollback_copies(root, &created);
+                return Err(error);
+            }
+        }
+    }
+    Ok(created)
+}
+
+fn rollback_copies(root: &Path, created: &[PathBuf]) {
+    for path in created.iter().rev() {
+        let _ = std::fs::remove_file(path);
+        let mut parent = path.parent();
+        while let Some(dir) = parent {
+            if dir == root || std::fs::remove_dir(dir).is_err() {
+                break;
+            }
+            parent = dir.parent();
+        }
+    }
+}
+
+/// 把共享空间中的一棵内容树迁回已有私人空间。远端删除成功前不动两边本地正文；
+/// 附件只复制不删除，因为空间里的其他笔记可能仍在引用它们。
+pub fn move_note_to_private(
+    shared: &Vault,
+    note: &str,
+    destination: &Path,
+    token: Option<String>,
+) -> Result<PathBuf> {
+    if !is_shared_space(&shared.root) {
+        return Err(Error::Vault("只有共享空间里的内容可以移回私人".into()));
+    }
+    if !destination.is_dir() || is_shared_space(destination) {
+        return Err(Error::Vault("请选择一个可用的私人空间".into()));
+    }
+    let source_root = shared
+        .root
+        .canonicalize()
+        .unwrap_or_else(|_| shared.root.clone());
+    let destination = destination
+        .canonicalize()
+        .map_err(|_| Error::Vault("私人空间的位置已经不可用".into()))?;
+    if destination.starts_with(&source_root) || source_root.starts_with(&destination) {
+        return Err(Error::Vault("共享空间和私人空间不能互相包含".into()));
+    }
+
+    let mut manifest = preview(shared, note)?;
+    let info = space_info(&source_root)
+        .ok_or_else(|| Error::Vault("当前目录不是完整的 Verso 共享空间".into()))?;
+    if !info.entries.iter().any(|entry| entry == note) {
+        return Err(Error::Vault("这篇文档不是该共享空间登记的顶层内容".into()));
+    }
+
+    // 所有容易预见的冲突都在网络与删除之前挡住。
+    for rel in manifest.documents.iter().chain(manifest.files.iter()) {
+        if destination.join(rel).exists() {
+            return Err(Error::Vault(format!("私人空间里已经存在同名内容：{rel}")));
+        }
+    }
+    for rel in &manifest.attachments {
+        let to = destination.join(rel);
+        if to.is_file() && std::fs::read(shared.resolve(rel)?)? != std::fs::read(&to)? {
+            return Err(Error::Vault(format!(
+                "私人空间里已有不同内容的同名附件：{rel}"
+            )));
+        }
+    }
+
+    let remote = super::sync::remote_get(&source_root)?;
+    let url = remote
+        .url
+        .ok_or_else(|| Error::Vault("这个共享空间还没有远端地址".into()))?;
+    let before = super::sync::sync(&source_root, token.clone())?;
+    if !before.conflicts.is_empty() {
+        return Err(Error::Vault(
+            "共享空间有尚未解决的冲突，请先完成同步".into(),
+        ));
+    }
+    // 同步可能刚把队友的新修改带到本机。迁移清单必须按同步后的真实内容重算，
+    // 否则会把旧快照搬回私人，再从远端删掉较新的那份。
+    manifest = preview(shared, note)?;
+    let refreshed =
+        space_info(&source_root).ok_or_else(|| Error::Vault("同步后共享空间标记不可用".into()))?;
+    if !refreshed.entries.iter().any(|entry| entry == note) {
+        return Err(Error::Vault("同步后这篇文档已不再属于该共享空间".into()));
+    }
+    for rel in manifest.documents.iter().chain(manifest.files.iter()) {
+        if destination.join(rel).exists() {
+            return Err(Error::Vault(format!("私人空间里已经存在同名内容：{rel}")));
+        }
+    }
+    for rel in &manifest.attachments {
+        let to = destination.join(rel);
+        if to.is_file() && std::fs::read(shared.resolve(rel)?)? != std::fs::read(&to)? {
+            return Err(Error::Vault(format!(
+                "私人空间里已有不同内容的同名附件：{rel}"
+            )));
+        }
+    }
+
+    let parent = source_root
+        .parent()
+        .ok_or_else(|| Error::Vault("共享空间没有可用的父目录".into()))?;
+    let temp = parent.join(format!(".verso-unshare-{}", ulid::Ulid::new()));
+    std::fs::create_dir(&temp)?;
+    let staged = (|| -> Result<()> {
+        super::sync::clone_remote(&url, &temp, token.clone())?;
+        let identity = super::git::identity_get(&source_root)?;
+        if let (Some(name), Some(email)) = (identity.name, identity.email) {
+            super::git::identity_set(&temp, &name, &email)?;
+        }
+
+        let note_path = temp.join(note);
+        if !note_path.is_file() {
+            return Err(Error::Vault("同步后远端已经没有这篇文档".into()));
+        }
+        std::fs::remove_file(note_path)?;
+        let child = temp.join(note.strip_suffix(".md").unwrap_or(note));
+        if child.is_dir() {
+            std::fs::remove_dir_all(child)?;
+        }
+        let mut marker = read_marker(&temp)
+            .ok_or_else(|| Error::Vault("远端不是完整的 Verso 共享空间".into()))?;
+        let mut entries = marker_entries(&marker);
+        entries.retain(|entry| entry != note);
+        marker.version = 2;
+        marker.entry = entries.first().cloned().unwrap_or_default();
+        marker.entries = entries;
+        write_marker(&temp, &marker)?;
+
+        super::git::commit_all(&temp, Some("内容移回私人空间"))?;
+        let outcome = super::sync::sync(&temp, token.clone())?;
+        if !outcome.conflicts.is_empty() {
+            return Err(Error::Vault("移回期间远端出现冲突，已取消本地迁移".into()));
+        }
+        Ok(())
+    })();
+    if let Err(error) = staged {
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(error);
+    }
+
+    let normal = manifest
+        .documents
+        .iter()
+        .chain(manifest.files.iter())
+        .cloned();
+    let mut created = match copy_into(&destination, &source_root, normal) {
+        Ok(paths) => paths,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(error);
+        }
+    };
+    match copy_into(
+        &destination,
+        &source_root,
+        manifest.attachments.iter().cloned(),
+    ) {
+        Ok(paths) => created.extend(paths),
+        Err(error) => {
+            rollback_copies(&destination, &created);
+            let _ = std::fs::remove_dir_all(&temp);
+            return Err(error);
+        }
+    }
+
+    // 用已经推送成功的临时克隆整体替换本地共享仓库，工作区与远端精确一致。
+    let old = parent.join(format!(".verso-unshare-old-{}", ulid::Ulid::new()));
+    if let Err(error) = std::fs::rename(&source_root, &old) {
+        rollback_copies(&destination, &created);
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(error.into());
+    }
+    if let Err(error) = std::fs::rename(&temp, &source_root) {
+        let _ = std::fs::rename(&old, &source_root);
+        rollback_copies(&destination, &created);
+        let _ = std::fs::remove_dir_all(&temp);
+        return Err(error.into());
+    }
+    let _ = std::fs::remove_dir_all(&old);
     Ok(destination)
 }
 
@@ -744,11 +1019,64 @@ mod tests {
         assert!(destination.join("项目/补充.md").is_file());
         assert!(!other_root.join("项目/补充.md").exists());
         assert_eq!(space_info(&destination).unwrap().members, vec!["person-1"]);
+        assert_eq!(
+            space_info(&destination).unwrap().entries,
+            vec!["项目/提案.md", "项目/补充.md"]
+        );
 
         std::fs::remove_dir_all(root).ok();
         std::fs::remove_dir_all(other_root).ok();
         std::fs::remove_dir_all(remote).ok();
         std::fs::remove_dir_all(destination).ok();
+    }
+
+    #[test]
+    fn moves_one_registered_tree_back_to_private_and_keeps_shared_attachments() {
+        let (private_root, private) = vault();
+        let remote =
+            std::env::temp_dir().join(format!("verso-unshare-remote-{}.git", ulid::Ulid::new()));
+        let repo = git2::Repository::init_bare(&remote).unwrap();
+        repo.set_head("refs/heads/main").unwrap();
+        let shared_root =
+            std::env::temp_dir().join(format!("verso-unshare-space-{}", ulid::Ulid::new()));
+        std::fs::create_dir(&shared_root).unwrap();
+        create(
+            &private,
+            CreateInput {
+                note: "项目/提案.md",
+                destination: &shared_root,
+                url: remote.to_str().unwrap(),
+                token: None,
+                name: "林",
+                email: "lin@example.com",
+                members: &["person-1".to_string()],
+                label: Some("与 @person-1 的共享"),
+            },
+        )
+        .unwrap();
+
+        let (shared, _) = Vault::open(shared_root.clone()).unwrap();
+        move_note_to_private(&shared, "项目/提案.md", &private_root, None).unwrap();
+
+        assert!(private_root.join("项目/提案.md").is_file());
+        assert!(private_root.join("项目/提案/实验记录.md").is_file());
+        assert!(private_root.join("项目/提案/实验/数据.csv").is_file());
+        assert!(!shared_root.join("项目/提案.md").exists());
+        assert!(!shared_root.join("项目/提案").exists());
+        assert!(shared_root.join("attachments/a.png").is_file());
+        assert!(space_info(&shared_root).unwrap().entries.is_empty());
+
+        let verify =
+            std::env::temp_dir().join(format!("verso-unshare-verify-{}", ulid::Ulid::new()));
+        std::fs::create_dir(&verify).unwrap();
+        super::super::sync::clone_remote(remote.to_str().unwrap(), &verify, None).unwrap();
+        assert!(!verify.join("项目/提案.md").exists());
+        assert!(verify.join("attachments/a.png").is_file());
+
+        std::fs::remove_dir_all(private_root).ok();
+        std::fs::remove_dir_all(shared_root).ok();
+        std::fs::remove_dir_all(remote).ok();
+        std::fs::remove_dir_all(verify).ok();
     }
 
     #[test]

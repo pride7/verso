@@ -63,6 +63,7 @@ struct User {
 
 #[derive(Debug, Deserialize)]
 struct Invitation {
+    id: u64,
     invitee: Option<User>,
 }
 
@@ -206,6 +207,65 @@ pub fn invite(token: &str, repository: &Repository, username: &str) -> Result<()
     request("PUT", &path, token)
         .send_json(serde_json::json!({ "permission": "push" }))
         .map_err(humanize)?;
+    Ok(())
+}
+
+pub fn invite_to_url(token: &str, url: &str, username: &str) -> Result<()> {
+    let username = validate_username(username)?;
+    let (owner, repository) = repository_coordinates(url)?;
+    request(
+        "PUT",
+        &format!("/repos/{owner}/{repository}/collaborators/{username}"),
+        token,
+    )
+    .send_json(serde_json::json!({ "permission": "push" }))
+    .map_err(humanize)?;
+    Ok(())
+}
+
+/// 已加入成员与待接受邀请走的是 GitHub 两条不同的删除接口。先找邀请，
+/// 找不到再按协作者移除；UI 不需要让用户理解这层差别。
+pub fn remove_access(token: &str, url: &str, username: &str) -> Result<()> {
+    let username = validate_username(username)?;
+    let (owner, repository) = repository_coordinates(url)?;
+    for page in 1.. {
+        let invitations = request(
+            "GET",
+            &format!("/repos/{owner}/{repository}/invitations?per_page=100&page={page}"),
+            token,
+        )
+        .call()
+        .map_err(humanize)?
+        .into_json::<Vec<Invitation>>()
+        .map_err(|error| Error::Vault(format!("GitHub 返回了无法识别的邀请列表：{error}")))?;
+        let complete = invitations.len() < 100;
+        if let Some(invitation) = invitations.into_iter().find(|invitation| {
+            invitation
+                .invitee
+                .as_ref()
+                .is_some_and(|user| user.login.eq_ignore_ascii_case(&username))
+        }) {
+            request(
+                "DELETE",
+                &format!("/repos/{owner}/{repository}/invitations/{}", invitation.id),
+                token,
+            )
+            .call()
+            .map_err(humanize)?;
+            return Ok(());
+        }
+        if complete {
+            break;
+        }
+    }
+
+    request(
+        "DELETE",
+        &format!("/repos/{owner}/{repository}/collaborators/{username}"),
+        token,
+    )
+    .call()
+    .map_err(humanize)?;
     Ok(())
 }
 

@@ -36,6 +36,7 @@ import { DiffView } from "./components/DiffView";
 import { MathBar } from "./components/MathBar";
 import { MindMap } from "./components/MindMap";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "./components/VaultSwitcher";
+import { SharedSpaceDialog } from "./components/SharedSpaceDialog";
 import { JoinVaultDialog, type JoinVaultInput } from "./components/JoinVaultDialog";
 import { ShareNoteDialog, type ShareNoteInput } from "./components/ShareNoteDialog";
 import { setSlashAction } from "./editor/completion";
@@ -151,6 +152,7 @@ export default function App() {
   const [joining, setJoining] = useState(false);
   const [sharePreview, setSharePreview] = useState<SharePreview | null>(null);
   const [shareSpaces, setShareSpaces] = useState<SharedSpaceInfo[]>([]);
+  const [managedSpace, setManagedSpace] = useState<SharedSpaceInfo | null>(null);
   const [githubAccount, setGitHubAccount] = useState<GitHubAccount | null>(null);
   const [githubChecking, setGitHubChecking] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -1852,6 +1854,40 @@ export default function App() {
     [sharing, switchingVault, prepareVaultSwitch, activateVault],
   );
 
+  const manageSharedSpace = useCallback(async (root: string) => {
+    try {
+      const spaces = await api.shareSpaces();
+      const space = spaces.find((item) => item.root === root);
+      if (!space) throw new Error("这个共享空间的位置或标记已经不可用");
+      setVaultManagerOpen(false);
+      setManagedSpace(space);
+      if (!githubAccount) checkShareGitHub();
+    } catch (reason) {
+      setVaultError((reason as Error).message);
+    }
+  }, [githubAccount, checkShareGitHub]);
+
+  const unshareNote = useCallback(
+    async (spaceRoot: string, path: string, privateRoot: string) => {
+      if (sharing || switchingVault) return;
+      setSharing(true);
+      setSwitchingVault(privateRoot);
+      try {
+        if (!(await prepareVaultSwitch())) {
+          throw new Error("当前空间未能完成保存，已取消迁移。");
+        }
+        const result = await api.unshareNote(spaceRoot, path, privateRoot);
+        await activateVault(result.vault, result.note);
+        setManagedSpace(null);
+        setNotice(result.notice ?? "已移回私人空间");
+      } finally {
+        setSharing(false);
+        setSwitchingVault(null);
+      }
+    },
+    [sharing, switchingVault, prepareVaultSwitch, activateVault],
+  );
+
   const forgetVault = useCallback(
     async (path: string) => {
       if (path === vault?.root) return;
@@ -2602,7 +2638,21 @@ export default function App() {
               setJoinOpen(true);
             }}
             onForget={(path) => void forgetVault(path)}
+            onManageShared={(root) => void manageSharedSpace(root)}
             onClose={() => setVaultManagerOpen(false)}
+          />
+        )}
+        {managedSpace && (
+          <SharedSpaceDialog
+            space={managedSpace}
+            privateVaults={recentVaults}
+            account={githubAccount}
+            busy={sharing}
+            onLoadAccess={api.shareSpaceAccess}
+            onInvite={api.sharedSpaceInvite}
+            onRemove={api.sharedSpaceRemoveMember}
+            onUnshare={unshareNote}
+            onClose={() => !sharing && setManagedSpace(null)}
           />
         )}
         {joinOpen && (
@@ -3158,7 +3208,22 @@ export default function App() {
             setJoinOpen(true);
           }}
           onForget={(path) => void forgetVault(path)}
+          onManageShared={(root) => void manageSharedSpace(root)}
           onClose={() => setVaultManagerOpen(false)}
+        />
+      )}
+
+      {managedSpace && !mobile && (
+        <SharedSpaceDialog
+          space={managedSpace}
+          privateVaults={recentVaults}
+          account={githubAccount}
+          busy={sharing}
+          onLoadAccess={api.shareSpaceAccess}
+          onInvite={api.sharedSpaceInvite}
+          onRemove={api.sharedSpaceRemoveMember}
+          onUnshare={unshareNote}
+          onClose={() => !sharing && setManagedSpace(null)}
         />
       )}
 

@@ -147,6 +147,7 @@ export function VaultSwitcher({
 interface ManagerProps extends CommonProps {
   error?: string | null;
   onForget: (root: string) => void;
+  onManageShared: (root: string) => void;
   onClose: () => void;
 }
 
@@ -159,6 +160,7 @@ export function VaultManager({
   onOpenFolder,
   onJoin,
   onForget,
+  onManageShared,
   onClose,
 }: ManagerProps) {
   useEffect(() => {
@@ -210,6 +212,15 @@ export function VaultManager({
                       disabled={switching !== null}
                     >
                       {busy ? "切换中…" : "打开"}
+                    </button>
+                  )}
+                  {item.shared && item.available && (
+                    <button
+                      className="vault-row-action"
+                      onClick={() => onManageShared(item.root)}
+                      disabled={switching !== null}
+                    >
+                      管理
                     </button>
                   )}
                   {!active && (

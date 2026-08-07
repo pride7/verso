@@ -64,6 +64,10 @@ export interface SharedSpaceInfo {
   name: string;
   /** 上次由 Verso 邀请的成员；远端权限仍是最终事实。 */
   members: string[];
+  /** 由分享动作加入这个空间的顶层内容节点。 */
+  entries: string[];
+  /** 用于高级托管服务管理；凭据永远不在这里。 */
+  remote: string | null;
 }
 
 export interface SharedSpaceAccess {

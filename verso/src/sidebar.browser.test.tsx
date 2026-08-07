@@ -92,6 +92,11 @@ const shareToSpace = vi.fn(async (_input: Record<string, unknown>) => {
   backendRoot = JOINED_VAULT.root;
   return { vault: JOINED_VAULT, note: "论文.md", notice: "已加入共享空间" };
 });
+const unshare = vi.fn(async (_input: Record<string, unknown>) => ({
+  vault: VAULT,
+  note: "项目.md",
+  notice: "已移回私人空间",
+}));
 const checkShareAccess = vi.fn(async (): Promise<SharedSpaceAccess> => ({
   members: ["person-1"],
   pending: ["person-3"],
@@ -126,14 +131,24 @@ vi.mock("./api", () => ({
     }),
     shareNote: (input: Record<string, unknown>) => shareCurrentNote(input),
     shareSpaces: async () => [
-      { root: "D:/Notes/article", name: "共同论文", members: ["person-1"] },
+      {
+        root: "D:/Notes/article",
+        name: "共同论文",
+        members: ["person-1"],
+        entries: ["项目.md"],
+        remote: "https://github.com/owner/shared.git",
+      },
     ],
     shareSpaceAccess: () => checkShareAccess(),
+    sharedSpaceInvite: async () => checkShareAccess(),
+    sharedSpaceRemoveMember: async () => checkShareAccess(),
     shareNoteToSpace: (input: Record<string, unknown>) => shareToSpace(input),
     githubAccount: async () => ({ login: "owner" }),
     githubConnect: async () => ({ login: "owner" }),
     githubDisconnect: async () => {},
     shareNoteToGitHub: (input: Record<string, unknown>) => shareGitHub(input),
+    unshareNote: (spaceRoot: string, note: string, privateRoot: string) =>
+      unshare({ spaceRoot, note, privateRoot }),
     recentVaults: async () => knownVaults,
     forgetVault: async (path: string) => {
       knownVaults = knownVaults.filter((item) => item.root !== path);
@@ -197,6 +212,7 @@ beforeEach(() => {
   shareCurrentNote.mockClear();
   shareGitHub.mockClear();
   shareToSpace.mockClear();
+  unshare.mockClear();
   checkShareAccess.mockClear();
   writeNote.mockClear();
   workspaceSet.mockClear();
@@ -281,6 +297,50 @@ describe("侧栏头部", () => {
     expect(openVault).toHaveBeenCalledWith(OTHER_VAULT.root);
     expect(pickVaultFolder).not.toHaveBeenCalled();
     expect(el(".sidebar-foot")?.textContent).toContain("lab");
+  });
+
+  it("空间管理能从共享列表进入，并明确确认后把内容迁回私人", async () => {
+    await mountApp();
+    el<HTMLButtonElement>(".vault-name")!.click();
+    await settle(30);
+    const manageSpaces = [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-action")]
+      .find((button) => button.textContent?.includes("管理空间"))!;
+    manageSpaces.click();
+    await settle(40);
+
+    const sharedRow = [...document.querySelectorAll<HTMLElement>(".vault-manager-row")]
+      .find((row) => row.textContent?.includes("共同论文"))!;
+    await act(async () => {
+      [...sharedRow.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.trim() === "管理")!.click();
+      await settle(120);
+    });
+
+    expect(el(".shared-space-dialog")?.textContent).toContain("项目");
+    expect(el(".shared-space-dialog")?.textContent).toContain("@person-1");
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>(".shared-entry-row button")][0].click();
+      await settle(20);
+    });
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>(".shared-unshare-confirm button")]
+      .find((button) => button.textContent?.trim() === "移回私人")!;
+    expect(confirm.disabled).toBe(true);
+    await act(async () => {
+      el<HTMLInputElement>(".shared-unshare-check input")!.click();
+      await settle(20);
+    });
+    expect(confirm.disabled).toBe(false);
+    await act(async () => {
+      confirm.click();
+      await settle(500);
+    });
+
+    expect(unshare).toHaveBeenCalledWith({
+      spaceRoot: "D:/Notes/article",
+      note: "项目.md",
+      privateRoot: VAULT.root,
+    });
+    expect(el(".shared-space-dialog")).toBeNull();
   });
 
   it("不用终端即可填写远端、身份并加入共享空间", async () => {

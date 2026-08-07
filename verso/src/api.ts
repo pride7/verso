@@ -72,6 +72,10 @@ export const api = {
   /** 选中已有空间后核对真正有权访问的人；marker 里的名单只作离线提示。 */
   shareSpaceAccess: (spaceRoot: string) =>
     call<SharedSpaceAccess>("note_share_space_access", { spaceRoot }),
+  sharedSpaceInvite: (spaceRoot: string, username: string) =>
+    call<SharedSpaceAccess>("shared_space_member_invite", { spaceRoot, username }),
+  sharedSpaceRemoveMember: (spaceRoot: string, username: string) =>
+    call<SharedSpaceAccess>("shared_space_member_remove", { spaceRoot, username }),
   shareNoteToSpace: (input: {
     note: string;
     spaceRoot: string;
@@ -100,6 +104,13 @@ export const api = {
     email: string;
   }) =>
     call<{ vault: VaultInfo; note: string; notice: string | null }>("note_share_github", input),
+  /** 从当前共享空间移出完整内容树，并打开所选私人空间里的同一篇。 */
+  unshareNote: (spaceRoot: string, note: string, privateRoot: string) =>
+    call<{ vault: VaultInfo; note: string; notice: string | null }>("note_unshare", {
+      spaceRoot,
+      note,
+      privateRoot,
+    }),
   /** 成功打开过的仓库，最近使用的在前；不存在的目录也会返回并标记。 */
   recentVaults: () => call<RecentVault[]>("vault_recent_list"),
   /** 只忘记快捷入口，不删除目录或笔记。 */

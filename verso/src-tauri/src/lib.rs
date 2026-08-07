@@ -262,11 +262,7 @@ fn note_share_space_list(app: AppHandle) -> Vec<vault::share::SharedSpaceInfo> {
         .collect()
 }
 
-/// 用户选中已有空间后才查远端。列表里的 marker 只负责离线提示，真正决定
-/// 谁能看到内容的是 GitHub 当前协作者与仍待接受的邀请。
-#[tauri::command]
-fn note_share_space_access(space_root: String) -> Result<SharedSpaceAccess> {
-    let root = std::path::Path::new(&space_root);
+fn shared_space_access(root: &std::path::Path) -> Result<SharedSpaceAccess> {
     let cached = vault::share::space_info(root)
         .ok_or_else(|| Error::Vault("目标不是 Verso 共享空间".into()))?;
     let remote = vault::sync::remote_get(root)?;
@@ -294,7 +290,7 @@ fn note_share_space_access(space_root: String) -> Result<SharedSpaceAccess> {
             pending: Vec::new(),
             github: true,
             verified: false,
-            warning: Some("缺少这个 GitHub 空间的访问凭据，暂时不能安全地加入内容".into()),
+            warning: Some("缺少这个 GitHub 空间的访问凭据，暂时不能管理成员或安全地加入内容".into()),
         });
     };
     match vault::github::repository_access(&token, &url) {
@@ -313,6 +309,93 @@ fn note_share_space_access(space_root: String) -> Result<SharedSpaceAccess> {
             warning: Some(format!("成员核对失败：{error}")),
         }),
     }
+}
+
+/// 用户选中已有空间后才查远端。列表里的 marker 只负责离线提示，真正决定
+/// 谁能看到内容的是 GitHub 当前协作者与仍待接受的邀请。
+#[tauri::command]
+fn note_share_space_access(space_root: String) -> Result<SharedSpaceAccess> {
+    let root = std::path::Path::new(&space_root);
+    shared_space_access(root)
+}
+
+#[tauri::command]
+fn shared_space_member_invite(space_root: String, username: String) -> Result<SharedSpaceAccess> {
+    let root = std::path::Path::new(&space_root);
+    let remote = vault::sync::remote_get(root)?;
+    let url = remote
+        .url
+        .ok_or_else(|| Error::Vault("这个空间没有远端地址".into()))?;
+    if !vault::github::is_github_url(&url) {
+        return Err(Error::Vault("这个空间的成员需要到远端服务中管理".into()));
+    }
+    let token = token_for_remote(&url)
+        .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
+    vault::github::invite_to_url(&token, &url, &username)?;
+    let access = shared_space_access(root)?;
+    if access.verified {
+        let mut cached = access.members.clone();
+        cached.extend(access.pending.iter().cloned());
+        vault::share::cache_members(root, cached)?;
+    }
+    Ok(access)
+}
+
+#[tauri::command]
+fn shared_space_member_remove(space_root: String, username: String) -> Result<SharedSpaceAccess> {
+    let root = std::path::Path::new(&space_root);
+    let remote = vault::sync::remote_get(root)?;
+    let url = remote
+        .url
+        .ok_or_else(|| Error::Vault("这个空间没有远端地址".into()))?;
+    if !vault::github::is_github_url(&url) {
+        return Err(Error::Vault("这个空间的成员需要到远端服务中管理".into()));
+    }
+    let token = token_for_remote(&url)
+        .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
+    let account = vault::github::account(&token)?;
+    if account
+        .login
+        .eq_ignore_ascii_case(username.trim().trim_start_matches('@'))
+    {
+        return Err(Error::Vault("不能在这里移除当前连接的 GitHub 账号".into()));
+    }
+    vault::github::remove_access(&token, &url, &username)?;
+    let access = shared_space_access(root)?;
+    if access.verified {
+        let mut cached = access.members.clone();
+        cached.extend(access.pending.iter().cloned());
+        vault::share::cache_members(root, cached)?;
+    }
+    Ok(access)
+}
+
+/// 停止共享一棵内容树：远端与本地共享空间删掉它，完整内容迁回所选私人空间。
+#[tauri::command]
+fn note_unshare(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    space_root: String,
+    note: String,
+    private_root: String,
+) -> Result<SharedNoteResult> {
+    let (shared, _) = Vault::open(std::path::PathBuf::from(space_root))?;
+    let remote = vault::sync::remote_get(&shared.root)?;
+    let token = remote.url.as_deref().and_then(token_for_remote);
+    let destination = vault::share::move_note_to_private(
+        &shared,
+        &note,
+        std::path::Path::new(&private_root),
+        token,
+    )?;
+    let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+    Ok(SharedNoteResult {
+        vault: info,
+        note,
+        notice: Some("已移回私人空间；过去已经下载的副本无法收回".into()),
+    })
 }
 
 /// 把当前节点加入已有共享空间，不创建新仓库，也不改变该空间的成员。
@@ -1349,8 +1432,11 @@ pub fn run() {
             note_share_preview,
             note_share_space_list,
             note_share_space_access,
+            shared_space_member_invite,
+            shared_space_member_remove,
             note_share_to_space,
             note_share_github,
+            note_unshare,
             github_account_get,
             github_token_set,
             github_account_disconnect,
