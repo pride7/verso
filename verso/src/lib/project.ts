@@ -1,0 +1,190 @@
+import type { NoteContent, NoteMeta, NoteRef } from "../types";
+
+export type ProjectKind = "progress" | "experiment" | "question" | "decision" | "resource";
+
+export interface ProjectItem {
+  path: string;
+  title: string;
+  kind: Exclude<ProjectKind, "progress">;
+  status: string;
+  summary: string;
+  mtimeMs: number;
+}
+
+export interface ProjectProgress {
+  at: string;
+  text: string;
+}
+
+export interface ProjectOverview {
+  status: string;
+  summary: string;
+  next: string;
+  blocker: string;
+  items: ProjectItem[];
+  progress: ProjectProgress[];
+}
+
+export interface ProjectApi {
+  readNote(path: string): Promise<NoteContent>;
+  createNote(parentDoc: string | null, title: string): Promise<NoteMeta>;
+  writeNote(path: string, body: string): Promise<number>;
+  propSet(path: string, key: string, value: string | null): Promise<void>;
+}
+
+const CATEGORY: Record<Exclude<ProjectKind, "progress">, string> = {
+  experiment: "实验",
+  question: "问题",
+  decision: "决策",
+  resource: "资料",
+};
+
+const DEFAULT_STATUS: Record<Exclude<ProjectKind, "progress">, string> = {
+  experiment: "进行中",
+  question: "待解决",
+  decision: "已决定",
+  resource: "已收录",
+};
+
+export const PROJECT_KIND_LABEL: Record<ProjectKind, string> = {
+  progress: "进展",
+  experiment: "实验",
+  question: "问题",
+  decision: "决策",
+  resource: "资料",
+};
+
+const asText = (value: unknown) => (typeof value === "string" ? value : "");
+const stem = (path: string) => path.replace(/\.md$/i, "");
+
+export function isProject(note: NoteContent | null): boolean {
+  return note?.frontmatter.type === "project";
+}
+
+export async function markAsProject(api: ProjectApi, note: NoteContent): Promise<void> {
+  await api.propSet(note.path, "type", "project");
+  // 已有 status 可能承载用户自己的词汇，不为了项目模式把它覆盖掉。
+  if (!asText(note.frontmatter.status).trim()) await api.propSet(note.path, "status", "进行中");
+}
+
+function firstLine(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, "").trim())
+    .find(Boolean)
+    ?.slice(0, 160) ?? "";
+}
+
+export function parseProgress(body: string): ProjectProgress[] {
+  const matches = [...body.matchAll(/^##\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)\s*$\r?\n([\s\S]*?)(?=^##\s+\d{4}-\d{2}-\d{2}|\s*$)/gm)];
+  return matches.map((match) => ({
+    at: match[1],
+    text: match[2].trim(),
+  }));
+}
+
+export async function loadProjectOverview(
+  api: Pick<ProjectApi, "readNote">,
+  project: NoteContent,
+  notes: NoteRef[],
+): Promise<ProjectOverview> {
+  const prefix = `${stem(project.path)}/`;
+  const children = notes.filter((note) => note.path.startsWith(prefix));
+  const contents = await Promise.all(children.map((note) => api.readNote(note.path)));
+  const items = contents
+    .flatMap<ProjectItem>((note) => {
+      const kind = note.frontmatter.type;
+      if (!Object.keys(CATEGORY).includes(String(kind))) return [];
+      return [{
+        path: note.path,
+        title: note.title,
+        kind: kind as ProjectItem["kind"],
+        status: asText(note.frontmatter.status),
+        summary: asText(note.frontmatter.summary) || firstLine(note.body),
+        mtimeMs: note.mtimeMs,
+      }];
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const progressNote = contents.find((note) => note.frontmatter.type === "project-log");
+
+  return {
+    status: asText(project.frontmatter.status) || "进行中",
+    summary: asText(project.frontmatter.summary),
+    next: asText(project.frontmatter.next),
+    blocker: asText(project.frontmatter.blocker),
+    items,
+    progress: progressNote ? parseProgress(progressNote.body) : [],
+  };
+}
+
+async function ensureChild(
+  api: ProjectApi,
+  parent: string,
+  title: string,
+  type: string,
+): Promise<string> {
+  const expected = `${stem(parent)}/${title}.md`;
+  try {
+    const created = await api.createNote(parent, title);
+    await api.propSet(created.path, "type", type);
+    return created.path;
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("已存在同名文档")) throw error;
+    // 旧文件可能是用户早先手建的；既然现在明确把它用作项目分类，就补上标记。
+    await api.propSet(expected, "type", type);
+    return expected;
+  }
+}
+
+function localStamp(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+export async function captureProjectEntry(
+  api: ProjectApi,
+  projectPath: string,
+  input: { kind: ProjectKind; title: string; content: string },
+): Promise<string> {
+  const content = input.content.trim();
+  if (!content) throw new Error("先写一点内容");
+
+  if (input.kind === "progress") {
+    const path = await ensureChild(api, projectPath, "进展", "project-log");
+    const note = await api.readNote(path);
+    const entry = `## ${localStamp()}\n\n${content}\n\n`;
+    await api.writeNote(path, `${entry}${note.body.trimStart()}`);
+    return path;
+  }
+
+  const category = CATEGORY[input.kind];
+  const categoryPath = await ensureChild(api, projectPath, category, "project-section");
+  const baseTitle = input.title.trim() || firstLine(content) || PROJECT_KIND_LABEL[input.kind];
+  let created: NoteMeta | null = null;
+  for (let n = 1; n < 100; n += 1) {
+    const title = n === 1 ? baseTitle : `${baseTitle} ${n}`;
+    try {
+      created = await api.createNote(categoryPath, title);
+      break;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("已存在同名文档")) throw error;
+    }
+  }
+  if (!created) throw new Error("同名记录太多，请换一个标题");
+  await api.writeNote(created.path, `${content}\n`);
+  await api.propSet(created.path, "type", input.kind);
+  await api.propSet(created.path, "status", DEFAULT_STATUS[input.kind]);
+  await api.propSet(created.path, "summary", firstLine(content));
+  return created.path;
+}
+
+export async function updateProjectSnapshot(
+  api: Pick<ProjectApi, "propSet">,
+  path: string,
+  input: Pick<ProjectOverview, "status" | "summary" | "next" | "blocker">,
+): Promise<void> {
+  // propSet 每次都读整篇再写回；并发会互相覆盖，必须串行。
+  for (const [key, value] of Object.entries(input) as [keyof typeof input, string][]) {
+    await api.propSet(path, key, value.trim() || null);
+  }
+}
