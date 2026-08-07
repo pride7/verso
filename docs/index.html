@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Verso（页）是本地优先的 Markdown 笔记软件：快速输入公式、清楚组织项目，并使用自己的 Git 仓库同步协作。">
   <meta name="theme-color" content="#103a36">
+  <link rel="icon" type="image/png" href="icon.png">
+  <link rel="apple-touch-icon" href="icon.png">
   <title>Verso · 页 —— 你的笔记，始终是你的文件</title>
   <style>
     :root {
@@ -50,8 +52,7 @@
     .topbar { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent); background: color-mix(in srgb, var(--paper) 90%, transparent); backdrop-filter: blur(18px); }
     .nav { display: flex; align-items: center; justify-content: space-between; min-height: 70px; gap: 24px; }
     .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font: 600 25px/1 var(--serif); letter-spacing: -.04em; }
-    .brand-mark { position: relative; width: 25px; height: 31px; overflow: hidden; border: 2px solid var(--teal); border-radius: 3px 3px 9px 3px; }
-    .brand-mark::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-top: 2px solid var(--teal); border-left: 2px solid var(--teal); background: var(--paper); transform: rotate(45deg) translate(3px, 3px); }
+    .brand-mark { display: block; width: 31px; height: 31px; border-radius: 8px; box-shadow: 0 2px 7px rgba(20, 43, 40, .14); }
     .brand small { margin-left: 3px; color: var(--muted); font: 500 13px/1 var(--sans); letter-spacing: .16em; }
     .nav-links { display: flex; align-items: center; gap: 24px; }
     .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 14px; font-weight: 600; }
@@ -288,7 +289,7 @@
 <body>
   <header class="topbar">
     <nav class="nav wrap" aria-label="主导航">
-      <a class="brand" href="#" aria-label="Verso 首页"><span class="brand-mark" aria-hidden="true"></span>Verso <small>页</small></a>
+      <a class="brand" href="#" aria-label="Verso 首页"><img class="brand-mark" src="icon.png" alt="">Verso <small>页</small></a>
       <div class="nav-links">
         <a href="#features">能力</a>
         <a href="#project">项目</a>
