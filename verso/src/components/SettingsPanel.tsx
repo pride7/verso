@@ -418,8 +418,8 @@ function SyncSettings({
 
       {remote.url && (
         <p className="set-note set-note-dim">
-          当前同步分支：<code>{remote.branch}</code>。若同一文档在两端均有修改，同步将暂停并列出
-          冲突文档，不会自动合并。
+          当前同步分支：<code>{remote.branch}</code>。不重叠的正文和不同属性会自动合并；同一段、
+          同一属性或删除与修改相撞时会暂停，请你确认后再写回。
         </p>
       )}
       </>}

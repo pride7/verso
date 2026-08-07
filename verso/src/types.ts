@@ -245,10 +245,20 @@ export interface RemoteInfo {
 /** 一篇撞上冲突的笔记，两边完整内容都带上 —— 冲突 UI 靠它画对比、拼定稿 */
 export interface ConflictFile {
   path: string;
+  /** 两边分叉前的共同版本；语义合并靠它判断每个属性由谁修改 */
+  base: string | null;
   /** 本地当前的样子。本地删了这篇、或不是文本时为 null */
   local: string | null;
   /** 远端那一版。远端删了这篇时为 null */
   remote: string | null;
+  /** 最近一次真正改到这条路径的提交；旧版后端可能没有 */
+  localChange?: ConflictChange | null;
+  remoteChange?: ConflictChange | null;
+}
+
+export interface ConflictChange {
+  author: string;
+  timestamp: number;
 }
 
 /** 冲突 UI 的一条定稿。content 为 null = 接受删除 */

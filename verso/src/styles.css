@@ -7558,7 +7558,8 @@ body.is-row-resizing {
 }
 .conflict-file-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   margin: 10px 0 8px;
 }
@@ -7569,6 +7570,12 @@ body.is-row-resizing {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.conflict-kind {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
 }
 .conflict-quick {
   display: flex;
@@ -7597,12 +7604,100 @@ body.is-row-resizing {
   font-size: 12.5px;
   color: var(--muted);
 }
+.conflict-properties,
+.conflict-text-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.conflict-properties h4,
+.conflict-text-section h4 {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.conflict-property {
+  padding: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: color-mix(in oklch, var(--muted) 3%, transparent);
+}
+.conflict-property > strong {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12.5px;
+}
+.conflict-property-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.conflict-property-options button {
+  min-width: 0;
+  text-align: left;
+  padding: 7px 8px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--hairline);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.conflict-property-options button:hover,
+.conflict-both:hover {
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--hairline));
+}
+.conflict-property-options button.is-chosen,
+.conflict-both.is-chosen {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 7%, transparent);
+}
+.conflict-property-options span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.conflict-property-options pre {
+  margin: 0;
+  font: 11.5px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conflict-delete-warning {
+  padding: 11px 12px;
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: color-mix(in oklch, var(--danger) 7%, transparent);
+}
+.conflict-delete-warning strong {
+  font-size: 12px;
+}
+.conflict-delete-warning p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
 /* 每个 hunk 一行两栏，点哪栏就用哪边 */
+.conflict-hunk-wrap {
+  margin-bottom: 10px;
+}
 .conflict-hunk {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 8px;
+}
+.conflict-both {
+  width: 100%;
+  padding: 5px 8px;
+  font: 500 11.5px var(--font-ui);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  cursor: pointer;
 }
 .conflict-pane {
   text-align: left;
@@ -7674,6 +7769,15 @@ body.is-row-resizing {
 @media (max-width: 640px) {
   /* 手机上左右两栏太挤，叠成上下 —— 点击选边的交互不变 */
   .conflict-hunk {
+    grid-template-columns: 1fr;
+  }
+  .conflict-file-head {
+    flex-direction: column;
+  }
+  .conflict-quick {
+    flex-wrap: wrap;
+  }
+  .conflict-property-options {
     grid-template-columns: 1fr;
   }
 }

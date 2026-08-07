@@ -11,7 +11,7 @@ import { act } from "react";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { ConflictFile, FileDiff, NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -127,7 +127,7 @@ const vaultSync = vi.fn(async () => ({
   committed: null,
   pulled: 2,
   pushed: 1,
-  conflicts: [] as { path: string; local: string | null; remote: string | null }[],
+  conflicts: [] as ConflictFile[],
 }));
 const vaultSyncResolve = vi.fn(async (_resolutions: unknown) => ({
   committed: null,
@@ -136,7 +136,7 @@ const vaultSyncResolve = vi.fn(async (_resolutions: unknown) => ({
   conflicts: [],
 }));
 /** 冲突面板对比本地↔远端用。固定一段「第一行两边不同」的 diff */
-const textDiff = vi.fn(async (path: string, _old: string, _next: string) => ({
+const textDiff = vi.fn(async (path: string, _old: string, _next: string): Promise<FileDiff> => ({
   path,
   kind: "modified" as const,
   additions: 1,
@@ -294,6 +294,8 @@ beforeEach(() => {
   settingsPatch = {};
   remoteUrl = "https://example.com/notes.git";
   vaultSync.mockClear();
+  vaultSyncResolve.mockClear();
+  textDiff.mockClear();
   tokenSet.mockClear();
   confirmMock.mockReset();
   confirmMock.mockResolvedValue(true);
@@ -865,6 +867,7 @@ describe("同步", () => {
       conflicts: [
         {
           path: "数学/线性代数.md",
+          base: null,
           local: "本地的第一行\n共同的第二行",
           remote: "远端的第一行\n共同的第二行",
         },
@@ -911,7 +914,7 @@ describe("同步", () => {
       committed: null,
       pulled: 0,
       pushed: 0,
-      conflicts: [{ path: "乙.md", local: "本地还改过", remote: null }],
+      conflicts: [{ path: "乙.md", base: "删除前", local: "本地还改过", remote: null }],
     });
     await mount();
     await act(async () => {
@@ -921,6 +924,9 @@ describe("同步", () => {
 
     const quick = [...document.querySelectorAll<HTMLButtonElement>(".conflict-quick button")];
     const accept = quick.find((b) => b.textContent?.includes("接受删除"))!;
+    expect(document.querySelector(".conflict-kind")?.textContent).toContain("删除与修改");
+    expect(document.querySelector(".conflict-delete-warning")?.textContent).toContain("不会自动删除");
+    expect(document.querySelector<HTMLButtonElement>(".conflict-submit")!.disabled).toBe(true);
     await act(async () => {
       accept.click();
       await settle(100);
@@ -930,6 +936,116 @@ describe("同步", () => {
       await settle(400);
     });
     expect(vaultSyncResolve).toHaveBeenCalledWith([{ path: "乙.md", content: null }]);
+  });
+
+  it("frontmatter 不同属性自动合并，同一正文不要求重复确认", async () => {
+    const base = "---\n状态: 草稿\n评分: 1\n---\n正文\n";
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{
+        path: "实验.md",
+        base,
+        local: base.replace("状态: 草稿", "状态: 完成"),
+        remote: base.replace("评分: 1", "评分: 5"),
+      }],
+    });
+    textDiff.mockResolvedValueOnce({
+      path: "实验.md", kind: "modified", additions: 0, deletions: 0, binary: false, hunks: [],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    expect(document.querySelectorAll(".conflict-property").length).toBe(0);
+    expect(vaultSyncResolve).toHaveBeenCalledWith([{
+      path: "实验.md",
+      content: "---\n状态: 完成\n评分: 5\n---\n正文\n",
+    }]);
+    expect(document.querySelector(".conflict-modal"), "确定答案应自动完成，不留空面板").toBeNull();
+  });
+
+  it("同一属性冲突可两边保留，生成第二个可见属性而不是重复 YAML 键", async () => {
+    const base = "---\n状态: 草稿\n---\n正文\n";
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{
+        path: "实验.md",
+        base,
+        local: base.replace("状态: 草稿", "状态: 本地完成"),
+        remote: base.replace("状态: 草稿", "状态: 远端完成"),
+      }],
+    });
+    textDiff.mockResolvedValueOnce({
+      path: "实验.md", kind: "modified", additions: 0, deletions: 0, binary: false, hunks: [],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    expect(document.querySelector(".conflict-kind")?.textContent).toContain("语义冲突");
+    const options = [...document.querySelectorAll<HTMLButtonElement>(".conflict-property-options button")];
+    expect(options.length).toBe(3);
+    await act(async () => {
+      options[2].click();
+      await settle(80);
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".conflict-submit")!.click();
+      await settle(400);
+    });
+    expect(vaultSyncResolve).toHaveBeenCalledWith([{
+      path: "实验.md",
+      content: "---\n状态: 本地完成\n状态（远端）: 远端完成\n---\n正文\n",
+    }]);
+  });
+
+  it("正文重叠段落支持两边都保留，公共上下文只出现一次", async () => {
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{
+        path: "正文.md",
+        base: "共同开头\n原文\n共同结尾",
+        local: "共同开头\n本地段落\n共同结尾",
+        remote: "共同开头\n远端段落\n共同结尾",
+      }],
+    });
+    textDiff.mockResolvedValueOnce({
+      path: "正文.md", kind: "modified", additions: 1, deletions: 1, binary: false,
+      hunks: [{
+        oldStart: 1, oldLines: 3, newStart: 1, newLines: 3,
+        lines: [
+          { kind: "context", oldLine: 1, newLine: 1, text: "共同开头" },
+          { kind: "deleted", oldLine: 2, newLine: null, text: "本地段落" },
+          { kind: "added", oldLine: null, newLine: 2, text: "远端段落" },
+          { kind: "context", oldLine: 3, newLine: 3, text: "共同结尾" },
+        ],
+      }],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".conflict-both")!.click();
+      await settle(80);
+      document.querySelector<HTMLButtonElement>(".conflict-submit")!.click();
+      await settle(400);
+    });
+    expect(vaultSyncResolve).toHaveBeenCalledWith([{
+      path: "正文.md",
+      content: "共同开头\n本地段落\n远端段落\n共同结尾",
+    }]);
   });
 
   /**

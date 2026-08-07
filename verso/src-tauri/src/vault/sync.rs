@@ -65,10 +65,24 @@ pub struct RemoteInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ConflictFile {
     pub path: String,
+    /// 两边分叉前的共同版本。语义冲突必须靠它判断「谁改了哪个属性」；
+    /// 新文件或无法读取的二进制内容为 None
+    pub base: Option<String>,
     /// 本地当前的样子（工作区）。本地删了这篇、或不是文本时为 None
     pub local: Option<String>,
     /// 远端那一版（FETCH_HEAD）。远端删了这篇、或不是文本时为 None
     pub remote: Option<String>,
+    /// 最近一次真正改到这条路径的提交；用于界面说明两边是谁、何时改的。
+    pub local_change: Option<ConflictChange>,
+    pub remote_change: Option<ConflictChange>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictChange {
+    pub author: String,
+    /// Unix 秒。前端按本机时区显示，不在仓库里制造格式差异。
+    pub timestamp: i64,
 }
 
 /// 同步的结果。给界面报一句人话用
@@ -419,22 +433,78 @@ fn fast_forward(repo: &git2::Repository, branch: &str, target: git2::Oid) -> Res
 fn conflict_files(
     root: &Path,
     repo: &git2::Repository,
+    merge_base: Option<git2::Oid>,
+    local_tip: git2::Oid,
     remote_tip: git2::Oid,
     names: Vec<String>,
 ) -> Vec<ConflictFile> {
+    let base_tree = merge_base
+        .and_then(|id| repo.find_commit(id).ok())
+        .and_then(|c| c.tree().ok());
     let tree = repo.find_commit(remote_tip).ok().and_then(|c| c.tree().ok());
     names
         .into_iter()
         .map(|path| {
+            let base = base_tree.as_ref().and_then(|t| {
+                let entry = t.get_path(Path::new(&path)).ok()?;
+                let blob = repo.find_blob(entry.id()).ok()?;
+                std::str::from_utf8(blob.content()).ok().map(str::to_string)
+            });
             let local = std::fs::read_to_string(root.join(&path)).ok();
             let remote = tree.as_ref().and_then(|t| {
                 let entry = t.get_path(Path::new(&path)).ok()?;
                 let blob = repo.find_blob(entry.id()).ok()?;
                 std::str::from_utf8(blob.content()).ok().map(str::to_string)
             });
-            ConflictFile { path, local, remote }
+            let local_change = latest_path_change(repo, local_tip, merge_base, &path);
+            let remote_change = latest_path_change(repo, remote_tip, merge_base, &path);
+            ConflictFile {
+                path,
+                base,
+                local,
+                remote,
+                local_change,
+                remote_change,
+            }
         })
         .collect()
+}
+
+/// 在线性同步历史里向共同版本回溯，找最近一次真正改到这个路径的提交。
+/// 找不到就不显示，不能拿分支头作者冒充实际修改者。
+fn latest_path_change(
+    repo: &git2::Repository,
+    tip: git2::Oid,
+    stop: Option<git2::Oid>,
+    path: &str,
+) -> Option<ConflictChange> {
+    let mut commit = repo.find_commit(tip).ok()?;
+    loop {
+        if Some(commit.id()) == stop {
+            return None;
+        }
+        let current = commit.tree().ok()?.get_path(Path::new(path)).ok().map(|e| e.id());
+        let parent = commit.parent(0).ok();
+        let previous = parent
+            .as_ref()
+            .and_then(|p| p.tree().ok())
+            .and_then(|t| t.get_path(Path::new(path)).ok())
+            .map(|e| e.id());
+        if current != previous {
+            let sig = commit.author();
+            let author = sig
+                .name()
+                .filter(|name| !name.trim().is_empty())
+                .or_else(|| sig.email())
+                .unwrap_or("未知成员")
+                .to_string();
+            return Some(ConflictChange {
+                author,
+                timestamp: commit.time().seconds(),
+            });
+        }
+        commit = parent?;
+    }
 }
 
 /// 同步一次。
@@ -500,7 +570,7 @@ pub fn sync_with(
                 if !names.is_empty() {
                     // 冲突时连拉取都不算数：这次同步什么都没发生
                     return Ok(SyncOutcome {
-                        conflicts: conflict_files(root, &repo, theirs, names),
+                        conflicts: conflict_files(root, &repo, base, ours, theirs, names),
                         pulled: 0,
                         pushed: 0,
                         committed: out.committed,
@@ -730,8 +800,11 @@ mod tests {
         assert_eq!(out.conflicts.len(), 1);
         let c = &out.conflicts[0];
         assert_eq!(c.path, "甲.md");
+        assert_eq!(c.base.as_deref(), Some("原来的"), "语义合并必须拿到共同版本");
         assert_eq!(c.local.as_deref(), Some("B 改的"), "本地 = 自己工作区的样子");
         assert_eq!(c.remote.as_deref(), Some("A 改的"), "远端 = 对面推上来的样子");
+        assert!(c.local_change.is_some(), "本地最近修改者要随冲突返回");
+        assert!(c.remote_change.is_some(), "远端最近修改者要随冲突返回");
         assert_eq!(out.pulled, 0);
         assert_eq!(out.pushed, 0);
         assert_eq!(
@@ -809,6 +882,88 @@ mod tests {
         assert_eq!(read(&b, "甲.md"), None, "接受删除后文件要真的没了");
         let repo = git2::Repository::open(&b).unwrap();
         assert_eq!(repo.state(), git2::RepositoryState::Clean);
+    }
+
+    /// 同一篇里相距足够远的段落由两边分别修改，Git 应当直接三方合并，
+    /// 不把本来无需人决定的内容送进冲突面板。
+    #[test]
+    fn different_paragraphs_in_one_note_merge_automatically() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        let original = "第一段\n\n中间一\n\n中间二\n\n最后一段\n";
+        std::fs::write(a.join("甲.md"), original).unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::write(
+            a.join("甲.md"),
+            original.replace("第一段", "A 修改第一段"),
+        )
+        .unwrap();
+        sync(&a, None).unwrap();
+        std::fs::write(
+            b.join("甲.md"),
+            original.replace("最后一段", "B 修改最后一段"),
+        )
+        .unwrap();
+        let out = sync(&b, None).unwrap();
+        assert!(out.conflicts.is_empty(), "不重叠段落不该询问：{out:?}");
+        let merged = read(&b, "甲.md").unwrap();
+        assert!(merged.contains("A 修改第一段"), "远端段落不能丢：{merged}");
+        assert!(merged.contains("B 修改最后一段"), "本地段落不能丢：{merged}");
+    }
+
+    /// 一边改名、另一边继续编辑旧路径时，rename 检测应把修改重放到新路径；
+    /// 若 libgit2 无法识别则必须报冲突，绝不能静默丢掉正文。
+    #[test]
+    fn rename_on_one_side_keeps_the_other_sides_edit() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        std::fs::write(a.join("旧名.md"), "共同正文\n").unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::rename(a.join("旧名.md"), a.join("新名.md")).unwrap();
+        sync(&a, None).unwrap();
+        std::fs::write(b.join("旧名.md"), "共同正文\nB 补充\n").unwrap();
+        let out = sync(&b, None).unwrap();
+        if out.conflicts.is_empty() {
+            assert_eq!(read(&b, "旧名.md"), None, "旧路径不应留下分叉副本");
+            let moved = read(&b, "新名.md").expect("改名后的路径必须存在");
+            assert!(moved.contains("B 补充"), "另一边的修改必须跟着移动：{moved}");
+        } else {
+            assert!(
+                out.conflicts.iter().any(|c| c.local.as_deref().unwrap_or("").contains("B 补充")),
+                "无法自动识别时也必须把修改交给冲突界面：{:?}",
+                out.conflicts
+            );
+        }
+    }
+
+    #[test]
+    fn adjacent_frontmatter_changes_report_the_common_version() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        let original = "---\n状态: 草稿\n评分: 1\n---\n正文\n";
+        std::fs::write(a.join("数据.md"), original).unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::write(a.join("数据.md"), original.replace("状态: 草稿", "状态: 完成"))
+            .unwrap();
+        sync(&a, None).unwrap();
+        std::fs::write(b.join("数据.md"), original.replace("评分: 1", "评分: 5")).unwrap();
+        let out = sync(&b, None).unwrap();
+        if let Some(conflict) = out.conflicts.first() {
+            assert_eq!(conflict.base.as_deref(), Some(original));
+        } else {
+            let merged = read(&b, "数据.md").unwrap();
+            assert!(merged.contains("状态: 完成"));
+            assert!(merged.contains("评分: 5"));
+        }
     }
 
     /// 同步完再按一次不该做任何事 —— 状态栏会因此一直显示「有改动」

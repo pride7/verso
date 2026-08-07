@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { DiffHunk, DiffLine } from "../types";
-import { mergeChoices } from "./conflictMerge";
+import {
+  analyzeMarkdownConflict,
+  composeMarkdownConflict,
+  mergeChoices,
+} from "./conflictMerge";
 
 /** 按 git 的口径手搓一行 */
 const ctx = (text: string, o: number, n: number): DiffLine => ({
@@ -84,5 +88,50 @@ describe("mergeChoices", () => {
   it("文件末尾的换行原样保留", () => {
     const hunks = [hunk(1, 1, 1, 1, [del("a", 1), add("A", 1)])];
     expect(mergeChoices("a\nb\n", hunks, ["remote"])).toBe("A\nb\n");
+  });
+
+  it("两边都保留时不复制上下文，只把两份改动并列", () => {
+    const hunks = [
+      hunk(1, 3, 1, 3, [ctx("a", 1, 1), del("本地", 2), add("远端", 2), ctx("c", 3, 3)]),
+    ];
+    expect(mergeChoices("a\n本地\nc", hunks, ["both"])).toBe("a\n本地\n远端\nc");
+  });
+});
+
+describe("frontmatter semantic merge", () => {
+  const base = `---\n状态: 草稿\n评分: 1\ntags:\n  - 基础\n---\n正文\n`;
+
+  it("不同属性由两边修改时自动合并", () => {
+    const local = base.replace("状态: 草稿", "状态: 完成");
+    const remote = base.replace("评分: 1", "评分: 5");
+    const analysis = analyzeMarkdownConflict(base, local, remote)!;
+    expect(analysis.conflicts).toEqual([]);
+    expect(composeMarkdownConflict(analysis, {}, analysis.localBody)).toBe(
+      `---\n状态: 完成\n评分: 5\ntags:\n  - 基础\n---\n正文\n`,
+    );
+  });
+
+  it("同一属性两边修改才要求选择", () => {
+    const local = base.replace("状态: 草稿", "状态: 本地完成");
+    const remote = base.replace("状态: 草稿", "状态: 远端完成");
+    const analysis = analyzeMarkdownConflict(base, local, remote)!;
+    expect(analysis.conflicts.map((c) => c.key)).toEqual(["状态"]);
+    expect(composeMarkdownConflict(analysis, { 状态: "remote" }, analysis.localBody)).toContain(
+      "状态: 远端完成",
+    );
+  });
+
+  it("同一属性可两边都保留，生成可见且不重名的新属性", () => {
+    const local = base.replace("状态: 草稿", "状态: 本地完成");
+    const remote = base.replace("状态: 草稿", "状态: 远端完成");
+    const analysis = analyzeMarkdownConflict(base, local, remote)!;
+    const merged = composeMarkdownConflict(analysis, { 状态: "both" }, analysis.localBody);
+    expect(merged).toContain("状态: 本地完成");
+    expect(merged).toContain("状态（远端）: 远端完成");
+  });
+
+  it("复杂或损坏的 YAML 不猜，退回普通文本冲突", () => {
+    const broken = "---\n# 顶部注释\n状态: 草稿\n---\n正文";
+    expect(analyzeMarkdownConflict(broken, broken, broken)).toBeNull();
   });
 });
