@@ -56,6 +56,7 @@ function mountSettings(
         download: () => {},
         install: () => {},
         dismiss: () => {},
+    openReleases: () => {},
       }}
       initialTab={tab}
       {...extra}

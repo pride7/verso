@@ -244,6 +244,78 @@ export default function App() {
       /* 桌面老版本：当作不是手机 */
     }
   }, []);
+  /**
+   * 指针是手指还是鼠标。**又是和「窄屏」不同的第三件事**：
+   *
+   * - `narrow` 跟视口走 —— 决定布局（抽屉 / 底部导航）
+   * - `mobile` 跟平台走 —— 决定能力（有没有终端、有没有目录选择器）
+   * - 这一条跟**指针**走 —— 决定尺寸（点击目标要多大）
+   *
+   * 三者经常同时为真，但把桌面窗口拖窄的人仍然握着鼠标，不该被撑成
+   * 44px 的行距；触屏笔记本反过来，屏幕很宽却需要大目标。
+   *
+   * 结果挂成 `<html data-touch>`，尺寸令牌 `--tap` / `--tap-sm` 跟着它变
+   * （见 styles.css）。**不直接用 `@media (hover: none)`** —— 那一套在
+   * headless Chromium 里永远不生效，等于移动端的尺寸没法在测试里量。
+   */
+  const coarsePointer = useMedia("(hover: none)");
+  /**
+   * 只在**自己打开过**的时候才关掉它。
+   *
+   * `mobile` 要等一次 IPC 才有值，第一帧一定是 false —— 无脑 `delete` 会
+   * 在启动的头几十毫秒里把标志抹掉一次。而编辑器恰好在那段窗口里挂载，
+   * 它读这个标志决定要不要抢焦点（见 Editor.tsx），于是手机上每开一篇
+   * 笔记键盘还是会弹一下。入口处（main.tsx）已按指针能力同步设过一次，
+   * 这里不该覆盖它。
+   */
+  const touchOwned = useRef(false);
+  useEffect(() => {
+    if (coarsePointer || mobile) {
+      document.documentElement.dataset.touch = "on";
+      touchOwned.current = true;
+    } else if (touchOwned.current) {
+      delete document.documentElement.dataset.touch;
+      touchOwned.current = false;
+    }
+  }, [coarsePointer, mobile]);
+
+  /**
+   * 焦点在正文里吗 —— 公式工具条只在这时候才占那 76px（§5.5）。
+   *
+   * 之前它跟着「有没有打开的笔记」走，于是**读一篇笔记也要白让出一条**：
+   * 390×844 的屏上是一屏的 9%，而读的时候那些键一个都用不上。
+   *
+   * 不去猜键盘的高度（`visualViewport` 在安卓 WebView 上时有时无），只认
+   * 焦点。工具条自己也算「在编辑」，是因为它的键按下时会 `preventDefault`
+   * 把焦点留在编辑器，但分页标签不会 —— 切一下页不该让整条栏消失。
+   *
+   * `focusout` 早于新焦点落位，那一瞬 `activeElement` 是 body；隔一帧再读，
+   * 否则每次在编辑器内部换焦点都会闪一下。
+   */
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!narrow) {
+      setEditing(false);
+      return;
+    }
+    let frame = 0;
+    const check = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const el = document.activeElement;
+        setEditing(!!el?.closest?.(".cm-editor, .mathbar"));
+      });
+    };
+    check();
+    window.addEventListener("focusin", check);
+    window.addEventListener("focusout", check);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("focusin", check);
+      window.removeEventListener("focusout", check);
+    };
+  }, [narrow]);
+
   /** 排序菜单开着没有。做成菜单而不是原生 select —— 后者在头部占一大截宽度 */
   const [sortMenu, setSortMenu] = useState(false);
   // 侧栏宽度。和终端高度一样记在 localStorage：调好一次就别再调第二次
@@ -441,7 +513,12 @@ export default function App() {
 
   const refreshRecentVaults = useCallback(async () => {
     try {
-      setRecentVaults(await api.recentVaults());
+      // **手机上列的是容器目录里现有的仓库，不是「打开过的」**（§2.1）：
+      // 那边没有目录选择器，一个只记得「你开过谁」的列表，在新装的机器上
+      // 永远是空的 —— 而磁盘上明明有仓库
+      setRecentVaults(
+        mobileRef.current ? await api.localVaults() : await api.recentVaults(),
+      );
     } catch {
       // 老后端没有这条命令时继续沿用单仓库界面；快捷入口不该让应用启动失败。
       setRecentVaults([]);
@@ -1823,7 +1900,7 @@ export default function App() {
     if (switchingVault) return;
     setVaultError(null);
     try {
-      // 手机上没有目录选择器，也没有多仓库管理：位置仍由 Rust 挑。
+      // 手机上没有目录选择器：位置由 Rust 在容器里挑（§1.2 b0）
       if (mobileRef.current) {
         setSwitchingVault("__default__");
         const info = await api.openDefaultVault();
@@ -1840,6 +1917,34 @@ export default function App() {
       setSwitchingVault(null);
     }
   }, [switchingVault, activateVault, switchToVault]);
+
+  /**
+   * 手机上「新建仓库」。桌面那条路是选一个目录，这边只能给个名字 ——
+   * 目录由 Rust 建在容器里（§2.1）。
+   */
+  const createLocalVault = useCallback(
+    async (name: string) => {
+      if (switchingVault) return;
+      setVaultError(null);
+      setSwitchingVault("__new__");
+      try {
+        // 新建之前先把手里的东西落盘：这一步之后当前仓库就被换掉了
+        if (!(await prepareVaultSwitch())) {
+          setVaultError("当前仓库未能完成保存，已取消新建。");
+          return;
+        }
+        const info = await api.createLocalVault(name);
+        await activateVault(info, null);
+      } catch (e) {
+        const message = (e as Error).message;
+        setError(message);
+        setVaultError(message);
+      } finally {
+        setSwitchingVault(null);
+      }
+    },
+    [switchingVault, prepareVaultSwitch, activateVault],
+  );
 
   const joinVault = useCallback(
     async (input: JoinVaultInput) => {
@@ -2898,6 +3003,25 @@ export default function App() {
     outline: "大纲",
   };
 
+  /**
+   * 公式工具条现在该不该在（§5.5）。
+   *
+   * 窄屏、打开着一篇笔记、而且**正在打字** —— 前两条是「有没有编辑对象」，
+   * 第三条是「这一条现在有没有用」。
+   *
+   * 另外三个视图（导图 / 项目 / 差异）和终端各自占着正文区，那时没有
+   * 编辑器可插入。
+   */
+  const mathBarOn =
+    narrow &&
+    editing &&
+    !!note &&
+    !diffSelection &&
+    !termOpen &&
+    !mindmapOpen &&
+    !projectOpen &&
+    !projectCenterOpen;
+
   return (
     <div
       className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}${
@@ -2912,6 +3036,7 @@ export default function App() {
         onView={pickView}
         keyOf={keyOf}
         sidebarOpen={sidebarOpen}
+        layout={narrow ? "bottom" : "rail"}
         activityUnread={collaborationUnread}
         sourceMode={sourceMode}
         onToggleSourceMode={toggleSourceMode}
@@ -3070,28 +3195,24 @@ export default function App() {
 
           {/* 当前在哪个库 —— 常驻底部，点它换库。和 Obsidian 一个位置 */}
           <footer className="sidebar-foot">
-            {mobile ? (
-              <div className="vault-name is-static" title={vault.root}>
-                <Icon name="vault" size={14} />
-                <span>{vault.name}</span>
-              </div>
-            ) : (
-              <VaultSwitcher
-                vaults={recentVaults}
-                current={vault}
-                switching={switchingVault}
-                onSwitch={(path) => void switchToVault(path)}
-                onOpenFolder={() => void openVault()}
-                onJoin={() => {
-                  setJoinError(null);
-                  setJoinOpen(true);
-                }}
-                onManage={() => {
-                  setVaultError(null);
-                  setVaultManagerOpen(true);
-                }}
-              />
-            )}
+            <VaultSwitcher
+              vaults={recentVaults}
+              current={vault}
+              switching={switchingVault}
+              onSwitch={(path) => void switchToVault(path)}
+              onOpenFolder={() => void openVault()}
+              onJoin={() => {
+                setJoinError(null);
+                setJoinOpen(true);
+              }}
+              onManage={() => {
+                setVaultError(null);
+                setVaultManagerOpen(true);
+              }}
+              // 手机上换成「起个名字新建」：那边没有目录选择器，也没有
+              // 「管理仓库」（删仓库要能选到任意目录，容器模型下不成立）
+              onCreate={mobile ? (name) => void createLocalVault(name) : undefined}
+            />
           </footer>
 
           {/* 拖右边缘调宽度。双击回默认 */}
@@ -3288,10 +3409,8 @@ export default function App() {
         />
       )}
 
-      {/* §5.5 公式工具条。只在窄屏、且真的打开了一篇笔记时出现 ——
-          它占的是软键盘上方那一条，没有编辑对象时那一条不该存在。
-          终端开着时也不显示：两个都想占底部，而在手机上根本没有终端 */}
-      {narrow && note && !diffSelection && !termOpen && !mindmapOpen && !projectOpen && !projectCenterOpen && (
+      {/* §5.5 公式工具条。条件见上面 `mathBarOn` */}
+      {mathBarOn && (
         <MathBar
           onInsert={(replacement) => editorRef.current?.insertSnippet(replacement)}
           onNext={() => editorRef.current?.nextStop()}
@@ -3357,6 +3476,7 @@ export default function App() {
           </button>
         )}
         {(updater.state.phase === "found" ||
+          updater.state.phase === "manual" ||
           updater.state.phase === "downloading" ||
           updater.state.phase === "ready") && (
           // 有新版本时才出现（§2.11）。**不弹窗、不打断** —— 更新这件事

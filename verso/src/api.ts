@@ -31,6 +31,7 @@ import type {
   PropSchema,
   ViewResult,
 } from "./types";
+import type { LatestRelease } from "./lib/update";
 import type { Settings } from "./settings";
 import type { TabState } from "./lib/tabs";
 
@@ -271,6 +272,22 @@ export const api = {
   openDefaultVault: () => call<VaultInfo>("vault_open_default"),
   /** 这是不是手机。欢迎页据此决定那个按钮该干什么 */
   isMobile: () => call<boolean>("platform_is_mobile"),
+
+  /**
+   * 手机上能切换的仓库（§2.1）。**和 `recentVaults` 不是一回事**：那边是
+   * 「打开过的」，这边是「容器目录里现有的」—— 手机上没有目录选择器，
+   * 列表只能来自磁盘事实。桌面返回空数组。
+   */
+  localVaults: () => call<RecentVault[]>("vault_list_local"),
+  /** 在容器里新建一个仓库并打开。手机上唯一的「新建仓库」入口 */
+  createLocalVault: (name: string) => call<VaultInfo>("vault_create_local", { name }),
+
+  /**
+   * 最新发布是哪一版。**只查不装**（§2.11）——
+   * 桌面走 updater 插件那条完整的路，这条是给移动端的：那边插件根本没编
+   * 进来，但「有没有新版本」只需要一个 HTTPS GET
+   */
+  latestRelease: () => call<LatestRelease>("update_latest_release"),
 
   /** 收尾做完了，可以真的关窗了。见 `onAppClosing` */
   closeNow: () => call<null>("close_now"),

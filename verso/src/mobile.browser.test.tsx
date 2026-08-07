@@ -34,9 +34,24 @@ const doc = (name: string, path: string): TreeNode => ({
 /** 平台能力开关（目录选择器、终端…）。视口归 page.viewport 管，这个归它管 */
 let mobileFlag = false;
 
+/** 容器目录里现有的仓库（§2.1）。手机上的列表来自磁盘，不是「打开过的」 */
+let LOCAL_VAULTS: { root: string; name: string; available: boolean; shared: boolean }[] = [
+  { root: "/storage/emulated/0/Verso/默认", name: "默认", available: true, shared: false },
+  { root: "/storage/emulated/0/Verso/工作", name: "工作", available: true, shared: false },
+];
+
 vi.mock("./api", () => ({
   api: {
     isMobile: async () => mobileFlag,
+    localVaults: async () => LOCAL_VAULTS,
+    createLocalVault: async (name: string) => ({
+      root: `/storage/emulated/0/Verso/${name}`,
+      name,
+      createdRepo: true,
+      createdGitignore: true,
+      renamedBranch: false,
+    }),
+    recentVaults: async () => LOCAL_VAULTS,
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
@@ -132,6 +147,10 @@ async function mount() {
 beforeEach(async () => {
   localStorage.clear();
   mobileFlag = false;
+  // headless Chromium 报的是 `hover: hover`，尺寸令牌那一套在这里不会自己
+  // 生效。真机上由 main.tsx 按指针能力**同步**打上（编辑器第一帧就要读它
+  // 决定抢不抢焦点），这里补一份，否则量到的是「桌面尺寸的手机」
+  document.documentElement.dataset.touch = "on";
   await page.viewport(PHONE.w, PHONE.h);
 });
 
@@ -139,11 +158,31 @@ afterEach(async () => {
   root?.unmount();
   root = null;
   document.body.innerHTML = "";
+  delete document.documentElement.dataset.touch;
   // 视口是整个浏览器实例共享的，不还原会污染同一次运行里后跑的文件
   await page.viewport(1440, 900);
 });
 
 const box = (sel: string) => document.querySelector(sel)?.getBoundingClientRect();
+
+/**
+ * 打开底部导航的「更多」面板，并点里面某一项。
+ *
+ * 窄屏上动作组不在条上（一行排不下），传 `"更多"` 就是只把面板打开不点。
+ */
+async function openAction(label: string) {
+  await act(async () => {
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+    await settle(200);
+  });
+  if (label === "更多") return;
+  await act(async () => {
+    [...document.querySelectorAll<HTMLElement>(".rail-sheet-item")]
+      .find((b) => b.getAttribute("aria-label") === label)!
+      .click();
+    await settle(300);
+  });
+}
 
 describe("手机竖屏下的布局", () => {
   it("看一眼：抽屉开着 / 关着", async () => {
@@ -177,12 +216,16 @@ describe("手机竖屏下的布局", () => {
    * 零高的隐式网格区域，抽屉整个掉到视口下面去了 —— DOM 里在、类名对、
    * position 和 z-index 全对，只有量高度才看得出来。
    */
-  it("抽屉铺满整屏高，里面的行点得到", async () => {
+  it("抽屉从顶上铺到底部导航，里面的行点得到", async () => {
     await mount();
-    const app = box(".app")!;
     const side = box(".sidebar")!;
-    expect(side.height).toBeGreaterThan(app.height * 0.9);
-    expect(side.top).toBeLessThan(app.top + 2);
+    const rail = box(".rail")!;
+    // 顶到头
+    expect(side.top).toBeLessThan(2);
+    // 停在底部导航的上沿：铺过去的话，抽屉会压着那排图标
+    expect(side.bottom).toBeLessThanOrEqual(rail.top + 1);
+    // 但也不能只剩一小截 —— 高度是「量出来」的那类 bug 的唯一现形处
+    expect(side.height).toBeGreaterThan(PHONE.h * 0.8);
 
     // 而且里面的行要真的在屏幕上、点得到
     const label = document.querySelector<HTMLElement>(".tree-label")!;
@@ -215,14 +258,82 @@ describe("手机竖屏下的布局", () => {
    * 遮罩盖住图标栏时，那一竖排图标**看得见、点下去却只是关掉抽屉**，
    * 截图上一模一样，只有命中测试能发现。
    */
-  it("抽屉开着的时候，图标栏照样点得到", async () => {
+  it("抽屉开着的时候，底部导航照样点得到", async () => {
     await mount();
     expect(document.querySelector(".sidebar-scrim")).toBeTruthy();
 
     const btn = document.querySelector<HTMLElement>('.rail-btn[aria-label="搜索"]')!;
     const r = btn.getBoundingClientRect();
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    expect(hit?.closest(".rail-btn"), "点到的是遮罩，不是图标栏").toBe(btn);
+    expect(hit?.closest(".rail-btn"), "点到的是遮罩，不是导航").toBe(btn);
+  });
+
+  /**
+   * §6.3「移动 单栏 + 抽屉：编辑区占满……底部工具条固定」。
+   *
+   * 竖排在手机上要付两笔账：横向白白扣掉 44px，而且整条落在屏幕左上角 ——
+   * 单手握持时最够不到的地方。这里量的就是这两笔真的省下来了。
+   */
+  it("图标栏横在底部，正文用满整屏宽", async () => {
+    await mount();
+    const rail = box(".rail")!;
+    const main = box(".main")!;
+
+    // 横排：宽度铺满，高度只有一条
+    expect(rail.width).toBeGreaterThan(PHONE.w * 0.9);
+    expect(rail.height).toBeLessThan(70);
+    // 落在下半屏，拇指够得到
+    expect(rail.top).toBeGreaterThan(PHONE.h * 0.7);
+    // 正文不再被左边那一列切掉
+    expect(main.left).toBeLessThan(1);
+    expect(main.width).toBeGreaterThan(PHONE.w - 1);
+  });
+
+  /** 手指的接触面直径约 44px。图标小于这个数就是「看得见点不中」 */
+  it("导航上每个图标都够一根手指", async () => {
+    await mount();
+    for (const btn of document.querySelectorAll<HTMLElement>(".rail-btn")) {
+      const r = btn.getBoundingClientRect();
+      expect(r.height, `${btn.getAttribute("aria-label")} 太矮`).toBeGreaterThanOrEqual(44);
+      expect(r.width, `${btn.getAttribute("aria-label")} 太窄`).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  /**
+   * 一行排不下十二个图标，动作组收进 `⋯`。要验的是**一个都没丢** ——
+   * 收起来和删掉在截图上分不出，而少掉的那个可能是「设置」。
+   */
+  it("动作组收进「更多」，一个都没少", async () => {
+    await mount();
+    // 条上只剩视图，动作不在
+    expect(document.querySelector('.rail-btn[aria-label="设置"]')).toBeNull();
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+      await settle(200);
+    });
+    const items = [...document.querySelectorAll(".rail-sheet-item")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    // 桌面窄窗口上终端还在；手机上它整个不渲染（另有一条测试盯着）
+    expect(items).toEqual(["源码模式", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
+
+    // 面板里的行同样要够一根手指
+    for (const item of document.querySelectorAll<HTMLElement>(".rail-sheet-item")) {
+      expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+  });
+
+  it("「更多」面板不会伸出屏幕", async () => {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+      await settle(200);
+    });
+    const sheet = box(".rail-sheet")!;
+    expect(sheet.left).toBeGreaterThanOrEqual(0);
+    expect(sheet.right).toBeLessThanOrEqual(PHONE.w);
+    expect(sheet.top).toBeGreaterThanOrEqual(0);
   });
 
   /** 抽屉再宽也得留一条正文出来 —— 那是关掉它最直接的入口 */
@@ -272,10 +383,7 @@ describe("手机竖屏下的布局", () => {
 
   it("设置面板在窄屏改成横向分类，设置项上下排列", async () => {
     await mount();
-    await act(async () => {
-      document.querySelector<HTMLElement>('.rail-btn[aria-label="设置"]')!.click();
-      await settle(300);
-    });
+    await openAction("设置");
 
     const modal = box(".settings")!;
     const tabs = box(".settings-tabs")!;
@@ -322,11 +430,22 @@ describe("公式工具条", () => {
     el.click();
   }
 
+  /**
+   * 打开一篇笔记**并且点进正文**。
+   *
+   * 后半步不能省：工具条只在焦点落在正文里时才出现（读一篇笔记不该白让出
+   * 一条），而触摸设备上打开笔记不再自动抢焦点 —— 真人这时候也得先点一下
+   * 才开始打字。
+   */
   async function openNote() {
     await mount();
     await act(async () => {
       document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
       await settle(300);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.focus();
+      await settle(200);
     });
   }
 
@@ -341,6 +460,31 @@ describe("公式工具条", () => {
       await settle(700);
     });
     await page.screenshot({ path: "__shots__/23-phone-mathbar-variants.png" });
+  });
+
+  /**
+   * **读一篇笔记时那一条不该在。**
+   *
+   * 它占 76px，390×844 的屏上是一屏的 9%；而读的时候上面那些键一个都用不
+   * 上。之前的条件只有「窄屏 + 有打开的笔记」，于是从头到尾都占着。
+   */
+  it("只在点进正文之后才出现，光读不占那 76px", async () => {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(300);
+    });
+    expect(bar(), "还没开始打字就先让出一条").toBeNull();
+
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.focus();
+      await settle(200);
+    });
+    expect(bar(), "点进正文之后它得上来").toBeTruthy();
+
+    // 而且要贴在最底下 —— 真机上那条边紧挨着软键盘的上沿（§5.5）
+    const rect = box(".mathbar")!;
+    expect(rect.bottom).toBeGreaterThanOrEqual(box(".status")!.bottom - 0.5);
   });
 
   it("窄屏、且打开了笔记时才出现", async () => {
@@ -502,14 +646,16 @@ describe("移动端没有终端", () => {
     localStorage.setItem("verso.termOpen", "1");
     await mount();
 
+    await openAction("更多");
     expect(document.querySelector('[aria-label="终端"]')).toBeNull();
     expect(document.querySelector(".term")).toBeNull();
     // 只是这次不生效，不把桌面的偏好覆盖掉
     expect(localStorage.getItem("verso.termOpen")).toBe("1");
   });
 
-  it("桌面照旧有终端按钮", async () => {
+  it("不是手机时终端按钮还在", async () => {
     await mount();
+    await openAction("更多");
     expect(document.querySelector('[aria-label="终端"]')).not.toBeNull();
   });
 });
@@ -531,10 +677,7 @@ describe("手机上的思维导图", () => {
       document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
       await settle(200);
     });
-    await act(async () => {
-      document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')!.click();
-      await settle(300);
-    });
+    await openAction("思维导图");
   }
 
   it("工具条没被标题和提示挤出屏幕", async () => {
@@ -600,5 +743,255 @@ describe("手机上的思维导图", () => {
       await settle(80);
     });
     expect(layer.style.transform).not.toBe(before);
+  });
+});
+
+
+/**
+ * 点击目标的尺寸。DESIGN.md §1.2 铁律 2「不能假设有鼠标」。
+ *
+ * **一条一条量，不查类名。** 尺寸是最容易在改别的东西时被顺手改小的一类
+ * 属性，而小了不报错 —— 只是手指点十次中七次，用的人说不清哪里不对，只
+ * 觉得"这软件在手机上不好使"。
+ *
+ * 44px 是手指接触面的直径（Apple HIG 与 Material 取的同一个数）。嵌在行里
+ * 的次要图标按 32 算：它们挤在已有的一行里，撑到 44 会把那一行整个顶开。
+ */
+describe("手机上的点击目标", () => {
+  const FINGER = 44;
+  /**
+   * 行内的次要图标：够到 32 就行，撑到 44 会把所在的那一行整个顶开。
+   *
+   * 按**祖先**判定，不只看元素自己的 class —— 分段控件里的按钮身上只有
+   * `is-on`，类名在外面那层 `.segmented` 上。
+   */
+  const SECONDARY =
+    ".tab-close, .tab-new, .tree-add, .crumb-icon, .props-toggle," +
+    " .side-act, .status-git, .backlinks-head, .mathbar-pages, .hist-restore," +
+    " .dbview-edit, .modal-close, .set-reset, .set-reset-all, .segmented, .swatches," +
+    " [class^='cm-'], [class*=' cm-']";
+
+  /**
+   * 形状不是方的那几个，逐个写明白 —— 用一条正则糊成「次要图标」会把
+   * 「为什么可以这么窄」这件事一起糊掉。
+   *
+   * 折叠三角：**横向每一像素都要乘以树的层数**（每层都跟着往右让），所以
+   * 收到 22；纵向铺满 44px 的行高补回来。一个 22×44 的条形命中区面积和
+   * 32×32 相当，而且手指在树里是竖着扫的，纵向的余量更有用。
+   */
+  const SHAPES: [string, number, number][] = [[".tree-twisty", 22, 44]];
+
+  /**
+   * **量的是命中区，不是盒子。**
+   *
+   * `getBoundingClientRect()` 只给边框盒 —— 主题色那排圆点用一个透明的
+   * `::after` 往外扩了命中区（圆本身必须保持 22px，否则一排颜色高低不齐），
+   * 边框盒还是 22，量出来是假阴性。反过来，一个盒子够大但被别的东西盖住，
+   * 量尺寸同样看不出来。
+   *
+   * 所以真的去点：以元素中心为心画一个 min×min 的方框，四个角都要落回这个
+   * 元素身上。
+   */
+  const at = (el: HTMLElement, x: number, y: number) => {
+    if (x < 0 || y < 0 || x > PHONE.w || y > PHONE.h) return false;
+    const hit = document.elementFromPoint(x, y);
+    return !!hit && (hit === el || el.contains(hit) || hit.contains(el));
+  };
+
+  function probe(el: HTMLElement, w: number, h: number) {
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    // 中心都点不到 = 这会儿它被浮层盖着（抽屉、命令面板…），本来就不该点得到，
+    // 不在这一轮的范围里。不先过这一关的话，开着弹窗时满屏元素全会被误报
+    if (!at(el, cx, cy)) return "covered";
+    // 横向滚动条里滚出去了一半的东西（设置的分类栏、标签条）：那不是尺寸
+    // 问题，滑一下就整个露出来。按现在露出来的这一截去量只会误报
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const ov = getComputedStyle(p).overflowX;
+      if (ov !== "auto" && ov !== "scroll") continue;
+      const pr = p.getBoundingClientRect();
+      if (r.left < pr.left - 0.5 || r.right > pr.right + 0.5) return "clipped";
+      break;
+    }
+    const dx = w / 2 - 1;
+    const dy = h / 2 - 1;
+    const ok =
+      at(el, cx - dx, cy - dy) && at(el, cx + dx, cy - dy) &&
+      at(el, cx - dx, cy + dy) && at(el, cx + dx, cy + dy);
+    return ok ? "ok" : "small";
+  }
+
+  /** 屏幕上现在点得着的东西，够不着的挑出来 */
+  function tooSmall() {
+    const bad: string[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>("button, [role=button], a")) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const shape = SHAPES.find(([sel]) => el.closest(sel));
+      const [w, h] = shape
+        ? [shape[1], shape[2]]
+        : el.closest(SECONDARY)
+          ? [32, 32]
+          : [FINGER, FINGER];
+      if (probe(el, w, h) !== "small") continue;
+      bad.push(
+        `${Math.round(r.width)}x${Math.round(r.height)} (要 ${w}x${h}) ` +
+          `${el.className} ${el.getAttribute("aria-label") ?? el.textContent?.slice(0, 10) ?? ""}`,
+      );
+    }
+    return bad;
+  }
+
+  it("抽屉里的每一行都够得着", async () => {
+    await mount();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("正文那一屏上的每个入口都够得着", async () => {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(300);
+    });
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("右键菜单的每一条都够得着 —— 它是手指唯一拿得到全部动作的地方", async () => {
+    await mount();
+    const row = document.querySelectorAll<HTMLElement>(".tree-row")[0];
+    const r = row.getBoundingClientRect();
+    await act(async () => {
+      row.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: r.left + 40,
+          clientY: r.top + 8,
+        }),
+      );
+      await settle(200);
+    });
+    expect(document.querySelector(".ctx"), "菜单没弹出来，这条就白测了").toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("命令面板的每一条都够得着", async () => {
+    await mount();
+    await openAction("命令面板");
+    expect(document.querySelector(".palette")).toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("设置面板里的每个控件都够得着", async () => {
+    await mount();
+    await openAction("设置");
+    expect(document.querySelector(".settings")).toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  /**
+   * **只在窄屏出现的东西要自带尺寸。**
+   *
+   * `--tap` 跟的是指针，而窄屏跟的是视口 —— 把桌面窗口拖窄的人有鼠标，
+   * 令牌是 0，于是「更多」面板的行高塌成 17px。作者第一眼看到的就是这个。
+   */
+  it("窄窗口 + 鼠标：「更多」面板不会塌成一条缝", async () => {
+    delete document.documentElement.dataset.touch;
+    await mount();
+    await openAction("更多");
+    for (const item of document.querySelectorAll<HTMLElement>(".rail-sheet-item")) {
+      expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(34);
+    }
+  });
+
+  /** 桌面上不该被撑开 —— 鼠标指针只有一个像素，44px 的行距只会让信息密度掉一半 */
+  it("桌面（有鼠标）不受影响：行距还是原来的", async () => {
+    delete document.documentElement.dataset.touch;
+    await act(async () => {
+      await page.viewport(1440, 900);
+    });
+    await mount();
+    const row = box(".tree-row")!;
+    expect(row.height).toBeLessThan(34);
+  });
+});
+
+
+/**
+ * 手机上的多仓库切换（§2.1）。
+ *
+ * 手机上没有目录选择器，所以仓库统一放在一个容器目录里、每个子文件夹一个。
+ * 这里验的是**界面这一半**：列表来自磁盘、切得动、能起名新建。容器的迁移、
+ * 「什么算一个仓库」那些规则在 Rust 侧 `mobile_vaults.rs` 里穷举过了。
+ */
+describe("手机上的仓库切换", () => {
+  const openMenu = async () => {
+    await act(async () => {
+      document.querySelector<HTMLElement>(".vault-name")!.click();
+      await settle(200);
+    });
+  };
+
+  it("底部显示当前仓库，点开能看到容器里的全部仓库", async () => {
+    mobileFlag = true;
+    await mount();
+    // 之前手机上这里是一块点不动的静态文字
+    const trigger = document.querySelector<HTMLElement>("button.vault-name");
+    expect(trigger, "手机上仓库名要能点开").toBeTruthy();
+
+    await openMenu();
+    const names = [...document.querySelectorAll(".vault-menu-item")].map((b) =>
+      b.querySelector("strong")?.textContent,
+    );
+    expect(names).toEqual(["默认", "工作"]);
+  });
+
+  /**
+   * 桌面那三条在容器模型下都不成立：「打开其他文件夹」和「管理空间」都要
+   * 一个目录选择器，而手机上没有 —— 留着就是三个按下去没反应的按钮。
+   */
+  it("手机上不出现要选目录的那几项，换成「新建仓库」", async () => {
+    mobileFlag = true;
+    await mount();
+    await openMenu();
+    const actions = [...document.querySelectorAll(".vault-menu-action")].map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(actions).toEqual(["新建仓库…"]);
+  });
+
+  /**
+   * **就地输入，不用 `window.prompt`。** 安卓 WebView 上它可能根本不弹，
+   * 那时「新建仓库」就是个按下去没反应的按钮（M6 清单里那一条）。
+   */
+  it("新建仓库是就地输入，不弹系统对话框", async () => {
+    mobileFlag = true;
+    const prompt = vi.spyOn(window, "prompt");
+    await mount();
+    await openMenu();
+    await act(async () => {
+      [...document.querySelectorAll<HTMLElement>(".vault-menu-action")]
+        .find((b) => b.textContent?.includes("新建仓库"))!
+        .click();
+      await settle(200);
+    });
+    const input = document.querySelector<HTMLInputElement>(".vault-new-input");
+    expect(input, "该就地长出一个输入框").toBeTruthy();
+    expect(prompt).not.toHaveBeenCalled();
+    prompt.mockRestore();
+  });
+
+  it("桌面仍然是「打开其他文件夹」那一套", async () => {
+    mobileFlag = false;
+    await act(async () => {
+      await page.viewport(1440, 900);
+    });
+    await mount();
+    await openMenu();
+    const actions = [...document.querySelectorAll(".vault-menu-action")].map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(actions).toEqual(["管理空间…", "打开其他文件夹…", "加入共享空间…"]);
   });
 });

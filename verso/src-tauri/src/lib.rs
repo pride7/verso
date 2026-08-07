@@ -1,9 +1,11 @@
 mod error;
 mod index;
+mod mobile_vaults;
 mod pty;
 mod recent;
 mod settings;
 mod terminal;
+mod update_check;
 mod vault;
 mod watcher;
 mod winpath;
@@ -618,6 +620,11 @@ struct Reopened {
 /// 判断「能不能用」靠**真的写一个文件**：安卓上 `create_dir_all` 在没权限时
 /// 也可能返回 Ok，而目录建得出来、文件写不进去是最难查的一种坏法。
 #[cfg(mobile)]
+/// 手机上放仓库的**容器**目录，按优先级排。
+///
+/// 注意这几个路径本身**不再是仓库**（v0.7.21 起）—— 每个子目录才是一个
+/// 仓库，见 `mobile_vaults`。路径没跟着改名，是为了让老版本的笔记还留在
+/// 原地、由 `migrate_if_legacy` 就地迁走；换个新路径的话它们会凭空消失。
 fn vault_candidates(app: &AppHandle) -> Vec<PathBuf> {
     use tauri::Manager;
     let shared = std::env::var_os("EXTERNAL_STORAGE")
@@ -629,6 +636,74 @@ fn vault_candidates(app: &AppHandle) -> Vec<PathBuf> {
         list.push(private.join("vault"));
     }
     list
+}
+
+/// 现在用的是哪个容器。第一个建得出来的那个 —— 和 `open_default_vault`
+/// 挑容器的规则一致，否则「列出来的仓库」和「打开的仓库」会来自两个地方。
+#[cfg(mobile)]
+fn active_container(app: &AppHandle) -> Option<PathBuf> {
+    vault_candidates(app)
+        .into_iter()
+        .find(|dir| std::fs::create_dir_all(dir).is_ok())
+}
+
+/// 手机上能切换的仓库有哪些（§2.1）。桌面走 `recent`，那边是「打开过的」，
+/// 这边是「容器里现有的」—— 手机上没有目录选择器，列表必须来自磁盘事实。
+#[cfg(mobile)]
+#[tauri::command]
+fn vault_list_local(app: AppHandle) -> Result<Vec<recent::RecentVault>> {
+    let container =
+        active_container(&app).ok_or_else(|| Error::Vault("找不到可用的仓库目录".into()))?;
+    Ok(mobile_vaults::list(&container)
+        .into_iter()
+        .map(|path| {
+            let shared = vault::share::is_shared_space(&path);
+            recent::RecentVault {
+                name: path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                root: path.to_string_lossy().into_owned(),
+                available: true,
+                shared,
+            }
+        })
+        .collect())
+}
+
+#[cfg(not(mobile))]
+#[tauri::command]
+fn vault_list_local(_app: AppHandle) -> Result<Vec<recent::RecentVault>> {
+    // 桌面上仓库可以在任何地方，没有「容器」这回事
+    Ok(Vec::new())
+}
+
+/// 在容器里新建一个仓库并打开它。手机上这是唯一的「新建仓库」入口 ——
+/// 那边没有目录选择器。
+#[cfg(mobile)]
+#[tauri::command]
+fn vault_create_local(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<VaultInfo> {
+    let container =
+        active_container(&app).ok_or_else(|| Error::Vault("找不到可用的仓库目录".into()))?;
+    let dir = mobile_vaults::create(&container, &name)?;
+    let (v, info) = Vault::open_watched(dir, state.self_writes.clone())?;
+    recent::save_vault(&app, &info.root);
+    activate(&app, &state, v);
+    Ok(info)
+}
+
+#[cfg(not(mobile))]
+#[tauri::command]
+fn vault_create_local(
+    _app: AppHandle,
+    _state: State<'_, AppState>,
+    _name: String,
+) -> Result<VaultInfo> {
+    Err(Error::Vault("桌面上请自己选一个目录".into()))
 }
 
 /// 挨个试，**第一个真的能打开的那个**才算数。
@@ -646,7 +721,38 @@ fn open_default_vault(
     state: &AppState,
 ) -> std::result::Result<(Vault, VaultInfo), String> {
     let mut why = Vec::new();
-    for dir in vault_candidates(app) {
+    let last = recent::load(app).last_vault;
+    for container in vault_candidates(app) {
+        if let Err(e) = std::fs::create_dir_all(&container) {
+            eprintln!("[verso] 建不出目录 {}：{e}", container.display());
+            why.push(format!("{}：建不出目录（{e}）", container.display()));
+            continue;
+        }
+
+        // v0.7.21 之前容器本身就是仓库。**迁移失败不能继续往下走** ——
+        // 那时候笔记还在容器根上，硬开一个 `默认/` 会给用户一个空仓库，
+        // 而他的东西看起来就是没了
+        match mobile_vaults::migrate_if_legacy(&container) {
+            Ok(true) => {
+                // 一次搬走整个仓库不能不吭声
+                let _ = app.emit(
+                    "index:error",
+                    format!(
+                        "笔记已经移到 {}/{}。现在同一个文件夹下可以放多个仓库，在侧栏底部切换。",
+                        container.display(),
+                        mobile_vaults::DEFAULT_VAULT
+                    ),
+                );
+            }
+            Ok(false) => {}
+            Err(e) => {
+                eprintln!("[verso] 迁移失败 {}：{e}", container.display());
+                why.push(format!("{}：{e}", container.display()));
+                continue;
+            }
+        }
+
+        let dir = mobile_vaults::pick(&container, last.as_deref());
         if let Err(e) = std::fs::create_dir_all(&dir) {
             eprintln!("[verso] 建不出目录 {}：{e}", dir.display());
             why.push(format!("{}：建不出目录（{e}）", dir.display()));
@@ -735,6 +841,18 @@ fn vault_open_default(app: AppHandle, state: State<'_, AppState>) -> Result<Vaul
 #[tauri::command]
 fn platform_is_mobile() -> bool {
     cfg!(mobile)
+}
+
+/// 查最新版本。**只查不装**，见 `update_check` 模块头。
+///
+/// 桌面走 updater 插件（要验签名、下载、重启），这条路是给移动端的：那边
+/// 插件根本没编进来，但「现在有没有新版本」只需要一个 HTTPS GET。
+#[tauri::command]
+async fn update_latest_release() -> Result<update_check::LatestRelease> {
+    // ureq 是阻塞的，扔到线程池里，别把 async 运行时钉住
+    tauri::async_runtime::spawn_blocking(update_check::fetch_latest)
+        .await
+        .map_err(|e| Error::Vault(format!("检查更新没能完成：{e}")))?
 }
 
 #[tauri::command]
@@ -1501,7 +1619,10 @@ pub fn run() {
             vault_recent_forget,
             vault_reopen_last,
             vault_open_default,
+            vault_list_local,
+            vault_create_local,
             platform_is_mobile,
+            update_latest_release,
             tree_list,
             note_read,
             note_write,

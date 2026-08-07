@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { APP_VERSION, progressText, updatesSupported } from "./update";
+import { APP_VERSION, progressText, updateChecksSupported, updatesSupported } from "./update";
 
 describe("updatesSupported", () => {
   /**
@@ -41,5 +41,18 @@ describe("APP_VERSION", () => {
   // `scripts/version.mjs` 保证一致（另有 `tauriConfig.test.ts` 钉住）
   it("是个像样的版本号", () => {
     expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("updateChecksSupported", () => {
+  /**
+   * **和 `updatesSupported` 不是一回事**：移动端装不了、但查得了。
+   *
+   * 之前两件事共用一个判断，于是手机上「检查更新」按钮一直是灰的 ——
+   * 用户连「现在有没有新版本」都问不出来。这里也是 false，只因为 Node 下
+   * 连 Tauri 运行时都没有。
+   */
+  it("没有 Tauri 运行时时是 false", () => {
+    expect(updateChecksSupported()).toBe(false);
   });
 });

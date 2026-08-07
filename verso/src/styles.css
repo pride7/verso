@@ -168,6 +168,35 @@
   --d-shadow-sm: 0 0 0 0.5px oklch(100% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.4);
   --d-shadow-md: 0 0 0 0.5px oklch(100% 0 0 / 0.09), 0 4px 14px oklch(0% 0 0 / 0.5);
   --d-shadow-lg: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 14px 36px oklch(0% 0 0 / 0.6);
+
+  /* ## 触摸尺寸（DESIGN.md §1.2 铁律 2：不假设有键盘，也不假设有鼠标）
+
+     手指的接触面直径约 44px（Apple HIG 与 Material 取的是同一个数）。鼠标
+     指针只有一个像素，同一套界面在两种指针下需要**两套尺寸**。
+
+     写成令牌而不是一堆 `@media (hover: none)` 分支，理由有两条：
+
+     1. **默认值 0 让规则在桌面上自动失效。** `min-height: var(--tap)` 在
+        桌面上就是 `min-height: 0`，什么也不做 —— 于是加一处触摸尺寸只需
+        在原规则里多写一行，不用把选择器再抄一遍进媒体查询。抄第二遍的那
+        一份迟早会和本体漂开，而漂了不报错。
+     2. **可验证。** headless Chromium 报的是 `hover: hover`，媒体查询里那
+        一套在浏览器测试和视觉工作台里**永远不会生效** —— 移动端的尺寸问题
+        一直没人看得见，正是因为它没法在这里量。改成属性开关之后，工作台
+        把 `data-touch` 打开就能量到真机上的尺寸。
+
+     开关由 App 挂在 `<html>` 上：`matchMedia("(hover: none)")` 或平台是
+     手机时为 on。两个条件是「或」—— 触屏笔记本命中前者，而 WebView 里
+     万一 hover 查询不准，平台标志兜底。 */
+  --tap: 0px;
+  /* 嵌在行里的次要图标（标签页的 ×、单元格把手、复制按钮）。它们挤在
+     已有的一行里，撑到 44 会把那一行整个顶开；32 是这类图标的实际下限 */
+  --tap-sm: 0px;
+}
+
+:root[data-touch="on"] {
+  --tap: 44px;
+  --tap-sm: 32px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -488,7 +517,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: max(28px, var(--tap-sm));
+  min-height: var(--tap-sm);
   /* 和标签同高但不铺满：上下留一点，看起来是"挂在标签旁边"而不是又一个标签 */
   margin: 4px 2px 5px 4px;
   border-radius: var(--r-sm);
@@ -531,7 +561,7 @@ button {
   flex: none;
   width: 168px;
   padding: 0 5px 0 10px;
-  height: 30px;
+  height: max(30px, var(--tap));
   font-size: 12.5px;
   color: var(--muted);
   cursor: default;
@@ -583,8 +613,8 @@ button {
 .tab-close,
 .tab-dot {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: max(18px, var(--tap-sm));
+  height: max(18px, var(--tap-sm));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -657,6 +687,10 @@ button {
   position: relative;
   width: 32px;
   height: 32px;
+  /* 触摸设备撑到一根手指。写 min-* 而不是改 width/height：桌面上
+     `min-width: 0` 什么也不做，不需要再抄一份规则进媒体查询 */
+  min-width: var(--tap);
+  min-height: var(--tap);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -706,6 +740,75 @@ button {
   line-height: 10px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 底部导航里的「更多」面板（窄屏） ----------
+
+   动作组在横排里放不下，收进这里。**做成带文字的一列**，不是又一排图标：
+   这些动作彼此不像视图那样同属一类（源码模式、导图、项目、设置放在一起，
+   光看图标猜不出来），而弹出层本来就有横向余量写得下四个字。 */
+
+.rail-more {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.rail-sheet {
+  position: absolute;
+  /* 贴着这条栏的上沿弹出，右对齐到 `⋯` 那一格 —— 它是被点的那个 */
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 176px;
+  padding: 4px;
+  background: var(--raised);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+.rail-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  /* **自带一个底数，不能只写 `var(--tap)`。**
+
+     `--tap` 跟的是指针，桌面上是 `0px`；而这个面板**只在窄屏才存在** ——
+     把桌面窗口拖窄的人照样会打开它，那时行高塌成 17px，一列字挤成一团。
+
+     凡是「只在窄屏出现」的东西都要自带尺寸：窄屏是视口决定的，指针不是。 */
+  min-height: max(34px, var(--tap));
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+}
+.rail-sheet-item svg {
+  flex: none;
+  color: var(--muted);
+}
+.rail-sheet-item:disabled {
+  color: var(--muted-2);
+  pointer-events: none;
+}
+.rail-sheet-item:disabled svg {
+  color: var(--muted-2);
+}
+.rail-sheet-item.is-on,
+.rail-sheet-item.is-on svg {
+  color: var(--accent-ink);
+}
+.rail-sheet-item.is-on {
+  background: var(--accent-wash);
+}
+/* 「开」这个字取代了竖排里那种选中底色：面板里一行只有一个动作，
+   靠底色分不出「这一行被选中」和「这个功能正开着」 */
+.rail-sheet-on {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--accent-ink);
 }
 
 .sidebar {
@@ -769,6 +872,8 @@ button {
   flex: none;
 }
 .side-act {
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -808,6 +913,7 @@ button {
   box-shadow: var(--shadow-md);
 }
 .side-menu button {
+  min-height: var(--tap);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -866,6 +972,7 @@ button {
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-height: var(--tap);
   font-size: 11.5px;
   color: var(--muted);
   padding: 5px 7px;
@@ -938,10 +1045,50 @@ button {
   gap: 7px;
   width: 100%;
   min-width: 0;
+  /* 这一列在手机上是切换仓库的唯一入口 */
+  min-height: var(--tap);
   padding: 6px 7px;
   border-radius: var(--r-sm);
   text-align: left;
   font-size: 12px;
+}
+
+/* 就地起名新建仓库（手机）。**不是 `window.prompt`** —— 安卓 WebView 上
+   它可能根本不弹，那时按钮就是按下去没反应（M6 清单里那一条） */
+.vault-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+}
+.vault-new-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-sm);
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.vault-new-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.vault-new-ok {
+  flex: none;
+  min-height: var(--tap-sm);
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  font-size: 12.5px;
+}
+.vault-new-ok:disabled {
+  color: var(--muted-2);
+  background: transparent;
 }
 .vault-menu-item:hover:not(:disabled),
 .vault-menu-action:hover {
@@ -1133,10 +1280,8 @@ button {
   color: var(--danger);
   background: color-mix(in oklch, var(--danger) 9%, transparent);
 }
-@media (hover: none) {
-  .vault-row-remove {
-    opacity: 1;
-  }
+:root[data-touch="on"] .vault-row-remove {
+  opacity: 1;
 }
 .vault-manager-foot {
   display: flex;
@@ -1875,6 +2020,7 @@ body.is-table-resizing * {
 .tpl-list > li {
   display: flex;
   align-items: center;
+  min-height: var(--tap);
   margin: 0 8px 1px;
   border-radius: var(--r-sm);
   transition: background var(--t-fast);
@@ -1958,6 +2104,10 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 3px;
+  min-height: var(--tap);
+  /* 每一层缩进多少。层号（`--depth`）由 Tree.tsx 逐行给，**量归 CSS** ——
+     窄屏要收窄，而那是个视口判断，写死在 JS 里的话它还得自己去听媒体查询 */
+  padding-left: calc(var(--depth, 0) * var(--tree-indent, 14px) + 8px);
   padding-right: 6px;
   border-radius: var(--r-sm);
   margin: 0 7px 2px;
@@ -2014,7 +2164,14 @@ body.is-table-resizing * {
 
 .tree-twisty {
   width: 16px;
-  height: 16px;
+  /* 命中区撑开，图标本身不动 —— 折叠三角是「有没有子文档」这个信息的
+     载体，画大了整棵树会变得吵。
+
+     **横向那一维要省着用**：这一列每加一像素，每一层的文件名都跟着往右
+     让一像素。所以宽度单列一个变量，窄屏收得比 `--tap-sm` 更紧（见窄屏
+     那一段）—— 纵向已经铺满整行高，22×44 的条形命中区够用了 */
+  height: max(16px, var(--tap));
+  min-width: var(--tree-twisty-w, var(--tap-sm));
   flex: none;
   display: flex;
   align-items: center;
@@ -2022,10 +2179,15 @@ body.is-table-resizing * {
   color: var(--muted);
   padding: 0;
   opacity: 0.75;
-  /* 折叠/展开只转 90°，比换图标平滑 */
-  transition: transform var(--t-fast), opacity var(--t-fast);
+  transition: opacity var(--t-fast);
 }
-.tree-twisty.is-open {
+.tree-twisty svg {
+  /* 折叠/展开只转 90°，比换图标平滑 */
+  transition: transform var(--t-fast);
+}
+/* **转图标，不转按钮。** `transform` 会一起转命中区：32×44 的按钮转过来
+   变成 44×32，展开和收起两个状态下手指要点的地方不一样大 */
+.tree-twisty.is-open svg {
   transform: rotate(90deg);
 }
 .tree-twisty.is-empty {
@@ -2042,6 +2204,11 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 5px;
+  /* **行高够不等于点得着。** `.tree-row` 撑到 44 之后，真正带 onClick 的
+     仍是这个按钮 —— 它自己只有 27 高，上下各留出 8px 的死区，点上去毫无
+     反应。命中区必须跟着行一起长 */
+  align-self: stretch;
+  min-height: var(--tap);
   text-align: left;
   padding: 5.5px 2px;
   font-size: 13px;
@@ -2058,6 +2225,11 @@ body.is-table-resizing * {
 
 .tree-add {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   color: var(--muted);
   opacity: 0;
   padding: 0 3px;
@@ -2184,6 +2356,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: var(--tap-sm);
   padding: 4px 2px;
   color: var(--muted);
   border-radius: var(--r-sm);
@@ -2310,6 +2483,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-height: var(--tap);
   margin: 2px 0 0 -7px;
   padding: 4px 7px;
   border-radius: var(--r-xs);
@@ -2411,6 +2585,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  min-height: var(--tap);
   padding: 8px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
@@ -2593,6 +2768,7 @@ body.is-table-resizing * {
 .search-item {
   display: block;
   width: 100%;
+  min-height: var(--tap);
   text-align: left;
   padding: 7px 8px;
   border-radius: var(--r-sm);
@@ -2659,6 +2835,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 2px;
+  min-height: var(--tap);
   margin: 0 6px 1px;
   padding-right: 6px;
   border-radius: var(--r-sm);
@@ -2703,6 +2880,7 @@ body.is-table-resizing * {
 .tag-note {
   display: block;
   width: 100%;
+  min-height: var(--tap);
   text-align: left;
   padding: 5px 8px;
   border-radius: var(--r-sm);
@@ -2728,6 +2906,7 @@ body.is-table-resizing * {
   padding: 12px 0 8px;
 }
 .backlinks-head {
+  min-height: var(--tap-sm);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2782,6 +2961,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: var(--tap);
   padding: 6px 10px;
   border-radius: var(--r-sm);
   cursor: pointer;
@@ -2889,6 +3069,8 @@ body.is-table-resizing * {
    鼠标移上去才明显起来：平时不该有个图标在标题行上抢戏，
    但要找它的时候必须在那儿 */
 .crumb-icon {
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3033,8 +3215,11 @@ body.is-table-resizing * {
   box-shadow: var(--shadow-md);
 }
 .ctx button {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
+  /* 菜单是手指唯一能拿到全部动作的入口，行距必须够（Material 48dp） */
+  min-height: var(--tap);
   text-align: left;
   padding: 6px 10px;
   border-radius: var(--r-sm);
@@ -4143,6 +4328,7 @@ body.is-table-resizing * {
   align-items: baseline;
   gap: 10px;
   width: 100%;
+  min-height: var(--tap);
   text-align: left;
   padding: 7px 10px;
   border-radius: var(--r-sm);
@@ -4225,6 +4411,9 @@ body.is-table-resizing * {
 .settings-tabs button {
   position: relative;
   width: 100%;
+  /* 面板里的导航，按主目标算。窄屏上它还横过来变成可滚动的一条，
+     30px 高的一排标签在手指下基本点不中 */
+  min-height: var(--tap);
   padding: 8px 10px;
   font-size: 12.5px;
   color: var(--muted);
@@ -4253,6 +4442,11 @@ body.is-table-resizing * {
   background: var(--accent);
 }
 .modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   color: var(--muted);
   padding: 4px 8px;
   border-radius: var(--r-sm);
@@ -4295,6 +4489,9 @@ body.is-table-resizing * {
   padding: 10px 24px;
 }
 .set-reset-all {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-sm);
   font-size: 12.5px;
   color: var(--muted);
 }
@@ -4357,6 +4554,11 @@ body.is-table-resizing * {
   color: var(--muted);
 }
 .set-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   color: var(--muted);
   padding: 2px 5px;
   border-radius: var(--r-xs);
@@ -4809,6 +5011,11 @@ textarea.set-table-input {
   gap: 2px;
 }
 .segmented button {
+  /* 按次要目标算（32）而不是 44：分段控件是一整条，撑到 44 会让设置面板
+     里每一行都长出一截，滚动距离翻倍。32 也正是 iOS 分段控件的高度 */
+  min-height: var(--tap-sm);
+  display: inline-flex;
+  align-items: center;
   padding: 5px 12px;
   font-size: 12.5px;
   color: var(--muted);
@@ -4836,7 +5043,9 @@ textarea.set-table-input {
   }
   .settings-tabs {
     flex-direction: row;
-    padding: 7px 8px;
+    /* 标签本身涨到 44（手指）之后，上下再各留 7px 就把这一条推到 59px 高 ——
+       窄屏上那是白扔掉一行设置。留白收到 3px，整条仍在 52 以内 */
+    padding: 3px 8px;
     overflow-x: auto;
     overflow-y: hidden;
     border-right: none;
@@ -5128,6 +5337,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-height: var(--tap);
   min-height: 27px;
   text-align: left;
   /* 每层只让 12px：等级圆点已经说明结构，缩进不必再吃掉一大片标题宽度 */
@@ -5348,9 +5558,15 @@ textarea:focus-visible {
    两群之间的空档里。**窄不等于手机** —— 桌面上把窗口拖窄同样命中这一段，
    而那时抽屉式侧栏也确实更好用。
 
-   核心改动只有一条：**侧栏从「占一列」变成「盖一层」**。390px 宽的屏上，
-   252px 的侧栏加 44px 的图标栏之后只剩 94px 给正文 —— 那不是「窄」，
-   那是没法读。
+   核心改动有两条：
+
+   1. **侧栏从「占一列」变成「盖一层」。** 390px 宽的屏上，252px 的侧栏加
+      44px 的图标栏之后只剩 94px 给正文 —— 那不是「窄」，那是没法读。
+   2. **图标栏从左边竖排变成底部横排**（§6.3「移动 单栏 + 抽屉 …… 底部
+      工具条固定」）。竖排在手机上要付两笔账：横向白白扣掉 44px（390 的
+      屏上是 11%），而且整条都落在屏幕左上角 —— 单手握持时最够不到的地方。
+      横过来两笔都省了，代价是一行排不下十二个图标，动作组因此收进 `⋯`
+      （见 ActivityBar）。
    ========================================================================== */
 
 @media (max-width: 640px) {
@@ -5359,14 +5575,70 @@ textarea:focus-visible {
      在 CSS 里怎么写都修不好「顶部被状态栏压住」。那件事由 MainActivity 的
      `fitSystemBars()` 在原生层给 WebView 加内边距解决，两边一起加会重复让位。 */
 
-  /* 侧栏那一列整个取消。它仍然渲染，只是不再参与网格 */
+  /* 单栏。图标栏和状态栏各占底部一行，侧栏那一列整个取消 ——
+     它仍然渲染，只是不再参与网格（改成盖在上面的抽屉，见下） */
   .app.is-narrow {
-    grid-template-columns: 44px minmax(0, 1fr);
+    /* 底部两条的高度写成变量：抽屉要停在它们上沿，写死在几处迟早会漂 */
+    --nav-h: 52px;
+    --status-h: 34px;
+    --bottom-h: calc(var(--nav-h) + var(--status-h));
+
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+    /* 公式工具条排在**最后**，不是「状态栏上面」。它要贴着软键盘的上沿
+       （§5.5），而键盘顶掉的是视口底部 —— middle 的任何一行都会把它推离
+       键盘一截。之前它没有指定区域，靠自动放置落在这个位置上；写出来是
+       为了下次动这张表的人不会无声地把它挪走 */
     grid-template-areas:
-      "rail tabs"
-      "rail main"
-      "rail term"
-      "status status";
+      "tabs"
+      "main"
+      "term"
+      "rail"
+      "status"
+      "math";
+  }
+  .app.is-narrow .mathbar {
+    grid-area: math;
+  }
+
+  /* **打字时导航不让位。** 公式工具条上来之后底部叠着两条确实挤，但让
+     导航消失是个陷阱：把它藏起来的条件是「焦点在正文里」，而收起软键盘
+     并不一定让正文失焦 —— 那时用户手上既没有键盘也没有导航，只能靠点
+     别处碰运气。省下来的 52px 不值这个险。 */
+
+  /* 横排。桌面那份是 `flex-direction: column`，这里整条翻过来 */
+  .app.is-narrow .rail {
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: stretch;
+    gap: 0;
+    height: var(--nav-h);
+    padding: 0 4px;
+    border-top: 1px solid var(--hairline);
+    /* 抽屉盖住正文，但**不该盖住图标栏** —— 它是手机上唯一的导航，
+       抽屉开着的时候照样要能切视图。被盖住的话，那一排图标看得见、
+       点下去却只是关掉抽屉 */
+    position: relative;
+    z-index: 31;
+  }
+  .app.is-narrow .rail-btn {
+    /* 每个占等分的一格，图标居中。给足宽度是为了命中区，不是为了图标大小 */
+    flex: 1;
+    min-width: 0;
+    height: auto;
+    width: auto;
+    border-radius: var(--r-sm);
+  }
+  /* 选中标记从「左边一根竖条」翻成「上边一根横条」。竖着那根在横排里
+     会贴在两个图标中间，说不清它标的是哪一个 */
+  .app.is-narrow .rail-btn.is-on:not(.rail-action)::before {
+    left: 22%;
+    right: 22%;
+    top: 0;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
   }
 
   .app.is-narrow .sidebar {
@@ -5380,28 +5652,25 @@ textarea:focus-visible {
        只有量高度才看得出来。真机上就是这么坏的（v0.6.9）。 */
     grid-area: auto;
     top: 0;
-    bottom: 0;
-    left: 44px;
+    /* 停在底部两条的上沿。铺到 `bottom: 0` 的话抽屉会压着导航和状态栏 ——
+       导航靠 z-index 还能点，但看着是「抽屉从图标底下钻过去」 */
+    bottom: var(--bottom-h);
+    left: 0;
     /* **必须留出一条手指点得到的正文**：那是关掉抽屉最直接的入口。
-       写成「屏宽减去图标栏、再减 64」而不是一个百分比 —— 百分比在窄屏上
-       会把那条缝压到十几像素，等于没有 */
-    width: min(300px, calc(100vw - 44px - 64px));
+       写成「屏宽减 76」而不是一个百分比 —— 百分比在窄屏上会把那条缝
+       压到十几像素，等于没有。图标栏挪走之后抽屉可以从左边缘开始，
+       宽度顺势给到 320 */
+    width: min(320px, calc(100vw - 76px));
     z-index: 30;
     box-shadow: var(--shadow-lg);
   }
 
-  /* 抽屉底下那层。它接管正文区的点击，**但不该盖住图标栏** ——
-     图标栏是手机上唯一的导航，抽屉开着的时候照样要能切视图。
-     被盖住的话，那一竖排图标看得见、点下去却只是关掉抽屉 */
+  /* 抽屉底下那层。盖住正文那一条（点它就关），同样不越过底部两条 */
   .sidebar-scrim {
     position: absolute;
-    inset: 0;
+    inset: 0 0 var(--bottom-h) 0;
     z-index: 29;
     background: rgb(0 0 0 / 24%);
-  }
-  .app.is-narrow .rail {
-    position: relative;
-    z-index: 31;
   }
 
   /* 拖不动的东西不占地方：触摸屏上没有精确到 4px 的拖拽 */
@@ -5423,6 +5692,50 @@ textarea:focus-visible {
      回到大屏再看 */
   .app.is-narrow .status-count,
   .app.is-narrow .status-id {
+    display: none;
+  }
+  /* 状态栏在手机上不只是一行字：「记一个版本」和「同步」是两个真按钮，
+     而 24px 的行高把它们压成了 16px 的命中区 */
+  .app.is-narrow .status {
+    height: var(--status-h);
+    gap: 10px;
+  }
+
+  /* **文件树在窄屏要收窄左边那一截。**
+
+     314px 宽的抽屉里，一级文档的文件名原本从 x=52 开始 —— 光是缩进和折叠
+     三角就吃掉六分之一，而那六分之一里没有任何信息。两处一起收：
+
+     - 折叠三角 32 → 22。它纵向已经铺满 44px 的行高，条形命中区够用；
+       横向每省一像素，每一层都跟着省一像素。
+     - 每层缩进 14 → 10。缩进只需要**看得出父子关系**，不需要看得出距离；
+       手机上层级本来也不会很深。 */
+  .app.is-narrow {
+    --tree-twisty-w: 22px;
+    --tree-indent: 10px;
+  }
+
+  /* 标签在 390px 上按桌面的 168px 算，一屏只露得出两个。收到 132 之后
+     能看见三个 —— 「现在开着哪几篇」这件事至少得看得出个数 */
+  .app.is-narrow .tab {
+    width: 132px;
+  }
+  /* **`+` 必须钉住。** 桌面上它跟着标签条一起滚（手会顺着最后一个标签
+     摸过去），可窄屏上标签条第一屏就滚不完，于是「新建文档」这个入口
+     直接消失在屏幕外 —— 而它是手机上新建笔记最短的一条路。
+     `sticky` 让它留在原地又不脱离那一组：只有滚不到头时才贴边 */
+  .app.is-narrow .tab-new {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    /* 贴边时下面会滑过标签，得有不透明底把它们挡住 */
+    background: var(--surface);
+    box-shadow: -6px 0 6px -4px var(--surface);
+  }
+
+  /* 命令面板在手机上是**动作清单**，不是快捷键备忘 —— 那一列 `Ctrl+…`
+     在没有物理键盘的屏幕上既按不出来，又把命令名挤窄了三分之一 */
+  .palette-keys {
     display: none;
   }
 }
@@ -5467,6 +5780,7 @@ textarea:focus-visible {
 }
 .mathbar-pages button {
   flex: none;
+  min-height: var(--tap-sm);
   padding: 3px 10px;
   border-radius: var(--r-xs);
   font-size: 12px;
@@ -5585,43 +5899,35 @@ textarea:focus-visible {
 /* ==========================================================================
    触摸屏（DESIGN.md §4.4：不做成悬停才出现 —— 触摸屏上没有悬停）
 
-   `hover: none` 认的是**指针能力**，不是屏幕宽度：手机、平板、触屏笔记本
+   `data-touch` 认的是**指针能力**，不是屏幕宽度：手机、平板、触屏笔记本
    都会命中，而把桌面窗口拖窄的人仍然有鼠标，不该被改掉。
 
    下面这几个都是「平时透明、鼠标移上去才出现」的操作入口。在没有悬停的
    设备上，它们等于**根本不存在** —— 而其中有些是唯一的入口（比如新建
    子文档、删掉一条属性）。
+
+   尺寸不在这里 —— 那由 `--tap` / `--tap-sm` 就地加在各自的规则上（见
+   `:root` 那一段的说明）。这里只留「显 / 不显」这类没法用一个数表达的。
    ========================================================================== */
 
-@media (hover: none) {
-  .tab-close,
-  .tree-add,
-  .props-del,
-  .cm-img-handle,
-  .dbview-edit,
-  .dbview-resize,
-  .hist-restore {
-    opacity: 1;
-  }
+:root[data-touch="on"] .tab-close,
+:root[data-touch="on"] .tree-add,
+:root[data-touch="on"] .props-del,
+:root[data-touch="on"] .cm-img-handle,
+:root[data-touch="on"] .dbview-edit,
+:root[data-touch="on"] .dbview-resize,
+:root[data-touch="on"] .hist-restore {
+  opacity: 1;
+}
 
-  /* 有未保存改动的标签：桌面上圆点让位给悬停出现的 ×，触屏没有悬停，
-     × 就永远不存在，标签关不掉 —— 这里必须把 × 显回来。它是用
-     display 藏的，上面那组 opacity 救不了它 */
-  .tab.is-dirty:not(:hover) .tab-close {
-    display: revert;
-  }
-  .tab.is-dirty .tab-dot {
-    display: none;
-  }
-
-  /* 手指的接触面直径约 44px（Apple HIG / Material 都取这个数）。
-     图标栏和文档树是最常点的两处，先保证它们够得着 */
-  .rail-btn {
-    min-height: 40px;
-  }
-  .tree-row {
-    min-height: 36px;
-  }
+/* 有未保存改动的标签：桌面上圆点让位给悬停出现的 ×，触屏没有悬停，
+   × 就永远不存在，标签关不掉 —— 这里必须把 × 显回来。它是用
+   display 藏的，上面那组 opacity 救不了它 */
+:root[data-touch="on"] .tab.is-dirty:not(:hover) .tab-close {
+  display: revert;
+}
+:root[data-touch="on"] .tab.is-dirty .tab-dot {
+  display: none;
 }
 
 /* ---------- 状态栏里的源码模式标记 ---------- */
@@ -5772,11 +6078,28 @@ textarea:focus-visible {
 /* 选中态用一圈外扩的描边，不是把色块本身改大 —— 改大会让一排色块
    高低不齐，而这排东西的全部意义就是让人横着扫一眼比颜色 */
 .swatch {
+  position: relative;
   width: 22px;
   height: 22px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px oklch(0% 0 0 / 0.12);
   transition: box-shadow var(--t-fast);
+}
+/* **命中区往外扩，画出来的圆不动。** 上面那条注释说的就是这个：把色块
+   本身改大会让一排颜色高低不齐，而这排东西的全部意义就是横着扫一眼比颜色。
+   所以扩的是一个透明的伪元素。
+
+   `min(0px, …)` 是让它在桌面上失效：`--tap-sm` 为 0 时算出来是 +11px，
+   那会把命中区往里缩掉一圈；取 `min` 之后桌面拿到 0，触摸拿到 -5px。 */
+.swatch::after {
+  content: "";
+  position: absolute;
+  inset: min(0px, calc((22px - var(--tap-sm)) / 2));
+  border-radius: 50%;
+}
+/* 命中区扩出来之后相邻两个会叠上，间距跟着让开 */
+.swatches {
+  gap: max(8px, calc(var(--tap-sm) - 16px));
 }
 .swatch:hover {
   box-shadow:
@@ -6451,6 +6774,8 @@ textarea:focus-visible {
 }
 .dbview-edit {
   margin-left: auto;
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
   padding: 0 4px;
   color: var(--muted);
   opacity: 0;
@@ -6739,10 +7064,8 @@ textarea:focus-visible {
 }
 /* 触屏上拖杆那条高亮线常显一份淡的 —— 命中区本身是透明的，
    不显出来等于摸黑找一条 8px 的缝（和编辑器表格的 hover:none 一致） */
-@media (hover: none) {
-  .dbview-resize::after {
-    opacity: 0.35;
-  }
+:root[data-touch="on"] .dbview-resize::after {
+  opacity: 0.35;
 }
 
 .dbview-scroll {
@@ -7191,6 +7514,7 @@ textarea:focus-visible {
 }
 .mm-tools button {
   white-space: nowrap;
+  min-height: var(--tap-sm);
   padding: 3px 8px;
   border-radius: var(--r-xs);
   color: var(--muted);
@@ -7587,6 +7911,7 @@ textarea:focus-visible {
   }
 }
 
+
 @media (prefers-reduced-motion: reduce) {
   .mm-node,
   .mm-links path {
@@ -7612,37 +7937,40 @@ textarea:focus-visible {
 .mindmap.is-touch .mm-node {
   padding-right: 16px;
 }
-@media (hover: none) {
-  .mm-tips {
+:root[data-touch="on"] .mm-tips {
+  display: none;
+}
+:root[data-touch="on"] .mm-tips.is-touch,
+:root[data-touch="on"] .mm-acts {
+  display: flex;
+}
+
+/* 390px 的一条工具栏放不下「标题 + 提示 + 搜索 + 四个按钮」—— 挤在一起的
+   表现是提示那几个字直接压在搜索框上。**先砍提示**：它讲的是「双指缩放、
+   拖动平移」，那两个手势在触摸屏上试一次就会了，而搜索框少一半宽就没法用。
+
+   选择器写得这么长是被迫的：上面那两条把触摸版提示显回来的规则各有四层
+   特异性，媒体查询本身不加权重，压不过就等于没写 */
+@media (max-width: 640px) {
+  :root .mindmap .mm-tips,
+  :root[data-touch="on"] .mindmap .mm-tips.is-touch,
+  .mindmap.is-touch .mm-bar .mm-tips.is-touch {
     display: none;
   }
-  .mm-tips.is-touch,
-  .mm-acts {
-    display: flex;
-  }
-  /* 节点高 30px，按钮给到 26 —— 再大就顶出边框，而节点高度是布局常量
-     （lib/mindmap.ts 的 NODE_H），不能只为触摸改掉 */
-  .mm-acts button {
-    width: 26px;
-    height: 26px;
-  }
-  /* 没有悬停就没有「摸到边上才显形」这回事，拖杆得一直看得见 */
-  .mm-resize {
-    width: 12px;
-    opacity: 0.4;
-  }
-  .mm-node {
-    padding-right: 16px;
-  }
-  .mm-tools button {
-    min-height: 32px;
-    padding: 6px 10px;
-  }
-  /* 菜单是手指唯一的入口，行距按 Material 的 48dp 走一半以上 */
-  .mm-menu button {
-    padding: 10px 12px;
-    font-size: 13.5px;
-  }
+}
+/* 节点高 30px，按钮给到 26 —— 再大就顶出边框，而节点高度是布局常量
+   （lib/mindmap.ts 的 NODE_H），不能只为触摸改掉 */
+:root[data-touch="on"] .mm-acts button {
+  width: 26px;
+  height: 26px;
+}
+/* 没有悬停就没有「摸到边上才显形」这回事，拖杆得一直看得见 */
+:root[data-touch="on"] .mm-resize {
+  width: 12px;
+  opacity: 0.4;
+}
+:root[data-touch="on"] .mm-node {
+  padding-right: 16px;
 }
 
 /* ---------- 状态栏上的版本记录点（§2.8） ----------
@@ -7654,6 +7982,7 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-height: var(--tap-sm);
   padding: 1px 6px;
   border-radius: var(--r-xs);
   color: var(--muted);
@@ -7946,6 +8275,7 @@ body.is-row-resizing {
   align-items: baseline;
   gap: 6px;
   width: 100%;
+  min-height: var(--tap);
   padding: 6px 6px 6px 2px;
   font-size: 12px;
   border-radius: var(--r-sm);
@@ -8094,8 +8424,8 @@ body.is-row-resizing {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: max(22px, var(--tap-sm));
+  height: max(22px, var(--tap-sm));
   border-radius: var(--r-xs);
   color: var(--muted);
   opacity: 0;
@@ -8213,10 +8543,8 @@ body.is-row-resizing {
   font-size: 10.5px;
 }
 
-@media (hover: none) {
-  .hist-popover {
-    display: none;
-  }
+:root[data-touch="on"] .hist-popover {
+  display: none;
 }
 
 /* ---------- 正文区里的版本差异（§2.8） ---------- */

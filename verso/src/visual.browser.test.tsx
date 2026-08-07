@@ -164,9 +164,12 @@ let workspace: { tabs: string[]; active: number; pinnedCount: number } = {
   pinnedCount: 0,
 };
 
+/** 平台能力开关（终端、目录选择器…）。手机那几张要它为真才拍得准 */
+let mobileFlag = false;
+
 vi.mock("./api", () => ({
   api: {
-    isMobile: async () => false,
+    isMobile: async () => mobileFlag,
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
     openVault: async () => VAULT,
@@ -222,21 +225,33 @@ vi.mock("./api", () => ({
     gitCommit: async () => null,
     gitIdentityGet: async () => ({ name: "pride7", email: "xsfeng07@gmail.com" }),
     gitIdentitySet: async (name: string, email: string) => ({ name, email }),
+    // 作者字段不能省：`isOwnEntry` 要用它区分「我改的」和「别人改的」，
+    // 缺了会直接把 HistoryView 抛崩（而崩了只表现为那个面板不见了）
     gitHistory: async () => [
       {
         id: "a1",
         message: "更新「线性代数」",
+        detail: "",
+        authorName: "pride7",
+        authorEmail: "xsfeng07@gmail.com",
         at: Math.floor(Date.now() / 1000) - 900,
         files: [{ path: "数学/线性代数.md", kind: "modified" }],
+        additions: 12,
+        deletions: 3,
       },
       {
         id: "a2",
         message: "新增「奇异值分解」「特征值」",
+        detail: "",
+        authorName: "同组的另一个人",
+        authorEmail: "her@example.com",
         at: Math.floor(Date.now() / 1000) - 7200,
         files: [
           { path: "数学/线性代数/奇异值分解.md", kind: "added" },
           { path: "数学/线性代数/特征值.md", kind: "added" },
         ],
+        additions: 88,
+        deletions: 0,
       },
     ],
     syncRemoteGet: async () => ({
@@ -295,6 +310,7 @@ function render() {
 beforeEach(() => {
   localStorage.clear();
   theme = "light";
+  mobileFlag = false;
   workspace = { tabs: [], active: 0, pinnedCount: 0 };
   document.documentElement.removeAttribute("data-theme");
 });
@@ -535,7 +551,7 @@ describe("视觉工作台", () => {
   it("浅色 · 版本历史", async () => {
     render();
     await settle(700);
-    clickRail("历史");
+    clickRail("动态");
     await settle(300);
     // 展开第一条，看得到动了哪几篇
     document.querySelector<HTMLElement>(".hist-head")?.click();
@@ -610,3 +626,213 @@ describe("视觉工作台", () => {
     alive();
   });
 });
+
+/* ==========================================================================
+   手机竖屏（390×844）
+
+   桌面那一组看不出移动端的问题：一屏 1440px 上什么都放得下，而真正的毛病
+   —— 面板被裁、按钮点不到、横向溢出 —— 只在窄屏上才现形。
+   ========================================================================== */
+
+const PHONE = { w: 390, h: 844 };
+
+describe("视觉工作台 · 手机竖屏", () => {
+  beforeEach(async () => {
+    mobileFlag = true;
+    // headless Chromium 报的是 `hover: hover`，媒体查询那条路在这里永远不
+    // 成立 —— 真机上由 main.tsx 按指针能力同步打上，这里手工补一份，
+    // 否则拍到的是「桌面尺寸的手机」，量什么都不作数
+    document.documentElement.dataset.touch = "on";
+    await page.viewport(PHONE.w, PHONE.h);
+  });
+
+  afterEach(async () => {
+    delete document.documentElement.dataset.touch;
+    // 视口是整个浏览器实例共享的，不还原会污染后面跑的文件
+    await page.viewport(1440, 900);
+  });
+
+  /**
+   * 点动作组里的某一项。横排导航上它们不在条上，收在 `⋯` 弹出的面板里
+   * （见 ActivityBar），所以要先点开那个面板
+   */
+  async function clickAction(label: string) {
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+    await settle(200);
+    [...document.querySelectorAll<HTMLElement>(".rail-sheet-item")]
+      .find((b) => b.getAttribute("aria-label") === label)
+      ?.click();
+    await settle(300);
+  }
+
+  /** 抽屉默认开着，多数场景要先关掉它才看得到正文 */
+  async function closeDrawer() {
+    document.querySelector<HTMLElement>(".sidebar-scrim")?.click();
+    await settle(300);
+  }
+
+  it("手机 · 文档树抽屉", async () => {
+    render();
+    await shot("m01-phone-tree");
+    alive();
+  });
+
+  it("手机 · 正文阅读", async () => {
+    render();
+    await settle(700);
+    await closeDrawer();
+    await shot("m02-phone-reading");
+    alive();
+  });
+
+  it("手机 · 标签栏", async () => {
+    workspace = {
+      tabs: ["论文.md", "数学/线性代数/奇异值分解.md", "论文/奇异值分解的数值方法.md", "日志.md"],
+      active: 2,
+      pinnedCount: 1,
+    };
+    render();
+    await settle(700);
+    await closeDrawer();
+    await shot("m03-phone-tabs");
+    alive();
+  });
+
+  it("手机 · 属性条展开", async () => {
+    render();
+    await settle(700);
+    await closeDrawer();
+    document.querySelector<HTMLElement>(".props-toggle")?.click();
+    await shot("m04-phone-props");
+    alive();
+  });
+
+  /** 表格和代码块是最容易在窄屏上横向溢出的两样东西 */
+  it("手机 · 表格与代码块", async () => {
+    render();
+    await settle(900);
+    await closeDrawer();
+    const main = document.querySelector<HTMLElement>(".main")!;
+    const table = document.querySelector<HTMLElement>(".cm-table");
+    if (table) {
+      main.scrollTop +=
+        table.getBoundingClientRect().top - main.getBoundingClientRect().top - 12;
+    }
+    await shot("m05-phone-table");
+    alive();
+  });
+
+  it("手机 · 设置", async () => {
+    render();
+    await settle(600);
+    await clickAction("设置");
+    await shot("m06-phone-settings");
+    alive();
+  });
+
+  it("手机 · 命令面板", async () => {
+    render();
+    await settle(600);
+    await clickAction("命令面板");
+    await shot("m07-phone-palette");
+    alive();
+  });
+
+  it("手机 · 更多面板", async () => {
+    render();
+    await settle(600);
+    await closeDrawer();
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+    await shot("m14-phone-more");
+    alive();
+  });
+
+  it("手机 · 搜索", async () => {
+    render();
+    await settle(500);
+    clickRail("搜索");
+    const input = document.querySelector<HTMLInputElement>("#verso-search-input");
+    if (input) {
+      input.value = "矩阵";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    await shot("m08-phone-search");
+    alive();
+  });
+
+  it("手机 · 动态与历史", async () => {
+    render();
+    await settle(700);
+    clickRail("动态");
+    await settle(300);
+    document.querySelector<HTMLElement>(".hist-head")?.click();
+    await shot("m09-phone-history");
+    alive();
+  });
+
+  it("手机 · 文档树右键菜单", async () => {
+    render();
+    await settle(700);
+    const row = document.querySelectorAll<HTMLElement>(".tree-row")[1];
+    const r = row.getBoundingClientRect();
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: r.left + 60,
+        clientY: r.top + 10,
+      }),
+    );
+    await shot("m10-phone-tree-menu");
+    alive();
+  });
+
+  it("手机 · 思维导图", async () => {
+    render();
+    await settle(700);
+    await closeDrawer();
+    await clickAction("思维导图");
+    await shot("m11-phone-mindmap");
+    alive();
+  });
+
+  /**
+   * **桌面窗口被拖窄**，不是手机：布局跟着视口走（底部导航照样出现），
+   * 但指针还是鼠标，尺寸不该被撑大。作者要亲眼看这次改动，最省事的一条路
+   * 就是把窗口拖窄 —— 那条路上看到的就是这一张。
+   */
+  it("窄窗口（有鼠标，不是手机）", async () => {
+    delete document.documentElement.dataset.touch;
+    mobileFlag = false;
+    render();
+    await settle(700);
+    await closeDrawer();
+    await shot("m15-narrow-desktop");
+    alive();
+  });
+
+  /** 作者报「太紧凑」的就是这一张：窄窗口 + 鼠标时，面板的行高一度塌成 17px */
+  it("窄窗口 · 「更多」面板（鼠标）", async () => {
+    delete document.documentElement.dataset.touch;
+    mobileFlag = false;
+    render();
+    await settle(700);
+    await closeDrawer();
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
+    await shot("m16-narrow-more-mouse");
+    alive();
+  });
+
+  it("手机 · 标签", async () => {
+    render();
+    await settle(500);
+    clickRail("标签");
+    await settle(300);
+    document.querySelector<HTMLElement>(".tag-label")?.click();
+    await shot("m13-phone-tags");
+    alive();
+  });
+});
+
+
+

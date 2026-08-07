@@ -306,13 +306,24 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
   const fit = useCallback(() => {
     const box = hostRef.current?.getBoundingClientRect();
     if (!box) return;
-    const pad = 48;
+    /**
+     * 窄屏上这两个数都要另算。
+     *
+     * 48 的留白在 1440px 上是 7%，在 390px 上是 25% —— 光是边距就吃掉四分
+     * 之一的画布。而下限 0.3 意味着「整张图都在屏幕里，但一个字都读不出
+     * 来」：那不叫适应窗口，只是把图缩成了一团色块。
+     *
+     * 手机上宁可让图溢出、用手指拖 —— 拖是这个视图本来就有的操作，读不出
+     * 字却没有任何补救。
+     */
+    const narrow = box.width < 640;
+    const pad = narrow ? 16 : 48;
     const k = Math.min(
       1,
       (box.width - pad * 2) / Math.max(view.width, 1),
       (box.height - pad * 2 - 40) / Math.max(view.height, 1),
     );
-    const fittedK = Math.max(k, 0.3);
+    const fittedK = Math.max(k, narrow ? 0.6 : 0.3);
     applyCam({
       k: fittedK,
       x: Math.max(pad, (box.width - view.width * fittedK) / 2),

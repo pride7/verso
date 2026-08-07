@@ -84,7 +84,9 @@ function TreeItem({
           `${dropAt === "before" ? " is-drop-before" : ""}` +
           `${dropAt === "after" ? " is-drop-after" : ""}`
         }
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        // 缩进量交给 CSS（`--tree-indent`）—— 窄屏上要收窄，而那是个视口
+        // 判断，写死在这里的话 JS 还得自己去听媒体查询
+        style={{ "--depth": depth } as React.CSSProperties}
         onContextMenu={(e) => {
           e.preventDefault();
           onMenu(node, e.clientX, e.clientY);

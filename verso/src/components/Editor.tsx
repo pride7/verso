@@ -533,7 +533,12 @@ ${insert}` },
       busy instanceof HTMLInputElement ||
       busy instanceof HTMLTextAreaElement ||
       (busy instanceof HTMLElement && busy.isContentEditable && !view.dom.contains(busy));
-    if (!typing) view.focus();
+    // **触摸设备上打开一篇笔记不等于要改它。** 拿到焦点在桌面上是白拿的
+    // 便利（光标就位，直接能打字），在手机上代价却很实在：软键盘每开一篇
+    // 就弹起来一次，吃掉半屏、把公式工具条顶上来，而多数时候用户只是想
+    // 读一眼。要改就点一下正文，那一下本来也躲不掉（§1.2）
+    const touch = document.documentElement.dataset.touch === "on";
+    if (!typing && !touch) view.focus();
 
     // 「只看最新」：把旧的日志条目折起来（§2.10）。
     //

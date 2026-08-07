@@ -3,7 +3,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parseCustomSnippets } from "../editor/snippets/custom";
 import { confirm } from "../lib/dialog";
 import { BUILTIN_SLASH, parseSlashCustom } from "../lib/slash";
-import { APP_VERSION, progressText, updatesSupported, type UpdateApi } from "../lib/update";
+import {
+  APP_VERSION,
+  progressText,
+  updateChecksSupported,
+  updatesSupported,
+  type UpdateApi,
+} from "../lib/update";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { GitHubAccount, GitIdentity, RemoteInfo } from "../types";
 import type { Command } from "./CommandPalette";
@@ -446,7 +452,9 @@ function UpdateSettings({
   onAutoChange: (v: boolean) => void;
 }) {
   const { state } = update;
+  /** 能不能就地装。移动端不能 —— 但**查得了**，那是两件事 */
   const supported = updatesSupported();
+  const canCheck = updateChecksSupported();
   const busy = state.phase === "checking" || state.phase === "downloading";
 
   return (
@@ -460,15 +468,18 @@ function UpdateSettings({
         </div>
         <div className="set-control">
           <span className="set-value set-version">{APP_VERSION}</span>
-          <button className="set-save" disabled={busy || !supported} onClick={update.check}>
+          <button className="set-save" disabled={busy || !canCheck} onClick={update.check}>
             {state.phase === "checking" ? "检查中…" : "检查更新"}
           </button>
         </div>
       </div>
 
-      {!supported && (
+      {/* 「装不了」要说清楚是**装**不了，不是查不了 —— 上一版把这句话写成
+          「当前平台不支持应用内更新」再把按钮一并置灰，用户连有没有新版本
+          都问不出来（§2.11） */}
+      {!supported && canCheck && (
         <p className="set-note">
-          当前平台不支持应用内更新，请通过应用商店或安装包更新。
+          这个平台不能在应用内安装更新。可以检查有没有新版本，下载后由系统安装器完成安装。
         </p>
       )}
 
@@ -495,6 +506,28 @@ function UpdateSettings({
             </button>
             <button className="btn-primary" onClick={update.download}>
               下载
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 查到了但装不了：直链拿到了就直接下那个安装包，拿不到才退回发布页。
+          按钮文案要如实说明会发生什么 —— 「下载」跳进浏览器开始下载，
+          「打开下载页」跳到一个还要自己挑文件的页面，两者对用户不是一回事 */}
+      {state.phase === "manual" && (
+        <div className="set-update-found">
+          <p className="set-note">
+            有新版本 <strong>{state.version}</strong>
+            {state.date && ` · ${state.date.slice(0, 10)}`}
+            {state.downloadUrl && "。下载在浏览器中进行，完成后由系统安装器安装。"}
+          </p>
+          {state.notes && <pre className="set-update-notes">{state.notes}</pre>}
+          <div className="set-actions">
+            <button className="set-save" onClick={update.dismiss}>
+              稍后
+            </button>
+            <button className="btn-primary" onClick={update.openReleases}>
+              {state.downloadUrl ? `下载 ${state.version}` : "打开下载页"}
             </button>
           </div>
         </div>
