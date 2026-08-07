@@ -1,5 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import "../styles.css";
 
@@ -14,9 +15,9 @@ const disk = new Map([...children, progress].map((value) => [value.path, value])
 
 const apiMock = {
   readNote: vi.fn(async (path: string) => disk.get(path)!),
-  createNote: vi.fn(async () => ({ path: "", title: "", id: null })),
-  writeNote: vi.fn(async () => 1),
-  propSet: vi.fn(async () => {}),
+  createNote: vi.fn(async (_parent: string | null, _title: string) => ({ path: "", title: "", id: null })),
+  writeNote: vi.fn(async (_path: string, _body: string) => 1),
+  propSet: vi.fn(async (_path: string, _key: string, _value: string | null) => {}),
 };
 vi.mock("../api", () => ({ api: apiMock }));
 const { ProjectDashboard } = await import("./ProjectDashboard");
@@ -47,8 +48,33 @@ describe("科研项目工作台", () => {
     await tick();
     (document.querySelector(".project-btn.primary") as HTMLButtonElement).click();
     await tick();
-    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("记录到项目");
+    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("记录一条进展");
     expect(document.querySelector(".project-dialog input")).toBeNull();
     expect(document.querySelector(".project-dialog textarea")).not.toBeNull();
+  });
+
+  it("实验只在小窗填写标题，创建后立刻交给完整编辑器", async () => {
+    apiMock.createNote.mockImplementation(async (parent: string | null, title: string) => ({
+      path: parent ? `${parent.replace(/\.md$/, "")}/${title}.md` : `${title}.md`,
+      title,
+      id: null,
+    }));
+    const onOpen = vi.fn();
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    (document.querySelector(".project-btn.primary") as HTMLButtonElement).click();
+    await tick();
+    const experiment = [...document.querySelectorAll<HTMLButtonElement>(".project-kind-tabs button")].find((button) => button.textContent === "实验")!;
+    experiment.click();
+    await tick();
+    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("新建实验文档");
+    expect(document.querySelector(".project-dialog header p")?.textContent).toContain("完整编辑器");
+    const title = document.querySelector<HTMLInputElement>(".project-dialog input")!;
+    await userEvent.fill(title, "温度消融");
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-dialog footer .primary")!);
+    await tick(140);
+    expect(onOpen).toHaveBeenCalledWith("项目/实验/温度消融.md");
+    expect(apiMock.writeNote.mock.calls[0][1]).toContain("## 方法与设置");
   });
 });

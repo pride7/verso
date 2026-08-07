@@ -75,6 +75,80 @@ function firstLine(text: string): string {
     ?.slice(0, 160) ?? "";
 }
 
+/** 工作台摘要不该把模板里的空标题或提示语当成真实结论。 */
+function firstContentLine(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("#") && !line.startsWith(">") && !line.startsWith("<!--"))
+    ?.slice(0, 160) ?? "";
+}
+
+export function projectDocumentTemplate(
+  kind: Exclude<ProjectKind, "progress">,
+  summary = "",
+): string {
+  const intro = summary.trim();
+  const lead = (prompt: string) => `${intro ? `${intro}\n` : `> ${prompt}\n`}`;
+  const templates: Record<typeof kind, string> = {
+    experiment: [
+      "## 目标与假设",
+      lead("这次实验要验证什么？"),
+      "## 方法与设置",
+      "> 数据、变量、环境和可复现设置",
+      "",
+      "## 观察与结果",
+      "> 结果、图表、异常和原始观察",
+      "",
+      "## 结论与下一步",
+      "> 这说明了什么，接下来要做什么？",
+    ].join("\n"),
+    question: [
+      "## 问题",
+      lead("把真正要回答的问题写清楚"),
+      "## 背景与已知事实",
+      "> 已知证据、约束和相关上下文",
+      "",
+      "## 已尝试",
+      "> 做过什么，为什么没有解决？",
+      "",
+      "## 当前判断",
+      "> 目前最可信的解释",
+      "",
+      "## 下一步",
+      "> 最小的验证动作",
+    ].join("\n"),
+    decision: [
+      "## 要决定什么",
+      lead("这项决定要解决什么？"),
+      "## 备选方案",
+      "> 还有哪些可选路径？",
+      "",
+      "## 证据与权衡",
+      "> 收益、代价、风险与不可逆部分",
+      "",
+      "## 决定",
+      "> 最终选择及理由",
+      "",
+      "## 影响与复查",
+      "> 影响范围，以及何时重新检查",
+    ].join("\n"),
+    resource: [
+      "## 来源",
+      lead("论文、数据集、代码或其他来源"),
+      "## 关键内容",
+      "> 最值得保留的结论、方法或引用",
+      "",
+      "## 与项目的关系",
+      "> 它支持、反驳或补充了什么？",
+      "",
+      "## 后续使用",
+      "> 要在什么地方继续使用它？",
+    ].join("\n"),
+  };
+  return `${templates[kind].trim()}\n`;
+}
+
 export function parseProgress(body: string): ProjectProgress[] {
   const matches = [...body.matchAll(/^##\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)\s*$\r?\n([\s\S]*?)(?=^##\s+\d{4}-\d{2}-\d{2}|\s*$)/gm)];
   return matches.map((match) => ({
@@ -100,7 +174,7 @@ export async function loadProjectOverview(
         title: note.title,
         kind: kind as ProjectItem["kind"],
         status: asText(note.frontmatter.status),
-        summary: asText(note.frontmatter.summary) || firstLine(note.body),
+        summary: asText(note.frontmatter.summary) || firstContentLine(note.body),
         mtimeMs: note.mtimeMs,
       }];
     })
@@ -147,9 +221,9 @@ export async function captureProjectEntry(
   input: { kind: ProjectKind; title: string; content: string },
 ): Promise<string> {
   const content = input.content.trim();
-  if (!content) throw new Error("先写一点内容");
 
   if (input.kind === "progress") {
+    if (!content) throw new Error("先写一点内容");
     const path = await ensureChild(api, projectPath, "进展", "project-log");
     const note = await api.readNote(path);
     const entry = `## ${localStamp()}\n\n${content}\n\n`;
@@ -157,9 +231,10 @@ export async function captureProjectEntry(
     return path;
   }
 
+  const baseTitle = input.title.trim();
+  if (!baseTitle) throw new Error("先写标题");
   const category = CATEGORY[input.kind];
   const categoryPath = await ensureChild(api, projectPath, category, "project-section");
-  const baseTitle = input.title.trim() || firstLine(content) || PROJECT_KIND_LABEL[input.kind];
   let created: NoteMeta | null = null;
   for (let n = 1; n < 100; n += 1) {
     const title = n === 1 ? baseTitle : `${baseTitle} ${n}`;
@@ -171,10 +246,10 @@ export async function captureProjectEntry(
     }
   }
   if (!created) throw new Error("同名记录太多，请换一个标题");
-  await api.writeNote(created.path, `${content}\n`);
+  await api.writeNote(created.path, projectDocumentTemplate(input.kind, content));
   await api.propSet(created.path, "type", input.kind);
   await api.propSet(created.path, "status", DEFAULT_STATUS[input.kind]);
-  await api.propSet(created.path, "summary", firstLine(content));
+  if (content) await api.propSet(created.path, "summary", firstLine(content));
   return created.path;
 }
 

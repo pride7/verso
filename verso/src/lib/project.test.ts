@@ -4,6 +4,7 @@ import {
   captureProjectEntry,
   loadProjectOverview,
   parseProgress,
+  projectDocumentTemplate,
   type ProjectApi,
 } from "./project";
 import type { NoteContent, NoteMeta } from "../types";
@@ -55,7 +56,16 @@ describe("科研项目记录", () => {
     const path = await captureProjectEntry(api, "项目.md", { kind: "experiment", title: "消融", content: "去掉路由后下降 3%。" });
     expect(path).toBe("项目/实验/消融.md");
     expect(created).toEqual(["项目/实验.md", "项目/实验/消融.md"]);
-    expect(writes[0]).toEqual([path, "去掉路由后下降 3%。\n"]);
+    expect(writes[0][0]).toBe(path);
+    expect(writes[0][1]).toContain("## 目标与假设");
+    expect(writes[0][1]).toContain("去掉路由后下降 3%。");
+    expect(writes[0][1]).toContain("## 观察与结果");
     expect(props).toContainEqual([path, "type", "experiment"]);
+  });
+
+  it("复杂记录允许只有标题，正文得到可删改的轻量模板", async () => {
+    expect(projectDocumentTemplate("question")).toContain("## 背景与已知事实");
+    expect(projectDocumentTemplate("decision")).toContain("## 证据与权衡");
+    expect(projectDocumentTemplate("resource")).toContain("## 与项目的关系");
   });
 });

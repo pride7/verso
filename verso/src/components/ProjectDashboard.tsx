@@ -94,13 +94,13 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
         </div>
       ) : <div className="project-loading">正在整理项目…</div>}
 
-      {captureOpen && <CaptureDialog projectPath={project.path} onClose={() => setCaptureOpen(false)} onDone={() => { setCaptureOpen(false); reload(); onChanged(); }} onError={onError} />}
+      {captureOpen && <CaptureDialog projectPath={project.path} onClose={() => setCaptureOpen(false)} onDone={(path, open) => { setCaptureOpen(false); reload(); onChanged(); if (open) onOpen(path); }} onError={onError} />}
       {snapshotOpen && overview && <SnapshotDialog path={project.path} value={overview} onClose={() => setSnapshotOpen(false)} onDone={() => { setSnapshotOpen(false); reload(); onChanged(); }} onError={onError} />}
     </section>
   );
 }
 
-function CaptureDialog({ projectPath, onClose, onDone, onError }: { projectPath: string; onClose: () => void; onDone: () => void; onError: (message: string) => void }) {
+function CaptureDialog({ projectPath, onClose, onDone, onError }: { projectPath: string; onClose: () => void; onDone: (path: string, open: boolean) => void; onError: (message: string) => void }) {
   const [kind, setKind] = useState<ProjectKind>("progress");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -108,18 +108,21 @@ function CaptureDialog({ projectPath, onClose, onDone, onError }: { projectPath:
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    try { await captureProjectEntry(api, projectPath, { kind, title, content }); onDone(); }
+    try {
+      const path = await captureProjectEntry(api, projectPath, { kind, title, content });
+      onDone(path, kind !== "progress");
+    }
     catch (error) { onError((error as Error).message); setBusy(false); }
   };
   return <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="project-dialog" onSubmit={(event) => void submit(event)}>
-      <header><div><h2>记录到项目</h2><p>先记下来，归档和层级由 Verso 处理。</p></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
+      <header><div><h2>{kind === "progress" ? "记录一条进展" : `新建${PROJECT_KIND_LABEL[kind]}文档`}</h2><p>{kind === "progress" ? "一句话记下刚刚发生的事。" : "创建后进入完整编辑器，可写公式、图片、代码和表格。"}</p></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
       <div className="project-dialog-body">
         <div className="project-kind-tabs">{KINDS.map((value) => <button type="button" className={kind === value ? "is-on" : ""} key={value} onClick={() => setKind(value)}>{PROJECT_KIND_LABEL[value]}</button>)}</div>
-        {kind !== "progress" && <label>标题<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="不填则取正文第一行" /></label>}
-        <label>{kind === "progress" ? "刚刚发生了什么" : "内容"}<textarea autoFocus value={content} onChange={(event) => setContent(event.target.value)} rows={6} placeholder="一句话也可以，之后随时补充" /></label>
+        {kind !== "progress" && <label>标题<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`例如：${kind === "experiment" ? "温度消融实验" : kind === "question" ? "为什么验证集误差反而上升" : kind === "decision" ? "采用哪套评测指标" : "ParallelBench 论文"}`} /></label>}
+        <label>{kind === "progress" ? "刚刚发生了什么" : "一句摘要（可选）"}<textarea autoFocus={kind === "progress"} value={content} onChange={(event) => setContent(event.target.value)} rows={kind === "progress" ? 6 : 3} placeholder={kind === "progress" ? "一句话也可以，之后随时补充" : "这句话会显示在项目工作台；详细内容进入文档后再写"} /></label>
       </div>
-      <footer><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy || !content.trim()}>{busy ? "保存中…" : "保存记录"}</button></footer>
+      <footer><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy || (kind === "progress" ? !content.trim() : !title.trim())}>{busy ? "创建中…" : kind === "progress" ? "保存进展" : "创建并开始记录"}</button></footer>
     </form>
   </div>;
 }
