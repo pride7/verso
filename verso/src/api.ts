@@ -22,6 +22,8 @@ import type {
   SharedSpaceInfo,
   SharedSpaceAccess,
   SyncOutcome,
+  Suggestion,
+  ReviewOutcome,
   SyncResolution,
   TreeNode,
   VaultInfo,
@@ -243,6 +245,20 @@ export const api = {
   /** 冲突 UI 选完边之后：带着逐篇定稿重放同步。可能报出新一轮冲突 */
   vaultSyncResolve: (resolutions: SyncResolution[]) =>
     call<SyncOutcome>("vault_sync_resolve", { resolutions }),
+  /** 把尚未同步的本地版本提交成一批隔离的修改建议，并回到正式内容。 */
+  reviewSuggestionSubmit: (title: string) =>
+    call<Suggestion>("review_suggestion_submit", { title }),
+  /** 拉取共享空间里尚未处理的修改建议。 */
+  reviewSuggestionList: () => call<Suggestion[]>("review_suggestion_list"),
+  /** 比较一篇建议文件与它分叉时的正式版本。 */
+  reviewSuggestionDiff: (id: string, path: string) =>
+    call<FileDiff>("review_suggestion_diff", { id, path }),
+  /** accepted 以外的文件视为退回；重叠修改会返回现有三方冲突。 */
+  reviewSuggestionResolve: (
+    id: string,
+    accepted: string[],
+    resolutions: SyncResolution[] = [],
+  ) => call<ReviewOutcome>("review_suggestion_resolve", { id, accepted, resolutions }),
   /** 两段文本的逐行差异（纯计算）。冲突 UI 拿它对比本地与远端 */
   textDiff: (path: string, old: string, next: string) =>
     call<FileDiff>("text_diff", { path, old, new: next }),

@@ -15,7 +15,14 @@ use crate::error::Result;
 ///
 /// `attachments` 之所以硬编码在这里是临时的 —— M0 还没有配置系统，
 /// DESIGN.md §10.2 定了它可配置。等 config.json 落地后从配置读。
-const HIDDEN_DIRS: &[&str] = &[".verso", ".git", ".obsidian", "attachments", "node_modules"];
+const HIDDEN_DIRS: &[&str] = &[
+    ".verso",
+    ".verso-reviews",
+    ".git",
+    ".obsidian",
+    "attachments",
+    "node_modules",
+];
 
 /// 根目录里供 AI CLI 读取的仓库说明不是笔记，不进入文档树及其下游索引。
 /// 只匹配根目录：子目录里同名的文件仍可能是用户真正写的文档。

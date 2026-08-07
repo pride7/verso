@@ -101,7 +101,7 @@ pub struct SyncOutcome {
 
 /// 当前分支名。仓库还没有任何提交时 HEAD 指向一个不存在的分支，
 /// 那时 `shorthand()` 仍然给得出名字（`main`）
-fn branch_name(repo: &git2::Repository) -> String {
+pub(super) fn branch_name(repo: &git2::Repository) -> String {
     repo.head()
         .ok()
         .and_then(|h| h.shorthand().map(str::to_string))
@@ -192,7 +192,7 @@ pub fn ensure_remote_empty(root: &Path, token: Option<String>) -> Result<()> {
 /// **必须自己数尝试次数**：认证失败时 libgit2 会反复回调，而我们每次都回
 /// 同一份凭据的话就成了死循环（表现是同步按钮一直转、没有任何错误）。
 /// 数到头就返回错误，让它把「认证失败」原样抛上来。
-fn callbacks(token: Option<String>) -> git2::RemoteCallbacks<'static> {
+pub(super) fn callbacks(token: Option<String>) -> git2::RemoteCallbacks<'static> {
     let mut cb = git2::RemoteCallbacks::new();
     let tried = Cell::new(0u32);
     cb.credentials(move |url, username, allowed| {
@@ -291,7 +291,7 @@ pub fn clone_remote(url: &str, destination: &Path, token: Option<String>) -> Res
 ///
 /// 安卓的自定义传输层（transport.rs）里有一份同样口径的翻译 —— 那边的错误
 /// 不经过 libgit2 的 Http class，走不到这里。
-fn humanize(e: git2::Error) -> Error {
+pub(super) fn humanize(e: git2::Error) -> Error {
     let msg = e.message().to_string();
     let friendly = match e.class() {
         git2::ErrorClass::Http => {

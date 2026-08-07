@@ -10,7 +10,7 @@ import {
   unreadCollaborationEntries,
   writeSeenCommits,
 } from "../lib/collaboration";
-import type { FileChange, GitIdentity, HistoryEntry } from "../types";
+import type { FileChange, GitIdentity, HistoryEntry, Suggestion } from "../types";
 
 export interface DiffSelection {
   path: string;
@@ -32,6 +32,8 @@ interface Props {
   onRestore: (commit: string, path: string) => void;
   /** 撤销工作区里某个文件尚未记录的改动 */
   onDiscard: (file: FileChange) => void;
+  /** 打开一批待审阅的修改建议。 */
+  onReview: (suggestion: Suggestion) => void;
 }
 
 const KIND: Record<string, string> = {
@@ -181,9 +183,11 @@ export function HistoryView({
   onDiff,
   onRestore,
   onDiscard,
+  onReview,
 }: Props) {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [working, setWorking] = useState<FileChange[] | null>(null);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [onlyOthers, setOnlyOthers] = useState(false);
   const [unreadIds, setUnreadIds] = useState<Set<string>>(new Set());
@@ -294,6 +298,14 @@ export function HistoryView({
         return Promise.resolve([] as HistoryEntry[]);
       }
     };
+    const loadSuggestions = () => {
+      if (!collaborationEnabled) return Promise.resolve([] as Suggestion[]);
+      try {
+        return api.reviewSuggestionList().catch(() => [] as Suggestion[]);
+      } catch {
+        return Promise.resolve([] as Suggestion[]);
+      }
+    };
     void Promise.all([loadWorking(), loadHistory()]).then(([changes, entries]) => {
       if (!alive) return;
       setWorking(changes);
@@ -306,6 +318,12 @@ export function HistoryView({
       } else {
         setUnreadIds(new Set());
       }
+    });
+    // 待审阅需要走网络，不能让它卡住本地的当前改动与版本历史。
+    // 离线时这里安静退化为空；下一次打开动态或同步后再重试。
+    setSuggestions([]);
+    void loadSuggestions().then((pending) => {
+      if (alive) setSuggestions(pending);
     });
     return () => {
       alive = false;
@@ -367,6 +385,25 @@ export function HistoryView({
       />
 
       <section className="hist-section hist-records" aria-labelledby="history-title">
+        {suggestions.length > 0 && (
+          <section className="review-pending" aria-labelledby="review-pending-title">
+            <header className="hist-section-head">
+              <h3 id="review-pending-title">待审阅</h3>
+              <span>{suggestions.length}</span>
+            </header>
+            <ul>
+              {suggestions.map((suggestion) => (
+                <li key={suggestion.id}>
+                  <button onClick={() => onReview(suggestion)}>
+                    <strong>{suggestion.title}</strong>
+                    <span>{suggestion.authorName} · {relTime(suggestion.at, now)}</span>
+                    <small>{suggestion.files.length} 个文件 · +{suggestion.additions} −{suggestion.deletions}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         <header className="hist-section-head">
           <h3 id="history-title">活动记录</h3>
         </header>

@@ -277,6 +277,29 @@ export interface SyncOutcome {
   conflicts: ConflictFile[];
 }
 
+export interface SuggestionFile {
+  path: string;
+  previousPath: string | null;
+  kind: "added" | "modified" | "deleted" | "renamed";
+}
+
+export interface Suggestion {
+  id: string;
+  title: string;
+  authorName: string;
+  authorEmail: string | null;
+  at: number;
+  files: SuggestionFile[];
+  additions: number;
+  deletions: number;
+}
+
+export interface ReviewOutcome {
+  done: boolean;
+  conflicts: ConflictFile[];
+  warning: string | null;
+}
+
 export interface IndexStats {
   notes: number;
   links: number;

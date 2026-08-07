@@ -3155,6 +3155,46 @@ body.is-table-resizing * {
   font-size: 9px;
   font-weight: 700;
 }
+.review-pending {
+  margin: 4px 8px 10px;
+  padding: 4px 0 6px;
+  border: 1px solid color-mix(in oklch, var(--accent) 22%, var(--hairline));
+  border-radius: var(--r-md);
+  background: color-mix(in oklch, var(--accent) 4%, var(--surface));
+}
+.review-pending .hist-section-head {
+  padding-inline: 9px;
+}
+.review-pending > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 5px;
+}
+.review-pending li + li {
+  border-top: 1px solid var(--hairline);
+}
+.review-pending li > button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  padding: 7px 6px;
+  text-align: left;
+  border-radius: var(--r-sm);
+}
+.review-pending li > button:hover {
+  background: var(--hover-bg);
+}
+.review-pending strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-pending span,
+.review-pending small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
 /* 拖拽把手做得比视觉上的分隔线厚，否则很难对准 */
 .term-resizer {
   position: absolute;
@@ -7524,6 +7564,161 @@ body.is-row-resizing {
   color: var(--danger);
 }
 
+/* ---------- 修改建议审阅（§2.8 ReviewDialog） ---------- */
+
+.review-modal {
+  width: min(1080px, 95vw);
+  height: min(720px, 88vh);
+  max-height: 88vh;
+}
+.review-head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 17px 52px 14px 20px;
+  border-bottom: 1px solid var(--hairline);
+}
+.review-head > div {
+  min-width: 0;
+  flex: 1;
+}
+.review-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.review-head h2 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.review-head .modal-close {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+}
+.review-stats {
+  display: flex;
+  gap: 8px;
+  font: 600 11.5px var(--font-mono);
+}
+.review-stats .is-added {
+  color: var(--accent-ink);
+}
+.review-stats .is-deleted {
+  color: var(--danger);
+}
+.review-body {
+  display: grid;
+  grid-template-columns: minmax(230px, 30%) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.review-files {
+  min-width: 0;
+  padding: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--hairline);
+  background: var(--surface);
+}
+.review-file {
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+}
+.review-file + .review-file {
+  margin-top: 3px;
+}
+.review-file.is-selected {
+  border-color: color-mix(in oklch, var(--accent) 24%, var(--hairline));
+  background: var(--accent-wash);
+}
+.review-file-open {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px;
+  text-align: left;
+}
+.review-file-open > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+}
+.review-file-decision {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 4px;
+}
+.review-file-decision button {
+  padding: 4px 6px;
+  color: var(--muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  font-size: 10.5px;
+}
+.review-file-decision button.is-on {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+}
+.review-file-decision button.is-reject {
+  color: var(--danger);
+  border-color: color-mix(in oklch, var(--danger) 55%, var(--hairline));
+  background: color-mix(in oklch, var(--danger) 7%, transparent);
+}
+.review-diff {
+  min-width: 0;
+  overflow: auto;
+}
+.review-diff .diff-split,
+.review-diff .diff-unified {
+  padding: 14px;
+}
+.review-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--hairline);
+}
+.review-foot p {
+  flex: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.review-foot button {
+  padding: 6px 13px;
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+}
+.review-foot button:disabled {
+  opacity: 0.45;
+}
+.review-foot .review-submit {
+  color: var(--selected-text);
+  border-color: transparent;
+  background: var(--selected-bg);
+}
+
 /* ---------- 同步冲突解决（§2.8 ConflictView）---------- */
 
 .conflict-modal {
@@ -7767,6 +7962,25 @@ body.is-row-resizing {
 }
 
 @media (max-width: 640px) {
+  .review-modal {
+    width: 96vw;
+    height: 92vh;
+    max-height: 92vh;
+  }
+  .review-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(130px, 35%) minmax(0, 1fr);
+  }
+  .review-files {
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .review-foot {
+    flex-wrap: wrap;
+  }
+  .review-foot p {
+    flex-basis: 100%;
+  }
   /* 手机上左右两栏太挤，叠成上下 —— 点击选边的交互不变 */
   .conflict-hunk {
     grid-template-columns: 1fr;

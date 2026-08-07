@@ -795,6 +795,25 @@ mod commit_tests {
     }
 
     #[test]
+    fn review_records_are_versioned_but_hidden_from_content_activity() {
+        let dir = temp_vault();
+        std::fs::create_dir_all(dir.join(".verso-reviews")).unwrap();
+        std::fs::write(dir.join(".verso-reviews/review.json"), "{\n  \"version\": 1\n}\n").unwrap();
+        std::fs::write(dir.join("甲.md"), "正文\n").unwrap();
+        commit_all(&dir, Some("接受修改建议")).unwrap();
+
+        let entry = &history(&dir, 1).unwrap()[0];
+        assert_eq!(entry.files.len(), 1);
+        assert_eq!(entry.files[0].path, "甲.md");
+        assert_eq!((entry.additions, entry.deletions), (1, 0));
+
+        let repo = git2::Repository::open(&dir).unwrap();
+        let tree = repo.head().unwrap().peel_to_commit().unwrap().tree().unwrap();
+        assert!(tree.get_name(".verso-reviews").is_some(), "审阅结论必须随正式版本同步");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn history_of_a_repo_without_commits_is_empty_not_an_error() {
         let dir = std::env::temp_dir().join(format!("verso-git-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1333,28 +1352,37 @@ fn commit_files(repo: &git2::Repository, c: &git2::Commit) -> (Vec<FileChange>, 
         return (Vec::new(), 0, 0);
     };
 
-    let files = diff
-        .deltas()
-        .filter_map(|d| {
-            let path = d
-                .new_file()
-                .path()
-                .or_else(|| d.old_file().path())?
-                .to_string_lossy()
-                .into_owned();
-            let kind = match d.status() {
-                git2::Delta::Added => "added",
-                git2::Delta::Deleted => "deleted",
-                git2::Delta::Renamed => "renamed",
-                _ => "modified",
-            };
-            Some(FileChange { path, kind })
-        })
-        .collect();
-    let (additions, deletions) = diff
-        .stats()
-        .map(|stats| (stats.insertions(), stats.deletions()))
-        .unwrap_or((0, 0));
+    let mut files = Vec::new();
+    let mut additions = 0;
+    let mut deletions = 0;
+    for (index, delta) in diff.deltas().enumerate() {
+        let Some(path) = delta
+            .new_file()
+            .path()
+            .or_else(|| delta.old_file().path())
+            .map(|path| path.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        // 审阅结论是需要同步的团队事实，但不是用户笔记。活动流保留这次
+        // 「接受/退回」的提交说明，不把内部 JSON 假装成一篇文档或统计它的行数。
+        if path.starts_with(".verso-reviews/") {
+            continue;
+        }
+        let kind = match delta.status() {
+            git2::Delta::Added => "added",
+            git2::Delta::Deleted => "deleted",
+            git2::Delta::Renamed => "renamed",
+            _ => "modified",
+        };
+        files.push(FileChange { path, kind });
+        if let Ok(Some(patch)) = git2::Patch::from_diff(&diff, index) {
+            if let Ok((_, added, deleted)) = patch.line_stats() {
+                additions += added;
+                deletions += deleted;
+            }
+        }
+    }
     (files, additions, deletions)
 }
 

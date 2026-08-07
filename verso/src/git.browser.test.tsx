@@ -11,7 +11,7 @@ import { act } from "react";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ConflictFile, FileDiff, NoteContent, NoteRef, TreeNode, VaultInfo } from "./types";
+import type { ConflictFile, FileDiff, NoteContent, NoteRef, Suggestion, TreeNode, VaultInfo } from "./types";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -123,6 +123,28 @@ let settingsPatch: Record<string, unknown> = {};
 
 /** 配的远端。每条测试自己定 */
 let remoteUrl: string | null = "https://example.com/notes.git";
+let recentShared = false;
+let pendingSuggestions: Suggestion[] = [];
+const reviewSuggestionSubmit = vi.fn(async (title: string): Promise<Suggestion> => {
+  dirty = 0;
+  return {
+    id: "suggestion-1",
+    title,
+    authorName: "pride7",
+    authorEmail: "pride7@example.com",
+    at: NOW_S,
+    files: [{ path: "甲.md", previousPath: null, kind: "modified" }],
+    additions: 1,
+    deletions: 1,
+  };
+});
+const reviewSuggestionList = vi.fn(async () => pendingSuggestions);
+const reviewSuggestionDiff = vi.fn((id: string, path: string) => gitDiffFile(path, id));
+const reviewSuggestionResolve = vi.fn(async (_id: string, _accepted: string[], _resolutions: unknown[]) => ({
+  done: true,
+  conflicts: [],
+  warning: null,
+}));
 const vaultSync = vi.fn(async () => ({
   committed: null,
   pulled: 2,
@@ -175,6 +197,7 @@ vi.mock("./api", () => ({
     isMobile: async () => mobileFlag,
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
+    recentVaults: async () => [{ root: VAULT.root, name: VAULT.name, available: true, shared: recentShared }],
     openVault: async () => VAULT,
     tree: async () => [doc("甲", "甲.md")],
     listNotes: async () => [{ path: "甲.md", name: "甲" }] as NoteRef[],
@@ -242,6 +265,11 @@ vi.mock("./api", () => ({
     syncTokenHas: async () => false,
     vaultSync: () => vaultSync(),
     vaultSyncResolve: (resolutions: unknown) => vaultSyncResolve(resolutions),
+    reviewSuggestionSubmit: (title: string) => reviewSuggestionSubmit(title),
+    reviewSuggestionList: () => reviewSuggestionList(),
+    reviewSuggestionDiff: (id: string, path: string) => reviewSuggestionDiff(id, path),
+    reviewSuggestionResolve: (id: string, accepted: string[], resolutions: unknown[]) =>
+      reviewSuggestionResolve(id, accepted, resolutions),
     textDiff: (path: string, old: string, next: string) => textDiff(path, old, next),
     getSettings: async () => settingsPatch,
     setSettings: async (s: unknown) => s,
@@ -293,8 +321,14 @@ beforeEach(() => {
   closeNow.mockClear();
   settingsPatch = {};
   remoteUrl = "https://example.com/notes.git";
+  recentShared = false;
+  pendingSuggestions = [];
   vaultSync.mockClear();
   vaultSyncResolve.mockClear();
+  reviewSuggestionSubmit.mockClear();
+  reviewSuggestionList.mockClear();
+  reviewSuggestionDiff.mockClear();
+  reviewSuggestionResolve.mockClear();
   textDiff.mockClear();
   tokenSet.mockClear();
   confirmMock.mockReset();
@@ -810,6 +844,58 @@ describe("动态里的多人协作", () => {
     });
     expect(gitDiffFile).toHaveBeenCalledWith("甲.md", "aaa");
     expect(document.querySelector(".diff-view")?.textContent).toContain("AI 修改后");
+  });
+
+  it("共享空间把待审阅建议放在动态顶部，并能打开审阅", async () => {
+    recentShared = true;
+    pendingSuggestions = [{
+      id: "suggestion-1",
+      title: "补充实验结论",
+      authorName: "林",
+      authorEmail: "lin@example.com",
+      at: NOW_S - 60,
+      files: [{ path: "甲.md", previousPath: null, kind: "modified" }],
+      additions: 4,
+      deletions: 1,
+    }];
+    await mount();
+    await openPanel();
+
+    expect(document.querySelector(".review-pending")?.textContent).toContain("补充实验结论");
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".review-pending li > button")!.click();
+      await settle(180);
+    });
+    expect(document.querySelector(".review-modal")?.textContent).toContain("补充实验结论");
+    expect(reviewSuggestionDiff).toHaveBeenCalledWith("suggestion-1", "甲.md");
+  });
+});
+
+describe("修改建议", () => {
+  it("只在共享空间出现，提交成功后回到正式版本并明确提示", async () => {
+    recentShared = true;
+    dirty = 1;
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("调整论证");
+    await mount();
+    const button = [...document.querySelectorAll<HTMLButtonElement>(".status-git")]
+      .find((item) => item.textContent?.includes("提交建议"));
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.click();
+      await settle(400);
+    });
+    expect(reviewSuggestionSubmit).toHaveBeenCalledWith("调整论证");
+    expect(document.querySelector(".status-notice")?.textContent).toContain("已回到正式版本");
+    prompt.mockRestore();
+  });
+
+  it("私人空间即使有远端也不显示审阅入口", async () => {
+    recentShared = false;
+    await mount();
+    const button = [...document.querySelectorAll<HTMLButtonElement>(".status-git")]
+      .find((item) => item.textContent?.includes("提交建议"));
+    expect(button).toBeFalsy();
   });
 });
 

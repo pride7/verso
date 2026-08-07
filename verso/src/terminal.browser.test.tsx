@@ -135,8 +135,13 @@ async function mount() {
   root = createRoot(host);
   await act(async () => {
     root!.render(<App />);
-    // PTY 是异步起的（还要等第一次真实布局），给足时间
-    await settle(700);
+    // PTY 是异步起的（还要等第一次真实布局）。跑完整 browser 套件时多个
+    // 文件并发争 CPU，固定睡 700ms 偶尔会在 PTY 真正打开前就断言；等待可观察
+    // 的启动结果，既更快，也不会把机器负载误报成产品失败。
+    await settle(500);
+    if (localStorage.getItem("verso.termOpen") === "1") {
+      for (let i = 0; i < 20 && opened === 0; i++) await settle(100);
+    }
   });
 }
 

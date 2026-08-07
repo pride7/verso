@@ -1371,6 +1371,63 @@ fn vault_sync_resolve(
     sync_and_reindex(&state, &map)
 }
 
+fn review_access(state: &State<'_, AppState>) -> Result<(std::path::PathBuf, Option<String>)> {
+    let (root, url) = state.with_vault(|vault| {
+        Ok((
+            vault.root.clone(),
+            vault::sync::remote_get(&vault.root)?.url.unwrap_or_default(),
+        ))
+    })?;
+    Ok((root, token_for_remote(&url)))
+}
+
+#[tauri::command]
+fn review_suggestion_list(state: State<'_, AppState>) -> Result<Vec<vault::review::Suggestion>> {
+    let (root, token) = review_access(&state)?;
+    vault::review::list(&root, token)
+}
+
+#[tauri::command]
+fn review_suggestion_submit(
+    state: State<'_, AppState>,
+    title: String,
+) -> Result<vault::review::Suggestion> {
+    let (root, token) = review_access(&state)?;
+    let suggestion = vault::review::submit(&root, token, &title)?;
+    // 提交建议后工作区会回到共享正式版本，树、搜索和当前页都要重读。
+    rebuild_index(&state);
+    Ok(suggestion)
+}
+
+#[tauri::command]
+fn review_suggestion_diff(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> Result<vault::git::FileDiff> {
+    let (root, token) = review_access(&state)?;
+    vault::review::diff(&root, token, &id, &path)
+}
+
+#[tauri::command]
+fn review_suggestion_resolve(
+    state: State<'_, AppState>,
+    id: String,
+    accepted: Vec<String>,
+    resolutions: Vec<SyncResolution>,
+) -> Result<vault::review::ReviewOutcome> {
+    let (root, token) = review_access(&state)?;
+    let resolutions = resolutions
+        .into_iter()
+        .map(|resolution| (resolution.path, resolution.content))
+        .collect();
+    let outcome = vault::review::resolve(&root, token, &id, &accepted, &resolutions)?;
+    if outcome.done {
+        rebuild_index(&state);
+    }
+    Ok(outcome)
+}
+
 fn sync_and_reindex(
     state: &State<'_, AppState>,
     resolutions: &std::collections::HashMap<String, Option<String>>,
@@ -1494,6 +1551,10 @@ pub fn run() {
             sync_token_has,
             vault_sync,
             vault_sync_resolve,
+            review_suggestion_list,
+            review_suggestion_submit,
+            review_suggestion_diff,
+            review_suggestion_resolve,
             text_diff,
             workspace_get,
             workspace_set,

@@ -60,7 +60,7 @@ function Cell({ line, side }: { line: DiffLine | null; side: "old" | "new" }) {
   );
 }
 
-function SplitDiff({ diff }: { diff: FileDiff }) {
+export function SplitDiff({ diff }: { diff: FileDiff }) {
   return (
     <div className="diff-split" aria-label="左右差异对照">
       <div className="diff-pane-head">之前</div>
@@ -80,7 +80,7 @@ function SplitDiff({ diff }: { diff: FileDiff }) {
   );
 }
 
-function UnifiedDiff({ diff }: { diff: FileDiff }) {
+export function UnifiedDiff({ diff }: { diff: FileDiff }) {
   return (
     <div className="diff-unified" aria-label="单列差异">
       {diff.hunks.map((hunk, hunkIndex) => (

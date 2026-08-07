@@ -6,6 +6,7 @@ pub mod github;
 pub mod note;
 pub mod order;
 pub mod ops;
+pub mod review;
 pub mod schema;
 pub mod secret;
 pub mod share;

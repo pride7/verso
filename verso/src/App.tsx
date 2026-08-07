@@ -22,6 +22,7 @@ import { OutlineFloat, OutlineView, useActiveHeading } from "./components/Outlin
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { SearchView } from "./components/SearchView";
 import { ConflictView } from "./components/ConflictView";
+import { ReviewDialog } from "./components/ReviewDialog";
 import { MoveTargetPicker } from "./components/MoveTargetPicker";
 import { SettingsPanel, type Tab as SettingsTab } from "./components/SettingsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
@@ -85,6 +86,7 @@ import type {
   NoteRef,
   SharePreview,
   SharedSpaceInfo,
+  Suggestion,
   SyncOutcome,
   SyncResolution,
   TreeNode,
@@ -923,6 +925,10 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   /** 同步撞上的冲突。非 null 时弹 ConflictView，选完边重放同步（§2.8） */
   const [conflicts, setConflicts] = useState<ConflictFile[] | null>(null);
+  /** 正在看的修改建议，以及冲突面板重放时必须保留的建议上下文。 */
+  const [reviewing, setReviewing] = useState<Suggestion | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewConflict, setReviewConflict] = useState<{ id: string; accepted: string[] } | null>(null);
   /** 正在提交。挡住重入：自动提交和手动点可能撞在一起 */
   const committing = useRef(false);
 
@@ -1175,10 +1181,81 @@ export default function App() {
     }
   }, [syncing, saveNow, handleSyncOutcome]);
 
+  /** Git 在后台换过正式内容后，把树、当前页和动态一起对齐。 */
+  const refreshAfterReview = useCallback(async () => {
+    refreshGit();
+    await refresh();
+    setRevision((value) => value + 1);
+    const cur = noteRef.current;
+    if (!cur || dirtyRef.current) return;
+    try {
+      const content = await api.readNote(cur.path);
+      setNote(content);
+      setBody(content.body);
+      savedMtime.current = content.mtimeMs;
+      setSaveState("saved");
+      setExternalChange(false);
+    } catch {
+      const index = tabsRef.current.tabs.indexOf(cur.path);
+      if (index >= 0) {
+        forgetTab(cur.path);
+        await applyTabs(closeTab(tabsRef.current, index));
+      }
+    }
+  }, [applyTabs, forgetTab, refresh, refreshGit]);
+
+  /** 把本地尚未同步的版本隔离成一批建议；成功后工作区回到正式版本。 */
+  const submitSuggestion = useCallback(async () => {
+    if (reviewBusy || syncing) return;
+    const fallback = noteRef.current?.title ? `修改《${noteRef.current.title}》` : "一批修改";
+    const title = window.prompt("这批修改建议做了什么？", fallback)?.trim();
+    if (!title) return;
+    setReviewBusy(true);
+    try {
+      if (dirtyRef.current && !(await saveNow())) return;
+      await api.reviewSuggestionSubmit(title);
+      await refreshAfterReview();
+      setNotice("修改建议已提交；当前内容已回到正式版本");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [reviewBusy, syncing, saveNow, refreshAfterReview]);
+
+  const finishReview = useCallback(
+    async (suggestion: Suggestion, accepted: string[], resolutions: SyncResolution[] = []) => {
+      if (reviewBusy || syncing) return;
+      setReviewBusy(true);
+      try {
+        const out = await api.reviewSuggestionResolve(suggestion.id, accepted, resolutions);
+        if (out.conflicts.length > 0) {
+          setReviewConflict({ id: suggestion.id, accepted });
+          setConflicts(out.conflicts);
+          return;
+        }
+        setReviewConflict(null);
+        setConflicts(null);
+        setReviewing(null);
+        await refreshAfterReview();
+        setNotice(out.warning ?? (accepted.length > 0 ? "审阅完成，接受的内容已进入正式版本" : "审阅完成，这批建议已退回"));
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setReviewBusy(false);
+      }
+    },
+    [reviewBusy, syncing, refreshAfterReview],
+  );
+
   /** 冲突 UI 的提交按钮：带着逐篇定稿重放同步（§2.8） */
   const resolveConflicts = useCallback(
     async (resolutions: SyncResolution[]) => {
-      if (syncing) return;
+      if (reviewConflict && reviewing) {
+        await finishReview(reviewing, reviewConflict.accepted, resolutions);
+        return;
+      }
+      if (syncing || reviewBusy) return;
       setSyncing(true);
       try {
         const out = await api.vaultSyncResolve(resolutions);
@@ -1191,7 +1268,7 @@ export default function App() {
         setSyncing(false);
       }
     },
-    [syncing, handleSyncOutcome],
+    [reviewConflict, reviewing, finishReview, syncing, reviewBusy, handleSyncOutcome],
   );
 
   /** 配远端。改完立刻重问一次 —— needsToken 会跟着 URL 变 */
@@ -2509,6 +2586,17 @@ export default function App() {
         run: () => void syncNow(),
       },
       {
+        id: "vault.suggest",
+        group: "仓库",
+        label: "提交修改建议…",
+        enabled:
+          !!remote?.url &&
+          recentVaults.some((item) => item.root === vault?.root && item.shared) &&
+          !syncing &&
+          !reviewBusy,
+        run: () => void submitSuggestion(),
+      },
+      {
         id: "vault.commitNamed",
         group: "仓库",
         label: "记一个版本并写说明…",
@@ -2571,6 +2659,11 @@ export default function App() {
     settings.terminalMention,
     updateSettings,
     vault,
+    recentVaults,
+    remote,
+    syncing,
+    reviewBusy,
+    submitSuggestion,
     openSettings,
   ]);
 
@@ -2838,6 +2931,7 @@ export default function App() {
                 onDiff={(selection) => void openDiff(selection)}
                 onRestore={(commit, path) => void restoreFile(commit, path)}
                 onDiscard={(file) => void discardWorkingFile(file)}
+                onReview={setReviewing}
               />
             )}
             {sidebarView === "outline" &&
@@ -3098,6 +3192,17 @@ export default function App() {
             {syncing ? "同步中…" : "同步"}
           </button>
         )}
+        {remote?.url && recentVaults.some((item) => item.root === vault.root && item.shared) && (
+          <button
+            className={`status-git${reviewBusy ? " is-busy" : ""}`}
+            onClick={() => void submitSuggestion()}
+            disabled={reviewBusy || syncing}
+            title="把本地变化交给其他成员审阅，不直接进入正式版本"
+          >
+            <Icon name="people" size={13} />
+            {reviewBusy ? "处理中…" : "提交建议"}
+          </button>
+        )}
         {(updater.state.phase === "found" ||
           updater.state.phase === "downloading" ||
           updater.state.phase === "ready") && (
@@ -3142,11 +3247,23 @@ export default function App() {
         <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
       )}
 
+      {reviewing && (
+        <ReviewDialog
+          suggestion={reviewing}
+          busy={reviewBusy}
+          onClose={() => !reviewBusy && setReviewing(null)}
+          onSubmit={(accepted) => void finishReview(reviewing, accepted)}
+        />
+      )}
+
       {conflicts && (
         <ConflictView
           conflicts={conflicts}
-          busy={syncing}
-          onCancel={() => setConflicts(null)}
+          busy={syncing || reviewBusy}
+          onCancel={() => {
+            setConflicts(null);
+            setReviewConflict(null);
+          }}
           onSubmit={(r) => void resolveConflicts(r)}
         />
       )}
