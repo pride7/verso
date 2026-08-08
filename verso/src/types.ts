@@ -59,6 +59,24 @@ export interface GitHubAccount {
   login: string;
 }
 
+/** GitHub App 设备授权的短期会话。access token 永远不会来到前端。 */
+export interface GitHubDeviceAuthorization {
+  /** 只在这次授权轮询中使用，页面关闭后即丢弃。 */
+  deviceCode: string;
+  userCode: string;
+  verificationUri: string;
+  /** GitHub 要求的最小轮询间隔（秒）。 */
+  interval: number;
+  expiresIn: number;
+}
+
+/** 一次 Device Flow 轮询的无敏感结果。 */
+export interface GitHubDevicePoll {
+  account: GitHubAccount | null;
+  /** GitHub 要求额外等待的秒数；只在限流时非零。 */
+  retryAfter: number;
+}
+
 export interface SharedSpaceInfo {
   root: string;
   name: string;

@@ -11,7 +11,13 @@ import {
   type UpdateApi,
 } from "../lib/update";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
-import type { GitHubAccount, GitIdentity, RemoteInfo } from "../types";
+import type {
+  GitHubAccount,
+  GitHubDeviceAuthorization,
+  GitHubDevicePoll,
+  GitIdentity,
+  RemoteInfo,
+} from "../types";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
 import {
@@ -41,6 +47,8 @@ interface Props {
   githubAccount: GitHubAccount | null;
   githubChecking: boolean;
   onGitHubCheck: () => void;
+  onGitHubDeviceBegin: () => Promise<GitHubDeviceAuthorization>;
+  onGitHubDevicePoll: (deviceCode: string) => Promise<GitHubDevicePoll>;
   onGitHubConnect: (token: string) => Promise<GitHubAccount>;
   onGitHubDisconnect: () => Promise<void>;
   /** §7.7：直接打开 vault 根目录里真实的 AGENTS.md，不维护第二份副本 */
@@ -214,6 +222,8 @@ function SyncSettings({
   onTokenChange,
   onIdentityChange,
   onGitHubCheck,
+  onGitHubDeviceBegin,
+  onGitHubDevicePoll,
   onGitHubConnect,
   onGitHubDisconnect,
 }: {
@@ -226,6 +236,8 @@ function SyncSettings({
   onTokenChange: (token: string) => void;
   onIdentityChange: (name: string, email: string) => void;
   onGitHubCheck: () => void;
+  onGitHubDeviceBegin: () => Promise<GitHubDeviceAuthorization>;
+  onGitHubDevicePoll: (deviceCode: string) => Promise<GitHubDevicePoll>;
   onGitHubConnect: (token: string) => Promise<GitHubAccount>;
   onGitHubDisconnect: () => Promise<void>;
 }) {
@@ -236,6 +248,10 @@ function SyncSettings({
   const [githubToken, setGitHubToken] = useState("");
   const [githubBusy, setGitHubBusy] = useState(false);
   const [githubError, setGitHubError] = useState<string | null>(null);
+  const [deviceAuthorization, setDeviceAuthorization] = useState<GitHubDeviceAuthorization | null>(null);
+  const [deviceMessage, setDeviceMessage] = useState<string | null>(null);
+  const devicePollRef = useRef<number | null>(null);
+  const deviceRequestRef = useRef(false);
   const [name, setName] = useState(identity?.name ?? "");
   const [email, setEmail] = useState(identity?.email ?? "");
   useEffect(() => setUrl(remote?.url ?? ""), [remote?.url]);
@@ -247,10 +263,95 @@ function SyncSettings({
   const identityDirty =
     name.trim() !== (identity?.name ?? "") || email.trim() !== (identity?.email ?? "");
 
+  function stopDevicePolling() {
+    if (devicePollRef.current !== null) {
+      window.clearTimeout(devicePollRef.current);
+      devicePollRef.current = null;
+    }
+  }
+
+  useEffect(() => stopDevicePolling, []);
+
+  const openExternalPage = (url: string) => {
+    // `openUrl` 走系统默认浏览器；在 browser test / 纯网页预览里 import 失败也不影响
+    // 链接打不开时不要把它伪装成 GitHub 授权或设置保存失败。
+    void import("@tauri-apps/plugin-opener")
+      .then(({ openUrl }) => openUrl(url))
+      .catch(() => window.open(url, "_blank", "noopener,noreferrer"));
+  };
+
+  const openDevicePage = (authorization: GitHubDeviceAuthorization) =>
+    openExternalPage(authorization.verificationUri);
+
+  function scheduleDevicePolling(authorization: GitHubDeviceAuthorization, delaySeconds: number) {
+    stopDevicePolling();
+    devicePollRef.current = window.setTimeout(
+      () => pollDeviceConnection(authorization),
+      Math.max(1, delaySeconds) * 1000,
+    );
+  }
+
+  function pollDeviceConnection(authorization: GitHubDeviceAuthorization) {
+    if (deviceRequestRef.current) return;
+    deviceRequestRef.current = true;
+    setGitHubBusy(true);
+    setGitHubError(null);
+    void onGitHubDevicePoll(authorization.deviceCode)
+      .then((result) => {
+        if (result.account) {
+          stopDevicePolling();
+          setDeviceAuthorization(null);
+          setDeviceMessage(null);
+        } else {
+          setDeviceMessage(
+            result.retryAfter > 0
+              ? `GitHub 要求稍候，${authorization.interval + result.retryAfter} 秒后会再检查。`
+              : "正在等待 GitHub 确认；完成授权后会自动继续检查。",
+          );
+          // 只有本次请求结束后才安排下一次，避免固定 interval 与手动检查重叠，
+          // 也能严格遵守 GitHub 在 slow_down 时额外给出的等待时间。
+          scheduleDevicePolling(authorization, authorization.interval + result.retryAfter);
+        }
+      })
+      .catch((error) => {
+        // 过期、取消或网络错误都要离开验证码态；一直留着一张无法继续的卡片
+        // 比报错更像是界面死掉了，也让用户不知道该重新开始。
+        stopDevicePolling();
+        setDeviceAuthorization(null);
+        setDeviceMessage(null);
+        setGitHubError((error as Error).message);
+      })
+      .finally(() => {
+        deviceRequestRef.current = false;
+        setGitHubBusy(false);
+      });
+  }
+
+  const beginDeviceConnection = () => {
+    stopDevicePolling();
+    setGitHubBusy(true);
+    setGitHubError(null);
+    setDeviceMessage(null);
+    void onGitHubDeviceBegin()
+      .then((authorization) => {
+        setDeviceAuthorization(authorization);
+        openDevicePage(authorization);
+        // 自动检查之外也提供明确的手动入口：用户在网页确认后，不需要猜是继续
+        // 等待还是点哪里。轮询是串行的，绝不会并发叠加。
+        scheduleDevicePolling(authorization, authorization.interval);
+        setGitHubBusy(false);
+      })
+      .catch((error) => {
+        setGitHubError((error as Error).message);
+        setGitHubBusy(false);
+      });
+  };
+
   return (
     <div className="set-sync">
       <p className="set-note">
-        GitHub 账号只需连接一次，当前空间同步、快速创建共享空间和邀请成员都会复用。
+        GitHub 账号在这台设备上连接一次即可；每个空间仍分别设置仓库地址，访问范围由 GitHub App
+        安装时选择的仓库决定。
       </p>
 
       <h3 className="set-section">GitHub 连接</h3>
@@ -258,54 +359,95 @@ function SyncSettings({
         <div className="set-account-card">正在检查 GitHub 连接…</div>
       ) : githubAccount ? (
         <div className="set-account-card">
-          <span><Icon name="check" size={14} /> 已连接 <strong>@{githubAccount.login}</strong></span>
-          <button
-            className="set-save"
-            disabled={githubBusy}
-            onClick={() => {
-              setGitHubBusy(true);
-              setGitHubError(null);
-              void onGitHubDisconnect()
-                .catch((error) => setGitHubError((error as Error).message))
-                .finally(() => setGitHubBusy(false));
-            }}
-          >
-            断开
-          </button>
+          <div className="set-account-summary">
+            <span><Icon name="check" size={14} /> 已连接 <strong>@{githubAccount.login}</strong></span>
+            <small>账号连接不会自动开放所有仓库；请在 GitHub 中选择 Verso 可访问的仓库。</small>
+          </div>
+          <div className="set-account-actions">
+            <button className="btn-quiet" onClick={() => openExternalPage("https://github.com/settings/installations")}>
+              管理仓库授权
+            </button>
+            <button
+              className="set-save"
+              disabled={githubBusy}
+              onClick={() => {
+                setGitHubBusy(true);
+                setGitHubError(null);
+                void onGitHubDisconnect()
+                  .catch((error) => setGitHubError((error as Error).message))
+                  .finally(() => setGitHubBusy(false));
+              }}
+            >
+              断开
+            </button>
+          </div>
         </div>
       ) : (
         <div className="set-row set-sync-stack-row">
           <div className="set-label">
             <span>连接 GitHub</span>
             <span className="set-hint">
-              在 GitHub App 设备授权上线前，暂时使用 fine-grained token 连接一次；需要
-              Contents 与 Administration 写权限，凭据只保存在这台设备。
+              通过 Verso GitHub App 授权一次，之后同步、创建共享空间和邀请成员都会复用；
+              凭据只保存在这台设备。
             </span>
           </div>
           <div className="set-control">
-            <input
-              type="password"
-              className="set-text"
-              aria-label="GitHub 连接令牌"
-              value={githubToken}
-              placeholder="github_pat_…"
-              autoComplete="off"
-              onChange={(event) => setGitHubToken(event.target.value)}
-            />
-            <button
-              className="set-save"
-              disabled={!githubToken.trim() || githubBusy}
-              onClick={() => {
-                setGitHubBusy(true);
-                setGitHubError(null);
-                void onGitHubConnect(githubToken.trim())
-                  .then(() => setGitHubToken(""))
-                  .catch((error) => setGitHubError((error as Error).message))
-                  .finally(() => setGitHubBusy(false));
-              }}
-            >
-              {githubBusy ? "正在连接…" : "连接"}
-            </button>
+            {deviceAuthorization ? (
+              <div className="set-device-code" aria-live="polite">
+                <span>在浏览器中确认 GitHub 授权</span>
+                <strong aria-label="GitHub 验证码">{deviceAuthorization.userCode}</strong>
+                <div className="set-device-actions">
+                  <button className="set-save" onClick={() => openDevicePage(deviceAuthorization)}>
+                    打开 GitHub
+                  </button>
+                  <button
+                    className="btn-quiet"
+                    onClick={() => {
+                      stopDevicePolling();
+                      setDeviceAuthorization(null);
+                      setDeviceMessage(null);
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+                {deviceMessage && <small>{deviceMessage}</small>}
+              </div>
+            ) : (
+              <div className="set-github-connect-actions">
+                <button className="set-save set-github-connect" disabled={githubBusy} onClick={beginDeviceConnection}>
+                  {githubBusy ? "正在准备…" : "在 GitHub 中连接"}
+                </button>
+                <details className="set-sync-token-fallback">
+                  <summary>使用个人访问令牌</summary>
+                  <div className="set-token-fallback-control">
+                    <input
+                      type="password"
+                      className="set-text"
+                      aria-label="GitHub 连接令牌"
+                      value={githubToken}
+                      placeholder="github_pat_…"
+                      autoComplete="off"
+                      onChange={(event) => setGitHubToken(event.target.value)}
+                    />
+                    <button
+                      className="set-save"
+                      disabled={!githubToken.trim() || githubBusy}
+                      onClick={() => {
+                        setGitHubBusy(true);
+                        setGitHubError(null);
+                        void onGitHubConnect(githubToken.trim())
+                          .then(() => setGitHubToken(""))
+                          .catch((error) => setGitHubError((error as Error).message))
+                          .finally(() => setGitHubBusy(false));
+                      }}
+                    >
+                      连接
+                    </button>
+                  </div>
+                </details>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -599,6 +741,8 @@ export function SettingsPanel({
   onTokenChange,
   onIdentityChange,
   onGitHubCheck,
+  onGitHubDeviceBegin,
+  onGitHubDevicePoll,
   onGitHubConnect,
   onGitHubDisconnect,
   agentsDocAvailable,
@@ -1116,6 +1260,8 @@ export function SettingsPanel({
               onTokenChange={onTokenChange}
               onIdentityChange={onIdentityChange}
               onGitHubCheck={onGitHubCheck}
+              onGitHubDeviceBegin={onGitHubDeviceBegin}
+              onGitHubDevicePoll={onGitHubDevicePoll}
               onGitHubConnect={onGitHubConnect}
               onGitHubDisconnect={onGitHubDisconnect}
             />

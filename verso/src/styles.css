@@ -8116,13 +8116,98 @@ textarea:focus-visible {
   background: var(--surface);
   font-size: 12px;
 }
-.set-account-card > span {
+.set-account-summary {
+  min-width: 0;
+}
+.set-account-summary > span {
   display: flex;
   align-items: center;
   gap: 6px;
 }
+.set-account-summary > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
 .set-account-card strong {
   color: var(--text);
+}
+.set-account-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+/* Device Flow 是一次短暂确认，不该喧宾夺主地长成第二个设置面板。验证码与操作
+   收成一行，状态另起一条，既容易扫到也不给用户「卡在一张大卡片里」的感觉。 */
+.set-device-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.set-device-code > span {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.set-device-code > strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 17px;
+  letter-spacing: .06em;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+}
+.set-device-actions,
+.set-token-fallback-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-device-code > small {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.set-github-connect-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.set-github-connect {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  color: var(--accent);
+}
+.set-sync-token-fallback {
+  margin: 0;
+}
+.set-sync-token-fallback > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  list-style: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+}
+.set-sync-token-fallback > summary::-webkit-details-marker {
+  display: none;
+}
+.set-sync-token-fallback[open] {
+  flex-basis: 100%;
+}
+.set-token-fallback-control {
+  margin-top: 8px;
+}
+.set-token-fallback-control .set-text {
+  min-width: min(360px, 100%);
 }
 .set-sync-advanced {
   border: 1px solid var(--hairline);

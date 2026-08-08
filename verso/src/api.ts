@@ -9,6 +9,8 @@ import type {
   FileDiff,
   GitIdentity,
   GitHubAccount,
+  GitHubDeviceAuthorization,
+  GitHubDevicePoll,
   GitStatus,
   HistoryEntry,
   IndexStats,
@@ -98,6 +100,10 @@ export const api = {
   githubAccount: () => call<GitHubAccount | null>("github_account_get"),
   /** 首次连接时验证并安全保存 GitHub 令牌。 */
   githubConnect: (token: string) => call<GitHubAccount>("github_token_set", { token }),
+  /** GitHub App Device Flow：前端只拿短码，真实令牌始终留在 Rust 与系统凭据库。 */
+  githubDeviceBegin: () => call<GitHubDeviceAuthorization>("github_device_begin"),
+  githubDevicePoll: (deviceCode: string) =>
+    call<GitHubDevicePoll>("github_device_poll", { deviceCode }),
   githubDisconnect: () => call<void>("github_account_disconnect"),
   /** 默认共享流程：自动建私有仓库、邀请成员并迁移完整节点。 */
   shareNoteToGitHub: (input: {

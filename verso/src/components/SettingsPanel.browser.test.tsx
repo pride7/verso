@@ -45,6 +45,14 @@ function mountSettings(
       onTokenChange={() => {}}
       onIdentityChange={() => {}}
       onGitHubCheck={() => {}}
+      onGitHubDeviceBegin={async () => ({
+        deviceCode: "device-code",
+        userCode: "ABCD-EFGH",
+        verificationUri: "https://github.com/login/device",
+        interval: 5,
+        expiresIn: 900,
+      })}
+      onGitHubDevicePoll={async () => ({ account: null, retryAfter: 0 })}
       onGitHubConnect={async () => ({ login: "owner" })}
       onGitHubDisconnect={async () => {}}
       agentsDocAvailable={true}
@@ -290,17 +298,46 @@ describe("同步设置：提交署名", () => {
 describe("同步与共享：GitHub 连接", () => {
   const REMOTE = { url: "https://github.com/owner/notes.git", branch: "main", needsToken: true };
 
-  it("账号只在设置中连接一次，当前仓库凭据收进高级入口", async () => {
+  it("默认用 GitHub App 设备授权，个人令牌收进备用入口", async () => {
+    const begin = vi.fn(async () => ({
+      deviceCode: "device-code",
+      userCode: "ABCD-EFGH",
+      verificationUri: "https://github.com/login/device",
+      interval: 5,
+      expiresIn: 900,
+    }));
+    const poll = vi.fn(async () => ({ account: null, retryAfter: 0 }));
     const connect = vi.fn(async () => ({ login: "owner" }));
     const { host } = mountSettings("sync", {}, {
       remote: REMOTE,
       identity: { name: "林", email: "lin@example.com" },
+      onGitHubDeviceBegin: begin,
+      onGitHubDevicePoll: poll,
       onGitHubConnect: connect,
     });
     await settle();
 
-    expect(host.textContent).toContain("GitHub 账号只需连接一次");
+    expect(host.textContent).toContain("GitHub 账号在这台设备上连接一次即可");
     expect(host.querySelector<HTMLDetailsElement>(".set-sync-advanced")!.open).toBe(false);
+    // 主流程和备用令牌是并列操作；不能让 details 的默认 marker 把文字挤到另一条基线。
+    const connectButton = button(host, "在 GitHub 中连接");
+    const fallback = host.querySelector<HTMLElement>(".set-sync-token-fallback summary")!;
+    const connectBox = connectButton.getBoundingClientRect();
+    const fallbackBox = fallback.getBoundingClientRect();
+    expect(Math.abs(
+      connectBox.top + connectBox.height / 2 - (fallbackBox.top + fallbackBox.height / 2),
+    )).toBeLessThanOrEqual(1);
+    await userEvent.click(button(host, "在 GitHub 中连接"));
+    await settle();
+    expect(begin).toHaveBeenCalledOnce();
+    expect(host.textContent).toContain("ABCD-EFGH");
+    // 设备授权由串行轮询自动确认，完成网页操作后不需要再点一次「检查连接」。
+    expect([...host.querySelectorAll("button")].some((item) =>
+      item.textContent?.includes("检查连接"),
+    )).toBe(false);
+
+    await userEvent.click(button(host, "取消"));
+    await userEvent.click(host.querySelector<HTMLDetailsElement>(".set-sync-token-fallback summary")!);
     const token = host.querySelector<HTMLInputElement>('[aria-label="GitHub 连接令牌"]')!;
     await userEvent.fill(token, "secret");
     await userEvent.click(button(host, "连接"));
@@ -308,7 +345,7 @@ describe("同步与共享：GitHub 连接", () => {
     expect(connect).toHaveBeenCalledWith("secret");
   });
 
-  it("已连接时只显示账号与断开入口", async () => {
+  it("已连接时明确仓库授权范围，并保留管理与断开入口", async () => {
     const disconnect = vi.fn(async () => {});
     const { host } = mountSettings("sync", {}, {
       remote: REMOTE,
@@ -319,7 +356,9 @@ describe("同步与共享：GitHub 连接", () => {
     await settle();
 
     expect(host.textContent).toContain("@pride7");
+    expect(host.textContent).toContain("不会自动开放所有仓库");
     expect(host.querySelector('[aria-label="GitHub 连接令牌"]')).toBeNull();
+    expect(button(host, "管理仓库授权")).toBeTruthy();
     await userEvent.click(button(host, "断开"));
     expect(disconnect).toHaveBeenCalledOnce();
   });

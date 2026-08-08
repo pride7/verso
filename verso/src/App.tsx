@@ -1998,6 +1998,14 @@ export default function App() {
     return account;
   }, []);
 
+  const beginGitHubDevice = useCallback(() => api.githubDeviceBegin(), []);
+
+  const pollGitHubDevice = useCallback(async (deviceCode: string) => {
+    const result = await api.githubDevicePoll(deviceCode);
+    if (result.account) setGitHubAccount(result.account);
+    return result;
+  }, []);
+
   const disconnectGitHub = useCallback(async () => {
     await api.githubDisconnect();
     setGitHubAccount(null);
@@ -3572,6 +3580,8 @@ export default function App() {
           onTokenChange={(token) => void setToken(token)}
           onIdentityChange={(name, email) => void setGitIdentity(name, email)}
           onGitHubCheck={checkShareGitHub}
+          onGitHubDeviceBegin={beginGitHubDevice}
+          onGitHubDevicePoll={pollGitHubDevice}
           onGitHubConnect={connectGitHub}
           onGitHubDisconnect={disconnectGitHub}
           agentsDocAvailable={!!vault}

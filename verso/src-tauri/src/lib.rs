@@ -286,7 +286,7 @@ fn shared_space_access(root: &std::path::Path) -> Result<SharedSpaceAccess> {
             warning: Some("这个空间的成员由远端服务管理，Verso 无法自动核对".into()),
         });
     }
-    let Some(token) = token_for_remote(&url) else {
+    let Some(token) = token_for_remote(&url)? else {
         return Ok(SharedSpaceAccess {
             members: cached.members,
             pending: Vec::new(),
@@ -331,7 +331,7 @@ fn shared_space_member_invite(space_root: String, username: String) -> Result<Sh
     if !vault::github::is_github_url(&url) {
         return Err(Error::Vault("这个空间的成员需要到远端服务中管理".into()));
     }
-    let token = token_for_remote(&url)
+    let token = token_for_remote(&url)?
         .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
     vault::github::invite_to_url(&token, &url, &username)?;
     let access = shared_space_access(root)?;
@@ -353,7 +353,7 @@ fn shared_space_member_remove(space_root: String, username: String) -> Result<Sh
     if !vault::github::is_github_url(&url) {
         return Err(Error::Vault("这个空间的成员需要到远端服务中管理".into()));
     }
-    let token = token_for_remote(&url)
+    let token = token_for_remote(&url)?
         .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
     let account = vault::github::account(&token)?;
     if account
@@ -383,7 +383,12 @@ fn note_unshare(
 ) -> Result<SharedNoteResult> {
     let (shared, _) = Vault::open(std::path::PathBuf::from(space_root))?;
     let remote = vault::sync::remote_get(&shared.root)?;
-    let token = remote.url.as_deref().and_then(token_for_remote);
+    let token = remote
+        .url
+        .as_deref()
+        .map(token_for_remote)
+        .transpose()?
+        .flatten();
     let destination = vault::share::move_note_to_private(
         &shared,
         &note,
@@ -412,7 +417,12 @@ fn note_share_to_space(
 ) -> Result<SharedNoteResult> {
     let destination = std::path::PathBuf::from(&space_root);
     let remote = vault::sync::remote_get(&destination)?;
-    let token = remote.url.as_deref().and_then(token_for_remote);
+    let token = remote
+        .url
+        .as_deref()
+        .map(token_for_remote)
+        .transpose()?
+        .flatten();
     let destination = state.with_vault(|v| {
         vault::share::add_note_to(v, &note, &destination, token, &name, &email)
     })?;
@@ -429,7 +439,7 @@ fn note_share_to_space(
 /// 已连接的 GitHub 账号。令牌本身永远不回到前端。
 #[tauri::command]
 fn github_account_get() -> Result<Option<vault::github::Account>> {
-    let Some(token) = vault::secret::token_get(vault::github::ACCOUNT_SECRET) else {
+    let Some(token) = vault::github::connected_token()? else {
         return Ok(None);
     };
     vault::github::account(&token).map(Some)
@@ -444,6 +454,18 @@ fn github_token_set(token: String) -> Result<vault::github::Account> {
     Ok(account)
 }
 
+/// GitHub App Device Flow 的第一步。前端只拿到 15 分钟有效的短码，真正令牌不离开 Rust。
+#[tauri::command]
+fn github_device_begin() -> Result<vault::github::DeviceAuthorization> {
+    vault::github::device_begin()
+}
+
+/// Device Flow 的轮询步骤：返回是否已完成与 GitHub 要求的额外等待时间；成功后安全保存账号。
+#[tauri::command]
+fn github_device_poll(device_code: String) -> Result<vault::github::DevicePoll> {
+    vault::github::device_poll(&device_code)
+}
+
 #[tauri::command]
 fn github_account_disconnect() -> Result<()> {
     vault::secret::token_set(vault::github::ACCOUNT_SECRET, "")
@@ -451,12 +473,14 @@ fn github_account_disconnect() -> Result<()> {
 
 /// GitHub.com 的账号连接同时服务普通同步和快速共享；其他托管服务仍使用
 /// 各自远端的窄权限凭据。已有的 per-remote Token 优先，避免改变旧配置语义。
-fn token_for_remote(url: &str) -> Option<String> {
-    vault::secret::token_get(url).or_else(|| {
-        vault::github::is_github_url(url)
-            .then(|| vault::secret::token_get(vault::github::ACCOUNT_SECRET))
-            .flatten()
-    })
+fn token_for_remote(url: &str) -> Result<Option<String>> {
+    if let Some(token) = vault::secret::token_get(url) {
+        return Ok(Some(token));
+    }
+    if vault::github::is_github_url(url) {
+        return vault::github::connected_token();
+    }
+    Ok(None)
 }
 
 fn shared_space_label(collaborators: &[String]) -> String {
@@ -501,7 +525,7 @@ fn note_share_github(
         .iter()
         .map(|username| vault::github::validate_username(username))
         .collect::<Result<Vec<_>>>()?;
-    let token = vault::secret::token_get(vault::github::ACCOUNT_SECRET)
+    let token = vault::github::connected_token()?
         .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
     let repository_name = vault::github::generated_repository_name();
     let label = shared_space_label(&collaborators);
@@ -1496,7 +1520,7 @@ fn review_access(state: &State<'_, AppState>) -> Result<(std::path::PathBuf, Opt
             vault::sync::remote_get(&vault.root)?.url.unwrap_or_default(),
         ))
     })?;
-    Ok((root, token_for_remote(&url)))
+    Ok((root, token_for_remote(&url)?))
 }
 
 #[tauri::command]
@@ -1556,7 +1580,7 @@ fn sync_and_reindex(
             vault::sync::remote_get(&v.root)?.url.unwrap_or_default(),
         ))
     })?;
-    let token = token_for_remote(&url);
+    let token = token_for_remote(&url)?;
     let out = vault::sync::sync_with(&root, token, resolutions)?;
     if out.pulled > 0 {
         rebuild_index(state);
@@ -1614,6 +1638,8 @@ pub fn run() {
             note_unshare,
             github_account_get,
             github_token_set,
+            github_device_begin,
+            github_device_poll,
             github_account_disconnect,
             vault_recent_list,
             vault_recent_forget,
