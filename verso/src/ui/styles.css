@@ -5601,8 +5601,9 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: var(--tap);
-  min-height: 27px;
+  /* `max(...)` 而不是两行 min-height —— 原来那两行里后一行把令牌整个盖掉了，
+     于是大纲在手机上一直是 27px 的行（点击目标审计扫出来的） */
+  min-height: max(27px, var(--tap));
   text-align: left;
   /* 每层只让 12px：等级圆点已经说明结构，缩进不必再吃掉一大片标题宽度 */
   padding: 3px 7px 3px calc(7px + var(--outline-indent));
@@ -6664,6 +6665,13 @@ textarea:focus-visible {
   padding: 6px 4px !important;
 }
 .dbview-plus button {
+  /* 17×17 的加号在手机上点不中（审计扫出来的）。它嵌在表头那一行里，
+     按「行内次要图标」的 32 算，不是 44 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(21px, var(--tap-sm));
+  min-height: max(21px, var(--tap-sm));
   color: var(--muted);
   line-height: 0;
   padding: 2px;
@@ -7727,6 +7735,13 @@ textarea:focus-visible {
   font-size: 12.5px;
 }
 .dbv-cal-bar button {
+  /* 翻月和「今天」是日历上最常按的三个键，而它们只有 25×29（审计扫出来的）。
+     嵌在工具条那一行里，按行内次要图标的 32 算 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(25px, var(--tap-sm));
+  min-height: max(25px, var(--tap-sm));
   padding: 3px 6px;
   border-radius: var(--r-xs);
   color: var(--muted);
@@ -8981,10 +8996,16 @@ body.is-row-resizing {
   gap: 6px;
   flex: 1;
   min-width: 0;
+  min-height: var(--tap);
   padding: 3px 4px;
   text-align: left;
   font-size: 12px;
   color: var(--text);
+}
+/* 桌面上这一行只有 21px，靠基线对齐把「改了」那个小标签压在文字上；
+   撑到一根手指之后基线对齐会让整行文字贴着上沿，所以触摸屏上改成居中 */
+:root[data-touch="on"] .hist-file {
+  align-items: center;
 }
 .hist-file:disabled {
   color: var(--muted);

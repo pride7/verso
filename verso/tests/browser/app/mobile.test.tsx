@@ -34,6 +34,35 @@ const doc = (name: string, path: string): TreeNode => ({
 /** 平台能力开关（目录选择器、终端…）。视口归 page.viewport 管，这个归它管 */
 let mobileFlag = false;
 
+/**
+ * 当前笔记的正文与属性。**每条测试自己决定** —— 点击目标的审计要把各个屏
+ * 都摆到手机上量一遍（属性条、数据库三视图、大纲…），而它们全都取决于
+ * 正文里有什么。`beforeEach` 会还原成这份默认值。
+ */
+const PLAIN_BODY = "正文，够长一点，好看出正文列有没有被挤没。\n";
+let noteBody = PLAIN_BODY;
+let noteFrontmatter: Record<string, unknown> = {};
+let noteFrontmatterText: string | null = null;
+
+/** 数据库视图的查询结果。审计看板 / 日历时换成有内容的那一份 */
+let viewResult: {
+  columns: string[];
+  rows: { path: string; title: string; props: Record<string, string> }[];
+  view: string;
+  groupBy: string | null;
+  properties: { key: string; type: string }[];
+} = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
+
+/** 论文清单那批行，表格 / 看板 / 日历三种视图共用 */
+const VIEW_ROWS = [
+  { path: "论文/甲.md", title: "奇异值分解的数值方法", props: { status: "在读", 读于: "2026-03-04" } },
+  { path: "论文/乙.md", title: "Attention Is All You Need", props: { status: "已读", 读于: "2026-03-11" } },
+];
+const VIEW_PROPS = [
+  { key: "status", type: "string" },
+  { key: "读于", type: "date" },
+];
+
 /** 容器目录里现有的仓库（§2.1）。手机上的列表来自磁盘，不是「打开过的」 */
 let LOCAL_VAULTS: { root: string; name: string; available: boolean; shared: boolean }[] = [
   { root: "/storage/emulated/0/Verso/默认", name: "默认", available: true, shared: false },
@@ -55,20 +84,22 @@ vi.mock("../../../src/host/api", () => ({
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
-    tree: async () => [doc("甲", "甲.md"), doc("乙", "乙.md")],
+    tree: async () => [doc("甲", "甲.md"), doc("乙", "乙.md"), doc("每日", "模板/每日.md")],
     listNotes: async () =>
       [
         { path: "甲.md", name: "甲" },
         { path: "乙.md", name: "乙" },
+        // 模板面板的内容来自 noteList 里 `模板/` 打头的那些（pickTemplates）
+        { path: "模板/每日.md", name: "每日" },
       ] as NoteRef[],
     readNote: async (path: string) =>
       ({
         path,
         id: null,
         title: path.replace(/\.md$/, ""),
-        frontmatter: {},
-        frontmatterText: null,
-        body: "正文，够长一点，好看出正文列有没有被挤没。\n",
+        frontmatter: noteFrontmatter,
+        frontmatterText: noteFrontmatterText,
+        body: noteBody,
         mtimeMs: 0,
       }) as NoteContent,
     writeNote: async () => 0,
@@ -78,11 +109,19 @@ vi.mock("../../../src/host/api", () => ({
     renameNote: async () => "",
     moveNote: async () => "",
     deleteNote: async () => {},
-    search: async () => [],
-    backlinks: async () => [],
-    allTags: async () => [],
-    notesByTag: async () => [],
-    viewQuery: async () => ({ columns: [], rows: [], view: "table", groupBy: null }),
+    search: async () => [
+      { path: "甲.md", title: "甲", snippet: "……<mark>正文</mark>，够长一点……" },
+      { path: "乙.md", title: "乙", snippet: "……另一处<mark>正文</mark>……" },
+    ],
+    backlinks: async () => [{ path: "乙.md", title: "乙", line: 3, text: "见 [[甲]]" }],
+    allTags: async () =>
+      [
+        ["论文", 2],
+        ["论文/综述", 1],
+        ["待读", 1],
+      ] as [string, number][],
+    notesByTag: async () => [{ path: "甲.md", name: "甲" }],
+    viewQuery: async () => viewResult,
     propSet: async () => {},
     propRename: async () => {},
     propSchema: async () => ({}),
@@ -100,7 +139,19 @@ vi.mock("../../../src/host/api", () => ({
       lastAt: null,
     }),
     gitCommit: async () => null,
-    gitHistory: async () => [],
+    gitHistory: async () => [
+      {
+        id: "c1",
+        message: "整理甲的实验记录",
+        detail: "",
+        authorName: "我",
+        authorEmail: "me@example.com",
+        at: 1_770_000_000,
+        files: [{ path: "甲.md", kind: "modified" }],
+      },
+    ],
+    gitWorkingChanges: async () => [{ path: "乙.md", kind: "modified" }],
+    reviewSuggestionList: async () => [],
     syncRemoteGet: async () => ({ url: null, branch: "main", needsToken: false }),
     syncTokenHas: async () => false,
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
@@ -147,6 +198,10 @@ async function mount() {
 beforeEach(async () => {
   localStorage.clear();
   mobileFlag = false;
+  noteBody = PLAIN_BODY;
+  noteFrontmatter = {};
+  noteFrontmatterText = null;
+  viewResult = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
   // headless Chromium 报的是 `hover: hover`，尺寸令牌那一套在这里不会自己
   // 生效。真机上由 main.tsx 按指针能力**同步**打上（编辑器第一帧就要读它
   // 决定抢不抢焦点），这里补一份，否则量到的是「桌面尺寸的手机」
@@ -974,6 +1029,10 @@ describe("手机上的点击目标", () => {
     // 中心都点不到 = 这会儿它被浮层盖着（抽屉、命令面板…），本来就不该点得到，
     // 不在这一轮的范围里。不先过这一关的话，开着弹窗时满屏元素全会被误报
     if (!at(el, cx, cy)) return "covered";
+    // 骑在屏幕边上的（宽表格最右边那一列的「加一列」）：中心点得到、角点在
+    // 屏幕外。这同样不是尺寸问题 —— 滑一下它就整个进来了。`at()` 把「屏幕外」
+    // 和「被盖住」都算成点不中，不先挑出来的话这类会被报成「太小」
+    if (r.left < 0 || r.top < 0 || r.right > PHONE.w || r.bottom > PHONE.h) return "offscreen";
     // 横向滚动条里滚出去了一半的东西（设置的分类栏、标签条）：那不是尺寸
     // 问题，滑一下就整个露出来。按现在露出来的这一截去量只会误报
     for (let p = el.parentElement; p; p = p.parentElement) {
@@ -991,6 +1050,26 @@ describe("手机上的点击目标", () => {
     return ok ? "ok" : "small";
   }
 
+  /** 第一个点不中的角上盖着的是谁。盒子本身够大时，答案就是原因 */
+  function blocker(el: HTMLElement, w: number, h: number) {
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    for (const [dx, dy] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      const x = cx + dx * (w / 2 - 1);
+      const y = cy + dy * (h / 2 - 1);
+      if (at(el, x, y)) continue;
+      const hit = document.elementFromPoint(x, y) as HTMLElement | null;
+      return ` ← 角上盖着 ${hit ? hit.className || hit.tagName : "屏幕外"}`;
+    }
+    return "";
+  }
+
   /** 屏幕上现在点得着的东西，够不着的挑出来 */
   function tooSmall() {
     const bad: string[] = [];
@@ -1006,7 +1085,10 @@ describe("手机上的点击目标", () => {
       if (probe(el, w, h) !== "small") continue;
       bad.push(
         `${Math.round(r.width)}x${Math.round(r.height)} (要 ${w}x${h}) ` +
-          `${el.className} ${el.getAttribute("aria-label") ?? el.textContent?.slice(0, 10) ?? ""}`,
+          `${el.className} ${el.getAttribute("aria-label") ?? el.textContent?.slice(0, 10) ?? ""}` +
+          // 盒子够大却还是点不中 = 有东西盖在角上。不报出来的话，看到
+          // 「32x32（要 32x32）」只会以为是测试写错了
+          `${blocker(el, w, h)}`,
       );
     }
     return bad;
@@ -1056,6 +1138,98 @@ describe("手机上的点击目标", () => {
     await mount();
     await openAction("设置");
     expect(document.querySelector(".settings")).toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  /**
+   * 侧栏那六个面板，一个一个量过去。
+   *
+   * 以前只量了文档树 —— 而「手机上不好使」这类报告从来不是某一个面板的事，
+   * 它是「哪儿都差一点」。清单靠人写必然有漏（看板和日历就是翻旧清单才
+   * 想起来的），所以这里改成把屏摆好、让机器扫。
+   */
+  for (const view of ["搜索", "标签", "模板", "动态", "大纲"]) {
+    it(`侧栏「${view}」里的每一行都够得着`, async () => {
+      // 大纲要有标题才有内容；顺手让所有面板都在有内容的状态下被量
+      noteBody = ["# 一级", "", "正文", "", "## 二级", "", "正文", ""].join("\n");
+      await mount();
+      await act(async () => {
+        document.querySelector<HTMLElement>(`.rail-btn[aria-label="${view}"]`)!.click();
+        await settle(400);
+      });
+      expect(document.querySelector(".sidebar"), "面板没打开，这条就白测了").toBeTruthy();
+      expect(tooSmall()).toEqual([]);
+    });
+  }
+
+  /**
+   * 正文里那些**长在编辑器内部**的东西。
+   *
+   * 它们的尺寸写在 CM6 的 theme 对象里，和侧栏那套 CSS 变量不是一个体系，
+   * 最容易漏。属性条是每篇笔记都有的第一行，数据库视图是 §2.6 的主场。
+   */
+  async function openNoteWith(body: string, frontmatter: Record<string, unknown> = {}) {
+    noteBody = body;
+    noteFrontmatter = frontmatter;
+    noteFrontmatterText = Object.keys(frontmatter).length
+      ? Object.entries(frontmatter)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join("\n")
+      : null;
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(400);
+    });
+  }
+
+  it("属性条上的每个入口都够得着", async () => {
+    await openNoteWith(PLAIN_BODY, { status: "在读", tags: "论文" });
+    expect(document.querySelector(".props"), "属性条没渲染出来").toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  for (const [label, spec, result] of [
+    ["表格", "view: table", { view: "table", groupBy: null }],
+    ["看板", "view: board\ngroup-by: status", { view: "board", groupBy: "status" }],
+    ["日历", "view: calendar\ndate-field: 读于", { view: "calendar", groupBy: null }],
+  ] as const) {
+    it(`正文里的 database「${label}」每个入口都够得着`, async () => {
+      viewResult = {
+        columns: ["title", "status", "读于"],
+        rows: VIEW_ROWS,
+        properties: VIEW_PROPS,
+        ...result,
+      };
+      // 前面要有一段正文：光标默认停在文档开头，而**光标在块里时视图会
+      // 露出源码**（viewBlock.test.ts 钉着这个行为）—— 块顶在第一行的话
+      // 量到的是一段代码，不是视图
+      await openNoteWith(
+        ["读的东西：", "", "```verso-view", 'from: "论文/*"', spec, "```", ""].join("\n"),
+      );
+      await act(async () => {
+        await settle(400);
+      });
+      expect(
+        document.querySelector(".dbview"),
+        `视图没渲染出来，这条就白测了：${document.querySelector(".cm-content")?.textContent?.slice(0, 80)}`,
+      ).toBeTruthy();
+      expect(tooSmall()).toEqual([]);
+    });
+  }
+
+  it("思维导图上的每个入口都够得着", async () => {
+    noteBody = ["# 根", "", "## 甲", "", "## 乙", ""].join("\n");
+    await mount();
+    await openAction("思维导图");
+    expect(document.querySelector(".mindmap"), "导图没打开，这条就白测了").toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("项目中心里的每个入口都够得着", async () => {
+    await mount();
+    await openAction("项目中心");
+    expect(document.querySelector(".project-center"), "项目中心没打开").toBeTruthy();
     expect(tooSmall()).toEqual([]);
   });
 
