@@ -1,6 +1,6 @@
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../styles.css";
 
@@ -26,7 +26,12 @@ const { ProjectDashboard } = await import("./ProjectDashboard");
 
 let root: Root | null = null;
 const tick = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
-afterEach(() => { root?.unmount(); root = null; document.body.innerHTML = ""; vi.clearAllMocks(); });
+// 视口是整个 Chromium 实例共享的，改完必须还原 —— 不还原的话，同一次运行里
+// 后跑的文件会在手机尺寸下跑，而它们的几何断言都是照桌面写的
+afterEach(async () => {
+  root?.unmount(); root = null; document.body.innerHTML = ""; vi.clearAllMocks();
+  await page.viewport(1440, 900);
+});
 
 describe("单项目总览", () => {
   it("默认只露三条进行中事项，并把当前状态保持在首屏", async () => {
@@ -111,6 +116,132 @@ describe("单项目总览", () => {
       expect.objectContaining({ type: "select", options: expect.arrayContaining(["复现中"]) }),
     );
     expect(apiMock.propSet).toHaveBeenCalledWith("项目/实验/实验 1.md", "status", "复现中");
+  });
+
+  it("分类可以删掉，文档留在文档树里", async () => {
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    expect(document.querySelectorAll(".project-record-group")).toHaveLength(4);
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
+    await userEvent.click(document.querySelector<HTMLButtonElement>('button[aria-label="删除分类实验"]')!);
+    // 非空分类要先说清楚文件不会被删，再让人按下去
+    expect(document.querySelector(".project-section-confirm p")?.textContent).toContain("5 篇文档仍留在文档树");
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-section-confirm .danger")!);
+    await tick();
+    expect(apiMock.propDefSet).toHaveBeenCalledWith("sections", { type: "multi" });
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目.md", "sections", "问题、决策、资料");
+    expect([...document.querySelectorAll(".project-record-group:not(.is-add) h3")].map((h) => h.textContent)).toEqual(["问题", "决策", "资料"]);
+  });
+
+  it("分类靠拖动排序，落点由指示线先说清楚", async () => {
+    const host = document.createElement("div");
+    host.id = "root";
+    document.body.appendChild(host);
+    root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
+
+    const cards = () => [...document.querySelectorAll<HTMLElement>(".project-record-group:not(.is-add)")];
+    const grip = cards()[3].querySelector<HTMLElement>(".project-section-grip")!;
+    expect(cards()[3].querySelector("h3")?.textContent).toBe("资料");
+    // 手柄必须自己关掉 touch-action，否则手机上按住拖只会把页面滚走
+    expect(getComputedStyle(grip).touchAction).toBe("none");
+
+    const from = grip.getBoundingClientRect();
+    const target = cards()[0].getBoundingClientRect();
+    const send = (type: string, x: number, y: number, on: EventTarget) =>
+      on.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, button: 0 }));
+    send("pointerdown", from.left + 5, from.top + 5, grip);
+    // 落在第一张卡片的左半边 = 插到它前面
+    send("pointermove", target.left + target.width * 0.2, target.top + 20, window);
+    await tick(20);
+    expect(cards()[0].classList.contains("is-drop-before")).toBe(true);
+    expect(cards()[3].classList.contains("is-dragging")).toBe(true);
+    send("pointerup", target.left + target.width * 0.2, target.top + 20, window);
+    await tick();
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目.md", "sections", "资料、实验、问题、决策");
+    expect(cards().map((card) => card.querySelector("h3")?.textContent)).toEqual(["资料", "实验", "问题", "决策"]);
+    expect(document.querySelector(".is-drop-before")).toBeNull();
+  });
+
+  it("窄屏单列时，前后关系按上下判断", async () => {
+    await page.viewport(390, 844);
+    const host = document.createElement("div");
+    host.id = "root";
+    document.body.appendChild(host);
+    root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
+
+    const cards = () => [...document.querySelectorAll<HTMLElement>(".project-record-group:not(.is-add)")];
+    // 先确认真的是单列：四张卡片左边缘一样、上边缘各不相同
+    const boxes = cards().map((card) => card.getBoundingClientRect());
+    expect(new Set(boxes.map((box) => Math.round(box.left))).size).toBe(1);
+    expect(new Set(boxes.map((box) => Math.round(box.top))).size).toBe(4);
+
+    const grip = cards()[0].querySelector<HTMLElement>(".project-section-grip")!;
+    const send = (type: string, x: number, y: number, on: EventTarget) =>
+      on.dispatchEvent(new PointerEvent(type, { pointerId: 9, clientX: x, clientY: y, bubbles: true, button: 0 }));
+    const start = grip.getBoundingClientRect();
+    send("pointerdown", start.left + 5, start.top + 5, grip);
+    // 拖到第三张卡片的下半边。此时 x 还落在卡片左半边 —— 按左右判断会得出
+    // 「插到它前面」，只有按上下判断才是「插到它后面」
+    send("pointermove", boxes[2].left + 30, boxes[2].bottom - 8, window);
+    await tick(20);
+    send("pointerup", boxes[2].left + 30, boxes[2].bottom - 8, window);
+    await tick();
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目.md", "sections", "问题、决策、实验、资料");
+  });
+
+  it("没有指针也能排序：手柄上按方向键", async () => {
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
+    const grip = document.querySelectorAll<HTMLElement>(".project-section-grip")[1];
+    grip.focus();
+    await userEvent.keyboard("{ArrowUp}");
+    await tick();
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目.md", "sections", "问题、实验、决策、资料");
+  });
+
+  it("可以自己加分类，新分类同样能建文档", async () => {
+    const custom = { ...project, frontmatter: { ...project.frontmatter, sections: ["实验", "复现"] } };
+    apiMock.createNote.mockImplementation(async (parent: string | null, title: string) => ({
+      path: parent ? `${parent.replace(/\.md$/, "")}/${title}.md` : `${title}.md`, title, id: null,
+    }));
+    const onOpen = vi.fn();
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={custom} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    expect([...document.querySelectorAll(".project-record-group h3")].map((h) => h.textContent)).toEqual(["实验", "复现"]);
+
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-section-new")!);
+    await userEvent.fill(document.querySelector<HTMLInputElement>('.project-section-add input')!, "实验");
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-section-add .primary")!);
+    expect(document.querySelector(".project-section-error")?.textContent).toBe("已经有同名分类了");
+    await userEvent.fill(document.querySelector<HTMLInputElement>('.project-section-add input')!, "会议");
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-section-add .primary")!);
+    await tick();
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目.md", "sections", "实验、复现、会议");
+
+    // 自定义分类进得了「记录」小窗，只是没有内置的建议结构
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-btn.primary")!);
+    await tick();
+    expect([...document.querySelectorAll(".project-kind-tabs button")].map((button) => button.textContent)).toEqual(["进展", "实验", "复现", "会议"]);
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-kind-tabs button")].find((button) => button.textContent === "复现")!);
+    await tick();
+    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("新建复现文档");
+    expect(document.querySelector(".project-template-choice")).toBeNull();
+    await userEvent.fill(document.querySelector<HTMLInputElement>(".project-dialog input")!, "跑通 baseline");
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-dialog footer .primary")!);
+    await tick(140);
+    expect(onOpen).toHaveBeenCalledWith("项目/复现/跑通 baseline.md");
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目/复现/跑通 baseline.md", "type", "复现");
   });
 
   it("记录整行打开文档，不再显示重复的进入箭头", async () => {

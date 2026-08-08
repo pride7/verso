@@ -2321,7 +2321,7 @@ export default function App() {
     }
     if (!isProject(current)) {
       const ok = await confirm(
-        `把「${current.title}」设为项目？\n\nVerso 会在同名目录里整理进展、实验、问题、决策和资料，正文不会被改动。`,
+        `把「${current.title}」设为项目？\n\nVerso 会在同名目录里整理进展，以及实验、问题、决策、资料这几类记录（分类可以自己增删），正文不会被改动。`,
         { title: "启用项目总览", okLabel: "设为项目", cancelLabel: "取消", kind: "info" },
       );
       if (!ok) return;

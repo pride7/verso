@@ -288,6 +288,14 @@ const PATHS = {
     </>
   ),
   /** 更多操作：触摸屏没有悬停，管理入口必须常显。 */
+  /** 拖动手柄：两列三行的点阵，是这个手势最通用的形状 */
+  grip: (
+    <>
+      {[[6, 5], [10, 5], [6, 8], [10, 8], [6, 11], [10, 11]].map(([cx, cy]) => (
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1" fill="currentColor" stroke="none" />
+      ))}
+    </>
+  ),
   more: (
     <>
       <circle cx="3.5" cy="8" r="1" fill="currentColor" stroke="none" />
