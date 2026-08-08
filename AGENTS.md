@@ -223,6 +223,42 @@ git push && git push origin v0.6.14
    `gh workflow run release.yml -f tag=v0.6.21 -f only=android` —— 只跑安卓
    那一半，不会因为桌面包重传同名资产而失败。
 
+## 目录结构
+
+前端按**「这段代码能不能搬到另一个端」**分层，不按「是组件还是工具函数」分：
+
+```text
+verso/
+  src/
+    core/     纯逻辑。不 import react / @codemirror / @tauri-apps，不碰 document / window
+    editor/   CodeMirror 6 那一层（live preview、snippet 引擎、表格操作…）
+    ui/       React 组件 + 全局 styles.css
+    host/     和宿主打交道：api.ts（Tauri 命令）、dialog、media、update
+    app/      App.tsx、main.tsx、应用级设置与外壳
+  tests/
+    unit/     纯 Node（vitest.config.ts）
+    browser/  真实 Chromium（vitest.browser.config.ts）
+  src-tauri/
+    src/vault/  平台无关的仓库核心，**一行 tauri 都没 import**
+    src/*.rs    Tauri 命令层（lib.rs 里 86 个 #[tauri::command]）
+```
+
+**为什么按这条线分**：将来要做鸿蒙版（ArkTS）。ArkUI 不是 React，CodeMirror
+也过不去 —— `ui/` 和 `editor/` 注定重写。真正能跨过去的只有两块：`src/core/`
+（纯 TS，ArkTS 是 TS 的受限方言）和 `src-tauri/src/vault/`（Rust 有
+`aarch64-unknown-linux-ohos` 这个 tier-2 target，可编成 .so 由 ArkTS 经 NAPI 调）。
+所以这两处的纯净度是**资产**，不是洁癖。
+
+`tests/unit/core/layering.test.ts` 把 core 的纯净度钉住了，它扫源码，
+带一份**只许变短**的欠账清单（现在是三处 `localStorage`）。靠约定守不住：
+加一个 `useState` 太顺手，而代价要到开第二个端时才显形。
+
+两条落地规则：
+
+- **测试按目录分，不按文件名后缀猜。** `tests/` 下的层次镜像 `src/`，
+  文件名里不再带 `.browser`
+- **`core/` 之外想用 `core/` 随便用**，反方向不行
+
 ## 构建与测试
 
 ```bash
@@ -245,7 +281,7 @@ pnpm test:browser              # 前端（真实 Chromium）：补全、live pre
 光标位置丢失**，用户点一个符号的代价是键盘弹上弹下一轮。
 
 桌面上完全看不出来（焦点回不回来无所谓，没有软键盘），所以这类问题只能靠
-「写的时候就知道」来防。`components/MathBar.tsx` 里每一个按钮都加了。
+「写的时候就知道」来防。`src/ui/MathBar.tsx` 里每一个按钮都加了。
 
 ### 安卓：libgit2 会拒绝共享存储里的仓库
 
@@ -297,7 +333,7 @@ app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动
 
 第 2 类只有**命中测试**抓得到：`document.elementFromPoint(x, y)` 拿到的是不是
 你以为的那个元素。查 z-index、查类名、看截图，三者都会告诉你「没问题」。
-`mobile.browser.test.tsx` 里有一条照着写。
+`tests/browser/app/mobile.test.tsx` 里有一条照着写。
 
 ### 安卓 release 包：见过一次没能复现的原生崩溃
 
@@ -386,7 +422,7 @@ border-box` 的勾选框，减掉 3px 边框再减掉 12px 内边距，内容盒
 `querySelector('svg')` 也找得到，**只有量它的 `getBoundingClientRect()`
 才看得出是 0**，截图上就是个空框。
 
-所以断言「图标画出来了」时别只断言元素存在，量一下宽度（`mindmap.browser.test.tsx`
+所以断言「图标画出来了」时别只断言元素存在，量一下宽度（`tests/browser/app/mindmap.test.tsx`
 里那条「框里有勾」就是这么写的）。
 
 ### 改窄屏布局时：视口是**整个浏览器实例共享的**
@@ -394,7 +430,7 @@ border-box` 的勾选框，减掉 3px 边框再减掉 12px 内边距，内容盒
 `page.viewport(390, 844)` 改的是那一个 Chromium 实例，不是当前这个测试文件的。
 `afterEach` 里不还原成 1440×900 的话，**同一次运行里后跑的文件会在手机尺寸下
 跑**，而它们的几何断言全是照桌面写的 —— 失败信息会指向一个完全无辜的文件。
-`mobile.browser.test.tsx` 里已经还原了，照着写。
+`tests/browser/app/mobile.test.tsx` 里已经还原了，照着写。
 
 ### 什么时候必须写 browser 测试
 
@@ -406,7 +442,7 @@ border-box` 的勾选框，减掉 3px 边框再减掉 12px 内边距，内容盒
 - tooltip / 补全面板的定位与裁剪
 - 块级 decoration 的**解析时序**（CM6 的语法解析是 view 建立后异步进行的）
 
-这类东西写进 `src/**/*.browser.test.ts`，由 `vitest.browser.config.ts` 用
+这类东西写进 `tests/browser/`，由 `vitest.browser.config.ts` 用
 Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2（Chromium
 内核），所以结论和应用里高度一致。
 
@@ -427,12 +463,12 @@ webview 里的 `dragstart` / `drop` 根本收不到。tauri-utils 的 `config.rs
 
 **要点：功能依赖浏览器和宿主之间的边界（拖放、剪贴板、文件、协议、窗口）时，
 先去 `tauri.conf.json` 和 Tauri 的 config 文档确认一遍默认值。** 没法自动测的，
-就在 `src/tauriConfig.test.ts` 里把配置钉住，并写清楚删掉它会坏什么。
+就在 `tests/unit/app/tauriConfig.test.ts` 里把配置钉住，并写清楚删掉它会坏什么。
 
 还有更下面一层够不着的：**合成器**。弹性 overscroll（橡皮筋）直接把整页平移
 再弹回来，`overflow` 和 `scrollTop` 都感知不到，headless 里根本不发生 ——
 作者报「界面上下左右都能滑、还回弹」，我按 DOM 滚动查了一整轮，量到的布局
-全是好的，因为布局本来就没错。这类只能钉声明（`pageScroll.browser.test.tsx`
+全是好的，因为布局本来就没错。这类只能钉声明（`tests/browser/app/pageScroll.test.tsx`
 钉的是 `overscroll-behavior`，不是行为）。
 
 ### App 级的 browser 测试要挂进 `#root`，走正常文档流
@@ -585,7 +621,7 @@ Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），
 - **注释用中文，写「为什么」不写「是什么」。** 代码本身说得清的不要重复。
   涉及设计决策的地方标注章节号，例如 `// §2.7 断电不能留下半个文件`。
 - **Rust 结构体跨 IPC 时加 `#[serde(rename_all = "camelCase")]`** —— 前端用
-  camelCase。`src/types.ts` 与 Rust 结构一一对应，改一边必须改另一边。
+  camelCase。`src/core/types.ts` 与 Rust 结构一一对应，改一边必须改另一边。
 - **业务代码只依赖 `VaultFs` trait，不直接用 `std::fs`。** 移动端要靠它换实现（§1.2）。
 - **任何来自前端的路径都要过 `Vault::resolve`**，它拒绝 `..` 和绝对路径。这是唯一的防线。
 - **交互不能假设有键盘。** 只能用快捷键完成的操作，必须有等价的可点击入口 —— 移动端要用。
@@ -610,7 +646,7 @@ Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），
 
 ## 终端相关的三个坑
 
-改 `src/components/TerminalPanel.tsx` / `src-tauri/src/pty.rs` 时会撞上。前两个
+改 `src/ui/TerminalPanel.tsx` / `src-tauri/src/pty.rs` 时会撞上。前两个
 都表现为「面板打开但一片空白」且不报任何错：
 
 1. **`term.onData` 必须在 `pty_open` 之前注册。** shell 启动时先发 DSR（`ESC[6n`），
@@ -633,7 +669,7 @@ Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），
 
 ## 改 snippet 时必须知道的三件事
 
-`src/editor/snippets/` 里的东西是这个项目的核心竞争力，改动前先读这三条：
+`src/core/snippets/` 里的东西是这个项目的核心竞争力，改动前先读这三条：
 
 1. **英文词形的触发词一定要带 `w`（词边界）。** 否则在公式里写 `point`
    会变成 `p\oint`、`print` 变成 `pr\int`。例外只有 `sr` `cb` `inv` `trn`
@@ -679,7 +715,7 @@ CodeMirror 自带的基础主题（同特异度靠源码顺序决胜，而它注
 
 `margin: 0 -14px` 会让行盒比 `.cm-content` 宽，编辑器出现横向滚动条，而
 **左侧色条恰好画在被推出可视区的那一段上** —— 表现是"竖线怎么调都看不见"，
-极难联想到是宽度问题。`callout.browser.test.ts` 里有两条断言钉死它：
+极难联想到是宽度问题。`tests/browser/editor/callout.test.ts` 里有两条断言钉死它：
 `.cm-scroller` 不许横向溢出，行盒左边缘不许越过 `.cm-content` 左边缘。
 
 ### 调这类细节时，量，不要盯着截图猜
@@ -689,7 +725,7 @@ CodeMirror 自带的基础主题（同特异度靠源码顺序决胜，而它注
 
 两个趁手的办法：
 
-- `visual.browser.test.tsx` 里有 2 倍放大的场景，专门看这类细节
+- `tests/browser/app/visual.test.tsx` 里有 2 倍放大的场景，专门看这类细节
 - 拿不准就做**决定性实验**：把半径调到 24px、把颜色调成纯红，一次就能
   分清"规则没生效"和"值不够显眼"
 
@@ -721,7 +757,7 @@ v0.5.38 踩的：给定宽表格的 `th` 加了 `overflow: hidden` 做截断，�
 
 **裁剪不改变 `getBoundingClientRect`**，所以几何量不出来，查 DOM 的测试也一路
 全绿。这类只能**钉声明**：`expect(getComputedStyle(th).overflow).not.toBe("hidden")`，
-并在注释里写清楚删掉它会坏什么（和 `pageScroll.browser.test.tsx` 钉
+并在注释里写清楚删掉它会坏什么（和 `tests/browser/app/pageScroll.test.tsx` 钉
 `overscroll-behavior` 是同一招）。
 
 规矩：**要截断就截里面那个具体元素，别截那个当定位基准的容器。**
@@ -739,7 +775,7 @@ v0.5.38 踩的：给定宽表格的 `th` 加了 `overflow: hidden` 做截断，�
 `scroller / content / line / arrow` 的 `getBoundingClientRect` 一起 dump，
 差值会直接指向原因。
 
-`visual.browser.test.tsx` 里有 2 倍放大的场景，专门看几个像素量级的细节。
+`tests/browser/app/visual.test.tsx` 里有 2 倍放大的场景，专门看几个像素量级的细节。
 
 ## 改设置相关代码时必须知道的三件事
 
@@ -760,7 +796,7 @@ v0.5.38 踩的：给定宽表格的 `th` 加了 `overflow: hidden` 做截断，�
 `viewBlock.ts` + `parseRefresh.ts`。曾经的症状是「打开笔记看到源码，点一下
 才渲染」，根因是 `EditorState.create` 那一刻文档还没解析。现在的方案是用
 ViewPlugin 监测语法树变化后派发 `parseAdvanced` effect 通知 StateField 重算，
-`viewBlock.browser.test.ts` 的 5 个测试在真实 Chromium 里钉住了这个行为。
+`tests/browser/editor/viewBlock.test.ts` 的 5 个测试在真实 Chromium 里钉住了这个行为。
 
 两条**已证伪**的思路不要重走 —— 它们会让视图彻底消失而不是晚出现，因为
 StateField 的更新顺序不保证语言字段已就绪，读到空树就等于算出空 decoration 集：
@@ -770,7 +806,7 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 
 ## 改 git 相关代码时必须知道的三件事
 
-`src-tauri/src/vault/git.rs` + `src/components/HistoryView.tsx` + App 里那段
+`src-tauri/src/vault/git.rs` + `src/ui/HistoryView.tsx` + App 里那段
 自动提交。DESIGN.md §2.8。
 
 1. **暂存要 `add_all` 加 `update_all` 两步。** 前者收新增和修改，后者才收得到
@@ -784,7 +820,7 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
    也挂不上去 —— 整个渲染函数直接崩。老测试里的 mock api 不会有新命令，
    于是加一个后端命令能把五个不相干的测试打挂。包住整个调用点，别只包 await。
 
-**顺带一条不限于 git 的：给 `src/api.ts` 加一个具名导出（不是往 `api` 对象里
+**顺带一条不限于 git 的：给 `src/host/api.ts` 加一个具名导出（不是往 `api` 对象里
 加方法），所有 App 级 browser 测试会当场挂掉**，报的是
 `does not provide an export named 'x'` —— 因为它们的 `vi.mock("./api", …)` 是
 工厂形式，工厂没返回的具名导出在 ESM 链接期就不存在了。加一个就得去那八九个

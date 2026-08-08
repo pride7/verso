@@ -9,11 +9,11 @@ import {
 } from "@codemirror/autocomplete";
 import type { Extension } from "@codemirror/state";
 
-import { rankNotes } from "../lib/fuzzy";
-import { applyCaret, slashItems, type SlashAction, type SlashItem } from "../lib/slash";
-import type { NoteRef } from "../types";
+import { rankNotes } from "../core/fuzzy";
+import { applyCaret, slashItems, type SlashAction, type SlashItem } from "../core/slash";
+import type { NoteRef } from "../core/types";
 
-export type { SlashAction } from "../lib/slash";
+export type { SlashAction } from "../core/slash";
 import { mathContextAt } from "./mathContext";
 
 /**

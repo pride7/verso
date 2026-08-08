@@ -13,10 +13,10 @@ import {
 import { EditorView, keymap } from "@codemirror/view";
 
 import { mathContextAt } from "../mathContext";
-import { DEFAULT_SNIPPETS } from "./defaults";
-import { expand, findTrigger, taboutTarget } from "./match";
+import { DEFAULT_SNIPPETS } from "../../core/snippets/defaults";
+import { expand, findTrigger, taboutTarget } from "../../core/snippets/match";
 import { activeTabstops, setTabstops, tabstopField } from "./tabstops";
-import { compileAll, type Snippet, type SnippetSpec } from "./types";
+import { compileAll, type Snippet, type SnippetSpec } from "../../core/snippets/types";
 
 /** 往前看多少个字符找触发词。最长的触发词也就十来个字符，64 绰绰有余 */
 const LOOKBEHIND = 64;

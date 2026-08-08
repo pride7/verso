@@ -24,10 +24,10 @@ dist-ssr
 *.sw?
 
 # 浏览器测试失败时的截图，是诊断产物不入库
-src/**/__screenshots__/
+tests/**/__screenshots__/
 
 # vitest 的诊断附件，不入库
 .vitest-attachments/
 
 # 视觉工作台的产物，是给人看的中间物，不入库
-src/**/__shots__/
+tests/**/__shots__/

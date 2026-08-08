@@ -9,7 +9,7 @@
  * Tauri 在 Windows 上用的是 WebView2，内核就是 Chromium，所以这里跑出来
  * 的结果和应用里高度一致。
  *
- * 与默认的 happy-dom 测试分开：`*.browser.test.ts` 只在这个配置里跑。
+ * 与默认的 happy-dom 测试分开：`tests/browser/` 下的只在这个配置里跑。
  */
 import { playwright } from "@vitest/browser-playwright";
 import react from "@vitejs/plugin-react";
@@ -18,7 +18,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   test: {
-    include: ["src/**/*.browser.test.{ts,tsx}"],
+    include: ["tests/browser/**/*.test.{ts,tsx}"],
     browser: {
       enabled: true,
       provider: playwright(),

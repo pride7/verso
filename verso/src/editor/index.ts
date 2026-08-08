@@ -13,7 +13,7 @@ import { EditorView, keymap, dropCursor, rectangularSelection } from "@codemirro
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 
-import type { NoteRef } from "../types";
+import type { NoteRef } from "../core/types";
 
 import { autoFence } from "./autoFence";
 import { codeBlocks } from "./codeBlock";
@@ -28,8 +28,8 @@ import { paragraphSpacing } from "./paragraphSpacing";
 import { imagePaste, type SaveImage } from "./paste";
 import { snippetEngine } from "./snippets";
 import { tables } from "./table";
-import { parseCustomSnippets } from "./snippets/custom";
-import type { SnippetSpec } from "./snippets/types";
+import { parseCustomSnippets } from "../core/snippets/custom";
+import type { SnippetSpec } from "../core/snippets/types";
 import { versoHighlighting, versoTheme } from "./theme";
 import { typography } from "./typography";
 import { viewBlocks } from "./viewBlock";

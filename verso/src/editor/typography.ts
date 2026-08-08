@@ -30,7 +30,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 
-import { latinRuns } from "../lib/hanspace";
+import { latinRuns } from "../core/hanspace";
 
 const both = Decoration.mark({ class: "cm-hs cm-hs-l cm-hs-r" });
 const left = Decoration.mark({ class: "cm-hs cm-hs-l" });
