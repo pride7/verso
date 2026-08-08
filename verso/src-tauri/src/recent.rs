@@ -202,19 +202,19 @@ mod tests {
     #[test]
     fn verbatim_windows_paths_are_cleaned_and_deduped() {
         let data = normalize(Recent {
-            last_vault: Some(r"\\?\D:\Documents\Verso\xsfeng".into()),
+            last_vault: Some(r"\\?\D:\Documents\Verso\笔记".into()),
             last_note: Some("today.md".into()),
             vaults: vec![
-                r"\\?\D:\Documents\Verso\xsfeng".into(),
-                r"D:\Documents\Verso\xsfeng".into(),
+                r"\\?\D:\Documents\Verso\笔记".into(),
+                r"D:\Documents\Verso\笔记".into(),
                 r"\\?\D:\Projects\notebook\test-vault".into(),
             ],
         });
         assert_eq!(
             data.vaults,
-            vec![r"D:\Documents\Verso\xsfeng", r"D:\Projects\notebook\test-vault"]
+            vec![r"D:\Documents\Verso\笔记", r"D:\Projects\notebook\test-vault"]
         );
-        assert_eq!(data.last_vault.as_deref(), Some(r"D:\Documents\Verso\xsfeng"));
+        assert_eq!(data.last_vault.as_deref(), Some(r"D:\Documents\Verso\笔记"));
         assert_eq!(data.last_note.as_deref(), Some("today.md"), "笔记路径不该被动");
     }
 }

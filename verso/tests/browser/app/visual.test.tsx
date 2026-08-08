@@ -223,7 +223,7 @@ vi.mock("../../../src/host/api", () => ({
       lastAt: Math.floor(Date.now() / 1000) - 900,
     }),
     gitCommit: async () => null,
-    gitIdentityGet: async () => ({ name: "pride7", email: "xsfeng07@gmail.com" }),
+    gitIdentityGet: async () => ({ name: "pride7", email: "pride7@example.com" }),
     gitIdentitySet: async (name: string, email: string) => ({ name, email }),
     // 作者字段不能省：`isOwnEntry` 要用它区分「我改的」和「别人改的」，
     // 缺了会直接把 HistoryView 抛崩（而崩了只表现为那个面板不见了）
@@ -233,7 +233,7 @@ vi.mock("../../../src/host/api", () => ({
         message: "更新「线性代数」",
         detail: "",
         authorName: "pride7",
-        authorEmail: "xsfeng07@gmail.com",
+        authorEmail: "pride7@example.com",
         at: Math.floor(Date.now() / 1000) - 900,
         files: [{ path: "数学/线性代数.md", kind: "modified" }],
         additions: 12,
@@ -255,7 +255,7 @@ vi.mock("../../../src/host/api", () => ({
       },
     ],
     syncRemoteGet: async () => ({
-      url: "https://github.com/xsfeng/notes.git",
+      url: "https://github.com/pride7/notes.git",
       branch: "main",
       needsToken: true,
     }),

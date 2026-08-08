@@ -312,9 +312,9 @@ class=Config (7); code=Owner (-36)` —— git 的 dubious-ownership 保护
 
 **手机连 USB 打开调试之后**，整个循环是：`scripts/android-apk.ps1` →
 `adb install -r <apk>` → `adb logcat -c` → `adb shell am start -n
-app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比让作者手动传包
-装包快一个数量级。**别用 `adb exec-out screencap` 去看界面** —— 那是作者
-正在用的私人手机，截到的可能是任何东西；要验证就查文件系统。
+app.verso.desktop/.MainActivity` → `adb logcat -d | grep`。比手动传包装包快
+一个数量级。**别用 `adb exec-out screencap` 去看界面** —— 连着的是一台日常
+在用的手机，截到的可能是任何东西；要验证就查文件系统。
 
 ### 手机上「界面在那儿但点不动」的两种成因
 
@@ -398,8 +398,8 @@ curl -s http://127.0.0.1:9222/json/list          # 拿 webSocketDebuggerUrl
 
 `getComputedStyle`、`getBoundingClientRect`、`elementFromPoint` 全都能问。
 「抽屉打不开」那个 bug 就是这么一次定位的：DOM 里在、类名对、position 和
-z-index 全对，一量高度是 0。**光看截图永远查不出来**，而截屏还会拍到作者
-正在用的私人手机。
+z-index 全对，一量高度是 0。**光看截图永远查不出来**，而截屏还会拍到那台
+日常在用的手机上的任何东西。
 
 ### 绝对定位的网格子元素，包含块是它那一格网格区域
 
@@ -517,9 +517,9 @@ ParserError —— 看起来像脚本坏了，其实是壳选错了。
 
 ### ⚠️ 不要用 `cargo check`
 
-这台机器开着 **Smart App Control**（`HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy`
-的 `VerifiedAndReputablePolicyState = 1`），它会拦截新编译出的、没有信誉记录的
-未签名可执行文件。
+**Windows 的 Smart App Control 开着的时候**（Win11 默认对新机器开启），它会
+拦截新编译出的、没有信誉记录的未签名可执行文件。开发环境属于这一类，所以
+下面这条对所有开着 SAC 的机器都成立。
 
 `cargo check` 与 `cargo build` 的 fingerprint 不同，会为 `libgit2-sys` 生成一个
 **全新的** `build-script-build.exe`，随即被拦，报
@@ -527,8 +527,8 @@ ParserError —— 看起来像脚本坏了，其实是壳选错了。
 
 `cargo test` / `cargo build` 复用已经成功执行过的构建脚本产物，不受影响 ——
 **用它们代替 `cargo check`**。若 `cargo clean` 之后连 build 也被拦，那才需要
-跟作者讨论（关闭 Smart App Control 是不可逆的，关掉后不重装 Windows 就开不回来，
-这个决定不该由 agent 做）。
+跟作者讨论（**关闭 Smart App Control 是不可逆的** —— 关掉后不重装 Windows
+就开不回来，这个决定不该由 agent 做）。
 
 **首次执行的拦截往往是临时的，先重试一次再下结论。** v0.5.3 改名后新生成的
 `verso.exe` 第一次运行被拦（os error 4551），第二次就正常了 —— SAC 在向云端
@@ -571,26 +571,27 @@ Rust 是 scoop 装的，`RUSTUP_HOME` / `CARGO_HOME` 指向 scoop 的 persist �
 （`pnpm tauri dev` 会以 `failed to run 'cargo metadata'` 的形式报出来）。补：
 
 ```powershell
-$env:RUSTUP_HOME = 'D:\Scoop\persist\rustup-msvc\.rustup'
-$env:CARGO_HOME  = 'D:\Scoop\persist\rustup-msvc\.cargo'
-$env:Path = "D:\Scoop\apps\rustup-msvc\current\.cargo\bin;$env:Path"
+# <SCOOP> 换成本机的 scoop 根目录（`scoop prefix rustup-msvc` 能问出来）
+$env:RUSTUP_HOME = '<SCOOP>\persist\rustup-msvc\.rustup'
+$env:CARGO_HOME  = '<SCOOP>\persist\rustup-msvc\.cargo'
+$env:Path = "<SCOOP>\apps\rustup-msvc\current\.cargo\bin;$env:Path"
 ```
 
 ### ⚠️ 不要截屏来验证 UI
 
 **别写「抓屏幕上某块区域」的脚本。** 试过一次，`SetForegroundWindow` 没能把
 Verso 提到前台（Windows 有前台锁，后台进程调它经常无效），于是抓到的是当时
-盖在上面的另一个应用 —— 作者的微信聊天窗口。截图工具会拍到作者屏幕上任何
-东西，这个风险不该由 agent 去承担。
+盖在上面的另一个应用 —— 一个和 Verso 毫无关系的聊天窗口。截图工具会拍到
+屏幕上任何东西，这个风险不该由 agent 去承担。
 
 要验证行为，用 `pnpm test:browser`：Playwright 起的是独立的 headless Chromium，
 只画自己的页面，既能复现问题又碰不到屏幕上的任何东西。
 
 如果确实需要看画面（比如调排版），请作者自己截图发过来。
 
-另外记一笔历史教训：这台机器 DPI 缩放是 2×，`GetWindowRect` 返回逻辑坐标而
+另外记一笔历史教训：高 DPI 缩放（比如 2×）下 `GetWindowRect` 返回逻辑坐标而
 `PrintWindow` 按设备像素绘制。当初没先调 `SetProcessDpiAwarenessContext(-4)`，
-位图开小了只截到左上角四分之一，**被我误判成「布局错乱」报给了作者**。
+位图开小了只截到左上角四分之一，**被我误判成「布局错乱」报了出去**。
 截图这条路既容易拍错东西，又容易看错东西。
 
 ## 不可动摇的东西
@@ -827,13 +828,12 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 mock 里各补一行。所以能挂在 `api` 对象上的就别单独导出；确实要单独导出的
 （`onXxx` 这类事件监听），改完记得 `pnpm test:browser` 全跑一遍。
 
-### git2 的 `ssh` 特性会让二进制在这台机器上跑不起来
+### git2 的 `ssh` 特性会让二进制在开着 SAC 的 Windows 上跑不起来
 
 打开 `features = ["ssh"]` 之后，`cargo test` 报
 **`应用程序控制策略已阻止此文件 (os error 4551)`** —— 是 Windows 的
-Smart App Control（这台机器 `VerifiedAndReputablePolicyState = 1`，强制模式）
-拦掉了链进 libssh2 的那个未签名二进制。换目录、换文件名都没用，它认的是文件
-本身。只留 `["https"]` 就一切正常。
+Smart App Control（见上一节）拦掉了链进 libssh2 的那个未签名二进制。
+换目录、换文件名都没用，它认的是文件本身。只留 `["https"]` 就一切正常。
 
 所以同步只做 https + 令牌。**别再顺手把 ssh 加回去** —— 它不会编译失败，
 会在测试运行的那一刻才炸，而错误信息完全不像是依赖引起的。
