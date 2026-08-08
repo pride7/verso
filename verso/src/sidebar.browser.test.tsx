@@ -250,6 +250,35 @@ async function fire(target: HTMLElement, type: string, init: Record<string, unkn
   });
 }
 
+describe("图标栏", () => {
+  /**
+   * 「动态」曾经是六个面板里唯一一个没有默认键位的 —— v0.5.45 把它加进命令表
+   * 时就漏了，之后一直没人发现。这类遗漏在界面上完全看不出来：图标在、点得动、
+   * 面板也正常打开，只有想用快捷键的人会发现按不出来。所以按规则钉住：
+   * **每一个侧栏面板都必须advertise 一个快捷键**，而不是逐条列出键位。
+   */
+  it("图标栏上每个开关都有默认快捷键", async () => {
+    await mountApp();
+    // 六个面板 + 源码模式 / 思维导图 / 项目中心 / 终端，都是 aria-pressed 的开关
+    const rails = [...document.querySelectorAll<HTMLElement>(".rail-btn[aria-pressed]")];
+    expect(rails.length).toBeGreaterThanOrEqual(9);
+    // 键位提示由 `hint()` 拼成「名字 (键)」；终端那条后面还接了右键说明，
+    // 所以只要求括号出现过，不要求它在末尾
+    const missing = rails.filter((button) => !/\(.+\)/.test(button.title)).map((button) => button.title);
+    expect(missing, "这些入口没有快捷键").toEqual([]);
+  });
+
+  it("动态用 Mod+Shift+H 打开", async () => {
+    await mountApp();
+    expect(el(".sidebar-head")!.textContent).toBe("文档");
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "h", code: "KeyH", ctrlKey: true, shiftKey: true, bubbles: true }));
+      await settle(120);
+    });
+    expect(el(".sidebar-head")!.textContent).toBe("动态");
+  });
+});
+
 describe("侧栏头部", () => {
   // 之前视图名、vault 名、排序下拉框、新建按钮四样挤在一行里，
   // 一个原生 <select> 就吃掉小一半宽度

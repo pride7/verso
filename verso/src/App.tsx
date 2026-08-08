@@ -2556,7 +2556,12 @@ export default function App() {
       {
         id: "vault.history",
         group: "仓库",
-        label: "版本历史",
+        // 图标栏和侧栏标题都叫「动态」（v0.7.11 起它不止是版本历史，还有
+        // 协作者的活动）—— 命令面板里再叫「版本历史」，搜「动态」就找不到它
+        label: "动态",
+        // 侧栏那几个面板都是 Mod+Shift+字母（树 E、搜索 F、标签 T、大纲 O、
+        // 模板 M），动态取 H（History）。它是唯一一个一直漏掉键位的面板
+        defaultKeys: "Mod+Shift+H",
         run: () => pickView("history"),
       },
       {
