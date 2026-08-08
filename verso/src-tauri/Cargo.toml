@@ -2,7 +2,8 @@
 name = "verso"
 version = "0.7.28"
 description = "本地优先、排版考究、公式输入极快的笔记软件"
-authors = ["xsfeng"]
+authors = ["pride7"]
+license = "Apache-2.0"
 edition = "2021"
 
 [lib]
