@@ -14,6 +14,13 @@
  *    每滑一次都会弹出一个变体面板。
  * 3. **`←` `→` 常驻在最右边，不跟着分页滑走。** 它替代的是 Tab 键，而 Tab
  *    在任何一页上都要能按到。
+ *
+ * ## 为什么只有一行
+ *
+ * 分页标签原来单占一行，整条 82px。手机上底部本来就叠着好几条，那一行是
+ * 其中最容易省的：**页名平时不需要看见**，只有想换一页时才需要。于是它收成
+ * 行首一个胶囊（写着当前页名），点开才列出全部页。换页从一下变成两下，
+ * 换来的是每一次打字都省下的 30px。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -36,6 +43,8 @@ export function MathBar({ onInsert, onNext, onPrev }: Props) {
   const [recent, setRecent] = useState<MathKey[]>(() => loadRecent());
   /** 正在展开变体的那个键，以及它在屏幕上的横向位置 */
   const [variants, setVariants] = useState<{ key: MathKey; x: number } | null>(null);
+  /** 分页菜单开着没有 */
+  const [menu, setMenu] = useState(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const timer = useRef<number | null>(null);
@@ -80,6 +89,8 @@ export function MathBar({ onInsert, onNext, onPrev }: Props) {
     // 焦点必须留在编辑器里，否则软键盘收起、光标丢失
     e.preventDefault();
     fired.current = false;
+    // 手指落到符号上就说明「换页」这件事已经结束了
+    setMenu(false);
     start.current = { x: e.clientX, y: e.clientY };
     if (!key.variants) return;
     const el = e.currentTarget;
@@ -106,33 +117,80 @@ export function MathBar({ onInsert, onNext, onPrev }: Props) {
   };
 
   const keys = page === -1 ? recent : MATH_PAGES[page].keys;
+  const pageLabel = page === -1 ? "最近" : MATH_PAGES[page].label;
+
+  /** 「最近」只在真有内容时出现 —— 一个永远空着的页只是噪音 */
+  const pageList: { id: number; label: string }[] = [
+    ...(recent.length > 0 ? [{ id: -1, label: "最近" }] : []),
+    ...MATH_PAGES.map((p, i) => ({ id: i, label: p.label })),
+  ];
+
+  const goto = (id: number) => {
+    setPage(id);
+    setMenu(false);
+  };
+
+  /**
+   * 点别处收起分页菜单。
+   *
+   * **不用一层盖屏的遮罩** —— 那层要么盖住工具条自己（换完页去点符号得先
+   * 被吃掉一下），要么为了不盖它而给这一行加 z-index，而那会把菜单和变体
+   * 面板一起夹进这条栏的层叠上下文里，被底部导航盖掉一半。侧栏的排序菜单
+   * 走的也是 window 这条路。
+   *
+   * 菜单里那几个按钮各自 `stopPropagation`：不拦的话 pointerdown 先把菜单
+   * 关掉、按钮当场卸载，click 根本不会到 —— 表现成「点了没反应」
+   */
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(false);
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [menu]);
 
   return (
     <div className="mathbar" role="toolbar" aria-label="公式符号">
-      <div className="mathbar-pages">
-        {/* 「最近」只在真有内容时出现 —— 一个永远空着的标签只是噪音 */}
-        {recent.length > 0 && (
-          <button
-            className={page === -1 ? "is-on" : undefined}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => setPage(-1)}
-          >
-            最近
-          </button>
-        )}
-        {MATH_PAGES.map((p, i) => (
-          <button
-            key={p.id}
-            className={page === i ? "is-on" : undefined}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => setPage(i)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
       <div className="mathbar-row">
+        {/* 当前页胶囊。点开才列出全部页 —— 页名平时不值那一整行 */}
+        <div className="mathbar-pages">
+          <button
+            className={`mathbar-page${menu ? " is-on" : ""}`}
+            aria-label="切换符号分页"
+            aria-expanded={menu}
+            // 和键一样：焦点必须留在编辑器里，不然开一次菜单键盘就弹一轮。
+            // 拦住冒泡是因为 window 上挂着「点别处就关」——不拦的话这一下会
+            // 先关再开，看起来就是「点了没反应」
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={() => setMenu((v) => !v)}
+          >
+            {pageLabel}
+            <span className="mathbar-caret" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+          {menu && (
+            <div className="mathbar-pagemenu" role="menu">
+              {pageList.map((p) => (
+                <button
+                  key={p.id}
+                  role="menuitem"
+                  className={page === p.id ? "is-on" : undefined}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={() => goto(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="mathbar-keys">
           {keys.map((key) => (
             <button

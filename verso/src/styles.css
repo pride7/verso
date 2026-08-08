@@ -5632,10 +5632,26 @@ textarea:focus-visible {
     grid-area: math;
   }
 
-  /* **打字时导航不让位。** 公式工具条上来之后底部叠着两条确实挤，但让
-     导航消失是个陷阱：把它藏起来的条件是「焦点在正文里」，而收起软键盘
-     并不一定让正文失焦 —— 那时用户手上既没有键盘也没有导航，只能靠点
-     别处碰运气。省下来的 52px 不值这个险。 */
+  /* **键盘弹起来时，导航和状态栏一起让位。**
+     公式条 52 + 状态栏 34 + 导航 52 = 138px，再加上键盘，390×844 的屏上
+     留给正文的只剩两百出头 —— 比底部这堆还少（作者的真机截图）。
+
+     这条以前是反过来的：「打字时导航不让位」。当时的理由是**藏它的条件
+     不可靠** —— 判据若是「焦点在正文里」，而收起软键盘并不一定让正文失焦，
+     用户就会落到「既没有键盘也没有导航」那一格里。
+
+     判据换成「视口真的缩了」之后那个陷阱就没了（`lib/keyboard.ts`）：
+     键盘一收视口同帧涨回来，两条跟着回来。量不出键盘的设备上 `is-keyboard`
+     永远不加，界面退回原来的样子 —— 判据失灵时宁可挤一点。 */
+  .app.is-narrow.is-keyboard {
+    /* 高度归零，抽屉和遮罩才会跟着铺到底 —— 它们停的是 `--bottom-h` */
+    --nav-h: 0px;
+    --status-h: 0px;
+  }
+  .app.is-narrow.is-keyboard .rail,
+  .app.is-narrow.is-keyboard .status {
+    display: none;
+  }
 
   /* 横排。桌面那份是 `flex-direction: column`，这里整条翻过来 */
   .app.is-narrow .rail {
@@ -5784,8 +5800,12 @@ textarea:focus-visible {
 /* ==========================================================================
    移动端公式工具条（DESIGN.md §5.5）
 
-   贴在状态栏上面、编辑区下面 —— 也就是真机上软键盘正上方那一条。
-   它是移动端唯一的公式入口：snippet 那套的前提是物理键盘，手机上不成立。
+   贴在编辑区下面、软键盘正上方的那一条。它是移动端唯一的公式入口：
+   snippet 那套的前提是物理键盘，手机上不成立。
+
+   **只有一行，52px。** 分页标签原来单占一行（整条 82px），而页名平时不需要
+   看见 —— 只有想换一页时才需要。于是它收成行首一个写着当前页名的胶囊，
+   点开才列出全部页。手机底部本来就叠着好几条，这 30px 每一次打字都在省。
    ========================================================================== */
 
 .mathbar {
@@ -5794,40 +5814,82 @@ textarea:focus-visible {
   flex-direction: column;
   border-top: 1px solid var(--border);
   background: var(--surface);
-  /* 浮层（长按变体）以它为定位基准 */
+  /* 浮层（长按变体、分页菜单）以它为定位基准。
+     **只给 position，不给 z-index** —— 一给就成了层叠上下文，里面那两个
+     浮层的 40+ 会被夹在这一层里，于是它们弹出来会被底部导航（31）和状态栏
+     盖掉一半。踩过一次：分页菜单只露得出上面两项 */
   position: relative;
-}
-
-/* 分页标签。「最近」在最前，因为命中率最高 */
-.mathbar-pages {
-  display: flex;
-  gap: 2px;
-  padding: 4px 6px 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.mathbar-pages::-webkit-scrollbar {
-  display: none;
-}
-.mathbar-pages button {
-  flex: none;
-  min-height: var(--tap-sm);
-  padding: 3px 10px;
-  border-radius: var(--r-xs);
-  font-size: 12px;
-  color: var(--muted);
-}
-.mathbar-pages button.is-on {
-  color: var(--accent-ink);
-  background: var(--accent-wash);
 }
 
 .mathbar-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px 6px;
+  padding: 6px;
   min-width: 0;
+}
+
+/* 行首的当前页胶囊 + 它点开的菜单 */
+.mathbar-pages {
+  flex: none;
+  position: relative;
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+.mathbar-page {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* 和符号键一样高，整行才是一条平的 */
+  height: 40px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  white-space: nowrap;
+}
+.mathbar-page.is-on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mathbar-caret {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* 菜单向上弹。页不多（五六个），一列排开比横着挤成一排好点 */
+.mathbar-pagemenu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  /* 要盖过底部导航（31）和状态栏，和长按变体那层（41）同一档 */
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  min-width: 92px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.mathbar-pagemenu button {
+  /* 菜单里有的是地方，这里就该给足一指宽。自带底数的理由和「更多」面板
+     那一条一样：`--tap` 跟指针走，桌面上是 0，而这条只在窄屏出现 */
+  min-height: max(34px, var(--tap));
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--text);
+  text-align: left;
+}
+.mathbar-pagemenu button.is-on {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+.mathbar-pagemenu button:active {
+  background: var(--hover-bg);
 }
 
 /* 符号横向滑动。一页放不下是常态，硬挤成两行会把编辑区吃掉更多 */

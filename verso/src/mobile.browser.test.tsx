@@ -449,9 +449,18 @@ describe("公式工具条", () => {
     });
   }
 
-  it("看一眼：工具条和长按变体", async () => {
+  it("看一眼：工具条、分页菜单和长按变体", async () => {
     await openNote();
     await page.screenshot({ path: "__shots__/22-phone-mathbar.png" });
+    await act(async () => {
+      tap(document.querySelector<HTMLElement>(".mathbar-page")!);
+      await settle(150);
+    });
+    await page.screenshot({ path: "__shots__/24-phone-mathbar-pages.png" });
+    await act(async () => {
+      window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      await settle(150);
+    });
     const key = document.querySelector<HTMLElement>('.mathbar-key[aria-label="括号"]')!;
     await act(async () => {
       key.dispatchEvent(
@@ -615,6 +624,21 @@ describe("公式工具条", () => {
     expect(document.querySelector(".mathbar-variants")).toBeNull();
   });
 
+  /**
+   * 点开行首那个胶囊，返回菜单里的页名。
+   *
+   * 走整套 pointer 事件而不是光 `click()`：菜单是靠 window 上的 pointerdown
+   * 关的，少了 `stopPropagation` 就会「按下时先关掉、click 落空」——
+   * 只发 click 的话这一类恰好测不出来
+   */
+  async function openPageMenu() {
+    await act(async () => {
+      tap(document.querySelector<HTMLElement>(".mathbar-page")!);
+      await settle(150);
+    });
+    return [...document.querySelectorAll(".mathbar-pagemenu button")].map((b) => b.textContent);
+  }
+
   it("用过的符号进「最近」，下次打开还在", async () => {
     await openNote();
     await act(async () => {
@@ -622,16 +646,161 @@ describe("公式工具条", () => {
       tap(keyByName("根式")!);
       await settle(200);
     });
-    const tabs = [...document.querySelectorAll(".mathbar-pages button")].map((b) => b.textContent);
+    const tabs = await openPageMenu();
     expect(tabs[0], "「最近」要排在第一个").toBe("最近");
 
     await act(async () => {
-      document.querySelector<HTMLElement>(".mathbar-pages button")!.click();
+      tap(document.querySelector<HTMLElement>(".mathbar-pagemenu button")!);
       await settle(150);
     });
     expect(keyByName("根式"), "「最近」那一页里应该有它").toBeTruthy();
+    // 换完页菜单要自己收起来，否则它挡着下面那一排符号
+    expect(document.querySelector(".mathbar-pagemenu")).toBeNull();
     // 存住了：localStorage 里记的是 insert
     expect(localStorage.getItem("verso.mathbar.recent")).toContain("sqrt");
+  });
+
+  /**
+   * **整条只占一行。**
+   *
+   * 分页标签原来单占一行，整条 82px；页名平时不需要看见，只有换页时才需要。
+   * 手机底部本来就叠着好几条，这 30px 每一次打字都在省
+   */
+  it("只有一行 —— 页名收进行首那个胶囊里", async () => {
+    await openNote();
+    expect(box(".mathbar")!.height, "整条不该超过一行键的高度").toBeLessThanOrEqual(56);
+
+    const chip = document.querySelector<HTMLElement>(".mathbar-page")!;
+    expect(chip.textContent, "胶囊上写着现在停在哪一页").toContain("结构");
+    // 平时不摊开：菜单要点了才有
+    expect(document.querySelector(".mathbar-pagemenu")).toBeNull();
+
+    const labels = await openPageMenu();
+    expect(labels).toContain("希腊");
+    // 胶囊和符号键在同一行上，菜单从上面弹出来，不许把行顶开
+    expect(box(".mathbar")!.height).toBeLessThanOrEqual(56);
+    expect(box(".mathbar-pagemenu")!.bottom).toBeLessThanOrEqual(box(".mathbar-row")!.top);
+  });
+
+  /**
+   * 菜单是靠 window 上的 pointerdown 关的，没有盖屏的遮罩 —— 于是换完页
+   * 手指往右一挪就是符号，不必先花一下把菜单关掉
+   */
+  it("菜单开着的时候，符号照样是一下点得到", async () => {
+    await openNote();
+    await openPageMenu();
+    const key = keyByName("分式")!;
+    const r = key.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit === key || key.contains(hit!), "工具条自己不该被什么东西盖住").toBe(true);
+
+    await act(async () => {
+      tap(key);
+      await settle(200);
+    });
+    expect(text()).toContain("\\frac{}{}");
+    expect(document.querySelector(".mathbar-pagemenu"), "点了符号，菜单就该收").toBeNull();
+  });
+
+  /** 点别处就算了 —— 菜单弹出来之后，下一个动作十有八九是「回去打字」 */
+  it("点别处收起分页菜单", async () => {
+    await openNote();
+    await openPageMenu();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      await settle(150);
+    });
+    expect(document.querySelector(".mathbar-pagemenu")).toBeNull();
+  });
+});
+
+/**
+ * 软键盘弹起来时底部让位（§5.5 / §1.2）。
+ *
+ * 公式条 + 状态栏 + 导航原本一起占着 138px，加上键盘之后，390×844 的屏上
+ * 留给正文的只剩两百出头 —— 比底部这堆还少。
+ *
+ * **判据是「视口真的缩了」，不是「焦点在正文里」。** 那正是这一组要钉住的
+ * 东西：焦点没动、键盘自己收了的时候（安卓返回手势、iOS 收起键），两条必须
+ * 回来 —— 否则用户手上既没有键盘也没有导航。判定逻辑本身在
+ * `lib/keyboard.test.ts` 里穷举过，这里量的是**界面真的让了位**。
+ *
+ * 真机上是原生 `MainActivity.fitSystemBars()` 给 WebView 加底部内边距，
+ * WebView 里表现出来就是可视高度少一截 —— 这里直接把视口压矮来复现。
+ */
+describe("软键盘弹起来时的底部空间", () => {
+  /** 中文键盘（带候选词条）大约这么高 */
+  const KEYBOARD = 336;
+
+  async function typing() {
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(300);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.focus();
+      await settle(200);
+    });
+  }
+
+  const raise = async (up: boolean) => {
+    await act(async () => {
+      await page.viewport(PHONE.w, up ? PHONE.h - KEYBOARD : PHONE.h);
+      await settle(300);
+    });
+  };
+
+  it("看一眼：键盘占掉下半屏之后剩下什么", async () => {
+    await typing();
+    await raise(true);
+    await page.screenshot({ path: "__shots__/25-phone-keyboard.png" });
+  });
+
+  it("键盘一上来，导航和状态栏让位，公式条留下", async () => {
+    await typing();
+    const before = box(".editor")!.height;
+    expect(box(".rail")!.height, "键盘还没上来时导航在").toBeGreaterThan(40);
+
+    await raise(true);
+    expect(box(".rail")!.height, "导航该让位").toBe(0);
+    expect(box(".status")!.height, "状态栏该让位").toBe(0);
+    expect(box(".mathbar"), "公式条是打字时唯一有用的那条，不能一起让").toBeTruthy();
+
+    // 让出来的那 86px 要真的落到正文上，而不是被谁悄悄吃掉。
+    // 视口自己矮了 336，所以正文净减不该超过 336 - 86
+    const after = box(".editor")!.height;
+    expect(before - after).toBeLessThan(KEYBOARD - 80);
+  });
+
+  /**
+   * **这一条是整个改动成立的前提。**
+   *
+   * 收起软键盘并不一定让正文失焦 —— 认焦点的话，用户会落到「既没有键盘
+   * 也没有导航」那一格里，只能靠点别处碰运气
+   */
+  it("焦点没动、键盘自己收了，两条也要回来", async () => {
+    await typing();
+    await raise(true);
+    expect(box(".rail")!.height).toBe(0);
+
+    // 焦点仍然在正文里，只有视口涨了回来
+    expect(document.activeElement?.closest(".cm-editor"), "这一条要在焦点没动的前提下测").toBeTruthy();
+    await raise(false);
+    expect(box(".rail")!.height, "键盘一收，导航同帧回来").toBeGreaterThan(40);
+    expect(box(".status")!.height).toBeGreaterThan(0);
+  });
+
+  /** 桌面上把窗口拖矮不是键盘。判据是「缩掉一个键盘那么多」，不是「变矮了」 */
+  it("几十像素的收缩不算键盘", async () => {
+    await typing();
+    await act(async () => {
+      await page.viewport(PHONE.w, PHONE.h - 60);
+      await settle(300);
+    });
+    expect(box(".rail")!.height).toBeGreaterThan(40);
   });
 });
 

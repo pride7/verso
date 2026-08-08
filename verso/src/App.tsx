@@ -14,6 +14,7 @@ import {
 } from "./api";
 import { confirm } from "./lib/dialog";
 import { fitFloatingMenu } from "./lib/floatingMenu";
+import { initialKeyboard, stepKeyboard } from "./lib/keyboard";
 import { NARROW, useMedia } from "./lib/media";
 import { ActivityBar, type SidebarView } from "./components/ActivityBar";
 import { CommandPalette, type Command } from "./components/CommandPalette";
@@ -313,6 +314,39 @@ export default function App() {
       cancelAnimationFrame(frame);
       window.removeEventListener("focusin", check);
       window.removeEventListener("focusout", check);
+    };
+  }, [narrow]);
+
+  /**
+   * 软键盘在不在（§5.5）。**键盘弹起来时底部导航和状态栏让位** ——
+   * 那 86px 加上公式条的 52px，在 390×844 的屏上原本要吃掉键盘之上的一半。
+   *
+   * 判据是「视口真的缩了」而不是「焦点在正文里」，理由见 `lib/keyboard.ts`：
+   * 收起软键盘并不一定让正文失焦，认焦点的话用户会落到「既没键盘也没导航」
+   * 那一格里。`visualViewport` 拿不到就退回 `window.innerHeight` —— 安卓侧
+   * 是原生给 WebView 加了内边距，两个值都会跟着缩。
+   */
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  useEffect(() => {
+    if (!narrow) {
+      setKeyboardUp(false);
+      return;
+    }
+    const vv = window.visualViewport ?? null;
+    let state = initialKeyboard();
+    const read = () => {
+      state = stepKeyboard(state, {
+        width: vv?.width ?? window.innerWidth,
+        height: vv?.height ?? window.innerHeight,
+      });
+      setKeyboardUp(state.up);
+    };
+    read();
+    window.addEventListener("resize", read);
+    vv?.addEventListener("resize", read);
+    return () => {
+      window.removeEventListener("resize", read);
+      vv?.removeEventListener("resize", read);
     };
   }, [narrow]);
 
@@ -3054,6 +3088,8 @@ export default function App() {
   return (
     <div
       className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}${
+        narrow && keyboardUp ? " is-keyboard" : ""
+      }${
         termOpen && !mobile && termDockEffective === "right" && !termMaximized ? " term-right" : ""
       }${termOpen && !mobile && termMaximized ? " term-maximized" : ""}`}
       style={
