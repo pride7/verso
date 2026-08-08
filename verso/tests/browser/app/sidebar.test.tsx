@@ -550,7 +550,53 @@ describe("侧栏头部", () => {
       collaborators: ["person-2"],
       name: "林",
       email: "lin@example.com",
+      // 名字留空 = 让后端自动起一个
+      repository: "",
     });
+  });
+
+  /**
+   * 仓库**建好之后改不了名**（改了所有人的远端地址就断了），所以这个输入
+   * 必须在建库之前问。留空才用自动生成的名字。
+   */
+  it("快速创建时可以自己给空间起名", async () => {
+    await mountApp();
+    el<HTMLElement>(".tree-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    const share = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("共享这篇"),
+    )!;
+    await act(async () => {
+      share.click();
+      await settle(60);
+    });
+    const dialog = el(".share-note")!;
+    await act(async () => {
+      [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")]
+        .find((button) => button.textContent?.includes("新建共享空间"))!
+        .click();
+      await settle(30);
+    });
+    const inputs = [...dialog.querySelectorAll<HTMLInputElement>(".join-field input")];
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        await settle(20);
+      });
+    };
+    await type(inputs[0], "person-2");
+    // 第二个输入框就是空间名 —— 它必须和成员摆在一起，事后没有第二次机会
+    await type(inputs[1], "小组论文");
+    await act(async () => {
+      dialog.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await settle(500);
+    });
+    expect(shareGitHub).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: "小组论文" }),
+    );
   });
 
   it("高级入口仍可使用已有的 GitLab 或自托管空仓库", async () => {

@@ -24,6 +24,8 @@ export type ShareNoteInput =
       collaborators: string[];
       name: string;
       email: string;
+      /** 空间（仓库）名。留空由 Verso 自动起一个 */
+      repository: string;
     }
   | {
       mode: "existing";
@@ -80,6 +82,8 @@ export function ShareNoteDialog({
   const [spaceAccessLoading, setSpaceAccessLoading] = useState(false);
   const accessRequest = useRef(0);
   const [collaborators, setCollaborators] = useState("");
+  /** 空间名。**建好之后改不了**，所以在这里问，而不是事后再给一个改名入口 */
+  const [repository, setRepository] = useState("");
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
   const [token, setToken] = useState("");
@@ -198,6 +202,7 @@ export function ShareNoteDialog({
         collaborators: members,
         name: name.trim(),
         email: email.trim(),
+        repository: repository.trim(),
       });
       return;
     }
@@ -400,7 +405,24 @@ export function ShareNoteDialog({
                       autoFocus
                       disabled={busy}
                     />
-                    <small>Verso 会自动命名底层空间；同一组成员的后续内容可以继续放进来。</small>
+                    <small>同一组成员的后续内容可以继续放进这个空间。</small>
+                  </label>
+
+                  {/* 名字要在**建库之前**问：仓库建好之后改不了名（改了所有人的
+                      远端地址就断了），事后补一个「重命名」入口是做不到的 */}
+                  <label className="join-field">
+                    <span>空间名称</span>
+                    <input
+                      value={repository}
+                      onChange={(event) => setRepository(event.target.value)}
+                      placeholder="留空则自动起名"
+                      spellCheck={false}
+                      disabled={busy}
+                    />
+                    <small>
+                      同时是 GitHub 上的仓库名和本地文件夹名，<strong>建好之后不能再改</strong>
+                      ，所以在这里定。建议只用字母、数字和连字符。
+                    </small>
                   </label>
 
                   {githubChecking ? (

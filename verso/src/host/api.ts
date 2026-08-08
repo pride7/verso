@@ -111,6 +111,8 @@ export const api = {
     collaborators: string[];
     name: string;
     email: string;
+    /** 空间（仓库）名。留空由后端生成一个 —— 建好之后改不了名，所以要在建之前问 */
+    repository: string;
   }) =>
     call<{ vault: VaultInfo; note: string; notice: string | null }>("note_share_github", input),
   /** 从当前共享空间移出完整内容树，并打开所选私人空间里的同一篇。 */

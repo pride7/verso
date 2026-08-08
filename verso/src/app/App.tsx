@@ -2221,6 +2221,7 @@ export default function App() {
               collaborators: input.collaborators,
               name: input.name,
               email: input.email,
+              repository: input.repository,
             })
           : await api.shareNote({
               note: input.note,

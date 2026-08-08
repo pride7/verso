@@ -546,6 +546,7 @@ fn note_share_github(
     collaborators: Vec<String>,
     name: String,
     email: String,
+    repository: Option<String>,
 ) -> Result<SharedNoteResult> {
     vault::share::validate_identity(&name, &email)?;
     if collaborators.is_empty() {
@@ -557,7 +558,12 @@ fn note_share_github(
         .collect::<Result<Vec<_>>>()?;
     let token = vault::github::connected_token()?
         .ok_or_else(|| Error::Vault("请先在「设置 → 同步与共享」连接 GitHub".into()))?;
-    let repository_name = vault::github::generated_repository_name();
+    // 用户自己起的名字优先。**仓库建好之后改不了名**（改了的话所有人的
+    // 远端地址就断了），所以这个输入必须在建库之前就问清楚；留空才用生成的
+    let repository_name = match repository.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(given) => vault::github::validate_repo_name(given)?,
+        None => vault::github::generated_repository_name(),
+    };
     let label = shared_space_label(&collaborators);
 
     // 网络建库之前先把本地范围、名字、目标位置都验证好。这样常见输入错误
