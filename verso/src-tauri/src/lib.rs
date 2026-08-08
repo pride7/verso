@@ -130,7 +130,8 @@ fn vault_open(app: AppHandle, state: State<'_, AppState>, path: String) -> Resul
 
 /// 加入一个已有的共享 vault：安全克隆、写入这台设备的提交身份，然后直接打开。
 /// 目标目录必须已经存在且为空；`clone_remote` 会在同级临时目录完整下载后再换入，
-/// 因而断网或认证失败不会把半截仓库留给用户收拾。
+/// 因而断网或认证失败不会把半截仓库留给用户收拾。GitHub HTTPS 地址默认复用已经
+/// 连接的 GitHub App 账号；手动令牌仅用于逐仓库覆盖或其他托管服务。
 #[tauri::command]
 fn vault_clone(
     app: AppHandle,
@@ -150,21 +151,35 @@ fn vault_clone(
     if name.contains(['<', '>', '\n']) || email.contains(['<', '>', '\n']) || !email.contains('@') {
         return Err(Error::Vault("请检查姓名和邮箱格式".into()));
     }
-    if (url.starts_with("http://") || url.starts_with("https://")) && token.trim().is_empty() {
-        return Err(Error::Vault("这个共享仓库需要你自己的访问令牌".into()));
+    let manual_token = (!token.trim().is_empty()).then(|| token.trim().to_string());
+    let clone_token = match manual_token.clone() {
+        Some(token) => Some(token),
+        None => token_for_remote(url)?,
+    };
+    if (url.starts_with("http://") || url.starts_with("https://")) && clone_token.is_none() {
+        return Err(Error::Vault(
+            if vault::github::is_github_url(url) {
+                "请先在「设置 → 同步与共享」连接 GitHub，或填写这个仓库的访问令牌"
+            } else {
+                "这个共享仓库需要你自己的访问令牌"
+            }
+            .into(),
+        ));
     }
 
     let destination = PathBuf::from(path);
-    vault::sync::clone_remote(url, &destination, (!token.trim().is_empty()).then(|| token.trim().to_string()))?;
+    vault::sync::clone_remote(url, &destination, clone_token)?;
     let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
     vault::git::identity_set(&v.root, name, email)?;
 
     // 克隆已经成功时，钥匙串不可用不该把新仓库挡在门外。照常打开，同时把
     // 「下次同步还得处理令牌」明确报到界面上。
-    let token_warning = if token.trim().is_empty() {
+    let token_warning = if manual_token.is_none() {
         None
     } else {
-        vault::secret::token_set(url, token.trim()).err().map(|e| e.to_string())
+        vault::secret::token_set(url, manual_token.as_deref().unwrap_or_default())
+            .err()
+            .map(|e| e.to_string())
     };
     recent::save_vault(&app, &info.root);
     activate(&app, &state, v);
@@ -205,15 +220,30 @@ fn note_share(
     name: String,
     email: String,
 ) -> Result<SharedNoteResult> {
-    let token = token.trim().to_string();
+    let url = url.trim();
+    let manual_token = (!token.trim().is_empty()).then(|| token.trim().to_string());
+    let share_token = match manual_token.clone() {
+        Some(token) => Some(token),
+        None => token_for_remote(url)?,
+    };
+    if (url.starts_with("http://") || url.starts_with("https://")) && share_token.is_none() {
+        return Err(Error::Vault(
+            if vault::github::is_github_url(url) {
+                "请先在「设置 → 同步与共享」连接 GitHub，或填写这个仓库的访问令牌"
+            } else {
+                "这个共享空间需要你自己的访问令牌"
+            }
+            .into(),
+        ));
+    }
     let destination = state.with_vault(|v| {
         vault::share::create(
             v,
             vault::share::CreateInput {
                 note: &note,
                 destination: std::path::Path::new(&path),
-                url: &url,
-                token: (!token.is_empty()).then(|| token.clone()),
+                url,
+                token: share_token,
                 name: &name,
                 email: &email,
                 members: &[],
@@ -223,10 +253,10 @@ fn note_share(
     })?;
 
     let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
-    let warning = if token.is_empty() {
+    let warning = if manual_token.is_none() {
         None
     } else {
-        vault::secret::token_set(url.trim(), &token)
+        vault::secret::token_set(url, manual_token.as_deref().unwrap_or_default())
             .err()
             .map(|error| error.to_string())
     };

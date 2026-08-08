@@ -1992,6 +1992,12 @@ export default function App() {
       .finally(() => setGitHubChecking(false));
   }, []);
 
+  // 受邀者通常直接从「加入共享空间」开始，不会先打开分享弹窗。打开加入向导时也要
+  // 检查一次本机账号，才能把已经完成的 Device Flow 真正复用到克隆步骤。
+  useEffect(() => {
+    if (joinOpen) checkShareGitHub();
+  }, [joinOpen, checkShareGitHub]);
+
   const connectGitHub = useCallback(async (token: string) => {
     const account = await api.githubConnect(token);
     setGitHubAccount(account);
@@ -2995,6 +3001,8 @@ export default function App() {
           <JoinVaultDialog
             busy={joining}
             error={joinError}
+            githubAccount={githubAccount}
+            identity={identity}
             onPickFolder={pickCloneFolder}
             onJoin={(input) => void joinVault(input)}
             onClose={() => !joining && setJoinOpen(false)}
@@ -3646,6 +3654,8 @@ export default function App() {
         <JoinVaultDialog
           busy={joining}
           error={joinError}
+          githubAccount={githubAccount}
+          identity={identity}
           onPickFolder={pickCloneFolder}
           onJoin={(input) => void joinVault(input)}
           onClose={() => !joining && setJoinOpen(false)}

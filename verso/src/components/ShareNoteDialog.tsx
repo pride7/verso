@@ -52,6 +52,7 @@ interface Props {
 }
 
 const display = (path: string) => path.replace(/\.md$/, "");
+const isGitHubHttps = (url: string) => /^https:\/\/(?:www\.)?github\.com\//i.test(url);
 
 function parseCollaborators(value: string) {
   return [...new Set(value.split(/[\s,，;；]+/).map((item) => item.replace(/^@/, "").trim()).filter(Boolean))];
@@ -204,8 +205,13 @@ export function ShareNoteDialog({
       setLocalError("请填写远端地址并选择一个空的本地文件夹。");
       return;
     }
-    if ((url.startsWith("https://") || url.startsWith("http://")) && !token.trim()) {
-      setLocalError("HTTPS 仓库需要访问令牌。");
+    const usesConnectedGitHub = !!githubAccount && isGitHubHttps(url.trim());
+    if ((url.startsWith("https://") || url.startsWith("http://")) && !token.trim() && !usesConnectedGitHub) {
+      setLocalError(
+        isGitHubHttps(url.trim())
+          ? "请先在「设置 → 同步与共享」连接 GitHub，或填写访问令牌。"
+          : "HTTPS 仓库需要访问令牌。",
+      );
       return;
     }
     if (!(await confirmMove("将共享给该远端仓库当前的全部成员"))) return;
@@ -444,15 +450,20 @@ export function ShareNoteDialog({
                   </label>
 
                   <label className="join-field">
-                    <span>访问令牌</span>
+                    <span>{githubAccount && isGitHubHttps(url) ? "访问令牌（可选）" : "访问令牌"}</span>
                     <input
                       type="password"
                       value={token}
                       onChange={(event) => setToken(event.target.value)}
-                      placeholder="需要仓库内容读写权限"
+                      placeholder={githubAccount && isGitHubHttps(url) ? "留空则使用已连接的 GitHub" : "需要仓库内容读写权限"}
                       autoComplete="off"
                       disabled={busy}
                     />
+                    <small>
+                      {githubAccount && isGitHubHttps(url)
+                        ? `将使用已连接的 @${githubAccount.login}；只有想覆盖该连接时才填写。`
+                        : "适用于 GitLab、自托管服务或未连接 GitHub 的仓库。"}
+                    </small>
                   </label>
                 </div>
               )}

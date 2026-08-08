@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 
 import { Icon } from "./Icon";
+import type { GitHubAccount, GitIdentity } from "../types";
 
 export interface JoinVaultInput {
   url: string;
@@ -13,17 +14,29 @@ export interface JoinVaultInput {
 interface Props {
   busy: boolean;
   error: string | null;
+  githubAccount: GitHubAccount | null;
+  identity: GitIdentity | null;
   onPickFolder: () => Promise<string | null>;
   onJoin: (input: JoinVaultInput) => void;
   onClose: () => void;
 }
 
-export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: Props) {
+const isGitHubHttps = (url: string) => /^https:\/\/(?:www\.)?github\.com\//i.test(url);
+
+export function JoinVaultDialog({
+  busy,
+  error,
+  githubAccount,
+  identity,
+  onPickFolder,
+  onJoin,
+  onClose,
+}: Props) {
   const [url, setUrl] = useState("");
   const [path, setPath] = useState("");
   const [token, setToken] = useState("");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(identity?.name ?? "");
+  const [email, setEmail] = useState(identity?.email ?? "");
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,8 +53,13 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
       setLocalError("请把仓库地址、本地位置、姓名和邮箱填写完整。");
       return;
     }
-    if ((url.startsWith("https://") || url.startsWith("http://")) && !token.trim()) {
-      setLocalError("HTTPS 仓库需要你自己的访问令牌。");
+    const usesConnectedGitHub = !!githubAccount && isGitHubHttps(url.trim());
+    if ((url.startsWith("https://") || url.startsWith("http://")) && !token.trim() && !usesConnectedGitHub) {
+      setLocalError(
+        isGitHubHttps(url.trim())
+          ? "请先在「设置 → 同步与共享」连接 GitHub，或填写访问令牌。"
+          : "HTTPS 仓库需要你自己的访问令牌。",
+      );
       return;
     }
     setLocalError(null);
@@ -63,7 +81,7 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
         <header className="vault-manager-head">
           <div>
             <h2 id="join-vault-title">加入共享空间</h2>
-            <p>打开别人邀请你参与的内容，每个人保留自己的本地副本。</p>
+            <p>接受 GitHub 邀请后，把这个共享空间添加到 Verso；每个人保留自己的本地副本。</p>
           </div>
           <button className="modal-close" onClick={onClose} disabled={busy} aria-label="关闭">
             <Icon name="close" size={15} />
@@ -81,7 +99,7 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
               autoFocus
               disabled={busy}
             />
-            <small>你需要已经获得这个仓库的写入权限。</small>
+            <small>在 GitHub 打开受邀仓库，复制它的 HTTPS 地址。</small>
           </label>
 
           <label className="join-field">
@@ -101,16 +119,20 @@ export function JoinVaultDialog({ busy, error, onPickFolder, onJoin, onClose }: 
           </label>
 
           <label className="join-field">
-            <span>访问令牌</span>
+            <span>{githubAccount && isGitHubHttps(url) ? "访问令牌（可选）" : "访问令牌"}</span>
             <input
               type="password"
               value={token}
               onChange={(event) => setToken(event.target.value)}
-              placeholder="需要仓库 Contents 读写权限"
+              placeholder={githubAccount && isGitHubHttps(url) ? "留空则使用已连接的 GitHub" : "需要仓库 Contents 读写权限"}
               autoComplete="off"
               disabled={busy}
             />
-            <small>使用你自己的令牌，只保存在这台设备的安全凭据中。</small>
+            <small>
+              {githubAccount && isGitHubHttps(url)
+                ? `将使用已连接的 @${githubAccount.login}；只有想覆盖该连接时才填写。`
+                : "使用你自己的令牌，只保存在这台设备的安全凭据中。"}
+            </small>
           </label>
 
           <div className="join-identity">

@@ -343,7 +343,7 @@ describe("侧栏头部", () => {
     expect(el(".shared-space-dialog")).toBeNull();
   });
 
-  it("不用终端即可填写远端、身份并加入共享空间", async () => {
+  it("接受 GitHub 邀请后复用已连接账号，无需再粘贴令牌即可加入共享空间", async () => {
     await mountApp();
     el<HTMLButtonElement>(".vault-name")!.click();
     await settle(30);
@@ -367,9 +367,8 @@ describe("侧栏头部", () => {
       [...document.querySelectorAll<HTMLButtonElement>(".join-path-row button")][0].click();
       await settle(40);
     });
-    await type(inputs[2], "secret-token");
-    await type(inputs[3], "林");
-    await type(inputs[4], "lin@example.com");
+    expect(document.querySelector(".join-vault")?.textContent).toContain("访问令牌（可选）");
+    expect(document.querySelector(".join-vault")?.textContent).toContain("将使用已连接的 @owner");
 
     await act(async () => {
       document.querySelector<HTMLFormElement>(".join-vault form")!.requestSubmit();
@@ -380,7 +379,7 @@ describe("侧栏头部", () => {
     expect(cloneVault).toHaveBeenCalledWith({
       url: "https://github.com/team/shared.git",
       path: JOINED_VAULT.root,
-      token: "secret-token",
+      token: "",
       name: "林",
       email: "lin@example.com",
     });
@@ -576,6 +575,55 @@ describe("侧栏头部", () => {
       url: "https://gitlab.example.com/team/article.git",
       path: JOINED_VAULT.root,
       token: "gitlab-token",
+      name: "林",
+      email: "lin@example.com",
+    });
+  });
+
+  it("已连接 GitHub 时，已有 GitHub 空仓库也不需要重复填写令牌", async () => {
+    await mountApp();
+    el<HTMLElement>(".tree-row")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 120 }),
+    );
+    await settle(30);
+    [...document.querySelectorAll<HTMLButtonElement>(".ctx button")]
+      .find((button) => button.textContent?.includes("共享这篇"))!
+      .click();
+    await settle(60);
+    const dialog = el(".share-note")!;
+    [...dialog.querySelectorAll<HTMLButtonElement>(".share-space-options button")]
+      .find((button) => button.textContent?.includes("新建共享空间"))!
+      .click();
+    await settle(30);
+    [...dialog.querySelectorAll<HTMLButtonElement>(".share-mode button")]
+      .find((button) => button.textContent?.includes("使用已有仓库"))!
+      .click();
+    await settle(30);
+
+    const inputs = [...dialog.querySelectorAll<HTMLInputElement>(".join-field input")];
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
+        .call(inputs[0], "https://github.com/team/shared.git");
+      inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
+      await settle(30);
+    });
+    expect(dialog.textContent).toContain("访问令牌（可选）");
+    expect(dialog.textContent).toContain("将使用已连接的 @owner");
+    await act(async () => {
+      dialog.querySelector<HTMLButtonElement>(".join-path-row button")!.click();
+      await settle(40);
+    });
+    expect(dialog.querySelector<HTMLInputElement>(".join-path-row input")!.value).toBe(JOINED_VAULT.root);
+    await act(async () => {
+      dialog.querySelector<HTMLFormElement>("form")!.requestSubmit();
+      await settle(500);
+    });
+    expect(dialog.querySelector(".join-error")?.textContent).toBeFalsy();
+    expect(shareCurrentNote).toHaveBeenCalledWith({
+      note: "论文.md",
+      url: "https://github.com/team/shared.git",
+      path: JOINED_VAULT.root,
+      token: "",
       name: "林",
       email: "lin@example.com",
     });
