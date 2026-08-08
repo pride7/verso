@@ -66,6 +66,23 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
   useEffect(() => setDraftFrom(from), [from]);
 
   const patchWhere = (conds: Condition[]) => onPatch(writeWhere(source, conds));
+
+  /**
+   * 切视图类型。**切到看板时顺手补上分组** —— 没有那个键的看板画不出来，
+   * 而在此之前它是默默退回一张表的：人点了「看板」，界面纹丝不动，
+   * 只会认为这个功能坏了。
+   *
+   * 挑第一个**离散值**的属性：数字和日期基本上每篇一个值，拿来分列会得到
+   * 一列一篇；内置的创建/更新时间同理。实在没有别的就退回第一个非内置属性。
+   * 挑得不对也没关系 —— 下面「分组」那一行就摆在这儿，一眼看得见、随手能换。
+   */
+  const patchView = (id: string) => {
+    const next = writeKey(source, "view", id);
+    if (id !== "board" || readKey(source, "group-by")) return next;
+    const usable = properties.filter((p) => !isBuiltin(p.key));
+    const pick = (usable.find((p) => p.type !== "number" && p.type !== "date") ?? usable[0])?.key;
+    return pick ? writeKey(next, "group-by", pick) : next;
+  };
   const patchScope = (scope: "direct" | "recursive") => {
     const next = sourceWithScope(from, scope);
     if (!next) return;
@@ -89,7 +106,7 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
             <button
               key={v.id}
               className={v.id === view ? "is-on" : undefined}
-              onClick={() => onPatch(writeKey(source, "view", v.id))}
+              onClick={() => onPatch(patchView(v.id))}
             >
               {v.label}
             </button>

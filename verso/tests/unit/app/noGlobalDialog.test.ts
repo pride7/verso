@@ -16,9 +16,10 @@
  *
  * 项目里没有 eslint，所以这条规则由测试来执行。
  *
- * **`window.prompt` 有意不在这里管。** 它同样是坏的（WebView2 压根不实现
- * prompt），但插件没接管它，得换成自绘的输入框才能修，是另一件事。
- * 现存的两处（`App.tsx` 的提交说明、`DatabaseView.tsx` 的属性改名）还欠着。
+ * **`window.prompt` 一起管。** 它坏得更彻底 —— WebView2 压根不实现 prompt，
+ * 安卓 WebView 上也可能被吞掉，两种情况下都返回 `null`，也就是「用户按了
+ * 取消」：按钮点下去什么都不发生，还不报错。要一句输入走 `ui/AskDialog.tsx`
+ * 的 `useAsk()`（Tauri 的 dialog 插件没有文本输入，只能自绘）。
  */
 import { describe, expect, it } from "vitest";
 
@@ -56,6 +57,11 @@ describe("确认框只走 host/dialog", () => {
       .filter(([, src]) => /window\.(confirm|alert)\b/.test(src))
       .map(([path]) => path);
     expect(bad, "改成 `await confirm(...)`，从 host/dialog 引入").toEqual([]);
+  });
+
+  it("没有 window.prompt", () => {
+    const bad = files.filter(([, src]) => /window\.prompt\b/.test(src)).map(([path]) => path);
+    expect(bad, "改成 `await ask(...)`，从 ui/AskDialog 的 useAsk() 拿").toEqual([]);
   });
 
   /**

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { api } from "../host/api";
+import { useAsk } from "./AskDialog";
 import { CalendarView, canMoveDates, GalleryView, ListView } from "./DbViews";
+import { fitFloatingMenu } from "./floatingMenu";
 import { Icon } from "./Icon";
 import { RenameInput } from "./Tree";
 import {
@@ -25,6 +27,7 @@ import {
   readWidths,
   toDateInput,
   writeColumns,
+  writeKey,
   writeSort,
   writeWidths,
 } from "../core/viewSpec";
@@ -65,8 +68,13 @@ type Panel =
   | "settings"
   | "columns"
   | { col: string; x: number; y: number }
+  | { card: string; x: number; y: number }
   | { options: string };
 const colMenu = (p: Panel) => (p && typeof p === "object" && "col" in p ? p.col : null);
+/** 看板卡片的 `⋯` 菜单开在哪张卡上（触摸屏拖不动卡，得有这条路，§2.6） */
+const cardMenu = (p: Panel) => (p && typeof p === "object" && "card" in p ? p.card : null);
+const menuAt = (p: Panel) =>
+  p && typeof p === "object" && "x" in p ? { x: p.x, y: p.y } : null;
 
 export function DatabaseView({
   source,
@@ -76,6 +84,8 @@ export function DatabaseView({
   onPatch,
   imageSrc,
 }: Props) {
+  /** 改名、改日期这些要一句输入的地方走它，不用 `window.prompt` */
+  const { ask, askUI } = useAsk();
   const [result, setResult] = useState<ViewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ path: string; key: string } | null>(null);
@@ -152,6 +162,22 @@ export function DatabaseView({
       window.removeEventListener("scroll", close, true);
     };
   }, [panel]);
+
+  /**
+   * 贴着屏幕边打开的菜单往回收。
+   *
+   * 坐标是按下那一刻按钮的位置算的，够不够放要等菜单真的画出来才知道 ——
+   * 手机上一张靠右靠下的卡片必然撞边（§6.3 边缘避让）。
+   */
+  const menuRef = useRef<HTMLUListElement>(null);
+  const at = menuAt(panel);
+  // 只跟坐标走：`at` 每次渲染都是个新对象，放进依赖会让它每帧重量一遍
+  const [ax, ay] = [at?.x, at?.y];
+  useLayoutEffect(() => {
+    if (ax !== undefined && ay !== undefined && menuRef.current) {
+      fitFloatingMenu(menuRef.current, ax, ay, 6);
+    }
+  }, [ax, ay]);
 
   const sort = readSort(source);
 
@@ -314,7 +340,12 @@ export function DatabaseView({
    */
   const renameColumn = async (col: string) => {
     setPanel(null);
-    const next = window.prompt(`把属性「${col}」改成什么？`, col)?.trim();
+    const next = await ask({
+      question: `把属性「${propLabel(col)}」改成什么？`,
+      initial: col,
+      hint: "所有带这个属性的笔记都会跟着改。",
+      okLabel: "改名",
+    });
     if (!next || next === col) return;
     try {
       const n = await api.propCount(col);
@@ -483,6 +514,70 @@ export function DatabaseView({
     );
   };
 
+  /**
+   * 选了看板却没有分组属性。
+   *
+   * **不能默默退回表格** —— 那正是「点了看板什么都没发生」：界面上没有任何
+   * 地方说得出为什么，人只会认为这个功能坏了（作者就是这么报上来的）。
+   * 缺什么就说缺什么，并把去补的入口摆在旁边。
+   */
+  if (result.view === "board" && !result.groupBy) {
+    const candidates = (result.properties ?? []).filter((p) => !isBuiltin(p.key));
+    return (
+      <div className="dbview">
+        <div className="dbview-bar">
+          <span className="dbview-kind">
+            <Icon name="table" size={14} />
+            看板
+          </span>
+          {onPatch && (
+            <button
+              className="dbview-tool"
+              onClick={() => setPanel(panel === "settings" ? null : "settings")}
+              title="视图设置"
+              aria-label="视图设置"
+            >
+              <Icon name="settings" size={14} />
+            </button>
+          )}
+          {panel === "settings" && onPatch && (
+            <ViewSettings
+              source={source}
+              properties={result.properties ?? []}
+              onPatch={(y) => onPatch(y)}
+              onClose={() => setPanel(null)}
+            />
+          )}
+        </div>
+        <p className="dbview-none dbview-need">
+          {candidates.length > 0 ? (
+            <>
+              看板要按一个属性分列。
+              {onPatch ? (
+                <>
+                  选一个：
+                  {candidates.slice(0, 6).map((p) => (
+                    <button
+                      key={p.key}
+                      className="dbview-need-pick"
+                      onClick={() => onPatch(writeKey(source, "group-by", p.key))}
+                    >
+                      {propLabel(p.key)}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>在「视图设置 → 分组」里选一个。</>
+              )}
+            </>
+          ) : (
+            <>看板要按一个属性分列，而这批笔记还没有任何属性 —— 先在表格视图里加一列。</>
+          )}
+        </p>
+      </div>
+    );
+  }
+
   if (result.view === "board" && result.groupBy) {
     const by = result.groupBy;
     const UNSET = "（未设置）";
@@ -511,6 +606,18 @@ export function DatabaseView({
       // 拖到另一列 = 改那篇笔记的这个属性。看板不是另一份数据，
       // 它就是 frontmatter 的一种画法（§2.6）
       await commitValue(path, by, to === UNSET ? "" : to);
+    };
+
+    /**
+     * 不拖也能改列。
+     *
+     * HTML5 拖放**在触摸屏上完全不发生**（没有 dragstart），所以手机上看板
+     * 是只读的 —— 那正是它最该好用的地方（在路上把一件事挪进"进行中"）。
+     * 和文档树的「移动到…」同一条路：拖是快捷方式，菜单才是保底。
+     */
+    const moveCard = (path: string, to: string) => {
+      setPanel(null);
+      void commitValue(path, by, to === UNSET ? "" : to);
     };
 
     return (
@@ -584,9 +691,45 @@ export function DatabaseView({
                     setOver(null);
                   }}
                 >
-                  <button className="dbview-card-title" onClick={() => onOpen(r.path)}>
-                    {r.title}
-                  </button>
+                  <div className="dbview-card-head">
+                    <button className="dbview-card-title" onClick={() => onOpen(r.path)}>
+                      {r.title}
+                    </button>
+                    {/* 常显，不是 hover 才出现 —— 触摸屏上没有悬停这一步 */}
+                    <button
+                      className="dbview-card-more"
+                      onClick={(e) => {
+                        if (cardMenu(panel) === r.path) return setPanel(null);
+                        const box = e.currentTarget.getBoundingClientRect();
+                        setPanel({ card: r.path, x: box.right - 150, y: box.bottom + 4 });
+                      }}
+                      title={`把「${r.title}」移到别的一列`}
+                      aria-label={`把「${r.title}」移到别的一列`}
+                      aria-haspopup="menu"
+                      aria-expanded={cardMenu(panel) === r.path}
+                    >
+                      <Icon name="more" size={14} />
+                    </button>
+                  </div>
+                  {cardMenu(panel) === r.path && (
+                    // fixed + 打开那一刻算坐标：看板外面是横向滚动容器，
+                    // 挂在里面的浮层会被两个轴一起裁掉（见列头菜单那段注释）
+                    <ul className="dbview-menu" ref={menuRef} onMouseDown={(e) => e.stopPropagation()}>
+                      <li className="dbview-menu-label">移到</li>
+                      {[...groups.keys()].map((target) => (
+                        <li key={target}>
+                          <button
+                            className={target === name ? "is-current" : undefined}
+                            onClick={() => target !== name && moveCard(r.path, target)}
+                            disabled={target === name}
+                          >
+                            <Icon name={target === name ? "check" : "chevron"} size={13} />
+                            {target}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {cardCols.length > 0 && (
                     <dl className="dbview-card-props">
                       {cardCols.map((c) =>
@@ -615,6 +758,7 @@ export function DatabaseView({
           ))}
         </div>
         <div className="dbview-foot">{result.rows.length} 条</div>
+        {askUI}
       </div>
     );
   }
@@ -703,6 +847,7 @@ export function DatabaseView({
         )}
 
         <div className="dbview-foot">{result.rows.length} 条</div>
+        {askUI}
       </div>
     );
   }
@@ -823,7 +968,7 @@ export function DatabaseView({
                        */
                       <ul
                         className="dbview-menu"
-                        style={{ left: (panel as { x: number }).x, top: (panel as { y: number }).y }}
+                        ref={menuRef}
                         onMouseDown={(e) => e.stopPropagation()}
                       >
                         <li>
@@ -972,6 +1117,7 @@ export function DatabaseView({
       <div className="dbview-foot">
         {result.rows.length === 0 ? "没有匹配的笔记" : `${result.rows.length} 条`}
       </div>
+      {askUI}
     </div>
   );
 }

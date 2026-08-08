@@ -2595,6 +2595,59 @@ body.is-table-resizing * {
     transform: translateY(-6px);
   }
 }
+/* 问一行字（AskDialog）。`window.prompt` 在 WebView2 里不存在，
+   所有「起个名字」「写句说明」都走这个自绘的框 */
+.ask {
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px 16px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  animation: modal-in var(--t-base);
+}
+.ask-question {
+  font-size: 14px;
+  font-weight: 600;
+}
+.ask-hint {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ask-input {
+  min-height: max(34px, var(--tap));
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.ask-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.ask-actions .btn-quiet,
+.ask-actions .btn-primary {
+  min-height: max(32px, var(--tap));
+}
+.ask-actions .btn-primary {
+  padding: 7px 18px;
+  font-size: 13px;
+}
+
 .modal-input {
   border: none;
   outline: none;
@@ -6660,6 +6713,15 @@ textarea:focus-visible {
 .dbview-menu button:hover {
   background: var(--hover-bg);
 }
+/* 「已经在这一列」「已经按它排着」：标出来但不给点 */
+.dbview-menu button.is-current {
+  color: var(--accent-ink);
+}
+.dbview-menu button:disabled,
+.dbview-menu button:disabled:hover {
+  cursor: default;
+  background: none;
+}
 
 /* ---- 视图设置 / 加一列的浮层 ---- */
 
@@ -6932,6 +6994,31 @@ textarea:focus-visible {
 }
 
 /* 列头菜单里那一排类型图标 */
+/* 「这个视图还差一个键」的提示。缺什么说什么，并把补它的入口摆在同一句话里 */
+.dbview-need {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dbview-need-pick {
+  min-height: max(26px, var(--tap-sm));
+  padding: 2px 10px;
+  border-radius: var(--r-sm);
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  font-size: 12.5px;
+}
+.dbview-need-pick:hover {
+  filter: brightness(0.97);
+}
+
+/* 菜单里的小标题（「移到」）。它不是可点的项，所以不给 hover 也不进 Tab 序 */
+.dbview-menu-label {
+  padding: 3px 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
 .dbview-menu-sub {
   display: flex;
   align-items: center;
@@ -7401,6 +7488,29 @@ textarea:focus-visible {
   opacity: 0.4;
   cursor: grabbing;
 }
+/* 标题 + `⋯`。`⋯` 常显不藏在 hover 里：触摸屏上拖不动卡片，
+   它是手指唯一能改列的入口（§2.6） */
+.dbview-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.dbview-card-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max(26px, var(--tap-sm));
+  height: max(24px, var(--tap-sm));
+  margin: -2px -3px 0 0;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.dbview-card-more:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
 .dbview-card-title {
   display: block;
   width: 100%;
@@ -7718,6 +7828,140 @@ textarea:focus-visible {
   width: auto;
   max-width: 180px;
   margin: 0;
+}
+
+/* 条目 = 标题 + 一个改日期的入口。拖放在触摸屏上根本不发生，
+   那个小按钮是手指唯一能改日期的路 */
+.dbv-cal-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+  min-width: 0;
+}
+.dbv-cal-row .dbv-cal-item {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.dbv-cal-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  /* 月历格子里它只是个备用入口（那儿有鼠标，拖更快），常显会把 1/7 宽的
+     格子塞满 —— 议程里则一直在，见下面 */
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+.dbv-cal-row:hover .dbv-cal-more,
+.dbv-cal-more:focus-visible {
+  opacity: 1;
+}
+.dbv-cal-more:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+/* 窄屏的议程。一天一段，条目占满一行 —— 七列月历在 390px 上一格 50px，
+   标题剩四个字，条目高 18px，读不了也点不准 */
+.dbv-cal-agenda section {
+  padding: 6px 0;
+  border-top: 1px solid var(--hairline);
+}
+.dbv-cal-agenda section:first-child {
+  border-top: none;
+}
+.dbv-cal-agenda h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.dbv-cal-agenda h4 span {
+  font-weight: 400;
+}
+.dbv-cal-agenda section.is-today h4 {
+  color: var(--accent);
+}
+.dbv-cal-agenda h4 em {
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-size: 10.5px;
+  font-style: normal;
+}
+.dbv-cal-none {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+/* 触摸屏上一律常显、一律一根手指大 —— 那里没有悬停这一步，
+   而这是手指唯一能改日期的入口 */
+:root[data-touch="on"] .dbv-cal-more {
+  opacity: 1;
+  width: var(--tap);
+  height: var(--tap);
+}
+
+/* 议程只在窄屏出现，而**窄不等于手机**：把桌面窗口拖窄的人有鼠标，
+   `--tap` 是 0。所以这里要自带尺寸底数（M6 那一版就栽在这条上） */
+.dbv-cal-agenda .dbv-cal-row {
+  gap: 4px;
+  margin-bottom: 3px;
+}
+.dbv-cal-agenda .dbv-cal-item {
+  display: flex;
+  align-items: center;
+  min-height: max(34px, var(--tap));
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+.dbv-cal-agenda .dbv-cal-more {
+  opacity: 1;
+  width: max(34px, var(--tap));
+  height: max(34px, var(--tap));
+}
+
+/* 改日期的小浮层。fixed 的理由和表格列头菜单一样：月历和议程都在会滚的
+   容器里，absolute 会被两个轴一起裁掉。坐标由 JS 在打开那一刻算好 */
+.dbv-cal-pick {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--raised);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+}
+.dbv-cal-pick input {
+  min-height: max(30px, var(--tap-sm));
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+.dbv-cal-pick button {
+  min-height: max(30px, var(--tap-sm));
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+  font-size: 12.5px;
 }
 .dbv-cal-undated-label {
   font-size: 11.5px;

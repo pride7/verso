@@ -79,7 +79,11 @@ const DOC = ["正文", "", "```verso-view", 'from: "论文/*"', "view: table", "
 const views: EditorView[] = [];
 const roots: Root[] = [];
 
-afterEach(() => {
+afterEach(async () => {
+  // 视口是整个浏览器实例共享的：窄屏那条测试跑完不还原的话，同一次运行里
+  // 后跑的文件会在手机尺寸下跑，而它们的几何断言全是照桌面写的
+  await page.viewport(1440, 900);
+  delete document.documentElement.dataset.touch;
   for (const v of views.splice(0)) v.destroy();
   for (const r of roots.splice(0)) r.unmount();
   setViewRenderer(null as never);
@@ -92,6 +96,7 @@ afterEach(() => {
   schemaMock = {};
   viewMock = DEFAULT_VIEW;
   propRenameAll.mockClear();
+  confirmMock.mockClear();
   opened.length = 0;
   coverAsked.length = 0;
 });
@@ -363,14 +368,15 @@ describe("列与设置（§2.6）", () => {
     expect(propSet).not.toHaveBeenCalled();
   });
 
-  it("重命名一列会先问一句，再改所有带这个键的笔记", async () => {
-    const view = mount();
-    await settle();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
-    confirmMock.mockResolvedValue(true);
-
+  /**
+   * 打开列头菜单里的「重命名…」，并在自绘的输入框里答一句。
+   *
+   * **不能用 `window.prompt`**：WebView2 压根不实现它（浏览器里却有，
+   * 所以这条只有真机上才会露馅）。见 `noGlobalDialog.test.ts`。
+   */
+  async function renameColumnTo(view: EditorView, col: string, next: string | null) {
     const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
-      t.textContent?.includes("status"),
+      t.textContent?.includes(col),
     )!;
     await userEvent.click(th);
     await settle(200);
@@ -379,37 +385,51 @@ describe("列与设置（§2.6）", () => {
         b.textContent?.includes("重命名"),
       )!,
     );
+    await settle(100);
+
+    const input = view.dom.querySelector<HTMLInputElement>(".ask-input")!;
+    expect(input, "没弹出输入框 —— 那个按钮就是按下去没反应").toBeTruthy();
+    if (next === null) {
+      await userEvent.click(view.dom.querySelector<HTMLElement>(".ask-actions .btn-quiet")!);
+    } else {
+      await userEvent.fill(input, next);
+      await userEvent.click(view.dom.querySelector<HTMLElement>(".ask-actions .btn-primary")!);
+    }
     await settle();
+  }
+
+  it("重命名一列会先问一句，再改所有带这个键的笔记", async () => {
+    const view = mount();
+    await settle();
+    confirmMock.mockResolvedValue(true);
+
+    await renameColumnTo(view, "status", "阅读状态");
 
     // 问过了才改 —— 真在动几十个文件，不该点一下就悄悄发生
     expect(confirmMock).toHaveBeenCalled();
     expect(propRenameAll).toHaveBeenCalledWith("status", "阅读状态");
     // 视图点名的那一列也要跟着改，否则这一列会变成空的
     expect(view.state.doc.toString()).toContain("阅读状态");
+  });
 
-    prompt.mockRestore();
+  it("输入框点取消就什么都不做", async () => {
+    const view = mount();
+    await settle();
+
+    await renameColumnTo(view, "status", null);
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(propRenameAll).not.toHaveBeenCalled();
   });
 
   it("确认框点取消就什么都不做", async () => {
     const view = mount();
     await settle();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("阅读状态");
     confirmMock.mockResolvedValue(false);
 
-    const th = [...view.dom.querySelectorAll<HTMLElement>(".dbview-th")].find((t) =>
-      t.textContent?.includes("status"),
-    )!;
-    await userEvent.click(th);
-    await settle(200);
-    await userEvent.click(
-      [...view.dom.querySelectorAll<HTMLElement>(".dbview-menu button")].find((b) =>
-        b.textContent?.includes("重命名"),
-      )!,
-    );
-    await settle();
+    await renameColumnTo(view, "status", "阅读状态");
 
     expect(propRenameAll).not.toHaveBeenCalled();
-    prompt.mockRestore();
     confirmMock.mockResolvedValue(true);
   });
 
@@ -741,6 +761,50 @@ describe("看板（§2.6）", () => {
     expect(cols).toContain("（未设置）");
   });
 
+  /**
+   * 作者报的「看板失效了」：在设置里点了「看板」，界面纹丝不动还是那张表 ——
+   * 因为缺 `group-by` 时它默默退回了表格，而界面上没有任何地方说得出为什么。
+   */
+  it("没有分组属性时说清楚缺什么，不是默默退回表格", async () => {
+    boardMock();
+    // 后端认得 `view: board`，但没有 `group-by` 时 groupBy 是 null
+    viewMock = { ...viewMock, groupBy: null };
+    const view = mount('from: "论文/*"\nview: board');
+    await settle();
+
+    expect(view.dom.querySelector(".dbview-table"), "退回表格 = 点了没反应").toBeNull();
+    const need = view.dom.querySelector(".dbview-need")!;
+    expect(need.textContent).toContain("按一个属性分列");
+
+    // 候选就摆在这句话里，点一下直接补上
+    const pick = [...need.querySelectorAll<HTMLElement>(".dbview-need-pick")].find(
+      (b) => b.textContent === "status",
+    )!;
+    await userEvent.click(pick);
+    await settle(200);
+    expect(view.state.doc.toString()).toContain("group-by: status");
+  });
+
+  it("在设置里切到看板会顺手补上分组", async () => {
+    boardMock();
+    // 一张普通的表格视图，没有 group-by
+    const view = mount('from: "论文/*"\nview: table');
+    await settle();
+
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(150);
+    await userEvent.click(
+      [...view.dom.querySelectorAll<HTMLElement>(".vset-seg button")].find(
+        (b) => b.textContent === "看板",
+      )!,
+    );
+    await settle(200);
+
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("view: board");
+    expect(doc, "缺这个键的看板画不出来，人只会看到「点了没反应」").toContain("group-by: status");
+  });
+
   it("拖到另一列 = 改那篇笔记的分组属性", async () => {
     boardMock();
     const view = mount(BOARD);
@@ -760,6 +824,54 @@ describe("看板（§2.6）", () => {
     await settle();
 
     expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "已读");
+  });
+
+  /**
+   * **手指拖不动卡片**：HTML5 拖放在触摸屏上根本不产生 dragstart，所以
+   * 手机上看板一直是只读的 —— 而「把一件事挪进在读」正是最该在手机上做的
+   * 操作。`⋯` 是那条保底的路（和文档树的「移动到…」同一条思路）。
+   */
+  it("不拖也能改列：卡片的 ⋯ 里选一列", async () => {
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const card = [...view.dom.querySelectorAll<HTMLElement>(".dbview-card")].find((c) =>
+      c.textContent?.includes("甲"),
+    )!;
+    await userEvent.click(card.querySelector<HTMLElement>(".dbview-card-more")!);
+    await settle(150);
+
+    const items = [...view.dom.querySelectorAll<HTMLButtonElement>(".dbview-menu button")];
+    // 所有列都列出来，包括它现在所在的那一列（标出来但不给点）
+    expect(items.map((b) => b.textContent)).toEqual(["未读", "在读", "已读", "（未设置）"]);
+    expect(items.find((b) => b.textContent === "在读")!.disabled, "已经在这一列了").toBe(true);
+
+    await userEvent.click(items.find((b) => b.textContent === "已读")!);
+    await settle();
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "status", "已读");
+  });
+
+  it("⋯ 菜单是 fixed 的，而且整个在屏幕里", async () => {
+    // 看板外面套着横向滚动容器，absolute 的浮层会被两个轴一起裁掉；
+    // 而靠右下角的卡片打开时必然撞边（§6.3）
+    boardMock();
+    const view = mount(BOARD);
+    await settle();
+
+    const card = [...view.dom.querySelectorAll<HTMLElement>(".dbview-card")].find((c) =>
+      c.textContent?.includes("甲"),
+    )!;
+    await userEvent.click(card.querySelector<HTMLElement>(".dbview-card-more")!);
+    await settle(150);
+
+    const menu = view.dom.querySelector<HTMLElement>(".dbview-menu")!;
+    expect(getComputedStyle(menu).position).toBe("fixed");
+    const r = menu.getBoundingClientRect();
+    expect(r.left).toBeGreaterThanOrEqual(0);
+    expect(r.top).toBeGreaterThanOrEqual(0);
+    expect(r.right).toBeLessThanOrEqual(window.innerWidth);
+    expect(r.bottom).toBeLessThanOrEqual(window.innerHeight);
   });
 
   it("拖回原来那一列什么都不做 —— 别为一次没有变化的拖动改文件", async () => {
@@ -1000,6 +1112,72 @@ describe("日历视图（§2.6）", () => {
 
     const items = view.dom.querySelectorAll<HTMLElement>(".dbv-cal-item");
     for (const i of items) expect(i.draggable).toBe(false);
+  });
+
+  /** 拖放在触摸屏上根本不发生，改日期只能靠这个入口 */
+  it("不拖也能改日期：条目旁边的日期按钮", async () => {
+    calMock();
+    const view = mount(SPEC);
+    await settle();
+
+    const row = [...view.dom.querySelectorAll<HTMLElement>(".dbv-cal-row")].find((r) =>
+      r.textContent?.includes("甲"),
+    )!;
+    await userEvent.click(row.querySelector<HTMLElement>(".dbv-cal-more")!);
+    await settle(150);
+
+    const pick = view.dom.querySelector<HTMLElement>(".dbv-cal-pick")!;
+    expect(pick, "没弹出改日期的浮层").toBeTruthy();
+    // 会滚的容器里只有 fixed 不会被裁（和表格列头菜单同一条）
+    expect(getComputedStyle(pick).position).toBe("fixed");
+
+    const input = pick.querySelector<HTMLInputElement>("input[type=date]")!;
+    // 初值是它现在的日期，不是空的 —— 改一天的人不该从头填一遍
+    expect(input.value).toBe("2026-03-04");
+    await userEvent.fill(input, "2026-03-11");
+    await settle();
+    expect(propSet).toHaveBeenCalledWith("论文/甲.md", "读于", "2026-03-11");
+  });
+
+  it("内置时间字段不给改日期，那个按钮整个不出现", async () => {
+    calMock();
+    const view = mount(['from: "论文/*"', "view: calendar"].join("\n"));
+    await settle();
+    expect(view.dom.querySelector(".dbv-cal-more")).toBeNull();
+  });
+
+  /**
+   * **窄屏改成议程。** 七列月历在 390px 上一格只有 50px 宽 —— 标题剩四个字、
+   * 条目高 18px，读不了也点不准，而这恰恰是日历最该好用的地方。
+   *
+   * 视口是整个浏览器实例共享的，跑完必须还原，否则同一次运行里后面那些
+   * 照桌面写的几何断言会在手机尺寸下跑（AGENTS.md 里那条）。
+   */
+  it("窄屏上月历换成议程，每条都够一根手指", async () => {
+    await page.viewport(390, 844);
+    // 尺寸令牌跟的是这个属性，不是 `@media (hover: none)` ——
+    // headless Chromium 永远报 `hover: hover`，媒体查询那套在这里量不到
+    document.documentElement.dataset.touch = "on";
+    calMock();
+    const view = mount(SPEC);
+    await settle(300);
+
+    expect(view.dom.querySelector(".dbv-cal-grid"), "窄屏上不该还是七列月历").toBeNull();
+    const agenda = view.dom.querySelector<HTMLElement>(".dbv-cal-agenda")!;
+    expect(agenda).toBeTruthy();
+    // 只列有条目的日子，空日子在竖排列表里全是废行
+    expect(agenda.querySelectorAll("section").length).toBe(2);
+    expect(agenda.textContent).toContain("甲");
+
+    for (const b of agenda.querySelectorAll<HTMLElement>(".dbv-cal-more")) {
+      const r = b.getBoundingClientRect();
+      expect(r.width, "改日期的按钮太窄").toBeGreaterThanOrEqual(44);
+      expect(r.height, "改日期的按钮太矮").toBeGreaterThanOrEqual(44);
+    }
+    // 条目本身也不能是 18px 那种高度
+    for (const i of agenda.querySelectorAll<HTMLElement>(".dbv-cal-item")) {
+      expect(i.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
   });
 });
 

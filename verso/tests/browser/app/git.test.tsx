@@ -307,6 +307,16 @@ const { default: App } = await import("../../../src/app/App");
 let root: Root | null = null;
 const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 往受控的输入框里打字。React 管着 `value`，直接赋值不会触发 `onChange` ——
+ * 得走原生 setter 再派一个 input 事件。
+ */
+function typeInto(input: HTMLInputElement, text: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  setter.call(input, text);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 beforeEach(() => {
   localStorage.clear();
   dirty = 0;
@@ -410,10 +420,14 @@ describe("版本记录点", () => {
     expect(labels).toContain("记一个版本");
   });
 
-  it("能自己写说明 —— 自动生成的只说动了哪几篇，说不出为什么", async () => {
-    dirty = 1;
-    await mount();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("整理了一遍");
+  /**
+   * 走到「这一版做了什么？」那个输入框跟前。
+   *
+   * **自绘的，不是 `window.prompt`** —— WebView2 压根不实现 prompt，那条命令
+   * 在真 app 里一直是按下去什么都不发生（浏览器里有原生实现，所以只有
+   * 装出来才看得见）。见 `noGlobalDialog.test.ts`。
+   */
+  async function openCommitMessage() {
     await act(async () => {
       document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
       await settle(200);
@@ -425,29 +439,47 @@ describe("版本记录点", () => {
       item.click();
       await settle(400);
     });
+    return document.querySelector<HTMLInputElement>(".ask-input")!;
+  }
+
+  it("能自己写说明 —— 自动生成的只说动了哪几篇，说不出为什么", async () => {
+    dirty = 1;
+    await mount();
+    const input = await openCommitMessage();
+    expect(input, "没弹出输入框").toBeTruthy();
+
+    await act(async () => {
+      typeInto(input, "整理了一遍");
+      await settle(50);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>(".ask-actions .btn-primary")!.click();
+      await settle(300);
+    });
 
     expect(gitCommit).toHaveBeenCalledWith("整理了一遍");
-    prompt.mockRestore();
   });
 
   it("说明留空就当作没按 —— 不该记下一个空说明的版本", async () => {
     dirty = 1;
     await mount();
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("   ");
+    const input = await openCommitMessage();
+
     await act(async () => {
-      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
-      await settle(200);
+      typeInto(input, "   ");
+      await settle(50);
     });
-    const item = [...document.querySelectorAll<HTMLElement>(".palette-list button")].find(
-      (b) => b.querySelector(".palette-label")?.textContent === "记一个版本并写说明…",
-    )!;
+    // 全是空格时「记下」根本按不动，退出只能靠取消
+    expect(document.querySelector<HTMLButtonElement>(".ask-actions .btn-primary")!.disabled).toBe(
+      true,
+    );
     await act(async () => {
-      item.click();
+      document.querySelector<HTMLElement>(".ask-actions .btn-quiet")!.click();
       await settle(300);
     });
 
     expect(gitCommit).not.toHaveBeenCalled();
-    prompt.mockRestore();
+    expect(document.querySelector(".ask"), "取消之后框要收掉").toBeNull();
   });
 
   it("没有改动时那条命令不出现 —— 面板只列当前能用的", async () => {
@@ -878,7 +910,6 @@ describe("修改建议", () => {
   it("只在共享空间出现，提交成功后回到正式版本并明确提示", async () => {
     recentShared = true;
     dirty = 1;
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue("调整论证");
     await mount();
     const button = [...document.querySelectorAll<HTMLButtonElement>(".status-git")]
       .find((item) => item.textContent?.includes("提交建议"));
@@ -886,11 +917,22 @@ describe("修改建议", () => {
 
     await act(async () => {
       button!.click();
+      await settle(300);
+    });
+    // 先问一句这批建议做了什么 —— 审阅的人先看到的就是这句话
+    const input = document.querySelector<HTMLInputElement>(".ask-input")!;
+    expect(input, "没弹出输入框").toBeTruthy();
+    await act(async () => {
+      typeInto(input, "调整论证");
+      await settle(50);
+    });
+    await act(async () => {
+      document.querySelector<HTMLElement>(".ask-actions .btn-primary")!.click();
       await settle(400);
     });
+
     expect(reviewSuggestionSubmit).toHaveBeenCalledWith("调整论证");
     expect(document.querySelector(".status-notice")?.textContent).toContain("已回到正式版本");
-    prompt.mockRestore();
   });
 
   it("私人空间即使有远端也不显示审阅入口", async () => {

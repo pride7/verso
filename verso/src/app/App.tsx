@@ -17,6 +17,7 @@ import { fitFloatingMenu } from "../ui/floatingMenu";
 import { initialKeyboard, stepKeyboard } from "../core/keyboard";
 import { NARROW, useMedia } from "../host/media";
 import { ActivityBar, type SidebarView } from "../ui/ActivityBar";
+import { useAsk } from "../ui/AskDialog";
 import { CommandPalette, type Command } from "../ui/CommandPalette";
 import { Icon } from "../ui/Icon";
 import { Editor, type EditorHandle } from "../ui/Editor";
@@ -147,6 +148,8 @@ export function countChars(text: string): number {
 }
 
 export default function App() {
+  /** 要一句输入时走它，不用 `window.prompt`（WebView2 里没有那个函数） */
+  const { ask, askUI } = useAsk();
   const [vault, setVault] = useState<VaultInfo | null>(null);
   /** 换库装载 workspace 的短窗口里，不能让旧标签被 effect 写进新仓库。 */
   const activatingVault = useRef(false);
@@ -1364,7 +1367,12 @@ export default function App() {
   const submitSuggestion = useCallback(async () => {
     if (reviewBusy || syncing) return;
     const fallback = noteRef.current?.title ? `修改《${noteRef.current.title}》` : "一批修改";
-    const title = window.prompt("这批修改建议做了什么？", fallback)?.trim();
+    const title = await ask({
+      question: "这批修改建议做了什么？",
+      initial: fallback,
+      hint: "审阅的人先看到这句话，再逐个文件看改动。",
+      okLabel: "提交建议",
+    });
     if (!title) return;
     setReviewBusy(true);
     try {
@@ -1377,7 +1385,7 @@ export default function App() {
     } finally {
       setReviewBusy(false);
     }
-  }, [reviewBusy, syncing, saveNow, refreshAfterReview]);
+  }, [ask, reviewBusy, syncing, saveNow, refreshAfterReview]);
 
   const finishReview = useCallback(
     async (suggestion: Suggestion, accepted: string[], resolutions: SyncResolution[] = []) => {
@@ -2889,8 +2897,14 @@ export default function App() {
         // 做完一件完整的事时，自己写一句在历史里价值大得多
         enabled: !!git?.enabled && (git?.dirty ?? 0) > 0,
         run: () => {
-          const msg = window.prompt("这一版做了什么？", "")?.trim();
-          if (msg) void commitNow(msg);
+          void ask({
+            question: "这一版做了什么？",
+            placeholder: "例如：整理第三章的实验记录",
+            hint: "这句话会成为版本历史里的说明，比自动生成的「动了哪几篇」有用得多。",
+            okLabel: "记下",
+          }).then((msg) => {
+            if (msg) void commitNow(msg);
+          });
         },
       },
       {
@@ -2953,6 +2967,7 @@ export default function App() {
     reviewBusy,
     submitSuggestion,
     openSettings,
+    ask,
   ]);
 
   /**
@@ -3591,6 +3606,8 @@ export default function App() {
       {paletteOpen && (
         <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
       )}
+
+      {askUI}
 
       {reviewing && (
         <ReviewDialog

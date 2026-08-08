@@ -15,8 +15,10 @@
  *   来这里是为了浏览；要改值回表格
  * - 属性一律显示成小标签，空值直接不画 —— 摆一排「—」只是噪音
  */
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { NARROW, useMedia } from "../host/media";
+import { fitFloatingMenu } from "./floatingMenu";
 import { Icon } from "./Icon";
 import { propLabel } from "../core/propLabel";
 import { formatDate, isBuiltin } from "../core/viewSpec";
@@ -212,8 +214,40 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
     return (first && monthOf(first)) || { y: now.getFullYear(), m: now.getMonth() + 1 };
   });
   const [over, setOver] = useState<string | null>(null);
+  /**
+   * 「改日期」的小浮层开在哪一条上。
+   *
+   * HTML5 拖放在触摸屏上根本不发生，手机上这个日历只能看不能改 —— 而改日期
+   * 恰恰是日历视图存在的理由。拖是快捷方式，这条才是保底（和看板同一条路）。
+   */
+  const [dating, setDating] = useState<{ path: string; day: string; x: number; y: number } | null>(
+    null,
+  );
+  const dateRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (!dating) return;
+    const close = () => setDating(null);
+    // pointerdown：触摸屏上的 mousedown 是合成的，来得晚
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("resize", close);
+    // fixed 的浮层不会跟着滚，滚就关掉，别让它飘在半空
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [dating]);
+
+  useLayoutEffect(() => {
+    if (dating && dateRef.current) fitFloatingMenu(dateRef.current, dating.x, dating.y, 6);
+  }, [dating]);
+
+  const narrow = useMedia(NARROW);
   const cells = monthGrid(at.y, at.m);
+  /** 议程只列本月里真的有条目的日子 —— 空日子在竖排的列表里全是废行 */
+  const days = cells.filter((c) => c.inMonth && byDay.has(c.key));
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
     now.getDate(),
@@ -225,6 +259,44 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
     const path = e.dataTransfer.getData("text/plain");
     if (path && onSetDate) onSetDate(path, key);
   };
+
+  /** 月历格子里和「没有日期」那一栏里的条目长一样，只是所在的容器不同 */
+  const item = (r: ViewRow) => (
+    <span className="dbv-cal-row" key={r.path}>
+      <button
+        className="dbv-cal-item"
+        draggable={!!onSetDate}
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", r.path);
+        }}
+        onClick={() => onOpen(r.path)}
+        title={r.title}
+      >
+        {r.title}
+      </button>
+      {onSetDate && (
+        // 常显，不是 hover 才出现 —— 触摸屏上没有悬停这一步
+        <button
+          className="dbv-cal-more"
+          onClick={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            setDating({
+              path: r.path,
+              day: dateKey(r.props[dateField]) ?? todayKey,
+              x: box.left - 90,
+              y: box.bottom + 4,
+            });
+          }}
+          title={`改「${r.title}」的日期`}
+          aria-label={`改「${r.title}」的日期`}
+          aria-haspopup="dialog"
+        >
+          <Icon name="calendar" size={12} />
+        </button>
+      )}
+    </span>
+  );
 
   return (
     <div className="dbv-cal">
@@ -245,6 +317,24 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
         <span className="dbv-cal-field">按「{propLabel(dateField)}」</span>
       </div>
 
+      {/* 窄屏改成议程：一天一段、条目占满一行。
+          七列的月历在 390px 上一格只有 50px 宽 —— 标题剩四个字，条目高 18px，
+          手指既点不准也读不懂。手机上的日历应用一律是这个样子，不是月历缩小版。 */}
+      {narrow ? (
+        <div className="dbv-cal-agenda">
+          {days.length === 0 && <p className="dbv-cal-none">这个月没有条目</p>}
+          {days.map((c) => (
+            <section key={c.key} className={c.key === todayKey ? "is-today" : undefined}>
+              <h4>
+                {c.day} 日<span>{WEEKDAYS[cells.indexOf(c) % 7]}</span>
+                {c.key === todayKey && <em>今天</em>}
+              </h4>
+              {(byDay.get(c.key) ?? []).map(item)}
+            </section>
+          ))}
+        </div>
+      ) : (
+        <>
       <div className="dbv-cal-head">
         {WEEKDAYS.map((w) => (
           <span key={w}>{w}</span>
@@ -278,44 +368,52 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
               onDrop={onSetDate ? (e) => drop(c.key, e) : undefined}
             >
               <span className="dbv-cal-day">{c.day}</span>
-              {list.map((r) => (
-                <button
-                  key={r.path}
-                  className="dbv-cal-item"
-                  draggable={!!onSetDate}
-                  onDragStart={(e) => {
-                    e.dataTransfer.effectAllowed = "move";
-                    e.dataTransfer.setData("text/plain", r.path);
-                  }}
-                  onClick={() => onOpen(r.path)}
-                  title={r.title}
-                >
-                  {r.title}
-                </button>
-              ))}
+              {list.map(item)}
             </div>
           );
         })}
       </div>
+        </>
+      )}
 
       {/* 没有日期的不能丢掉不显示 —— 那等于让人在月历里翻找一篇根本不会出现的笔记 */}
       {undated.length > 0 && (
         <div className="dbv-cal-undated">
           <span className="dbv-cal-undated-label">没有「{propLabel(dateField)}」</span>
-          {undated.map((r) => (
-            <button
-              key={r.path}
-              className="dbv-cal-item"
-              draggable={!!onSetDate}
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", r.path);
-              }}
-              onClick={() => onOpen(r.path)}
-            >
-              {r.title}
-            </button>
-          ))}
+          {undated.map(item)}
+        </div>
+      )}
+
+      {dating && onSetDate && (
+        // fixed：月历格子和「没有日期」那一栏都在会滚的容器里，
+        // 挂在里面的浮层会被裁掉（和表格列头菜单同一条）
+        <div
+          className="dbv-cal-pick"
+          ref={dateRef}
+          role="dialog"
+          aria-label={`改「${propLabel(dateField)}」`}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {/* 原生日期控件：安卓 WebView 上点开是系统的日期选择器，
+              比自己画一个月历既准确又省事 */}
+          <input
+            type="date"
+            value={dating.day}
+            aria-label={propLabel(dateField)}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              onSetDate(dating.path, e.target.value);
+              setDating(null);
+            }}
+          />
+          <button
+            onClick={() => {
+              onSetDate(dating.path, todayKey);
+              setDating(null);
+            }}
+          >
+            今天
+          </button>
         </div>
       )}
     </div>
