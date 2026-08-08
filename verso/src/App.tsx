@@ -377,6 +377,8 @@ export default function App() {
   const [termOpen, setTermOpenRaw] = useState(
     () => localStorage.getItem("verso.termOpen") === "1",
   );
+  /** 最大化只是当前窗口的临时布局，不能跨会话恢复成意外遮住正文的状态。 */
+  const [termMaximized, setTermMaximized] = useState(false);
   /** 面板开关状态跨会话保留 —— 关掉的人不想每次启动又见到它 */
   const setTermOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setTermOpenRaw((prev) => {
@@ -385,6 +387,17 @@ export default function App() {
       return v;
     });
   }, []);
+  const closeTerminal = useCallback(() => {
+    setTermMaximized(false);
+    setTermOpen(false);
+  }, [setTermOpen]);
+  const toggleTerminal = useCallback(() => {
+    setTermOpen((open) => {
+      const next = !open;
+      if (!next) setTermMaximized(false);
+      return next;
+    });
+  }, [setTermOpen]);
   // 面板高度记在 localStorage —— 调好一次就别再调第二次。
   // vault 级的 UI 状态（§2.1 workspace.json）等 M3 有配置系统了再搬过去。
   const [termHeight, setTermHeight] = useState(() => {
@@ -3025,8 +3038,8 @@ export default function App() {
   return (
     <div
       className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}${
-        termOpen && !mobile && termDockEffective === "right" ? " term-right" : ""
-      }`}
+        termOpen && !mobile && termDockEffective === "right" && !termMaximized ? " term-right" : ""
+      }${termOpen && !mobile && termMaximized ? " term-maximized" : ""}`}
       style={
         { "--sidebar-w": `${sidebarWidth}px`, "--term-w": `${termWidth}px` } as React.CSSProperties
       }
@@ -3049,7 +3062,7 @@ export default function App() {
         }}
         termOpen={termOpen}
         showTerm={!mobile}
-        onToggleTerm={() => setTermOpen((v) => !v)}
+        onToggleTerm={toggleTerminal}
         onSystemTerminal={() =>
           api.openTerminal(null).catch((err) => setError((err as Error).message))
         }
@@ -3402,7 +3415,9 @@ export default function App() {
           }}
           // 窄屏没有「靠右」这个选项，那个按钮就不该在（§7.3）
           onDockToggle={narrow ? undefined : toggleTermDock}
-          onClose={() => setTermOpen(false)}
+          maximized={termMaximized}
+          onMaximizeToggle={() => setTermMaximized((value) => !value)}
+          onClose={closeTerminal}
           fontSize={settings.terminalFontSize}
           dark={effectiveTheme === "dark"}
           theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}

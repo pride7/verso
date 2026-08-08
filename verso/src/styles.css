@@ -496,6 +496,37 @@ button {
     "status status status";
 }
 
+/* 终端最大化只占编辑区：标签栏、文档树和图标栏仍留在原位，用户不用在一个
+   铺满窗口的黑盒里寻找返回路径。终端保持同一个 DOM 节点，ResizeObserver 会在
+   网格变动后重新 fit；不能通过卸载再挂载来达到这个效果。 */
+.app.term-maximized {
+  grid-template-columns: 44px var(--sidebar-w, 252px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) 0 auto;
+  grid-template-areas:
+    "rail sidebar tabs"
+    "rail sidebar main"
+    "rail sidebar ."
+    "status status status";
+}
+.app.term-maximized.sidebar-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-areas:
+    "rail tabs"
+    "rail main"
+    "rail ."
+    "status status";
+}
+.app.term-maximized .term {
+  grid-area: main;
+  height: auto !important;
+  border-top: none;
+  border-left: none;
+  border-radius: 0;
+}
+.app.term-maximized .term-resizer {
+  display: none;
+}
+
 /* ---------- 标签栏 ---------- */
 
 .tabbar {
@@ -8273,7 +8304,8 @@ body.is-row-resizing {
   position: relative;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  /* 时间线圆点和整行文字共用同一个 button；不再额外放一个只为展开而存在的箭头。 */
+  gap: 5px;
   width: 100%;
   min-height: var(--tap);
   padding: 6px 6px 6px 2px;
@@ -8308,15 +8340,6 @@ body.is-row-resizing {
 .hist-head:hover {
   background: var(--hover-bg);
 }
-.hist-caret {
-  flex: none;
-  align-self: center;
-  color: var(--muted);
-  transition: transform var(--t-fast);
-}
-.hist > li.is-open .hist-caret {
-  transform: rotate(90deg);
-}
 .hist-author {
   flex: none;
   max-width: 58px;
@@ -8346,7 +8369,7 @@ body.is-row-resizing {
   position: relative;
   list-style: none;
   margin: 0 0 4px;
-  /* 缩进对齐上面那个箭头之后的文字 */
+  /* 缩进对齐上面活动行的文字 */
   padding: 0 0 0 23px;
 }
 .hist > li > .hist-files {

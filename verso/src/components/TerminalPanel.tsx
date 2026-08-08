@@ -19,6 +19,9 @@ interface Props {
   onSizeChange: (px: number) => void;
   /** 不给就不显示那个切换按钮 —— 窄屏没有「靠右」这个选项（§7.3） */
   onDockToggle?: () => void;
+  /** 最大化只覆盖编辑区；布局变化由 App 处理，终端实例不能重建。 */
+  maximized: boolean;
+  onMaximizeToggle: () => void;
   onClose: () => void;
   /** 设置里的终端字号 */
   fontSize: number;
@@ -116,6 +119,8 @@ export function TerminalPanel({
   size,
   onSizeChange,
   onDockToggle,
+  maximized,
+  onMaximizeToggle,
   onClose,
   fontSize,
   dark,
@@ -322,12 +327,12 @@ export function TerminalPanel({
   // 由 App 的 `--term-w` 定 —— 那是一条网格轨道，得由网格自己知道多宽，元素再
   // 写一份 width 只会多一处会对不上的真相
   return (
-    <div className={`term dock-${dock}`} style={dock === "bottom" ? { height: size } : undefined}>
+    <div className={`term dock-${dock}${maximized ? " is-maximized" : ""}`} style={dock === "bottom" ? { height: size } : undefined}>
       <div className="term-resizer" onMouseDown={startDrag} />
       <header className="term-head">
         <span className="term-title">终端{dead && " · 已结束"}</span>
         <span className="term-actions">
-          {onDockToggle && (
+          {onDockToggle && !maximized && (
             <button
               className="term-btn"
               onClick={onDockToggle}
@@ -337,6 +342,14 @@ export function TerminalPanel({
               <Icon name={dock === "bottom" ? "dock-right" : "dock-bottom"} size={13} />
             </button>
           )}
+          <button
+            className="term-btn"
+            onClick={onMaximizeToggle}
+            title={maximized ? "恢复终端原来的布局" : "最大化到编辑区"}
+            aria-label={maximized ? "恢复终端原来的布局" : "最大化到编辑区"}
+          >
+            <Icon name={maximized ? "restore" : "maximize"} size={13} />
+          </button>
           <button
             className="term-btn"
             onClick={onClose}

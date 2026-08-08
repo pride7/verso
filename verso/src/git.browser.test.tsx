@@ -502,6 +502,8 @@ describe("侧栏里的动态", () => {
     expect(getComputedStyle(entry, "::before").width).toBe("1px");
     expect(getComputedStyle(node, "::before").borderRadius).toBe("50%");
     expect(getComputedStyle(branch, "::before").borderLeftWidth).toBe("1px");
+    // 时间线圆点就是这一条活动的锚点；不要再插一个只为展开而存在的箭头。
+    expect(node.querySelector(".hist-caret")).toBeNull();
   });
 
   it("当前改动可以确认后撤销，取消时不动文件", async () => {

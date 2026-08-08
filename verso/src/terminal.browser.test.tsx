@@ -257,6 +257,39 @@ describe("终端停靠位置", () => {
     expect(Math.round(box(".term")!.width)).toBe(520);
   });
 
+  it("最大化只占编辑区，恢复后回到原来的停靠位置且不重建终端", async () => {
+    localStorage.setItem("verso.termOpen", "1");
+    await mount();
+    expect(opened).toBe(1);
+    const host = document.querySelector(".term-host");
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('[aria-label="最大化到编辑区"]')!.click();
+      await settle(400);
+    });
+
+    const term = box(".term")!;
+    const main = box(".main")!;
+    expect(document.querySelector(".app")?.className).toContain("term-maximized");
+    expect(Math.abs(term.left - main.left)).toBeLessThan(2);
+    expect(Math.abs(term.top - main.top)).toBeLessThan(2);
+    expect(Math.abs(term.width - main.width)).toBeLessThan(2);
+    expect(Math.abs(term.height - main.height)).toBeLessThan(2);
+    expect(document.querySelector(".term-host")).toBe(host);
+    expect(opened).toBe(1);
+    expect(closed).toBe(0);
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('[aria-label="恢复终端原来的布局"]')!.click();
+      await settle(400);
+    });
+    expect(document.querySelector(".app")?.className).not.toContain("term-maximized");
+    expect(box(".term")!.top).toBeGreaterThan(box(".main")!.top);
+    expect(document.querySelector(".term-host")).toBe(host);
+    expect(opened).toBe(1);
+    expect(closed).toBe(0);
+  });
+
   it("窄屏强制吸底，但不改存下来的偏好", async () => {
     localStorage.setItem("verso.termOpen", "1");
     localStorage.setItem("verso.termDock", "right");

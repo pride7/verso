@@ -442,7 +442,6 @@ export function HistoryView({
                   onMouseLeave={scheduleLeave}
                   aria-describedby={hoverCard?.entry.id === entry.id ? "hist-version-detail" : undefined}
                 >
-                  <Icon name="chevron" size={11} className="hist-caret" />
                   <span className="hist-author">
                     {isOwnEntry(entry, identity) ? "你" : entry.authorName}
                   </span>
