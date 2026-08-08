@@ -261,6 +261,48 @@ describe("纯文件夹的树上操作", () => {
 });
 
 /**
+ * 头部那个「全部折叠 / 全部展开」（§2.1）。
+ *
+ * 展开状态归每一行自己管，这里要验的是那个信号真的传到了每一层 ——
+ * 只看按钮的图标变没变是测不出来的。
+ */
+describe("一键折叠 / 展开整棵树", () => {
+  const foldBtn = () =>
+    [...document.querySelectorAll<HTMLElement>(".side-act")].find((b) =>
+      ["全部折叠", "全部展开"].includes(b.getAttribute("aria-label") ?? ""),
+    )!;
+  const visible = () =>
+    [...document.querySelectorAll(".tree-name")].map((n) => n.textContent);
+
+  it("点一下收起全部，再点一下全部展开", async () => {
+    await mountApp();
+    // 顶层默认是展开的，所以子文档一开始就看得见
+    expect(visible()).toContain("代数");
+
+    await click(foldBtn());
+    expect(visible(), "子文档该收起来了").not.toContain("代数");
+    expect(visible(), "顶层自己不该消失").toContain("数学");
+
+    await click(foldBtn());
+    expect(visible(), "再点一下要全部展开").toContain("代数");
+  });
+
+  it("同一个方向连按两次也生效 —— 中间手动展开过的那一支也要收回去", async () => {
+    await mountApp();
+    await click(foldBtn());
+    // 手动把「数学」重新展开（按名字取那一行 —— 排序之后「甲」在前面，
+    // 而它是叶子，那个位置的三角是空的）
+    await click(rowFor("数学").querySelector<HTMLElement>(".tree-twisty")!);
+    expect(visible()).toContain("代数");
+
+    // 按钮这时显示的是「全部展开」，先点回「全部折叠」的方向
+    await click(foldBtn());
+    await click(foldBtn());
+    expect(visible()).not.toContain("代数");
+  });
+});
+
+/**
  * 「移动到…」和上移/下移 —— 拖拽的可点击等价物（M6）。
  * 触摸屏上 HTML5 拖放完全不可用，没有这几条，手机上就无法调整树结构。
  */

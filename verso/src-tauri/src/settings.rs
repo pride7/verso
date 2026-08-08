@@ -144,6 +144,14 @@ pub struct Settings {
     #[serde(default = "default_auto_commit_idle")]
     pub auto_commit_idle_min: f64,
 
+    /// 自动记版本的总开关（§2.8）。关掉之后上下这三条一律不发生。
+    ///
+    /// 让 AI CLI 在仓库里改东西的人（§7）需要它：改到一半被自动记一版，
+    /// 会把一次完整的改动切成几段。分别关掉三个开关才能停掉这件事，
+    /// 等于把一个是非题拆成三个。
+    #[serde(default = "default_true")]
+    pub auto_commit: bool,
+
     /// 切到别的程序时也记一个版本（§2.8 的另一个聚合窗口）
     #[serde(default = "default_true")]
     pub auto_commit_on_blur: bool,
@@ -216,6 +224,7 @@ impl Default for Settings {
             template_dir: default_template_dir(),
             journal_keep: default_journal_keep(),
             auto_commit_idle_min: default_auto_commit_idle(),
+            auto_commit: default_true(),
             auto_commit_on_blur: default_true(),
             auto_commit_on_close: default_true(),
             accent_hue: default_accent_hue(),

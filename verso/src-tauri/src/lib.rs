@@ -1408,6 +1408,31 @@ fn git_discard_file(state: State<'_, AppState>, path: String) -> Result<()> {
     Ok(())
 }
 
+/// 只撤销选中的那几行改动，其余留在工作区（§2.8）。
+///
+/// `lines` 是 `[hunk 序号, 该 hunk 内第几行]` 的列表 —— 前端刚刚拿
+/// `git_diff_file` 画出来的那一份，坐标就是那份 diff 里的位置。这里**重算一遍
+/// diff** 再组装：中间文件又被改过的话，坐标对不上，与其写出一份谁也没想要的
+/// 内容，不如让它对着新的事实来（撤销的行数会变，但不会错位）。
+#[tauri::command]
+fn git_revert_lines(state: State<'_, AppState>, path: String, lines: Vec<(usize, usize)>) -> Result<()> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    state.with_vault(|v| {
+        let abs = v.resolve(&path)?;
+        let diff = vault::git::diff_file(&v.root, None, &path)?;
+        if diff.binary {
+            return Err(Error::Vault(format!("{path} 不是文本，没法逐行撤销")));
+        }
+        let working = v.fs.read_to_string(&abs)?;
+        let next = vault::git::compose_partial_revert(&working, &diff, &lines);
+        v.fs.write_bytes(&abs, next.as_bytes())
+    })?;
+    state.reindex(&path);
+    Ok(())
+}
+
 /// 把某一篇笔记回退到某一版。
 ///
 /// **回退前先把当前状态记一个版本** —— 不然「回退」就成了一次不可撤销的
@@ -1719,6 +1744,7 @@ pub fn run() {
             git_working_changes,
             git_diff_file,
             git_discard_file,
+            git_revert_lines,
             git_restore_file,
             git_identity_get,
             git_identity_set,

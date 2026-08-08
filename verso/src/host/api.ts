@@ -229,6 +229,12 @@ export const api = {
     call<FileDiff>("git_diff_file", { path, commit }),
   /** 撤销某个文件尚未记录的改动；新文件会被删除 */
   gitDiscardFile: (path: string) => call<void>("git_discard_file", { path }),
+  /**
+   * 只撤销选中的那几行。`lines` 是 `[第几个 hunk, 这个 hunk 里的第几行]`，
+   * 坐标来自刚刚那次 `gitDiffFile`（§2.8）
+   */
+  gitRevertLines: (path: string, lines: [number, number][]) =>
+    call<void>("git_revert_lines", { path, lines }),
   /** 把某篇笔记回退到某一版。**回退前会先把当前状态记一个版本** */
   gitRestoreFile: (commit: string, path: string) =>
     call<void>("git_restore_file", { commit, path }),

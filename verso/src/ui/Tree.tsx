@@ -29,6 +29,14 @@ interface Props {
   /** 交回新名字。空、或和原来一样，都当作放弃 */
   onRenameSubmit: (path: string, name: string) => void;
   onRenameCancel: () => void;
+  /**
+   * 「全部折叠 / 全部展开」。
+   *
+   * 展开状态是**每一行自己的** state（那正是它该待的地方：展开一个节点不该
+   * 惊动整棵树重渲染）。要一次性动全部，只能从外面发一个信号进来 —— `at`
+   * 每次都不一样，effect 才会重新跑；连点两次「全部折叠」也要真的都收起来。
+   */
+  foldAll?: { at: number; open: boolean };
   depth?: number;
 }
 
@@ -57,10 +65,20 @@ function TreeItem({
   renamingPath,
   onRenameSubmit,
   onRenameCancel,
+  foldAll,
   depth,
 }: Omit<Props, "nodes" | "depth"> & { node: TreeNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth === 0);
   const renaming = renamingPath === node.path;
+
+  // 外面按了「全部折叠 / 全部展开」。挂载时不跑（`at` 初值来自那时的信号），
+  // 否则新长出来的行会被上一次的折叠状态追着改
+  const foldAt = useRef(foldAll?.at);
+  useEffect(() => {
+    if (!foldAll || foldAll.at === foldAt.current) return;
+    foldAt.current = foldAll.at;
+    setExpanded(foldAll.open);
+  }, [foldAll]);
 
   // 在收起的节点底下新建子文档时，那一行根本没渲染出来，改名框也就无从谈起。
   // 所以只要被改名的那个在自己子树里，就展开
@@ -203,6 +221,7 @@ function TreeItem({
           renamingPath={renamingPath}
           onRenameSubmit={onRenameSubmit}
           onRenameCancel={onRenameCancel}
+          foldAll={foldAll}
           depth={depth + 1}
         />
       )}

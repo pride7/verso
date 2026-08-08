@@ -4852,6 +4852,12 @@ body.is-table-resizing * {
 .set-row:last-child {
   border-bottom: none;
 }
+/* 被总开关停掉的那几条：压淡但**不禁用** —— 提前把「等会儿再打开时用哪套」
+   调好是合理的，藏起来反而让人以为设置丢了 */
+.set-row.is-off .set-label,
+.set-row.is-off .set-control {
+  opacity: 0.5;
+}
 .set-label {
   display: flex;
   flex-direction: column;
@@ -9330,6 +9336,9 @@ body.is-row-resizing {
   border-left: 1px solid var(--hairline);
 }
 .diff-hunk-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 12px;
   font: 10.5px/1.4 var(--font-mono);
   color: var(--muted);
@@ -9342,6 +9351,59 @@ body.is-row-resizing {
 .diff-split-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* 「把这一处改回去」（§2.8）。
+   画在两栏中间那条缝上 —— 那个位置本身就在说「从右边退回左边」，
+   VSCode 的差异编辑器也是这么放的，不需要再配一句说明。
+   **绝对定位**，不占网格的一列：占列的话两栏会被挤窄，而它只出现在
+   每一处改动的第一行上 */
+.diff-split-row,
+.diff-unified-row {
+  position: relative;
+}
+.diff-revert-here {
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  transform: translateX(-50%);
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--hairline);
+  /* 平时不显：一屏几十处改动，每处挂一个常亮的按钮就成了一片按钮墙。
+     鼠标进了这一处才浮出来（和表格把手同一条，§4.9） */
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.diff-unified .diff-revert-here {
+  left: auto;
+  right: 8px;
+  transform: none;
+}
+.diff-hunk-group:hover .diff-revert-here,
+.diff-revert-here:focus-visible {
+  opacity: 1;
+}
+.diff-revert-here:hover {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+.diff-revert-here:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* 触摸屏没有悬停，那儿一律常显、一律一根手指大（§1.2） */
+:root[data-touch="on"] .diff-revert-here {
+  opacity: 1;
+  width: var(--tap-sm);
+  height: var(--tap-sm);
 }
 .diff-cell {
   display: grid;

@@ -54,6 +54,15 @@ export interface Settings {
    */
   journalKeep: number;
   /**
+   * 自动记版本的总开关（§2.8）。关掉之后**下面那三条一律不发生**，
+   * 什么时候记版本完全由人决定（状态栏那个点、命令面板里那两条）。
+   *
+   * 为什么要一个总开关：让 AI CLI 在仓库里改东西的人（§7）不希望改到一半
+   * 被自动记一版 —— 那会把「一次完整的改动」切成几段，而分别关掉三个开关
+   * 才能停掉这件事，等于把一个是非题拆成三个。
+   */
+  autoCommit: boolean;
+  /**
    * 停手多少分钟之后自动记一个版本（§2.8）。0 = 不自动记。
    *
    * **按时间窗聚合**，不是每次保存都记 —— 保存是停手 800ms 就发生的，
@@ -132,6 +141,7 @@ export const DEFAULT_SETTINGS: Settings = {
   treeSort: "name",
   templateDir: "templates",
   journalKeep: 3,
+  autoCommit: true,
   autoCommitIdleMin: 5,
   autoCommitOnBlur: true,
   autoCommitOnClose: true,
@@ -234,6 +244,7 @@ export function sanitize(s: Settings): Settings {
     // 上限 50：再多就等于没折叠，而一个手滑打成 500 的值会让「只看最新」
     // 悄悄失效，比报错更难查
     journalKeep: Math.round(num(s.journalKeep, 0, 50, DEFAULT_SETTINGS.journalKeep)),
+    autoCommit: typeof s.autoCommit === "boolean" ? s.autoCommit : DEFAULT_SETTINGS.autoCommit,
     autoCommitIdleMin: Math.round(
       num(s.autoCommitIdleMin, 0, 120, DEFAULT_SETTINGS.autoCommitIdleMin),
     ),

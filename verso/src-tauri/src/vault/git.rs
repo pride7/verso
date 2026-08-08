@@ -1105,6 +1105,76 @@ pub fn file_at_head(root: &Path, path: &str) -> Result<Option<Vec<u8>>> {
     Ok(Some(blob.content().to_vec()))
 }
 
+/// 只撤销选中的那几行改动，其余留在工作区（§2.8）。
+///
+/// `rejected` 里是「要撤销的那些行」在 `diff_file(None, path)` 结果里的坐标：
+/// `(第几个 hunk, 这个 hunk 里的第几行)`。返回撤销之后的**全文**，写盘由调用方
+/// 负责 —— 组装本身不碰文件系统，才能在单测里穷举各种行尾和边界。
+///
+/// 三种行各自的含义：
+///
+/// - `context`：两边都有，原样抄工作区那一行
+/// - `added`：工作区有、上一版没有。撤销它 = 从工作区去掉
+/// - `deleted`：上一版有、工作区没有。撤销它 = 把它加回来
+pub fn compose_partial_revert(working: &str, diff: &FileDiff, rejected: &[(usize, usize)]) -> String {
+    // 保留行尾：`split_inclusive` 让每一项自带换行符，抄回去就是原字节。
+    // 用 `lines()` 再 join 会把没动过的那些行的行尾也统一掉，于是一次
+    // 「撤销三行」在下一个 diff 里变成整篇都改了（这个仓库里 CRLF/LF 是混的）
+    let lines: Vec<&str> = working.split_inclusive('\n').collect();
+    let newline = if working.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::with_capacity(working.len());
+    let mut at = 0usize;
+
+    for (hi, hunk) in diff.hunks.iter().enumerate() {
+        // `new_lines == 0` 是纯删除：unified diff 里那个行号说的是「删掉的
+        // 内容原来在这一行**之后**」，不减一
+        let start = if hunk.new_lines == 0 {
+            hunk.new_start as usize
+        } else {
+            (hunk.new_start as usize).saturating_sub(1)
+        };
+        for line in lines.iter().take(start).skip(at) {
+            out.push_str(line);
+        }
+        at = at.max(start);
+
+        for (li, line) in hunk.lines.iter().enumerate() {
+            let undo = rejected.contains(&(hi, li));
+            match line.kind {
+                "context" => {
+                    match lines.get(at) {
+                        Some(text) => out.push_str(text),
+                        None => {
+                            out.push_str(&line.text);
+                            out.push_str(newline);
+                        }
+                    }
+                    at += 1;
+                }
+                "added" => {
+                    if !undo {
+                        if let Some(text) = lines.get(at) {
+                            out.push_str(text);
+                        }
+                    }
+                    at += 1;
+                }
+                "deleted" => {
+                    if undo {
+                        out.push_str(&line.text);
+                        out.push_str(newline);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    for line in lines.iter().skip(at) {
+        out.push_str(line);
+    }
+    out
+}
+
 /// 只把索引里的这一条恢复到 HEAD；工作区内容由 `VaultFs` 写回。
 ///
 /// Verso 自己不暴露暂存区，但外部工具可能留下 staged 改动。只改工作区的话，
@@ -1445,4 +1515,110 @@ pub fn file_at(root: &Path, commit: &str, path: &str) -> Result<String> {
     let blob = repo.find_blob(entry.id())?;
     String::from_utf8(blob.content().to_vec())
         .map_err(|_| Error::Vault(format!("{path} 不是文本，没法回退")))
+}
+
+#[cfg(test)]
+mod partial_revert_tests {
+    use super::*;
+
+    /// 造一份「上一版 → 工作区」的差异，和界面上看到的是同一份
+    fn diff(old: &str, new: &str) -> FileDiff {
+        diff_texts("甲.md", old, new).unwrap()
+    }
+
+    /// 每个 hunk 里第几行是什么类型 —— 挑「要撤销哪几行」时要靠它数
+    fn kinds(d: &FileDiff) -> Vec<Vec<&'static str>> {
+        d.hunks.iter().map(|h| h.lines.iter().map(|l| l.kind).collect()).collect()
+    }
+
+    #[test]
+    fn revert_nothing_keeps_the_file_byte_for_byte() {
+        let old = "甲\n乙\n丙\n";
+        let new = "甲\n改过的乙\n丙\n";
+        assert_eq!(compose_partial_revert(new, &diff(old, new), &[]), new);
+    }
+
+    #[test]
+    fn reverting_an_added_line_drops_it() {
+        let old = "甲\n乙\n";
+        let new = "甲\n新的一行\n乙\n";
+        let d = diff(old, new);
+        let at = kinds(&d)[0].iter().position(|k| *k == "added").unwrap();
+        assert_eq!(compose_partial_revert(new, &d, &[(0, at)]), old);
+    }
+
+    #[test]
+    fn reverting_a_deleted_line_puts_it_back() {
+        let old = "甲\n乙\n丙\n";
+        let new = "甲\n丙\n";
+        let d = diff(old, new);
+        let at = kinds(&d)[0].iter().position(|k| *k == "deleted").unwrap();
+        assert_eq!(compose_partial_revert(new, &d, &[(0, at)]), old);
+    }
+
+    /// 这条是这个功能存在的理由：一处撤销、一处留下
+    #[test]
+    fn one_change_reverted_the_other_kept() {
+        // 中间要隔开七行以上，否则两处会被算进同一个 hunk（上下文各三行）
+        let filler = "中间\n".repeat(9);
+        let old = format!("第一段\n{filler}第二段\n");
+        let new = format!("第一段改了\n{filler}第二段也改了\n");
+        let (old, new) = (old.as_str(), new.as_str());
+        let d = diff(old, new);
+        assert_eq!(d.hunks.len(), 2, "两处离得够远，应当是两个 hunk");
+
+        // 只撤销第一个 hunk 里那一对（删掉的加回来、加上的去掉）
+        let first: Vec<(usize, usize)> = d.hunks[0]
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.kind != "context")
+            .map(|(i, _)| (0, i))
+            .collect();
+        let out = compose_partial_revert(new, &d, &first);
+        assert!(out.starts_with("第一段\n"), "第一处该回到上一版：{out}");
+        assert!(out.contains("第二段也改了"), "第二处不该被动：{out}");
+    }
+
+    /// 撤销全部 = 和整篇丢弃同一个结果
+    #[test]
+    fn reverting_every_line_equals_discarding_the_file() {
+        let old = "甲\n乙\n丙\n丁\n";
+        let new = "甲\n改了乙\n丙\n";
+        let d = diff(old, new);
+        let all: Vec<(usize, usize)> = d
+            .hunks
+            .iter()
+            .enumerate()
+            .flat_map(|(hi, h)| {
+                h.lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, l)| l.kind != "context")
+                    .map(move |(li, _)| (hi, li))
+            })
+            .collect();
+        assert_eq!(compose_partial_revert(new, &d, &all), old);
+    }
+
+    /// CRLF 的文件不能被顺手改成 LF —— 那会让下一次 diff 变成整篇都改了
+    #[test]
+    fn crlf_line_endings_survive() {
+        let old = "甲\r\n乙\r\n丙\r\n";
+        let new = "甲\r\n乙改了\r\n丙\r\n";
+        let d = diff(old, new);
+        let at = kinds(&d)[0].iter().position(|k| *k == "deleted").unwrap();
+        let out = compose_partial_revert(new, &d, &[(0, at)]);
+        assert!(out.contains("乙\r\n"), "加回来的那一行要带 CRLF：{out:?}");
+        assert!(!out.contains("丙\n\r"), "别的行的行尾不许动：{out:?}");
+    }
+
+    /// 末尾没有换行的文件（用户手写的笔记常常这样）
+    #[test]
+    fn file_without_trailing_newline() {
+        let old = "甲\n乙";
+        let new = "甲\n乙改了";
+        let d = diff(old, new);
+        assert_eq!(compose_partial_revert(new, &d, &[]), new);
+    }
 }

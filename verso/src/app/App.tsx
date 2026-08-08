@@ -358,6 +358,13 @@ export default function App() {
 
   /** 排序菜单开着没有。做成菜单而不是原生 select —— 后者在头部占一大截宽度 */
   const [sortMenu, setSortMenu] = useState(false);
+  /**
+   * 「全部折叠 / 全部展开」发出去的信号（§2.1）。
+   *
+   * 展开状态归每一行自己管，这里只发一个「都收起来 / 都打开」——
+   * `at` 每次都不一样，同一个方向连按两次也生效。
+   */
+  const [foldAll, setFoldAll] = useState<{ at: number; open: boolean } | null>(null);
   // 侧栏宽度。和终端高度一样记在 localStorage：调好一次就别再调第二次
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(localStorage.getItem("verso.sidebarWidth"));
@@ -758,6 +765,8 @@ export default function App() {
   const closeDiff = useCallback(() => {
     const top = diffReturnScroll.current ?? 0;
     diffReturnScroll.current = null;
+    // 一轮审阅结束。下次再进来要重新留一份后路（见 revertWorkingLines）
+    revertedInSession.current = false;
     setDiffSelection(null);
     // 原编辑器要等这一轮渲染才重新挂上；同一篇 note 的 path 没变，下面那条
     // “换页恢复滚动”的 effect 不会跑，所以在这里单独放回去。
@@ -1227,6 +1236,51 @@ export default function App() {
     [refresh, loadNote],
   );
 
+  /**
+   * 撤销对比页上的某一处改动（§2.8）。
+   *
+   * **不弹确认框，改成先留一份后路**：审阅一次 AI 改动要点掉好几处，每处
+   * 都弹一个「确定吗」等于把这个功能变成一件苦差事。所以按历史回退那条
+   * 先例来 —— **这一轮的第一次撤销之前，先把现状记一个版本**，于是撤销
+   * 本身也是可回退的（§2.8「回退前先把现状记一个版本」）。
+   *
+   * 记不了版本的时候（还没 git）才退回问一句。
+   */
+  const revertedInSession = useRef(false);
+  const revertWorkingLines = useCallback(
+    async (path: string, lines: [number, number][]) => {
+      try {
+        // 编辑器里还没落盘的字必须先写下去 —— 后端是拿磁盘上那一份算 diff 的，
+        // 内存里的那几个字不在里面，撤销完会被自动保存原样写回来
+        if (dirtyRef.current) await saveNow();
+
+        if (!revertedInSession.current) {
+          if (git?.enabled) {
+            await commitNow("撤销改动前的现状");
+          } else if (
+            !(await confirm(
+              "撤销这一处改动？\n\n这个仓库还没有版本记录，撤销之后找不回来。",
+            ))
+          ) {
+            return;
+          }
+          revertedInSession.current = true;
+        }
+
+        await api.gitRevertLines(path, lines);
+        if (noteRef.current?.path === path) await loadNote(path);
+        await refresh();
+        refreshGit();
+        setGitActivity((v) => v + 1);
+        setRevision((v) => v + 1);
+        setNotice("已撤销这一处；撤销前的现状已记进版本记录");
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [loadNote, refresh, refreshGit, saveNow, commitNow, git?.enabled],
+  );
+
   /** 撤销一项尚未记录的改动。和历史回退不同，这一步没有自动备份，必须确认。 */
   const discardWorkingFile = useCallback(
     async (file: FileChange) => {
@@ -1524,7 +1578,7 @@ export default function App() {
    * 上百个提交，历史就成了一片噪音，反而没法从里面找回任何东西。
    */
   useEffect(() => {
-    const minutes = settings.autoCommitIdleMin;
+    const minutes = settings.autoCommit ? settings.autoCommitIdleMin : 0;
     // 对比页是在主动审阅改动；审阅到一半把它自动挪进历史，会让眼前内容消失。
     // 关掉对比后重新计完整的一段空闲时间。
     if (minutes <= 0 || !git?.enabled || git.dirty === 0 || diffSelection) return;
@@ -1532,7 +1586,15 @@ export default function App() {
     return () => clearTimeout(t);
     // `dirty` 只是文件数；同一个文件连续被 AI 写入时它不会变。
     // `gitActivity` 才让每次真实活动都把计时器重新拨一遍。
-  }, [settings.autoCommitIdleMin, git?.enabled, git?.dirty, gitActivity, diffSelection, commitNow]);
+  }, [
+    settings.autoCommit,
+    settings.autoCommitIdleMin,
+    git?.enabled,
+    git?.dirty,
+    gitActivity,
+    diffSelection,
+    commitNow,
+  ]);
 
   // ---------------------------------------------------------------- 项目日志（§2.10）
 
@@ -1928,7 +1990,7 @@ export default function App() {
       // 和「空闲 5 分钟」并列为聚合窗口。没有改动时 `commitNow` 什么都不做，
       // 所以反复 alt-tab 不会造出一串空版本
       // commitNow 自己会先冲掉未保存内容；两条异步保存并发会互相覆盖。
-      if (settingsRef.current.autoCommitOnBlur) void commitNow();
+      if (settingsRef.current.autoCommit && settingsRef.current.autoCommitOnBlur) void commitNow();
       else if (dirtyRef.current) void saveNow();
     };
     window.addEventListener("blur", onBlur);
@@ -1944,7 +2006,7 @@ export default function App() {
   const finishUp = useCallback(async () => {
     // commitNow 已包含必要的冲盘。先 save 再 commit 会因为 React state 尚未
     // 重渲染而重复写一次，关窗时尤其没必要。
-    if (settingsRef.current.autoCommitOnClose) await commitNow();
+    if (settingsRef.current.autoCommit && settingsRef.current.autoCommitOnClose) await commitNow();
     else if (dirtyRef.current) await saveNow();
   }, [saveNow, commitNow]);
 
@@ -2970,6 +3032,19 @@ export default function App() {
         },
       },
       {
+        // 让 AI 在仓库里改东西的时候最需要它，而那种时候人正在终端里 ——
+        // 一个 Ctrl+P 够得着的开关比翻三页设置实在（§2.8）
+        id: "vault.autoCommit",
+        group: "仓库",
+        label: settings.autoCommit ? "停用自动记录版本" : "启用自动记录版本",
+        enabled: !!git?.enabled,
+        run: () => {
+          const next = !settingsRef.current.autoCommit;
+          updateSettings({ autoCommit: next });
+          setNotice(next ? "自动记录版本：已启用" : "自动记录版本：已停用，改动会一直等着你");
+        },
+      },
+      {
         id: "vault.agentsDoc",
         group: "仓库",
         label: "打开 AI 仓库说明",
@@ -3030,6 +3105,8 @@ export default function App() {
     submitSuggestion,
     openSettings,
     ask,
+    settings.autoCommit,
+    updateSettings,
   ]);
 
   /**
@@ -3377,6 +3454,20 @@ export default function App() {
                     </ul>
                   )}
                 </div>
+                {/* 一棵树展开几层之后，想看清结构只能一个个手动收 —— 而
+                    「收起全部再展开我要的那一支」正是找东西的常用手法 */}
+                <button
+                  className="side-act"
+                  // 一进来树是「顶层展开、下面收着」，所以第一下该是**收起**
+                  // —— 想看清结构的人要的是「全收起来，再展开我要的那一支」
+                  onClick={() =>
+                    setFoldAll((prev) => ({ at: Date.now(), open: !(prev?.open ?? true) }))
+                  }
+                  title={(foldAll?.open ?? true) ? "全部折叠" : "全部展开"}
+                  aria-label={(foldAll?.open ?? true) ? "全部折叠" : "全部展开"}
+                >
+                  <Icon name={(foldAll?.open ?? true) ? "collapse" : "expand"} size={15} />
+                </button>
                 <button
                   className="side-act"
                   onClick={() => void createAndOpen(null)}
@@ -3412,6 +3503,7 @@ export default function App() {
                 renamingPath={renaming}
                 onRenameSubmit={(p, v) => void submitRename(p, v)}
                 onRenameCancel={() => setRenaming(null)}
+                foldAll={foldAll ?? undefined}
               />
             )}
             {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
@@ -3583,7 +3675,18 @@ export default function App() {
         )}
 
         {diffSelection ? (
-          <DiffView selection={diffSelection} revision={revision} onClose={closeDiff} />
+          <DiffView
+            selection={diffSelection}
+            revision={revision}
+            onClose={closeDiff}
+            // 只有「当前改动」能挑行撤销：历史里的某一版是已经记下来的事实，
+            // 在那上面挑几行「不要」没有意义（要退整篇有「回退到这一版」）
+            onRevertLines={
+              diffSelection.commit === null
+                ? (lines) => revertWorkingLines(diffSelection.path, lines)
+                : undefined
+            }
+          />
         ) : note ? (
           <Editor
             key={note.path}
@@ -3728,11 +3831,13 @@ export default function App() {
             onClick={() => void commitNow()}
             disabled={git.dirty === 0}
             title={
-              git.dirty > 0
+              (git.dirty > 0
                 ? `点一下立刻记一个版本（新增 ${git.added} · 更新 ${git.modified} · 删除 ${git.deleted}）`
                 : git.lastMessage
                   ? `最近一次：${git.lastMessage}`
-                  : "还没有版本记录"
+                  : "还没有版本记录") +
+              // 关掉之后不说一声的话，「改了半天怎么一直没记」会被当成 bug
+              (settings.autoCommit ? "" : "\n自动记录已停用，只有你点它才记")
             }
           >
             <Icon name="history" size={13} />

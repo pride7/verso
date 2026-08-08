@@ -962,7 +962,31 @@ export function SettingsPanel({
           {tab === "editor" && (
             <>
               <h3 className="set-section">版本记录</h3>
+              {/* 总开关摆在最前面：让 AI 在仓库里改东西的人要的是「先别记」，
+                  而分别关掉下面三条等于把一个是非题拆成三个（§2.8） */}
               <div className="set-row">
+                <div className="set-label">
+                  <span>自动记录版本</span>
+                  <span className="set-hint">
+                    关掉之后下面三条都不生效，什么时候记版本完全由你决定：状态栏那个点，
+                    或命令面板里的「记一个版本」。
+                  </span>
+                </div>
+                <div className="set-control">
+                  <div className="segmented">
+                    {([true, false] as const).map((v) => (
+                      <button
+                        key={String(v)}
+                        className={settings.autoCommit === v ? "is-on" : undefined}
+                        onClick={() => onChange({ autoCommit: v })}
+                      >
+                        {v ? "启用" : "停用"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className={`set-row${settings.autoCommit ? "" : " is-off"}`}>
                 <div className="set-label">
                   <span>切换应用时记录版本</span>
                   <span className="set-hint">
@@ -983,7 +1007,7 @@ export function SettingsPanel({
                   </div>
                 </div>
               </div>
-              <div className="set-row">
+              <div className={`set-row${settings.autoCommit ? "" : " is-off"}`}>
                 <div className="set-label">
                   <span>退出前记录版本</span>
                   <span className="set-hint">
@@ -1006,7 +1030,11 @@ export function SettingsPanel({
               </div>
               <Slider
                 label="空闲后自动记录版本"
-                hint="停止编辑达到指定时长后记录版本；设为 0 可停用。"
+                hint={
+                  settings.autoCommit
+                    ? "停止编辑达到指定时长后记录版本；设为 0 可停用。"
+                    : "自动记录已停用，这一条当前不生效。"
+                }
                 value={settings.autoCommitIdleMin}
                 min={0}
                 max={60}
