@@ -959,6 +959,15 @@ button {
 .side-menu button:hover {
   background: color-mix(in oklch, var(--accent) 14%, transparent);
 }
+/* 图标压成 muted，同 `.ctx`：它是给眼睛定位用的，不是这一行的主角 */
+.side-menu button > svg {
+  flex: none;
+  color: var(--muted);
+}
+.side-menu button:hover > svg,
+.side-menu button.is-current > svg {
+  color: var(--text);
+}
 /* 分组之间一条极淡的线。菜单一长，「切换状态」和「关掉东西」挤在一起，
    手快的时候很容易点错 */
 .side-menu li.is-sep {
@@ -3301,6 +3310,9 @@ body.is-table-resizing * {
 .ctx button {
   display: flex;
   align-items: center;
+  /* 图标和字之间。一列纯文字的菜单要逐行读，带图标之后眼睛能直接跳到
+     要找的那条（和 `.dbview-menu` 同一条） */
+  gap: 9px;
   width: 100%;
   /* 菜单是手指唯一能拿到全部动作的入口，行距必须够（Material 48dp） */
   min-height: var(--tap);
@@ -3308,6 +3320,21 @@ body.is-table-resizing * {
   padding: 6px 10px;
   border-radius: var(--r-sm);
   font-size: 13px;
+  /* 菜单项折行既难看又会让菜单的宽度取决于它当前摆在哪儿（浮层定位是
+     先量后放的，量到的尺寸一变，放的位置就错） */
+  white-space: nowrap;
+}
+/* 图标压成 muted：它是给眼睛定位用的，不是这一行的主角。
+   危险项那条自己带颜色（`.ctx-danger` 的 currentColor），不在这里压 */
+.ctx button:not(.ctx-danger) > svg {
+  flex: none;
+  color: var(--muted);
+}
+.ctx button:not(.ctx-danger):hover > svg {
+  color: var(--text);
+}
+.ctx button:disabled > svg {
+  color: var(--muted-2);
 }
 .ctx button:hover:not(:disabled) {
   background: color-mix(in oklch, var(--accent) 14%, transparent);
@@ -3318,6 +3345,44 @@ body.is-table-resizing * {
 }
 .ctx-danger {
   color: var(--danger);
+}
+/* 分组。组里那一层 ul 只是结构，不带任何自己的样式 */
+.ctx-group > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* 分组之间的一条细线。正文那个菜单里「格式 / 剪贴板 / 表格 / 别的」是四类
+   不同的东西，连成一片二十行会让人逐行读 */
+.ctx-sep {
+  display: block;
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+/* 二级菜单（文本格式 / 段落设置 / 插入，§4.10）。
+   面板是 `position: fixed` 的，坐标由 `fitSubmenu` 在打开那一刻算好：
+   贴着父项向右展开，右边放不下就翻到左边 */
+.ctx-parent.is-open > button {
+  background: var(--hover-bg);
+}
+/* 指向右边的箭头，压到行尾 —— 「这一条下面还有一层」的通用暗示 */
+.ctx-arrow {
+  margin-left: auto;
+  padding-left: 16px;
+}
+.ctx-sub {
+  /* 比父菜单再高一层：两层重叠的那 2px 上，子菜单要在上面 */
+  z-index: 201;
+}
+/* 快捷键提示压到右边，淡一档：它是提示，不是这一行的内容 */
+.ctx-key {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--muted-2);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- 状态栏 ---------- */

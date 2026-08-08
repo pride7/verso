@@ -1125,15 +1125,24 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
         >
           {menuNode.kind !== "root" && (
             <li>
-              <button onClick={act(() => beginEdit(menuNode.line))}>改字</button>
+              <button onClick={act(() => beginEdit(menuNode.line))}>
+                <Icon name="pencil" size={14} />
+                改字
+              </button>
             </li>
           )}
           <li>
-            <button onClick={act(() => addChild(menuNode))}>加子级</button>
+            <button onClick={act(() => addChild(menuNode))}>
+              <Icon name="plus" size={14} />
+              加子级
+            </button>
           </li>
           {menuNode.kind !== "root" && (
             <li>
-              <button onClick={act(() => addSibling(menuNode))}>加同级</button>
+              <button onClick={act(() => addSibling(menuNode))}>
+                <Icon name="insert" size={14} />
+                加同级
+              </button>
             </li>
           )}
           {menuNode.kind === "task" && (
@@ -1144,6 +1153,7 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                   if (e) onEdit(e);
                 })}
               >
+                <Icon name="check" size={14} />
                 {menuNode.done ? "取消勾选" : "勾上"}
               </button>
             </li>
@@ -1151,6 +1161,7 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
           {menuNode.children.length > 0 && (
             <li>
               <button onClick={act(() => toggleFold(menuNode.line))}>
+                <Icon name="chevron" size={14} />
                 {collapsed.has(nodeKeys.get(menuNode.line) ?? "")
                   ? `展开（${subtreeSize(menuNode) - 1}）`
                   : "折叠"}
@@ -1163,6 +1174,7 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                 setFocusLine(menuNode.line);
                 setSelected(menuNode.line);
               })}>
+                <Icon name="mindmap" size={14} />
                 只看这一支
               </button>
             </li>
@@ -1174,6 +1186,7 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                   disabled={parentOf(root, menuNode.line)?.children[0]?.line === menuNode.line}
                   onClick={act(() => siblingMove(menuNode, -1))}
                 >
+                  <Icon name="arrow-up" size={14} />
                   上移
                 </button>
               </li>
@@ -1185,19 +1198,27 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                   })()}
                   onClick={act(() => siblingMove(menuNode, 1))}
                 >
+                  <Icon name="arrow-down" size={14} />
                   下移
                 </button>
               </li>
               <li>
-                <button onClick={act(() => setMoveSource(menuNode.line))}>移动到…</button>
+                <button onClick={act(() => setMoveSource(menuNode.line))}>
+                  <Icon name="move" size={14} />
+                  移动到…
+                </button>
               </li>
               <li>
-                <button onClick={act(() => onGoto(menuNode.line))}>回到正文这一行</button>
+                <button onClick={act(() => onGoto(menuNode.line))}>
+                  <Icon name="text" size={14} />
+                  回到正文这一行
+                </button>
               </li>
               {/* 删除单独隔开：手指点这一列的命中率本来就低，而它上面
                   几条都是「点错了再点回来」，只有它不是 */}
               <li className="is-sep">
                 <button className="ctx-danger" onClick={act(() => void remove(menuNode))}>
+                  <Icon name="trash" size={14} />
                   删除
                 </button>
               </li>

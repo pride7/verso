@@ -12,14 +12,16 @@ import {
   pickCloneFolder,
   pickVaultFolder,
 } from "../host/api";
+import { copyText, readText } from "../host/clipboard";
 import { confirm } from "../host/dialog";
 import { fitFloatingMenu } from "../ui/floatingMenu";
 import { initialKeyboard, stepKeyboard } from "../core/keyboard";
 import { NARROW, useMedia } from "../host/media";
 import { ActivityBar, type SidebarView } from "../ui/ActivityBar";
 import { useAsk } from "../ui/AskDialog";
+import { ContextMenu, type MenuGroup } from "../ui/ContextMenu";
 import { CommandPalette, type Command } from "../ui/CommandPalette";
-import { Icon } from "../ui/Icon";
+import { Icon, type IconName } from "../ui/Icon";
 import { Editor, type EditorHandle } from "../ui/Editor";
 import { OutlineFloat, OutlineView, useActiveHeading } from "../ui/Outline";
 import { QuickSwitcher } from "../ui/QuickSwitcher";
@@ -46,6 +48,7 @@ import { SharedSpaceDialog } from "../ui/SharedSpaceDialog";
 import { JoinVaultDialog, type JoinVaultInput } from "../ui/JoinVaultDialog";
 import { ShareNoteDialog, type ShareNoteInput } from "../ui/ShareNoteDialog";
 import { setSlashAction } from "../editor/completion";
+import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
 import { expandTemplate, pickTemplates } from "../core/template";
 import { journalInsert } from "../core/journal";
@@ -362,6 +365,19 @@ export default function App() {
   });
   const [menu, setMenu] = useState<Menu | null>(null);
   const menuRef = useRef<HTMLUListElement>(null);
+  /**
+   * 正文里的右键菜单（§4.10）。null = 没开。
+   *
+   * `selection` / `inTable` 是**按下右键那一刻**问出来的：菜单一开，光标和
+   * 选区就不会再动了，而每次渲染都去问一遍编辑器只会让条目在开着的时候变。
+   */
+  const [editorMenu, setEditorMenu] = useState<{
+    x: number;
+    y: number;
+    selection: string;
+    inTable: boolean;
+  } | null>(null);
+  const editorMenuRef = useRef<HTMLUListElement>(null);
   /** 「移动到…」选择器正在为哪个节点服务。null = 没开。
       拖拽移动在触摸屏上完全不可用，这是它的可点击等价物（M6） */
   const [moveFor, setMoveFor] = useState<TreeNode | null>(null);
@@ -479,6 +495,34 @@ export default function App() {
     },
     [setTermOpen],
   );
+
+  // ---- 正文右键菜单里的剪切 / 复制 / 粘贴（§4.10）----
+  //
+  // 拦掉 webview 自带的菜单就得把这三条接过来。**失败要说话**：写和读都
+  // 可能被浏览器拒（安全上下文、权限），静默失败的表现是「点了没反应」，
+  // 而这三条恰恰是人最确定「它应该有用」的三条。
+
+  const copySelection = useCallback(async () => {
+    const text = editorRef.current?.selectedText() ?? "";
+    if (!text) return;
+    if (!(await copyText(text))) setError("复制不了，用 Ctrl/⌘+C");
+  }, []);
+
+  const cutSelection = useCallback(async () => {
+    const text = editorRef.current?.selectedText() ?? "";
+    if (!text) return;
+    // 先确认真的进了剪贴板再删 —— 顺序反过来的话，复制失败等于把选中的
+    // 内容凭空删掉，而用户以为它还在剪贴板里
+    if (!(await copyText(text))) return setError("剪切不了，用 Ctrl/⌘+X");
+    editorRef.current?.insert("");
+  }, []);
+
+  const pasteHere = useCallback(async () => {
+    const text = await readText();
+    // 读剪贴板没有兜底（见 host/clipboard），所以这里只能说清楚还有哪条路
+    if (text === null) return setError("读不到剪贴板，用 Ctrl/⌘+V");
+    if (text) editorRef.current?.insert(text);
+  }, []);
 
   /** 浮动大纲开不开。和终端面板一样跨会话保留 —— 嫌它挡事的人不想每次启动再关一遍 */
   const [tocFloat, setTocFloat] = useState(() => localStorage.getItem("verso.tocFloat") !== "0");
@@ -2279,6 +2323,24 @@ export default function App() {
     if (menu && menuRef.current) fitFloatingMenu(menuRef.current, menu.x, menu.y);
   }, [menu]);
 
+  // 正文里的右键菜单，同上
+  useEffect(() => {
+    if (!editorMenu) return;
+    const close = () => setEditorMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [editorMenu]);
+
+  useLayoutEffect(() => {
+    if (editorMenu && editorMenuRef.current) {
+      fitFloatingMenu(editorMenuRef.current, editorMenu.x, editorMenu.y);
+    }
+  }, [editorMenu]);
+
   const reloadFromDisk = useCallback(async () => {
     const n = noteRef.current;
     if (!n) return;
@@ -2992,6 +3054,130 @@ export default function App() {
     [commands],
   );
 
+  /**
+   * 正文右键菜单的条目（§4.10）。
+   *
+   * 三个二级菜单照 Obsidian 的分法：**文本格式**（行内的）、**段落设置**
+   * （整行换成标题/引用/列表）、**插入**（在光标处插一段）。后者直接复用
+   * `/` 菜单那张表 —— 两处是同一件事，各维护一份迟早会分叉，而且设置里
+   * 隐藏掉的条目、自己加的条目在这里也就自动生效了（§4.3/§6.4）。
+   */
+  const editorMenuGroups = useMemo<MenuGroup[]>(() => {
+    if (!editorMenu) return [];
+    const ed = () => editorRef.current;
+    const selected = editorMenu.selection;
+    const slashItems = [
+      ...BUILTIN_SLASH.filter((i) => !settings.slashHidden.includes(i.label)),
+      ...parseSlashCustom(settings.slashCustom).items,
+    ];
+
+    return [
+      [
+        {
+          label: "文本格式",
+          icon: "text",
+          run: () => {},
+          items: (
+            [
+              ["加粗", "bold", "bold"],
+              ["斜体", "italic", "italic"],
+              ["行内代码", "code", "code"],
+              ["高亮", "highlight", "tag"],
+              ["删除线", "strike", "close"],
+            ] as const
+          ).map(([label, kind, icon]) => ({
+            label,
+            icon,
+            hint: keyOf(`format.${kind}`),
+            run: () => ed()?.toggleFormat(kind),
+          })),
+        },
+        {
+          label: "段落设置",
+          icon: "outline",
+          run: () => {},
+          items: (
+            [
+              ["正文", "text", "text"],
+              ["一级标题", "h1", "hash"],
+              ["二级标题", "h2", "hash"],
+              ["三级标题", "h3", "hash"],
+              ["引用", "quote", "insert"],
+              ["无序列表", "bullet", "list"],
+              ["有序列表", "number", "sort"],
+              ["待办", "task", "check"],
+            ] as const
+          ).map(([label, kind, icon]) => ({
+            label,
+            icon,
+            run: () => ed()?.setBlock(kind),
+          })),
+        },
+        {
+          label: "插入",
+          icon: "plus",
+          run: () => {},
+          items: slashItems.map((it) => ({
+            label: it.label,
+            icon: "insert" as IconName,
+            hint: it.detail,
+            run: () => {
+              if (it.action === "template") setTemplateFor({ mode: "insert" });
+              else if (it.action === "journal") addJournal();
+              else if (it.action === "issues") insertIssueView();
+              else if (it.template) {
+                const { text, caret } = applyCaret(it.template);
+                ed()?.insert(text, caret);
+              }
+            },
+          })),
+        },
+      ],
+      [
+        { label: "剪切", icon: "cut", disabled: !selected, run: () => void cutSelection() },
+        { label: "复制", icon: "copy", disabled: !selected, run: () => void copySelection() },
+        { label: "粘贴", icon: "paste", run: () => void pasteHere() },
+        { label: "全选", icon: "doc", run: () => ed()?.selectAll() },
+      ],
+      // 表格那几条只在光标真的落在表格里时出现 —— 常驻四条点不动的
+      // 「插入行」会把这个菜单变成一张说明书（§4.9 同一条）
+      editorMenu.inTable
+        ? [
+            { label: "在下面插一行", icon: "insert" as IconName, run: () => ed()?.tableOp("row-below") },
+            { label: "在右边插一列", icon: "insert" as IconName, run: () => ed()?.tableOp("col-right") },
+            { label: "删除这一行", icon: "trash" as IconName, danger: true, run: () => ed()?.tableOp("row-delete") },
+            { label: "删除这一列", icon: "trash" as IconName, danger: true, run: () => ed()?.tableOp("col-delete") },
+          ]
+        : [],
+      [
+        // 终端在手机上整个不存在（§7.3），那儿这一条只会是个死按钮
+        ...(mobile
+          ? []
+          : [
+              {
+                label: selected ? "把选中的发给终端" : "把这篇发给终端",
+                icon: "terminal" as IconName,
+                run: () => sendToTerm(selected || body),
+              },
+            ]),
+        { label: "折叠 / 展开这一节", icon: "chevron", run: () => ed()?.toggleFold() },
+      ],
+    ];
+  }, [
+    editorMenu,
+    keyOf,
+    settings.slashHidden,
+    settings.slashCustom,
+    addJournal,
+    insertIssueView,
+    cutSelection,
+    copySelection,
+    pasteHere,
+    sendToTerm,
+    body,
+    mobile,
+  ]);
+
   if (!vault) {
     return (
       <>
@@ -3411,6 +3597,20 @@ export default function App() {
             getNotes={() => noteListRef.current}
             breadcrumb={breadcrumb}
             onPickIcon={(at) => setIconFor({ path: note.path, at })}
+            // 手机上不接：那儿的长按已经被系统的文字选择占着，再叠一层
+            // 自己的菜单两边都会变得不可靠。手指要这些动作走命令面板（§4.10）
+            onContextMenu={
+              mobile
+                ? undefined
+                : (at) =>
+                    setEditorMenu({
+                      ...at,
+                      // 条目要不要出现，在按下右键那一刻问清楚 —— 菜单开着的
+                      // 时候光标和选区都不会再动了
+                      selection: editorRef.current?.selectedText() ?? "",
+                      inTable: editorRef.current?.inTable() ?? false,
+                    })
+            }
             onNavigate={openPath}
             handleRef={editorRef}
             revision={revision}
@@ -3791,6 +3991,21 @@ export default function App() {
         />
       )}
 
+      {/**
+       * 正文里的右键菜单（§4.10）。
+       *
+       * webview 自带那个给的是「复制 / 粘贴 / 拼写检查」，一条 Markdown 相关
+       * 的都没有 —— 而右键是找「加粗」「把这段变成引用」「插一张表」的人第一个
+       * 会试的地方。剪切复制粘贴也得由我们接过来：拦了那个菜单就得管到底。
+       */}
+      {editorMenu && (
+        <ContextMenu
+          at={editorMenu}
+          groups={editorMenuGroups}
+          onClose={() => setEditorMenu(null)}
+        />
+      )}
+
       {menu && (
         <ul ref={menuRef} className="ctx" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()}>
           {/* Ctrl/⌘+点 和中键都要键盘或三键鼠标。这一条是它们的等价入口 ——
@@ -3803,6 +4018,7 @@ export default function App() {
                   void openPath(menu.node.path, { newTab: true });
                 }}
               >
+                <Icon name="doc" size={14} />
                 在新标签页打开
               </button>
             </li>
@@ -3817,6 +4033,7 @@ export default function App() {
                     void beginShareNote(node);
                   }}
                 >
+                  <Icon name="people" size={14} />
                   {menu.node.childDir || menu.node.children.length > 0 ? "共享这个项目…" : "共享这篇…"}
                 </button>
               </li>
@@ -3828,6 +4045,7 @@ export default function App() {
                 void createAndOpen(menu.node.path);
               }}
             >
+              <Icon name="plus" size={14} />
               新建子文档
             </button>
           </li>
@@ -3839,6 +4057,7 @@ export default function App() {
                 setTemplateFor({ mode: "new", parent });
               }}
             >
+              <Icon name="template" size={14} />
               用模板新建子文档…
             </button>
           </li>
@@ -3849,6 +4068,7 @@ export default function App() {
                 renameNode(menu.node);
               }}
             >
+              <Icon name="pencil" size={14} />
               重命名
             </button>
           </li>
@@ -3863,6 +4083,7 @@ export default function App() {
                   void upgradeFolder(node);
                 }}
               >
+                <Icon name="doc" size={14} />
                 创建为文档
               </button>
             </li>
@@ -3878,6 +4099,7 @@ export default function App() {
                   setIconFor({ path: node.path, at: { x, y } });
                 }}
               >
+                <Icon name="image" size={14} />
                 {menu.node.icon ? "换个图标…" : "设置图标…"}
               </button>
             </li>
@@ -3901,6 +4123,7 @@ export default function App() {
                         void reorder(node.path, target, "before");
                       }}
                     >
+                      <Icon name="arrow-up" size={14} />
                       上移
                     </button>
                   </li>
@@ -3914,6 +4137,7 @@ export default function App() {
                         void reorder(node.path, target, "after");
                       }}
                     >
+                      <Icon name="arrow-down" size={14} />
                       下移
                     </button>
                   </li>
@@ -3925,6 +4149,7 @@ export default function App() {
                         setMoveFor(node);
                       }}
                     >
+                      <Icon name="move" size={14} />
                       移动到…
                     </button>
                   </li>
@@ -3938,6 +4163,7 @@ export default function App() {
                 moveNode(menu.node.path, null);
               }}
             >
+              <Icon name="tree" size={14} />
               移到顶层
             </button>
           </li>
@@ -3949,6 +4175,7 @@ export default function App() {
                 deleteNode(menu.node);
               }}
             >
+              <Icon name="trash" size={14} />
               删除
             </button>
           </li>

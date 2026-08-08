@@ -197,29 +197,35 @@ export function TabBar({
           style={{ left: menu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {[
-            {
-              label: menu.i < pinnedCount ? "取消固定" : "固定",
-              run: () => onTogglePin(menu.i),
-            },
-            // 「改状态」和「关掉东西」之间隔一条线：菜单一长，手快的时候
-            // 很容易点错，而这两件事的代价差得远
-            { label: "关闭", sep: true, run: () => onClose(menu.i) },
-            {
-              label: "关闭其他",
-              hint: pinnedCount > 0 ? "固定的留着" : undefined,
-              run: () => onCloseOthers(menu.i),
-            },
-          ].map((item) => (
-            <li key={item.label} className={item.sep ? "is-sep" : undefined}>
+          {(
+            [
+              {
+                label: menu.i < pinnedCount ? "取消固定" : "固定",
+                icon: "pin",
+                run: () => onTogglePin(menu.i),
+              },
+              // 「改状态」和「关掉东西」之间隔一条线：菜单一长，手快的时候
+              // 很容易点错，而这两件事的代价差得远
+              { label: "关闭", icon: "close", sep: true, run: () => onClose(menu.i) },
+              {
+                label: "关闭其他",
+                icon: "close",
+                hint: pinnedCount > 0 ? "固定的留着" : undefined,
+                run: () => onCloseOthers(menu.i),
+              },
+            ] as const
+          ).map((item) => (
+            <li key={item.label} className={"sep" in item && item.sep ? "is-sep" : undefined}>
               <button
                 onClick={() => {
                   setMenu(null);
                   item.run();
                 }}
               >
+                {/* 一列纯文字的菜单要逐行读；带图标之后眼睛能直接跳到那一条 */}
+                <Icon name={item.icon} size={14} />
                 {item.label}
-                {item.hint && <span className="menu-hint">{item.hint}</span>}
+                {"hint" in item && item.hint && <span className="menu-hint">{item.hint}</span>}
               </button>
             </li>
           ))}

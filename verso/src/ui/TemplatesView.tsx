@@ -240,6 +240,7 @@ export function TemplatesView({
                 setMenu(null);
               }}
             >
+              <Icon name="pencil" size={14} />
               编辑模板
             </button>
           </li>
@@ -252,6 +253,7 @@ export function TemplatesView({
                 setMenu(null);
               }}
             >
+              <Icon name="insert" size={14} />
               插入到当前笔记
             </button>
           </li>
@@ -262,6 +264,7 @@ export function TemplatesView({
                 setMenu(null);
               }}
             >
+              <Icon name="plus" size={14} />
               用模板新建文档
             </button>
           </li>
@@ -272,6 +275,7 @@ export function TemplatesView({
                 setMenu(null);
               }}
             >
+              <Icon name="text" size={14} />
               重命名
             </button>
           </li>
@@ -283,6 +287,7 @@ export function TemplatesView({
                 setMenu(null);
               }}
             >
+              <Icon name="trash" size={14} />
               删除模板
             </button>
           </li>

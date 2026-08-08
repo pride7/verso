@@ -12,7 +12,8 @@ import {
   unfoldAllHeadings,
 } from "../editor/fold";
 import { toggleFormatSpec, type InlineFormat } from "../editor/format";
-import { tableOpSpec, type TableOp } from "../editor/tableOps";
+import { toggleBlockSpec, type BlockKind } from "../editor/paragraph";
+import { tableAt, tableOpSpec, type TableOp } from "../editor/tableOps";
 import { foldTargets } from "../core/journal";
 import { parseCustomSnippets } from "../core/snippets/custom";
 import { expand } from "../core/snippets/match";
@@ -52,6 +53,15 @@ export interface EditorHandle {
   selectedText: () => string;
   /** 开关一种行内格式（粗体、斜体…，§4.8）。逻辑在 `editor/format.ts` */
   toggleFormat: (kind: InlineFormat) => void;
+  /**
+   * 把选中的这几行换成标题 / 引用 / 列表（§4.10）。逻辑在
+   * `editor/paragraph.ts` —— 和 `/` 菜单的区别是「换」不是「插」
+   */
+  setBlock: (kind: BlockKind) => void;
+  /** 光标在不在一张表格里。右键菜单靠它决定要不要列出表格那几条 */
+  inTable: () => boolean;
+  /** 全选正文。右键菜单里那一条（键盘那条路是 CM6 自带的 Mod-a） */
+  selectAll: () => void;
   /**
    * 对光标所在的表格做一次结构操作（插行插列…，§4.9）。逻辑在
    * `editor/tableOps.ts`，渲染态上的把手走的是同一套。
@@ -134,6 +144,14 @@ interface Props {
    * 可选：只关心编辑行为的测试不必为它准备一个回调
    */
   onPickIcon?: (at: { x: number; y: number }) => void;
+  /**
+   * 在正文里按了右键。给屏幕坐标，由 App 在那里弹菜单（和 `onPickIcon` 同一
+   * 个路子：菜单项要用到发终端、通知这些 App 级的东西，编辑器不该认识它们）。
+   *
+   * 不给这个回调就**不拦** webview 自带的那个菜单 —— 只关心编辑行为的测试
+   * 不必为它准备一个回调。
+   */
+  onContextMenu?: (at: { x: number; y: number }) => void;
   onNavigate: (path: string) => void;
   handleRef?: React.MutableRefObject<EditorHandle | null>;
   /** vault 变化时递增，反向链接与 database 视图靠它重查 */
@@ -182,6 +200,7 @@ export function Editor({
   getNotes,
   breadcrumb,
   onPickIcon,
+  onContextMenu,
   onNavigate,
   handleRef,
   revision,
@@ -336,6 +355,22 @@ export function Editor({
           scrollIntoView: true,
         });
         // 快捷键是在全局那一层截下来的，焦点可能根本不在编辑器里
+        view.focus();
+      },
+      setBlock: (kind: BlockKind) => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch(toggleBlockSpec(view.state, kind));
+        view.focus();
+      },
+      inTable: () => {
+        const view = viewRef.current;
+        return !!view && tableAt(view.state) !== null;
+      },
+      selectAll: () => {
+        const view = viewRef.current;
+        if (!view) return;
+        view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
         view.focus();
       },
       tableOp: (op: TableOp) => {
@@ -660,7 +695,31 @@ ${insert}` },
         />
       )}
 
-      <div className="editor-host" ref={host} />
+      <div
+        className="editor-host"
+        ref={host}
+        onContextMenu={
+          onContextMenu
+            ? (e) => {
+                // 拦掉 webview 自带的那个菜单。它给的是「复制/粘贴/拼写检查」，
+                // 一条 Markdown 相关的都没有 —— 而右键正是找「加粗」「插一行」
+                // 的人第一个会试的地方
+                e.preventDefault();
+                const view = viewRef.current;
+                const sel = view?.state.selection.main;
+                if (view && sel) {
+                  // 点在选区外就把光标挪过去：菜单里那些命令作用于光标，
+                  // 而人的预期是「作用于我刚点的地方」。点在选区里则保留选区
+                  const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+                  if (pos !== null && (pos < sel.from || pos > sel.to)) {
+                    view.dispatch({ selection: { anchor: pos } });
+                  }
+                }
+                onContextMenu({ x: e.clientX, y: e.clientY });
+              }
+            : undefined
+        }
+      />
 
       <Backlinks path={note.path} onOpen={onNavigate} revision={revision} />
     </div>
