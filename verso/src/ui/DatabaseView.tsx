@@ -50,7 +50,7 @@ interface Props {
    */
   onPatch?: (yaml: string) => void;
   /**
-   * 「看源码」。光标落在块里面才会退回 YAML，而边界不算「在里面」（见
+   * 「视图源码」。光标落在块里面才会退回 YAML，而边界不算「在里面」（见
    * `viewBlock.ts` 的 `touched`）—— 所以这个按钮是**唯一**进得去的入口，
    * 不能省。省掉的话，写错了一行 `from:` 就再也改不回来了。
    */
@@ -597,8 +597,8 @@ export function DatabaseView({
                 <button
                   className="dbview-tool"
                   onClick={onEditSource}
-                  title="看这个视图的源码"
-                  aria-label="看源码"
+                  title="视图源码"
+                  aria-label="视图源码"
                 >
                   <Icon name="code" size={14} />
                 </button>
@@ -713,8 +713,8 @@ export function DatabaseView({
                 <button
                   className="dbview-tool"
                   onClick={onEditSource}
-                  title="看这个视图的源码"
-                  aria-label="看源码"
+                  title="视图源码"
+                  aria-label="视图源码"
                 >
                   <Icon name="code" size={14} />
                 </button>
@@ -896,8 +896,8 @@ export function DatabaseView({
                 <button
                   className="dbview-tool"
                   onClick={onEditSource}
-                  title="看这个视图的源码"
-                  aria-label="看源码"
+                  title="视图源码"
+                  aria-label="视图源码"
                 >
                   <Icon name="code" size={14} />
                 </button>
@@ -981,8 +981,8 @@ export function DatabaseView({
               <button
                 className="dbview-tool"
                 onClick={onEditSource}
-                title="看这个视图的源码"
-                aria-label="看源码"
+                title="视图源码"
+                aria-label="视图源码"
               >
                 <Icon name="code" size={14} />
               </button>

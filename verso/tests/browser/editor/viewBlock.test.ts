@@ -91,7 +91,7 @@ ${VIEW_BLOCK}
       expect(rendered(v), `光标停在 ${anchor} 就退回了源码`).toBe(1);
     }
 
-    // 真的落进 YAML 里才退回源码 —— 那是「看源码」按钮做的事
+    // 真的落进 YAML 里才退回源码 —— 那是「视图源码」按钮做的事
     v.dispatch({ selection: { anchor: doc.indexOf("from:") } });
     expect(rendered(v)).toBe(0);
   });
