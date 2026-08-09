@@ -508,7 +508,7 @@ describe("列与设置（§2.6）", () => {
     await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
     await settle(200);
 
-    // 内置的两个时间列以前被排除在筛选属性之外 —— 而「长期没回头看的」这张
+    // 内置的两个时间列以前被排除在筛选属性之外 —— 而「长期未更新」这张
     // 清单正是靠它们才写得出来
     const key = view.dom.querySelector<HTMLSelectElement>('[aria-label="筛选属性 1"]')!;
     expect([...key.options].map((option) => option.textContent)).toContain("更新时间");

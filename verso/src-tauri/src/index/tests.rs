@@ -262,8 +262,8 @@ fn view_source_distinguishes_direct_children_from_all_descendants() {
 
 /// 相对时间：`updated < 90d ago`。
 ///
-/// 写死日期的筛选下个月就过期，于是「长期没回头看的」那张清单没人维护得下去
-/// —— 而那正是知识库真正会烂掉的地方（§2.6）。
+/// 写死日期的筛选下个月就过期，于是「长期未更新」那张清单无法长期维护
+/// —— 而这正是知识库容易失效的地方（§2.6）。
 #[test]
 fn relative_time_values_resolve_at_query_time() {
     assert_eq!(view::relative_modifier("90d ago").as_deref(), Some("-90 days"));
@@ -276,9 +276,9 @@ fn relative_time_values_resolve_at_query_time() {
     assert_eq!(view::relative_modifier("-5d ago"), None);
 }
 
-/// `created` / `updated` 是 notes 的列，压根不在 props 表里（§2.6 把它们
-/// 排除在用户属性之外）—— 不单独接一条的话，`where updated < …` 会静静地
-/// 筛出空表，而查询本身还成功着。
+/// `created` / `updated` 是 notes 的列，不在 props 表里（§2.6 把它们排除在
+/// 用户属性之外）——不单独接入的话，`where updated < …` 会返回空表，但查询本身
+/// 不会报错。
 #[test]
 fn builtin_time_columns_are_filterable_and_fall_back_to_mtime() {
     let (_t, _v, idx) = setup(&[

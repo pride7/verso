@@ -65,8 +65,8 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
   const sourceScope = readSourceScope(from);
   /**
    * 内置的两个时间列现在也能筛（v0.7.37）。它们不在 props 表里，Rust 侧单独
-   * 接了一条 —— 而「三个月没回头看过的」正是知识库最需要、以前压根写不出来的
-   * 那张清单（§2.6）。
+   * 接了一条 —— 而「长期未更新」正是知识库最需要、以前无法实现的那张清单
+   * （§2.6）。
    */
   const filterableProperties = [
     ...properties.filter((property) => !isBuiltin(property.key)),

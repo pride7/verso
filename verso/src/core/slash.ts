@@ -65,7 +65,7 @@ export const BUILTIN_SLASH: SlashItem[] = [
   { label: "插入模板", detail: "template", action: "template" },
   { label: "进展记录", detail: "带时间戳的一节（§2.10）", action: "journal" },
   { label: "未关闭的条目", detail: "issue 列表", action: "issues" },
-  { label: "知识库", detail: "分类看板 + 最近 + 长期没碰", action: "knowledge" },
+  { label: "知识库", detail: "分类总览 + 最近更新 + 长期未更新", action: "knowledge" },
 ];
 
 /** 把模板拆成「要插入的文本」和「光标落点」。没写 `$0` 就落在末尾 */
