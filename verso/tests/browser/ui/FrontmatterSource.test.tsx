@@ -57,6 +57,7 @@ function mount(note: NoteContent, onSaveFrontmatter: (yaml: string) => Promise<v
         getNotes: () => [],
         breadcrumb: [],
         onNavigate: () => {},
+        onRenameNote: () => {},
         revision: 0,
         onNoteChanged: () => {},
         customSnippets: "",

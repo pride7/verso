@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { api } from "../host/api";
 import { useAsk } from "./AskDialog";
 import { CalendarView, canMoveDates, GalleryView, ListView } from "./DbViews";
+import { ContextMenu } from "./ContextMenu";
 import { fitFloatingMenu } from "./floatingMenu";
+import { useLongPress } from "./longPress";
 import { Icon } from "./Icon";
 import { RenameInput } from "./Tree";
 import {
@@ -47,6 +49,17 @@ interface Props {
    * 它写在笔记里，跟着 `.md` 走，换个编辑器打开也还在（§0 第 1 条）。
    */
   onPatch?: (yaml: string) => void;
+  /**
+   * 「看源码」。光标落在块里面才会退回 YAML，而边界不算「在里面」（见
+   * `viewBlock.ts` 的 `touched`）—— 所以这个按钮是**唯一**进得去的入口，
+   * 不能省。省掉的话，写错了一行 `from:` 就再也改不回来了。
+   */
+  onEditSource?: () => void;
+  /**
+   * 改一行的名字。**不在这里直接调 `renameNote`**：改名要跟着修打开中的
+   * 标签页路径和手排顺序，那是上层的事（§2.1）。
+   */
+  onRename?: (path: string) => void;
 }
 
 /**
@@ -76,12 +89,46 @@ const cardMenu = (p: Panel) => (p && typeof p === "object" && "card" in p ? p.ca
 const menuAt = (p: Panel) =>
   p && typeof p === "object" && "x" in p ? { x: p.x, y: p.y } : null;
 
+/**
+ * 标题格。单独成一个组件是因为**长按是个 hook** —— `cell()` 是普通函数，
+ * 里面调不了 hook，而手指没有右键（§1.2），长按是它唯一的等价入口。
+ */
+function TitleCell({
+  row,
+  onOpen,
+  onMenu,
+}: {
+  row: ViewRow;
+  onOpen: (path: string) => void;
+  onMenu?: (at: { x: number; y: number }) => void;
+}) {
+  const hold = useLongPress((at) => onMenu?.(at));
+  return (
+    <button
+      className="dbview-link"
+      onClick={() => onOpen(row.path)}
+      onContextMenu={(event) => {
+        if (!onMenu) return;
+        event.preventDefault();
+        onMenu({ x: event.clientX, y: event.clientY });
+      }}
+      {...(onMenu ? hold : {})}
+    >
+      {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}
+      <Icon name="doc" size={14} className="dbview-rowicon" />
+      <span>{row.title}</span>
+    </button>
+  );
+}
+
 export function DatabaseView({
   source,
   onOpen,
   onChanged,
   revision,
   onPatch,
+  onEditSource,
+  onRename,
   imageSrc,
 }: Props) {
   /** 改名、改日期这些要一句输入的地方走它，不用 `window.prompt` */
@@ -98,6 +145,8 @@ export function DatabaseView({
    * 填完别的格子才定得下来的。取消弹窗还会让人以为「没建成」。
    */
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** 右键/长按弹出来的那一行 */
+  const [menu, setMenu] = useState<{ path: string; at: { x: number; y: number } } | null>(null);
   const [draft, setDraft] = useState("");
   /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
   const [panel, setPanel] = useState<Panel>(null);
@@ -381,11 +430,11 @@ export function DatabaseView({
         );
       }
       return (
-        <button className="dbview-link" onClick={() => onOpen(row.path)}>
-          {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}
-          <Icon name="doc" size={14} className="dbview-rowicon" />
-          <span>{row.title}</span>
-        </button>
+        <TitleCell
+          row={row}
+          onOpen={onOpen}
+          onMenu={onRename ? (at) => setMenu({ path: row.path, at }) : undefined}
+        />
       );
     }
     const type = typeOf(col);
@@ -531,16 +580,35 @@ export function DatabaseView({
             看板
           </span>
           {onPatch && (
-            <button
-              className="dbview-tool"
-              onClick={() => setPanel(panel === "settings" ? null : "settings")}
-              title="视图设置"
-              aria-label="视图设置"
-            >
-              <Icon name="settings" size={14} />
-            </button>
+            <>
+              <button
+                className="dbview-tool"
+                onClick={() => setPanel(panel === "settings" ? null : "settings")}
+                title="视图设置"
+                aria-label="视图设置"
+              >
+                <Icon name="settings" size={14} />
+              </button>
+              {onEditSource && (
+                <button
+                  className="dbview-tool"
+                  onClick={onEditSource}
+                  title="看这个视图的源码"
+                  aria-label="看源码"
+                >
+                  <Icon name="code" size={14} />
+                </button>
+              )}
+            </>
           )}
-          {panel === "settings" && onPatch && (
+          {menu && onRename && (
+        <ContextMenu
+          at={menu.at}
+          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {panel === "settings" && onPatch && (
             <ViewSettings
               source={source}
               properties={result.properties ?? []}
@@ -637,12 +705,29 @@ export function DatabaseView({
               >
                 <Icon name="settings" size={14} />
               </button>
+              {onEditSource && (
+                <button
+                  className="dbview-tool"
+                  onClick={onEditSource}
+                  title="看这个视图的源码"
+                  aria-label="看源码"
+                >
+                  <Icon name="code" size={14} />
+                </button>
+              )}
               <button className="dbview-new" onClick={() => void addRow()}>
                 新建
               </button>
             </>
           )}
-          {panel === "settings" && onPatch && (
+          {menu && onRename && (
+        <ContextMenu
+          at={menu.at}
+          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {panel === "settings" && onPatch && (
             <ViewSettings
               source={source}
               properties={result.properties ?? []}
@@ -803,12 +888,29 @@ export function DatabaseView({
               >
                 <Icon name="settings" size={14} />
               </button>
+              {onEditSource && (
+                <button
+                  className="dbview-tool"
+                  onClick={onEditSource}
+                  title="看这个视图的源码"
+                  aria-label="看源码"
+                >
+                  <Icon name="code" size={14} />
+                </button>
+              )}
               <button className="dbview-new" onClick={() => void addRow()}>
                 新建
               </button>
             </>
           )}
-          {panel === "settings" && onPatch && (
+          {menu && onRename && (
+        <ContextMenu
+          at={menu.at}
+          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {panel === "settings" && onPatch && (
             <ViewSettings
               source={source}
               properties={result.properties ?? []}
@@ -871,12 +973,29 @@ export function DatabaseView({
             >
               <Icon name="settings" size={14} />
             </button>
+            {onEditSource && (
+              <button
+                className="dbview-tool"
+                onClick={onEditSource}
+                title="看这个视图的源码"
+                aria-label="看源码"
+              >
+                <Icon name="code" size={14} />
+              </button>
+            )}
             <button className="dbview-new" onClick={() => void addRow()}>
               新建
             </button>
           </>
         )}
-        {panel === "settings" && onPatch && (
+        {menu && onRename && (
+        <ContextMenu
+          at={menu.at}
+          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {panel === "settings" && onPatch && (
           <ViewSettings
             source={source}
             properties={result.properties ?? []}

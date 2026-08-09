@@ -111,9 +111,13 @@ const PIXEL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
 /** 照 Editor.tsx 的做法把 widget 容器渲染成 React 组件 */
-function mount(spec?: string, imageSrc?: (t: string) => string | null) {
+function mount(
+  spec?: string,
+  onRename?: (path: string) => void,
+  imageSrc?: (t: string) => string | null,
+) {
   setViewRenderer({
-    mount: (el, source, patch) => {
+    mount: (el, source, patch, editSource) => {
       const root = createRoot(el);
       roots.push(root);
       root.render(
@@ -123,6 +127,8 @@ function mount(spec?: string, imageSrc?: (t: string) => string | null) {
           onChanged={() => {}}
           revision={0}
           onPatch={patch}
+          onEditSource={editSource}
+          onRename={onRename}
           // 画廊的封面：真实的解析器在 App 里，这里只记下它问的是哪个路径
           imageSrc={(t) => {
             coverAsked.push(t);
@@ -487,6 +493,26 @@ describe("列与设置（§2.6）", () => {
     );
     await settle();
     expect(view.state.doc.toString()).toContain('from: "论文/**"');
+  });
+
+  it("已有的行右键就能改名，不必去文档树里找", async () => {
+    const renamed: string[] = [];
+    const view = mount(undefined, (path) => renamed.push(path));
+    await settle();
+    const title = view.dom.querySelector<HTMLElement>(".dbview-link")!;
+    title.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
+    );
+    await settle();
+    await userEvent.click(
+      [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) =>
+        button.textContent?.includes("重命名"),
+      )!,
+    );
+    await settle();
+    // 改名要连标签页路径一起修，所以交回上层，不在这里直接调 renameNote
+    expect(renamed).toHaveLength(1);
+    expect(renamed[0]).toMatch(/\.md$/);
   });
 
   it("空筛选可以添加条件并写回代码块", async () => {
@@ -1034,7 +1060,7 @@ describe("画廊视图（§2.6）", () => {
 
   it("封面文件不在了就退回占位块，不显示碎图标（§4.4 同理）", async () => {
     galleryMock("attachments/没了.png");
-    const view = mount(SPEC, () => "data:image/png;base64,坏的");
+    const view = mount(SPEC, undefined, () => "data:image/png;base64,坏的");
     await settle();
     expect(view.dom.querySelector(".dbv-tile-blank")).not.toBeNull();
   });

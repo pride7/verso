@@ -58,6 +58,9 @@ pub struct TreeNode {
     // 放 frontmatter 里它是纯文本、能 git diff、拖进 Obsidian 也还在。
     /// frontmatter 里的 `order`，没有则为 None
     pub order: Option<f64>,
+    /// frontmatter 里的 `collapsed`：在文档树里不展开。由 `tree_list` 从索引补
+    #[serde(default)]
+    pub collapsed: bool,
     pub created: Option<String>,
     pub updated: Option<String>,
 
@@ -125,6 +128,7 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             created: None,
             updated: None,
             icon: None,
+            collapsed: false,
         });
     }
 
@@ -145,6 +149,7 @@ pub fn scan(fs: &dyn VaultFs, root: &Path, rel: &str) -> Result<Vec<TreeNode>> {
             created: None,
             updated: None,
             icon: None,
+            collapsed: false,
         });
     }
 

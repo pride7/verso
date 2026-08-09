@@ -71,6 +71,31 @@ describe("database 视图", () => {
     expect(rendered(v)).toBe(1);
   });
 
+  it("停在块的边界上不算「进去了」—— 上下一点就变源码是最烦人的一种", async () => {
+    const doc = `开头
+
+${VIEW_BLOCK}
+
+结尾
+`;
+    const v = mount(doc);
+    await settle();
+    expect(rendered(v)).toBe(1);
+
+    // 块的起点和终点：在它上下两行点一下、或者从上一行按一次方向键，
+    // 光标落到的正是这两个位置。整块是 atomic range，方向键一步就跨过去
+    const from = doc.indexOf("```verso-view");
+    const to = from + VIEW_BLOCK.length;
+    for (const anchor of [from, to]) {
+      v.dispatch({ selection: { anchor } });
+      expect(rendered(v), `光标停在 ${anchor} 就退回了源码`).toBe(1);
+    }
+
+    // 真的落进 YAML 里才退回源码 —— 那是「看源码」按钮做的事
+    v.dispatch({ selection: { anchor: doc.indexOf("from:") } });
+    expect(rendered(v)).toBe(0);
+  });
+
   it("现打出来的视图也要渲染", async () => {
     const v = mount("开头\n\n");
     v.dispatch({

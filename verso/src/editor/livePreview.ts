@@ -381,7 +381,32 @@ class InlinePreviewPlugin implements PluginValue {
     this.decorations = buildInlineDecorations(view);
   }
 
+  /** 上一次更新时输入法是不是正在组词 */
+  private composing = false;
+
   update(update: ViewUpdate) {
+    // **组词期间一个 decoration 都不要动。**
+    //
+    // 中文输入法在 contentDOM 里**就地**组词，CM 靠读回那段 DOM 才知道用户
+    // 到底输入了什么。这期间我们要是把某段 decoration 换掉（哪怕只是「源码
+    // ↔ 渲染」这种正常切换），CM 读回的就是一段被我们改过的 DOM —— 表现是
+    // 在 `$x$` 后面打一个中文字，整条公式被那个字顶掉，变成 `$啊`。
+    //
+    // 而这里每次组词都会被触发：`parseRefresh` 在解析推进时派发 effect，
+    // 组词过程中解析一直在推进。用英文键盘打字不会复现（没有组词这一步），
+    // 所以它只在中日韩输入法下出现。
+    //
+    // 用 `compositionStarted` 而不是 `composing`：后者要等 CM 真的数到一次
+    // 变更才为真（`inputState.composing > 0`），而输入法从 compositionstart
+    // 那一刻起就已经占着这段 DOM 了。
+    if (update.view.compositionStarted) {
+      this.composing = true;
+      return;
+    }
+    // 组词刚结束：这一拍必须重建 —— 组词期间跳过的那些更新要在这里补上
+    const ended = this.composing;
+    this.composing = false;
+
     // **解析推进也要重建。**
     //
     // 构造这个插件的那一刻文档往往还没解析完（CM6 的解析是 view 建好之后
@@ -395,7 +420,7 @@ class InlinePreviewPlugin implements PluginValue {
     const parsed = update.transactions.some((tr) =>
       tr.effects.some((e) => e.is(parseAdvanced)),
     );
-    if (update.docChanged || update.viewportChanged || update.selectionSet || parsed) {
+    if (ended || update.docChanged || update.viewportChanged || update.selectionSet || parsed) {
       this.decorations = buildInlineDecorations(update.view);
     }
   }

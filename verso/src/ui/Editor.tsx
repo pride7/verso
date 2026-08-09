@@ -156,6 +156,8 @@ interface Props {
   handleRef?: React.MutableRefObject<EditorHandle | null>;
   /** vault 变化时递增，反向链接与 database 视图靠它重查 */
   revision: number;
+  /** database 视图里改一行的名字。改名要连标签页路径一起修，只能交回上层 */
+  onRenameNote: (path: string) => void;
   /** database 视图改写了某篇笔记的属性 */
   onNoteChanged: () => void;
   /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
@@ -202,6 +204,7 @@ export function Editor({
   onPickIcon,
   onContextMenu,
   onNavigate,
+  onRenameNote,
   handleRef,
   revision,
   onNoteChanged,
@@ -235,7 +238,7 @@ export function Editor({
   // 只在挂载时注册的话，改一次代码 database 视图就全变空白了。
   useEffect(() => {
     setViewRenderer({
-      mount: (el, source, patch) => {
+      mount: (el, source, patch, editSource) => {
         // 同一个容器可能被 CM6 复用，先清掉旧的
         roots.current.get(el)?.unmount();
         const root = createRoot(el);
@@ -245,8 +248,10 @@ export function Editor({
             source={source}
             onOpen={(p) => cb.current.onNavigate(p)}
             onChanged={() => cb.current.onChanged()}
+            onRename={(path) => cb.current.onRenameNote(path)}
             revision={cb.current.revision}
             onPatch={patch}
+            onEditSource={editSource}
             imageSrc={(t) => cb.current.imageSrc(t)}
           />,
         );
@@ -490,6 +495,7 @@ ${insert}` },
     onFollowLink,
     getNotes,
     onNavigate,
+    onRenameNote,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
     onSaveImage,
@@ -504,6 +510,7 @@ ${insert}` },
     onFollowLink,
     getNotes,
     onNavigate,
+    onRenameNote,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
     onSaveImage,

@@ -88,7 +88,12 @@ function TreeItem({
   /** 拖到哪里：`into` 变成子文档，`before`/`after` 只调顺序 */
   const [dropAt, setDropAt] = useState<"into" | "before" | "after" | null>(null);
 
-  const hasChildren = node.children.length > 0;
+  /**
+   * 收起的节点在树里**当成没有子文档**（§2.1）。一个项目底下几十篇记录铺在
+   * 树上只会把别的挤下去，而那些内容本来就该从它自己那一页进去 —— 树上留
+   * 一行，里面有多少条交给 database 视图回答。
+   */
+  const hasChildren = node.children.length > 0 && !node.collapsed;
   const isDoc = node.kind === "document";
   const isActive = activePath === node.path;
 
@@ -190,6 +195,12 @@ function TreeItem({
                 （弹出一个面板）比它省下的一次右键大 */}
             <NodeIcon node={node} />
             <span className="tree-name">{node.name}</span>
+            {node.collapsed && node.children.length > 0 && (
+              /* 没这个记号的话，「它没有子文档」和「它被收起来了」长得一模一样 */
+              <span className="tree-collapsed" title={`收起了 ${node.children.length} 篇子文档`}>
+                {node.children.length}
+              </span>
+            )}
           </button>
         )}
 

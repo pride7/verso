@@ -12,6 +12,14 @@ export interface TreeNode {
   childDir: string | null;
   /** frontmatter 里的 `order`，手动排序用。没排过则为 null */
   order: number | null;
+  /**
+   * frontmatter 里的 `collapsed`：在文档树里**不展开**它。
+   *
+   * 一个项目/知识库笔记底下可能有几十篇子文档，它们在树里铺开只会把别的
+   * 全挤下去 —— 而那些内容本来就该从它自己的页面（总览、database 视图）
+   * 进去。收起之后树上只留一行。
+   */
+  collapsed?: boolean;
   created: string | null;
   updated: string | null;
   /**

@@ -17,6 +17,7 @@ import {
   sortProjectItems,
   statusTone,
   type ProjectApi,
+  type ProjectItem,
 } from "../../../src/core/project";
 import type { NoteContent, NoteMeta, PropSchema } from "../../../src/core/types";
 
@@ -264,12 +265,35 @@ describe("置顶与换分类", () => {
     expect(result.items[0].pinned).toBe(true);
   });
 
-  it("别的编辑器写成字符串的 pinned 也认", () => {
+  it("置顶压过一切，其次是「还没结束的」，最后才按创建时间", () => {
+    const row = (title: string, extra: Partial<ProjectItem>): ProjectItem => ({
+      path: `${title}.md`, id: null, title, section: "实验", kind: null,
+      status: "", summary: "", pinned: false, mtimeMs: 0, ...extra,
+    });
     const rows = [
-      { path: "b.md", title: "b", section: "实验", kind: null, status: "", summary: "", pinned: false, mtimeMs: 9 },
-      { path: "a.md", title: "a", section: "实验", kind: null, status: "", summary: "", pinned: true, mtimeMs: 1 },
+      row("已完成的", { status: "已完成", id: "01F" }),
+      row("刚建的", { status: "进行中", id: "01E" }),
+      row("很早建的", { status: "待解决", id: "01A" }),
+      row("置顶但已完成", { status: "已完成", id: "01B", pinned: true }),
     ];
-    expect(sortProjectItems([...rows]).map((row) => row.title)).toEqual(["a", "b"]);
+    expect(sortProjectItems([...rows]).map((r) => r.title)).toEqual([
+      "置顶但已完成", "刚建的", "很早建的", "已完成的",
+    ]);
+  });
+
+  it("改状态不该让一条跳到最前面 —— 那正是按修改时间排的毛病", () => {
+    const base = (title: string, id: string, status: string, mtimeMs: number): ProjectItem => ({
+      path: `${title}.md`, id, title, section: "问题", kind: "question",
+      status, summary: "", pinned: false, mtimeMs,
+    });
+    // 「乙」刚被改过状态，所以它的 mtime 最新
+    const rows = [
+      base("甲", "01A", "待解决", 1),
+      base("乙", "01B", "研究中", 999),
+      base("丙", "01C", "待解决", 2),
+    ];
+    // 创建时间新的在前，而不是刚改过的在前
+    expect(sortProjectItems([...rows]).map((r) => r.title)).toEqual(["丙", "乙", "甲"]);
   });
 
   it("置顶先把 pinned 声明成 checkbox，取消则整行删掉", async () => {

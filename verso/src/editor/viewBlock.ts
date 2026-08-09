@@ -25,7 +25,13 @@ export interface ViewRenderer {
    * 笔记里的那个代码块里，跟着 `.md` 走，别的编辑器打开也看得见。所以点
    * 表头排序做的事是改文件，不是改一个 React state。
    */
-  mount: (el: HTMLElement, source: string, patch: (yaml: string) => void) => void;
+  mount: (
+    el: HTMLElement,
+    source: string,
+    patch: (yaml: string) => void,
+    /** 「看源码」按钮：把光标送进代码块，于是这一块退回源码（见 `touched`） */
+    editSource: () => void,
+  ) => void;
   unmount: (el: HTMLElement) => void;
 }
 
@@ -55,12 +61,18 @@ class ViewBlockWidget extends WidgetType {
     // 先放占位，React 挂上之后会覆盖。没有它的话「decoration 没生成」和
     // 「React 没挂上」两种失败长得一模一样，都是一片空白。
     el.textContent = "database 视图加载中…";
-    renderer?.mount(el, this.source, (yaml) => {
-      view.dispatch({
-        changes: { from: this.from, to: this.to, insert: yaml },
-        userEvent: "input.view.spec",
-      });
-    });
+    renderer?.mount(
+      el,
+      this.source,
+      (yaml) => {
+        view.dispatch({
+          changes: { from: this.from, to: this.to, insert: yaml },
+          userEvent: "input.view.spec",
+        });
+      },
+      // 送到 YAML 那一段的开头之后一格：`touched` 要求严格在里面
+      () => view.dispatch({ selection: { anchor: this.from }, scrollIntoView: true }),
+    );
     return el;
   }
 
@@ -74,9 +86,20 @@ class ViewBlockWidget extends WidgetType {
   }
 }
 
+/**
+ * 光标要**真的落在块里面**才退回源码。
+ *
+ * 原来是「碰到就算」（`r.from <= to && r.to >= from`），于是光标停在块的
+ * 前一个位置或后一个位置 —— 也就是在它上下两行点一下、或者从上一行按一下
+ * 方向键 —— 整块视图就变回一段 YAML。而那两个位置恰恰是最常落到的地方：
+ * 表格上下都要有正文，人一点就中。
+ *
+ * 边界不算「在里面」之后，方向键再也进不去（整块是 atomic range，光标一步
+ * 跨过去）—— 所以工具条上必须有一个「看源码」按钮，那是唯一进得去的路。
+ */
 function touched(state: EditorState, from: number, to: number) {
   for (const r of state.selection.ranges) {
-    if (r.from <= to && r.to >= from) return true;
+    if (r.empty ? r.from > from && r.from < to : r.from < to && r.to > from) return true;
   }
   return false;
 }

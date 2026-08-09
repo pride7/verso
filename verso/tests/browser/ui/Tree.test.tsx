@@ -163,4 +163,36 @@ describe("落点提示", () => {
     expect(hover(0.9)).toContain("is-drop-after");
     expect(hover(0.5)).toContain("is-drop-target");
   });
+
+  it("收起的节点在树里当成没有子文档，但要说清楚收了几篇", () => {
+    const child = doc("子一");
+    const parent = { ...doc("项目", [child, doc("子二")]), collapsed: true };
+    const host = document.createElement("div");
+    host.style.width = "260px";
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    roots.push(root);
+    act(() => {
+      root.render(
+        <Tree
+          nodes={[parent]}
+          activePath={null}
+          onOpen={() => {}}
+          onAddChild={() => {}}
+          onMenu={() => {}}
+          onMove={() => {}}
+          onReorder={() => {}}
+          onRenameSubmit={() => {}}
+          onRenameCancel={() => {}}
+        />,
+      );
+    });
+
+    // 顶层默认展开（depth === 0），但这一篇收起了：子文档一行都不该出现
+    expect(host.querySelectorAll(".tree-row")).toHaveLength(1);
+    // 展开箭头也不该有 —— 点了什么都不会发生的箭头比没有箭头更糟
+    expect(host.querySelector(".tree-twisty")?.className).toContain("is-empty");
+    // 「没有子文档」和「被收起来了」不能长得一样
+    expect(host.querySelector(".tree-collapsed")?.textContent).toBe("2");
+  });
 });

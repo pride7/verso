@@ -5,6 +5,12 @@ export type ProjectItemKind = Exclude<ProjectKind, "progress">;
 
 export interface ProjectItem {
   path: string;
+  /**
+   * 笔记的 ULID。**它就是创建时间** —— ULID 前 10 个字符是毫秒时间戳，
+   * 按字典序排就是按创建顺序排。§2.3 起 Verso 不再往 frontmatter 里写
+   * `created`，所以这是唯一一个「不会因为改了一个字就变」的时间。
+   */
+  id: string | null;
   title: string;
   /** 所属分类名，也是同名目录名。分类可增删，所以这里存名字而不是固定枚举。 */
   section: string;
@@ -353,14 +359,41 @@ function isPinned(value: unknown): boolean {
   return value === true || asText(value).trim() === "true";
 }
 
+/** 有结论的那两档：排在没结论的后面 */
+const SETTLED = new Set<StatusTone>(["done", "archived"]);
+
 /**
- * 置顶的排在前面，其余仍按最近改动。**就地排序**，两处清单共用这一份规则。
+ * 排序规则：**置顶 → 还没结束的 → 创建时间（新的在前）**。就地排序，
+ * 两处清单共用这一份。
  *
- * 「最重要」和「最近」本来就是两回事：每类只露三条（§2.10 的硬上限），
- * 不给一条手动置顶的路，最要紧的那条只要几天没动就沉到「查看全部」后面去了。
+ * ## 为什么不按最近改动
+ *
+ * 改一个状态就是改那篇笔记的 frontmatter，文件的修改时间跟着变 —— 于是
+ * 「把某条标成已解决」的结果是它**跳到了最上面**，而那正是你刚处理完、
+ * 最不需要再看见的一条。按修改时间排，等于让「碰过它」压过「它要紧吗」。
+ *
+ * ## 为什么创建时间取自 ULID
+ *
+ * §2.3 起 Verso 不往 frontmatter 里写 `created`，而文件系统的创建时间在
+ * 同步之后并不可靠。ULID 的前 10 个字符就是毫秒时间戳，字典序即时间序 ——
+ * 它是这里唯一一个不会因为改了一个字就变的时间。没有 id 的笔记（别的编辑器
+ * 建的）退回按修改时间比，至少同一组内部是稳定的。
+ *
+ * 「最重要」和「最近」也是两回事：每类只露三条（§2.10 的硬上限），不给一条
+ * 手动置顶的路，最要紧的那条只要几天没动就沉到「查看全部」后面去了。
  */
 export function sortProjectItems(items: ProjectItem[]): ProjectItem[] {
-  return items.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.mtimeMs - a.mtimeMs);
+  const settled = (item: ProjectItem) => Number(SETTLED.has(statusTone(item.status)));
+  return items.sort((a, b) => {
+    const byPin = Number(b.pinned) - Number(a.pinned);
+    if (byPin) return byPin;
+    const byPhase = settled(a) - settled(b);
+    if (byPhase) return byPhase;
+    const ida = a.id ?? "";
+    const idb = b.id ?? "";
+    if (ida !== idb && (ida || idb)) return idb < ida ? -1 : 1;
+    return b.mtimeMs - a.mtimeMs;
+  });
 }
 
 /**
@@ -410,6 +443,7 @@ export async function loadProjectOverview(
       if (!section) return [];
       return [{
         path: note.path,
+        id: note.id,
         title: note.title,
         section,
         kind: sectionKind(section),

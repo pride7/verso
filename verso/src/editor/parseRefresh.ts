@@ -42,7 +42,11 @@ export const parseAdvanced = StateEffect.define<null>();
  */
 function scheduleRefresh(view: EditorView) {
   const fire = () => {
-    if (view.dom.isConnected) view.dispatch({ effects: parseAdvanced.of(null) });
+    // 组词期间不要惊动 decoration：那会把输入法正在编辑的 DOM 换掉（见
+    // livePreview 里 `composing` 那段）。组词结束后自然会再刷一次
+    if (view.dom.isConnected && !view.compositionStarted) {
+      view.dispatch({ effects: parseAdvanced.of(null) });
+    }
   };
   queueMicrotask(fire);
   requestAnimationFrame(fire);

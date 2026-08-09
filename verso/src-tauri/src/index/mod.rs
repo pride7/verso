@@ -363,6 +363,23 @@ impl Index {
         Ok(out?)
     }
 
+    /**
+     * 在文档树里保持收起的那些笔记（frontmatter 的 `collapsed: true`）。
+     *
+     * 和 `icons` 一个路子：树的**每一行**都要知道这件事，逐篇读 frontmatter
+     * 等于刷新一次树就把整个 vault 读一遍。
+     */
+    pub fn collapsed(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT n.path FROM props p
+             JOIN notes n ON n.id = p.note_id
+             WHERE p.key = 'collapsed' AND p.value IN ('true', '是')",
+        )?;
+        let mapped = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let out: std::result::Result<Vec<_>, _> = mapped.collect();
+        Ok(out?)
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

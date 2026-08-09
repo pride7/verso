@@ -1683,8 +1683,55 @@ export default function App() {
     return () => setSlashAction(null);
   }, [addJournal, insertIssueView, insertKnowledgeView]);
 
-  /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
-  const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
+  /**
+   * 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename`。
+   *
+   * 就地改名那个输入框长在文档树的行上 —— 侧栏收着、或者切到了搜索/标签/
+   * 历史，它就没有地方出现：按 F2 什么都不发生，而人正看着这篇笔记。
+   * 那时改成弹一句问（§「要一句输入时用 `useAsk()`」）。
+   */
+  const renameNode = useCallback(
+    (node: TreeNode) => {
+      if (sidebarOpen && sidebarView === "tree") {
+        setRenaming(node.path);
+        return;
+      }
+      void ask({
+        question: "把这篇文档改成什么名字？",
+        initial: node.name,
+        okLabel: "改名",
+        hint: "文件名会跟着改；它底下的子文档也跟着走。",
+      }).then((name) => name && void submitRename(node.path, name));
+    },
+    [ask, sidebarOpen, sidebarView, submitRename],
+  );
+
+  /**
+   * 「在树里收起它」。写进这篇笔记自己的 frontmatter（`collapsed: true`），
+   * 不写 `.verso/` —— 换台机器、拿别的编辑器打开都该跟着走（§0 第 1 条）。
+   * 先声明成 checkbox，落盘的才是真布尔而不是字符串 `"true"`。
+   */
+  const toggleCollapsed = useCallback(
+    async (node: TreeNode) => {
+      try {
+        await api.propDefSet("collapsed", { type: "checkbox" });
+        await api.propSet(node.path, "collapsed", node.collapsed ? null : "true");
+        await refresh();
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [refresh],
+  );
+
+  /** 按路径改名。database 视图、项目总览这些没有 `TreeNode` 的地方走它 */
+  const renameByPath = useCallback(
+    (path: string) => {
+      const node = tree.flatMap(flatten).find((candidate) => candidate.path === path);
+      if (node) renameNode(node);
+    },
+    [renameNode, tree],
+  );
 
   /**
    * §2.1「创建为文档」：把纯文件夹升级成文档节点 —— 在旁边补一个同名 `.md`，
@@ -3757,6 +3804,7 @@ export default function App() {
                     })
             }
             onNavigate={openPath}
+            onRenameNote={renameByPath}
             handleRef={editorRef}
             revision={revision}
             onNoteChanged={() => {
@@ -4219,6 +4267,22 @@ export default function App() {
               重命名
             </button>
           </li>
+          {/* 收起之后这一行在树里就当没有子文档：里面有多少条，交给它自己那
+              一页（项目总览 / database 视图）回答，不必在树上铺开 */}
+          {menu.node.kind === "document" && menu.node.children.length > 0 && (
+            <li>
+              <button
+                onClick={() => {
+                  const { node } = menu;
+                  setMenu(null);
+                  void toggleCollapsed(node);
+                }}
+              >
+                <Icon name={menu.node.collapsed ? "expand" : "collapse"} size={14} />
+                {menu.node.collapsed ? "在树里展开它" : "在树里收起它"}
+              </button>
+            </li>
+          )}
           {/* §2.1：把纯文件夹升级成文档节点。升级之后图标、打开、拖拽这些
               文档才有的能力就都有了 */}
           {menu.node.kind === "folder" && (

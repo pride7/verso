@@ -6619,6 +6619,18 @@ textarea:focus-visible {
    当前选中项，原生 select 在这几点上都更省事也更好用 */
 /* 就地改名的输入框。撑满标签那一格，字号行高和标签一致 ——
    进入改名态时那一行不该跳一下高度 */
+/* 收起的节点右边那个数字：里面还有多少篇。不写的话，「没有子文档」和
+   「被收起来了」在树上长得一模一样 */
+.tree-collapsed {
+  flex: none;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--hover-bg);
+  color: var(--muted-2);
+  font-size: 10px;
+  line-height: 1.6;
+}
 .tree-rename {
   flex: 1;
   min-width: 0;

@@ -65,6 +65,7 @@ function mountEditor() {
       getNotes={() => []}
       breadcrumb={[]}
       onNavigate={() => {}}
+      onRenameNote={() => {}}
       handleRef={handleRef}
       revision={0}
       onNoteChanged={() => {}}

@@ -938,6 +938,12 @@ fn tree_list(state: State<'_, AppState>) -> Result<Vec<TreeNode>> {
         fill_icons(&mut tree, &map);
     }
 
+    // 「在树里保持收起」同理。索引没就绪时当作没收起 —— 树照样能用
+    if let Ok(paths) = state.with_index(|i| i.collapsed()) {
+        let set: std::collections::HashSet<String> = paths.into_iter().collect();
+        fill_collapsed(&mut tree, &set);
+    }
+
     // 手动顺序来自 vault 根的 .verso-order.json（见 vault/order.rs
     // 里为什么不放 .verso/ 也不放 frontmatter）
     let order = state.with_vault(|v| Ok(order::load(v.fs.as_ref(), &v.root)))?;
@@ -962,6 +968,13 @@ fn fill_icons(nodes: &mut [TreeNode], map: &std::collections::HashMap<String, St
     for n in nodes {
         n.icon = map.get(&n.path).cloned();
         fill_icons(&mut n.children, map);
+    }
+}
+
+fn fill_collapsed(nodes: &mut [TreeNode], set: &std::collections::HashSet<String>) {
+    for n in nodes {
+        n.collapsed = set.contains(&n.path);
+        fill_collapsed(&mut n.children, set);
     }
 }
 

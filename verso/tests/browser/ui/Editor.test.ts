@@ -57,6 +57,7 @@ describe("Editor 里的 database 视图", () => {
           getNotes: () => [],
           breadcrumb: [],
           onNavigate: () => {},
+          onRenameNote: () => {},
           revision: 0,
           onNoteChanged: () => {},
           customSnippets: "",
