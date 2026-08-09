@@ -6899,12 +6899,17 @@ textarea:focus-visible {
   color: var(--text);
   background: var(--hover-bg);
 }
+/* 工具组整体靠右：`auto` 把左边的空当全吃掉。
+   **只有一组里的第一个能吃** —— 每个都写 `margin-left: auto` 的话，flex 会把
+   剩余空间**平分**给它们，于是第一个按钮不是靠右而是跑到中间去（加第二个
+   工具按钮时踩到过）。 */
+.dbview-tool {
+  margin-left: auto;
+}
+.dbview-tool + .dbview-tool,
 .dbview-new + .dbview-tool,
 .dbview-tool + .dbview-new {
   margin-left: 0;
-}
-.dbview-tool {
-  margin-left: auto;
 }
 .dbview-tool + .dbview-new {
   margin-left: 6px;

@@ -495,6 +495,27 @@ describe("列与设置（§2.6）", () => {
     expect(view.state.doc.toString()).toContain('from: "论文/**"');
   });
 
+  it("工具条上的按钮整组靠右，不会因为多一个就跑到中间", async () => {
+    // 要一条**宽**的工具条：窄的时候根本没有剩余空间可分，`auto` 的毛病
+    // 也就显不出来
+    const view = mount(['from: "论文/*"', "view: table", "width: full"].join("\n"));
+    await settle();
+    const bar = view.dom.querySelector<HTMLElement>(".dbview-bar")!;
+    const tools = [...bar.querySelectorAll<HTMLElement>(".dbview-tool")];
+    expect(tools.length).toBeGreaterThan(1);
+    const barBox = bar.getBoundingClientRect();
+    const newBtn = bar.querySelector<HTMLElement>(".dbview-new")!;
+    // 这一组要贴着右边界
+    expect(barBox.right - newBtn.getBoundingClientRect().right).toBeLessThan(2);
+    // 而且组内彼此挨着：`margin-left: auto` 每个都写的话，flex 会把剩余空间
+    // **平分**给它们，于是组中间被撑开一大段，第一个按钮停在中间
+    const boxes = [...tools, newBtn].map((el) => el.getBoundingClientRect());
+    const gaps = boxes.slice(1).map((box, i) => box.left - boxes[i].right);
+    for (const gap of gaps) expect(gap, "工具按钮之间被撑开了").toBeLessThan(20);
+    // 空当应当全在这一组**左边**
+    expect(tools[0].getBoundingClientRect().left - barBox.left).toBeGreaterThan(20);
+  });
+
   it("已有的行右键就能改名，不必去文档树里找", async () => {
     const renamed: string[] = [];
     const view = mount(undefined, (path) => renamed.push(path));
