@@ -201,6 +201,11 @@ describe("单项目总览", () => {
       .map((mark) => { const box = mark.getBoundingClientRect(); return box.left + box.width / 2; });
     expect(centers.length).toBeGreaterThan(1);
     expect(Math.max(...centers) - Math.min(...centers), "勾和叉没对齐").toBeLessThanOrEqual(0.5);
+    // 方的：只给宽度的话高度只有图标那么高，悬停底一铺就是一条扁横杠
+    for (const mark of document.querySelectorAll<HTMLElement>(".project-status-mark")) {
+      const box = mark.getBoundingClientRect();
+      expect(Math.abs(box.width - box.height), "行尾那一格不是方的").toBeLessThanOrEqual(0.5);
+    }
 
     const menuBox = document.querySelector(".project-status-menu")!.getBoundingClientRect();
     for (const drop of document.querySelectorAll<HTMLElement>(".project-status-drop")) {
