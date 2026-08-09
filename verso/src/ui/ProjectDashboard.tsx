@@ -5,6 +5,7 @@ import {
   captureProjectEntry,
   ensureProjectStatusSchema,
   loadProjectOverview,
+  prepareItemMove,
   PROGRESS_SECTION,
   PROJECT_STATUS_DEFAULTS,
   projectSections,
@@ -13,7 +14,9 @@ import {
   SECTION_STATUS_FALLBACK,
   sectionKind,
   sectionNameError,
+  setProjectPinned,
   setProjectSections,
+  sortProjectItems,
   statusTone,
   STATUS_TONE_LABEL,
   updateProjectSnapshot,
@@ -35,6 +38,8 @@ interface Props {
   onEdit: () => void;
   /** 改名走上层那一条：还要跟着改标签页的路径、刷新文档树（§2.1） */
   onRename: (path: string, title: string) => void;
+  /** 换分类 = 真的移动文件，同样要上层去修标签页路径和手排顺序 */
+  onMove: (path: string, newParentDoc: string) => void;
   onChanged: () => void;
   onError: (message: string) => void;
 }
@@ -182,12 +187,13 @@ function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen
         <span className="project-item-icon"><Icon name="doc" size={14} /></span>
         <span className="project-item-copy"><strong>{item.title}</strong><small>{item.summary || "暂无摘要"}</small></span>
       </button>}
+    {item.pinned && <span className="project-item-pin" title="已置顶" aria-label="已置顶"><Icon name="pin" size={12} /></span>}
     {showKind && <span className="project-kind">{item.section}</span>}
     <StatusSelect value={item.status || fallback} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} onDelete={onDropStatus} />
   </div>;
 }
 
-export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onRename, onChanged, onError }: Props) {
+export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onRename, onMove, onChanged, onError }: Props) {
   const [overview, setOverview] = useState<ProjectOverview | null>(null);
   /** 右键/长按弹出来的那条记录 */
   const [menu, setMenu] = useState<{ item: ProjectItem; slot: string; at: { x: number; y: number } } | null>(null);
@@ -270,6 +276,45 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
     try {
       setCustomStatuses(await removeProjectStatus(api, option));
       onChanged();
+    } catch (error) {
+      onError((error as Error).message);
+    }
+  };
+
+  /**
+   * 置顶／取消置顶。**不动那条三行的上限**（§2.10）—— 置顶只是排到前面，
+   * 不是额外多露一条；钉五条就把上限废掉了，总览又会变回长文档。
+   */
+  const togglePin = async (item: ProjectItem) => {
+    const pinned = !item.pinned;
+    setOverview((current) => current ? {
+      ...current,
+      items: sortProjectItems(current.items.map((row) => row.path === item.path ? { ...row, pinned } : row)),
+    } : current);
+    try {
+      await setProjectPinned(api, item.path, pinned);
+      onChanged();
+    } catch (error) {
+      onError((error as Error).message);
+    }
+  };
+
+  /**
+   * 换一个分类。分类就是目录，所以这是真的把文件搬过去 —— 移动本身交给上层，
+   * 它还要修标签页路径（和改名同一条路）。
+   */
+  const moveToSection = async (item: ProjectItem, section: string) => {
+    try {
+      const target = await prepareItemMove(api, project.path, item.path, section);
+      const moved = `${target.replace(/\.md$/i, "")}/${item.path.slice(item.path.lastIndexOf("/") + 1)}`;
+      // 乐观地先搬过去：等文档树推回来要几十毫秒，那期间它还留在原来那张卡片上
+      setOverview((current) => current ? {
+        ...current,
+        items: current.items.map((row) => row.path === item.path
+          ? { ...row, path: moved, section, kind: sectionKind(section) }
+          : row),
+      } : current);
+      onMove(item.path, target);
     } catch (error) {
       onError((error as Error).message);
     }
@@ -496,6 +541,20 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
         at={menu.at}
         groups={[
           [{ label: "在新标签页打开", icon: "doc", run: () => onOpen(menu.item.path, { newTab: true }) }],
+          [
+            { label: menu.item.pinned ? "取消置顶" : "置顶", icon: "pin", run: () => void togglePin(menu.item) },
+            // 只有一个分类时没有「别的分类」可去，那条就不该摆在那里点不动
+            ...sections.some((name) => name !== menu.item.section) ? [{
+              label: "移到",
+              icon: "move" as const,
+              run: () => {},
+              items: sections.filter((name) => name !== menu.item.section).map((name) => ({
+                label: name,
+                icon: "doc" as const,
+                run: () => void moveToSection(menu.item, name),
+              })),
+            }] : [],
+          ],
           [{ label: "重命名", icon: "pencil", run: () => setRenaming({ slot: menu.slot, path: menu.item.path }) }],
         ]}
         onClose={() => setMenu(null)}

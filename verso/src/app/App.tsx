@@ -3658,6 +3658,7 @@ export default function App() {
           onOpen={(path, opts) => void openPath(path, opts)}
           onEdit={() => setProjectOpen(false)}
           onRename={(path, title) => void submitRename(path, title)}
+          onMove={(path, target) => void moveNode(path, target)}
           onChanged={() => {
             void refresh();
             void reloadFromDisk();

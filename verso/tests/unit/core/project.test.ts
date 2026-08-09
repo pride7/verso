@@ -8,10 +8,13 @@ import {
   projectDocumentTemplate,
   projectSections,
   ensureProjectStatusSchema,
+  prepareItemMove,
   projectStatusOptions,
   removeProjectStatus,
   sectionNameError,
+  setProjectPinned,
   setProjectSections,
+  sortProjectItems,
   statusTone,
   type ProjectApi,
 } from "../../../src/core/project";
@@ -241,5 +244,79 @@ describe("状态词表", () => {
       .toEqual(["待解决", "研究中", "已解决", "复现中"]);
     // 词表整个空的（老 vault / schema 读不出来）才用内置那份兜底
     expect(projectStatusOptions("question", [])).toEqual(["待解决", "研究中", "已解决", "已搁置"]);
+  });
+});
+
+describe("置顶与换分类", () => {
+  it("置顶的排前面，其余仍按最近改动", async () => {
+    const project = note("项目.md", { type: "project" });
+    const disk = new Map([
+      ["项目/实验/新的.md", note("项目/实验/新的.md", { type: "experiment" }, "", 30)],
+      ["项目/实验/旧的.md", note("项目/实验/旧的.md", { type: "experiment", pinned: true }, "", 10)],
+      ["项目/实验/中间.md", note("项目/实验/中间.md", { type: "experiment" }, "", 20)],
+    ]);
+    const result = await loadProjectOverview(
+      { readNote: async (path) => disk.get(path)! },
+      project,
+      [...disk.keys()].map((path) => ({ path, name: path })),
+    );
+    expect(result.items.map((item) => item.title)).toEqual(["旧的", "新的", "中间"]);
+    expect(result.items[0].pinned).toBe(true);
+  });
+
+  it("别的编辑器写成字符串的 pinned 也认", () => {
+    const rows = [
+      { path: "b.md", title: "b", section: "实验", kind: null, status: "", summary: "", pinned: false, mtimeMs: 9 },
+      { path: "a.md", title: "a", section: "实验", kind: null, status: "", summary: "", pinned: true, mtimeMs: 1 },
+    ];
+    expect(sortProjectItems([...rows]).map((row) => row.title)).toEqual(["a", "b"]);
+  });
+
+  it("置顶先把 pinned 声明成 checkbox，取消则整行删掉", async () => {
+    const defs: [string, unknown][] = [];
+    const props: [string, string, string | null][] = [];
+    const api = {
+      propSet: async (path: string, key: string, value: string | null) => { props.push([path, key, value]); },
+      propDefSet: async (key: string, def: unknown) => { defs.push([key, def]); },
+    };
+    await setProjectPinned(api, "项目/实验/甲.md", true);
+    await setProjectPinned(api, "项目/实验/甲.md", false);
+    expect(defs).toEqual([["pinned", { type: "checkbox" }], ["pinned", { type: "checkbox" }]]);
+    expect(props).toEqual([
+      ["项目/实验/甲.md", "pinned", "true"],
+      ["项目/实验/甲.md", "pinned", null],
+    ]);
+  });
+
+  it("换分类要先建出目标分类首页，并把 type 一起改掉", async () => {
+    const created: [string | null, string][] = [];
+    const props: [string, string, string | null][] = [];
+    const target = await prepareItemMove(
+      {
+        createNote: async (parent, title) => { created.push([parent, title]); return { path: `${parent!.replace(/\.md$/, "")}/${title}.md`, title, id: null }; },
+        propSet: async (path, key, value) => { props.push([path, key, value]); },
+      },
+      "项目.md",
+      "项目/决策/某项决定.md",
+      "问题",
+    );
+    expect(target).toBe("项目/问题.md");
+    expect(created).toEqual([["项目.md", "问题"]]);
+    // type 不跟着改的话，database 视图里 `where type = "decision"` 还会把它捞出来
+    expect(props).toContainEqual(["项目/决策/某项决定.md", "type", "question"]);
+  });
+
+  it("自定义分类用分类名当 type", async () => {
+    const props: [string, string, string | null][] = [];
+    await prepareItemMove(
+      {
+        createNote: async (parent, title) => ({ path: `${parent!.replace(/\.md$/, "")}/${title}.md`, title, id: null }),
+        propSet: async (path, key, value) => { props.push([path, key, value]); },
+      },
+      "项目.md",
+      "项目/实验/甲.md",
+      "复现",
+    );
+    expect(props).toContainEqual(["项目/实验/甲.md", "type", "复现"]);
   });
 });

@@ -47,7 +47,7 @@ describe("单项目总览", () => {
     host.id = "root";
     document.body.appendChild(host);
     root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     expect(document.querySelector(".project-snapshot")?.textContent).toContain("先确认误差来源");
     const active = document.querySelector(".project-columns .project-section:first-child")!;
@@ -61,7 +61,7 @@ describe("单项目总览", () => {
 
   it("记录入口默认就是进展，只要求填写内容", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     (document.querySelector(".project-btn.primary") as HTMLButtonElement).click();
     await tick();
@@ -78,7 +78,7 @@ describe("单项目总览", () => {
     }));
     const onOpen = vi.fn();
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     (document.querySelector(".project-btn.primary") as HTMLButtonElement).click();
     await tick();
@@ -98,7 +98,7 @@ describe("单项目总览", () => {
 
   it("状态是可扩展的单选，而不是自由文本框", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const status = document.querySelector<HTMLButtonElement>('.project-item button[aria-label="实验 1的状态"]')!;
     await userEvent.click(status);
@@ -133,9 +133,59 @@ describe("单项目总览", () => {
     expect(apiMock.propSet).toHaveBeenCalledWith("项目/实验/实验 1.md", "status", "复现中");
   });
 
+  it("置顶把一条钉在最前面，但不撑破三条的上限", async () => {
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    const active = document.querySelector(".project-columns .project-section:first-child")!;
+    // 默认按最近改动：实验 1 最新，实验 5 最旧、连露都露不出来
+    expect([...active.querySelectorAll(".project-item-copy strong")].map((row) => row.textContent))
+      .toEqual(["实验 1", "实验 2", "实验 3"]);
+
+    // 实验 5 沉在「查看全部」后面 —— 那正是置顶要解决的处境
+    const card = [...document.querySelectorAll<HTMLElement>(".project-record-group")]
+      .find((group) => group.querySelector("h3")?.textContent === "实验")!;
+    await userEvent.click(card.querySelector<HTMLButtonElement>(".project-more")!);
+    await tick();
+    const last = [...card.querySelectorAll<HTMLElement>(".project-item")]
+      .find((row) => row.textContent?.includes("实验 5"))!;
+    last.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) => button.textContent === "置顶")!);
+    await tick();
+    // 写的是真布尔（`pinned` 先被声明成 checkbox），不是字符串
+    expect(apiMock.propDefSet).toHaveBeenCalledWith("pinned", { type: "checkbox" });
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目/实验/实验 5.md", "pinned", "true");
+    expect([...active.querySelectorAll(".project-item-copy strong")].map((row) => row.textContent))
+      .toEqual(["实验 5", "实验 1", "实验 2"]);
+    // 上限仍然是三条：置顶只是排到前面，不是额外多露一条
+    expect(active.querySelectorAll(".project-item")).toHaveLength(3);
+    expect(active.querySelector(".project-item-pin")).not.toBeNull();
+  });
+
+  it("换分类是真的搬文件，type 跟着一起改", async () => {
+    const onMove = vi.fn();
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={onMove} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    const row = document.querySelector(".project-item")!;
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    await tick();
+    const submenu = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) => button.textContent?.startsWith("移到"))!;
+    submenu.click();
+    await tick();
+    // 当前分类不在候选里 —— 移到自己那一类是一次什么都不会发生的操作
+    const targets = [...document.querySelectorAll<HTMLButtonElement>(".ctx-sub button")].map((button) => button.textContent);
+    expect(targets).toEqual(["问题", "决策", "资料"]);
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".ctx-sub button")].find((button) => button.textContent === "问题")!);
+    await tick();
+    expect(apiMock.propSet).toHaveBeenCalledWith("项目/实验/实验 1.md", "type", "question");
+    expect(onMove).toHaveBeenCalledWith("项目/实验/实验 1.md", "项目/问题.md");
+  });
+
   it("状态可以删掉：只去掉菜单里那一条，笔记一个字都不改", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const status = document.querySelector<HTMLButtonElement>('.project-item button[aria-label="实验 1的状态"]')!;
     await userEvent.click(status);
@@ -169,7 +219,7 @@ describe("单项目总览", () => {
 
   it("分类可以删掉，文档留在文档树里", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     expect(document.querySelectorAll(".project-record-group")).toHaveLength(4);
     await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
@@ -188,7 +238,7 @@ describe("单项目总览", () => {
     host.id = "root";
     document.body.appendChild(host);
     root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
 
@@ -221,7 +271,7 @@ describe("单项目总览", () => {
     host.id = "root";
     document.body.appendChild(host);
     root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
 
@@ -247,7 +297,7 @@ describe("单项目总览", () => {
 
   it("没有指针也能排序：手柄上按方向键", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
     const grip = document.querySelectorAll<HTMLElement>(".project-section-grip")[1];
@@ -264,7 +314,7 @@ describe("单项目总览", () => {
     }));
     const onOpen = vi.fn();
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={custom} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={custom} notes={[]} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     expect([...document.querySelectorAll(".project-record-group h3")].map((h) => h.textContent)).toEqual(["实验", "复现"]);
 
@@ -296,7 +346,7 @@ describe("单项目总览", () => {
   it("记录整行打开文档，不再显示重复的进入箭头", async () => {
     const onOpen = vi.fn();
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={onOpen} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const row = document.querySelector(".project-item")!;
     expect(row.querySelector(".project-item-open > svg")).toBeNull();
@@ -306,7 +356,7 @@ describe("单项目总览", () => {
 
   it("状态按语义分档上色，五档各是各的颜色", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const row = document.querySelector(".project-item")!;
     const pill = row.querySelector<HTMLButtonElement>(".project-status-trigger")!;
@@ -330,7 +380,7 @@ describe("单项目总览", () => {
   it("总览里就能改名，不用去文档树里把它找出来", async () => {
     const onRename = vi.fn();
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={onRename} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={onRename} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const row = document.querySelector(".project-item")!;
     row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
@@ -353,7 +403,7 @@ describe("单项目总览", () => {
 
   it("手指没有右键：长按同样弹出那份菜单，划动则不弹", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
     const row = document.querySelector(".project-item")!;
     const touch = (type: string, x: number, y: number) =>

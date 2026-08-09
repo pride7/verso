@@ -3704,6 +3704,13 @@ body.is-table-resizing * {
   background: var(--surface);
   color: var(--muted);
 }
+/* 置顶的记号。中性色 —— 它说的是「这条排在前面」，不是「你可以点它」（§6.2） */
+.project-item-pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+}
 .project-kind {
   flex: none;
   padding: 2px 6px;

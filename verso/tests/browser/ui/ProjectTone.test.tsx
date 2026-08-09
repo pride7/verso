@@ -15,10 +15,10 @@ import "../../../src/ui/styles.css";
 const project = {
   path: "项目.md", id: null, title: "可信解码", frontmatter: { type: "project", status: "进行中", summary: "先确认误差来源。", next: "跑完消融", blocker: "缺一组数据" }, frontmatterText: null, body: "", mtimeMs: 1,
 };
-const make = (path: string, type: string, status: string, summary: string, mtimeMs: number) =>
-  ({ path, id: null, title: path.split("/").pop()!.replace(/\.md$/, ""), frontmatter: { type, status, summary }, frontmatterText: null, body: "", mtimeMs });
+const make = (path: string, type: string, status: string, summary: string, mtimeMs: number, pinned = false) =>
+  ({ path, id: null, title: path.split("/").pop()!.replace(/\.md$/, ""), frontmatter: { type, status, summary, ...(pinned ? { pinned: true } : {}) }, frontmatterText: null, body: "", mtimeMs });
 const children = [
-  make("项目/实验/encoder的设计", "experiment", "进行中", "可以改，而且证据比 pooling 那次还硬", 9),
+  make("项目/实验/encoder的设计", "experiment", "进行中", "可以改，而且证据比 pooling 那次还硬", 9, true),
   make("项目/实验/温度消融", "experiment", "已暂停", "等外部数据", 8),
   make("项目/问题/数据如何处理的？", "question", "已解决", "关于数据预处理（openwebtext-t5）", 7),
   make("项目/问题/架构如何设计？", "question", "待解决", "现在的框架甚至没有预测 EOS。", 6),
@@ -48,7 +48,7 @@ describe("视觉：状态分档", () => {
 
   it("浅色和深色各来一张", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await page.viewport(1440, 1180);
     await tick();
     await shot("30-tone-light");
@@ -58,7 +58,7 @@ describe("视觉：状态分档", () => {
 
   it("状态菜单：每档一个点，删除要先问一句", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     // 触摸模式：删除按钮没有 hover 可依赖，平时就露着 —— 顺便量一遍手机上的尺寸
     document.documentElement.setAttribute("data-touch", "on");
     await page.viewport(760, 900);
@@ -75,7 +75,7 @@ describe("视觉：状态分档", () => {
 
   it("新增状态时先说清楚它会落到哪一档", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
-    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onChanged={() => {}} onError={() => {}} />);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await page.viewport(760, 640);
     await tick();
     document.querySelector<HTMLButtonElement>('.project-item button[aria-label="架构如何设计？的状态"]')!.click();
@@ -84,5 +84,17 @@ describe("视觉：状态分档", () => {
     await tick(60);
     await userEvent.fill(document.querySelector<HTMLInputElement>(".project-status-add input")!, "等复现结果");
     await shot("33-tone-new-status");
+  });
+
+  it("行内的置顶记号和「移到」二级菜单", async () => {
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await page.viewport(760, 620);
+    await tick();
+    const row = [...document.querySelectorAll<HTMLElement>(".project-item")].find((item) => item.textContent?.includes("encoder的设计"))!;
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 330 }));
+    await tick(60);
+    [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) => button.textContent?.startsWith("移到"))!.click();
+    await shot("34-pin-and-move.png".replace(".png", ""));
   });
 });

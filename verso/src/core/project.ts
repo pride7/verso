@@ -12,6 +12,8 @@ export interface ProjectItem {
   kind: ProjectItemKind | null;
   status: string;
   summary: string;
+  /** 置顶。写在这条记录自己的 frontmatter 里，跟着文件走。 */
+  pinned: boolean;
   mtimeMs: number;
 }
 
@@ -344,6 +346,38 @@ export function parseProgress(body: string): ProjectProgress[] {
 }
 
 /**
+ * `pinned` 声明成 checkbox 之后写进去的是真正的 YAML 布尔；但旧文件、或者
+ * 用户自己在别的编辑器里写的，也可能是 `pinned: "true"`。两种都认。
+ */
+function isPinned(value: unknown): boolean {
+  return value === true || asText(value).trim() === "true";
+}
+
+/**
+ * 置顶的排在前面，其余仍按最近改动。**就地排序**，两处清单共用这一份规则。
+ *
+ * 「最重要」和「最近」本来就是两回事：每类只露三条（§2.10 的硬上限），
+ * 不给一条手动置顶的路，最要紧的那条只要几天没动就沉到「查看全部」后面去了。
+ */
+export function sortProjectItems(items: ProjectItem[]): ProjectItem[] {
+  return items.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.mtimeMs - a.mtimeMs);
+}
+
+/**
+ * 置顶／取消置顶。先把 `pinned` 声明成 checkbox，frontmatter 里才会落成
+ * `pinned: true` 而不是字符串 `"true"` —— 后者在 database 视图的条件里
+ * 和真布尔不是一回事。取消就把这一行整个删掉，不留 `pinned: false` 当垃圾。
+ */
+export async function setProjectPinned(
+  api: Pick<ProjectApi, "propSet" | "propDefSet">,
+  path: string,
+  pinned: boolean,
+): Promise<void> {
+  await api.propDefSet("pinned", { type: "checkbox" });
+  await api.propSet(path, "pinned", pinned ? "true" : null);
+}
+
+/**
  * 一篇笔记属于哪个分类。**先看它在哪个分类目录下**，因为用户可以在文档树里
  * 直接搬动这些文件；`type` 只作为退路，认早先建的、或被挪出目录的记录。
  *
@@ -381,10 +415,11 @@ export async function loadProjectOverview(
         kind: sectionKind(section),
         status: asText(note.frontmatter.status),
         summary: asText(note.frontmatter.summary) || firstContentLine(note.body),
+        pinned: isPinned(note.frontmatter.pinned),
         mtimeMs: note.mtimeMs,
       }];
-    })
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    });
+  sortProjectItems(items);
   const progressNote = contents.find((note) => note.frontmatter.type === "project-log");
 
   return {
@@ -398,7 +433,7 @@ export async function loadProjectOverview(
 }
 
 async function ensureChild(
-  api: ProjectApi,
+  api: Pick<ProjectApi, "createNote" | "propSet">,
   parent: string,
   title: string,
   type: string,
@@ -414,6 +449,31 @@ async function ensureChild(
     await api.propSet(expected, "type", type);
     return expected;
   }
+}
+
+/**
+ * 把一条记录挪到另一个分类。分类就是目录（§2.10），所以这是一次**真正的文件
+ * 移动** —— 不是改个标签。
+ *
+ * 这里只做移动之前必须先办好的两件事，真正的移动交给上层：它还要跟着改
+ * 打开中的标签页路径、修手排顺序（和改名同一条路，§2.1）。
+ *
+ * 1. **目标分类首页可能还不存在。** 分类是在项目笔记的 `sections` 里声明的，
+ *    一条记录都没建过的分类在磁盘上没有对应目录
+ * 2. **`type` 要跟着分类走。** 不改的话，移到「问题」底下的那篇仍写着
+ *    `type: decision`，database 视图里 `where type = "decision"` 还会把它捞出来
+ *
+ * 返回目标分类首页的路径 —— 也就是移动时要给的那个父文档。
+ */
+export async function prepareItemMove(
+  api: Pick<ProjectApi, "createNote" | "propSet">,
+  projectPath: string,
+  itemPath: string,
+  section: string,
+): Promise<string> {
+  const target = await ensureChild(api, projectPath, section, "project-section");
+  await api.propSet(itemPath, "type", sectionKind(section) ?? section);
+  return target;
 }
 
 function localStamp(now = new Date()): string {
