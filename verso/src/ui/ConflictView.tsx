@@ -44,6 +44,15 @@ function bodyText(c: ConflictFile, semantic: MarkdownConflictAnalysis | null, si
   return side === "local" ? c.local! : c.remote!;
 }
 
+/**
+ * 两边都没有这个路径 —— 同一篇在两台机器上改成了不同名字时，git 会把**旧
+ * 名字**也算进冲突。旧名字下面没有任何内容可挑，问用户等于让他在两个空白
+ * 之间选。这类路径直接按「删掉旧名字」定稿，不进面板。
+ */
+function vanished(c: ConflictFile) {
+  return c.local === null && c.remote === null;
+}
+
 function sideLabel(c: ConflictFile, side: "local" | "remote") {
   const change = side === "local" ? c.localChange : c.remoteChange;
   const place = side === "local" ? "本地" : "远端";
@@ -61,9 +70,10 @@ export function ConflictView({ conflicts, busy, onCancel, onSubmit }: Props) {
     setFiles({});
     for (const c of conflicts) {
       if (c.local === null || c.remote === null) {
+        const whole: HunkChoice | null = vanished(c) ? "local" : null;
         setFiles((m) => ({
           ...m,
-          [c.path]: { diff: null, hunks: [], whole: null, semantic: null, properties: {} },
+          [c.path]: { diff: null, hunks: [], whole, semantic: null, properties: {} },
         }));
         continue;
       }
@@ -180,6 +190,7 @@ export function ConflictView({ conflicts, busy, onCancel, onSubmit }: Props) {
   // 如果每篇都只有「一边改正文 / 两边改不同属性」这类确定答案，就直接
   // 重放同步，不让用户面对一个没有任何可选项、只剩提交按钮的假冲突。
   const allAutomatic = conflicts.length > 0 && conflicts.every((c) => {
+    if (vanished(c)) return true;
     const f = files[c.path];
     if (!f?.semantic || !f.diff || f.semantic.conflicts.length > 0) return false;
     return (
@@ -207,7 +218,7 @@ export function ConflictView({ conflicts, busy, onCancel, onSubmit }: Props) {
         </header>
 
         <div className="conflict-body">
-          {conflicts.map((c) => {
+          {conflicts.filter((c) => !vanished(c)).map((c) => {
             const f = files[c.path];
             const name = c.path.replace(/\.md$/, "");
             const canKeepBoth = c.local !== null && c.remote !== null;

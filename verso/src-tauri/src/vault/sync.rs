@@ -335,8 +335,13 @@ fn count_between(repo: &git2::Repository, from: Option<git2::Oid>, to: git2::Oid
 ///
 /// 返回冲突的文件名；空 vec 表示接好了。撞上冲突时先看 `resolutions` 里
 /// 有没有这几篇的定稿：**全都有**就用定稿落解、继续走；缺任何一篇则
-/// **整个撤回**（工作区回到变基之前的样子），把全部冲突报出去 —— 不做
-/// 「解决一半」这种状态，UI 每轮拿到的都是完整清单。
+/// **整个撤回**（工作区回到变基之前的样子），把这一步的冲突报出去 —— 不做
+/// 「解决一半」这种状态。
+///
+/// 报出去的是**走到的那一步**的清单，不是整次变基的：下一步撞上哪几篇，
+/// 得先知道这一步怎么定稿才算得出来。所以调用方必须把历轮的定稿**累积**
+/// 起来一起带回来（前端那边 `finalized`）—— 只带最后一轮的话，撤回会让
+/// 前面那步重新拦一次，两批冲突来回弹，永远走不完。
 fn rebase_onto(
     repo: &git2::Repository,
     upstream: git2::Oid,
@@ -853,6 +858,59 @@ mod tests {
         // A 那边一同步就拿到定稿；历史干净、没有残留的变基状态
         sync(&a, None).unwrap();
         assert_eq!(read(&a, "甲.md").as_deref(), Some("A 改的\nB 改的"));
+        let repo = git2::Repository::open(&b).unwrap();
+        assert_eq!(repo.state(), git2::RepositoryState::Clean);
+    }
+
+    /// 本地有好几个提交、冲突分散在不同步骤时，一轮只报得出一批 —— 下一步
+    /// 撞上哪几篇，得先知道这一步怎么定稿。**只带最后一轮的定稿会来回弹**：
+    /// 撤回让前面那步重新拦一次，两批冲突交替出现，永远同步不完。作者在一个
+    /// 目录被两台机器改成不同名字之后撞上过。这里钉住「定稿必须累积」这条
+    #[test]
+    fn conflicts_in_later_rebase_steps_need_the_earlier_resolutions_too() {
+        let origin = bare_remote();
+        let a = vault(&origin);
+        std::fs::write(a.join("甲.md"), "原来的").unwrap();
+        std::fs::write(a.join("乙.md"), "原来的").unwrap();
+        sync(&a, None).unwrap();
+        let b = vault(&origin);
+        sync(&b, None).unwrap();
+
+        std::fs::write(a.join("甲.md"), "A 改的").unwrap();
+        std::fs::write(a.join("乙.md"), "A 改的").unwrap();
+        sync(&a, None).unwrap();
+
+        // 本地两个提交，各改一篇 —— 变基要走两步，每步撞一篇
+        std::fs::write(b.join("甲.md"), "B 改的").unwrap();
+        commit_all(&b, None).unwrap();
+        std::fs::write(b.join("乙.md"), "B 改的").unwrap();
+        commit_all(&b, None).unwrap();
+
+        let first = sync(&b, None).unwrap();
+        let names = |o: &SyncOutcome| o.conflicts.iter().map(|c| c.path.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&first), vec!["甲.md"], "第一步只报得出第一批");
+
+        // 只定稿第一批：变基往前走一步，撞上第二批
+        let mut fixes = HashMap::new();
+        fixes.insert("甲.md".to_string(), Some("甲的定稿".to_string()));
+        let second = sync_with(&b, None, &fixes).unwrap();
+        assert_eq!(names(&second), vec!["乙.md"], "走到第二步才报得出第二批");
+
+        // 只带第二批回来 —— 第一步又拦下来，这就是「反复弹」的那个环
+        let mut only_second = HashMap::new();
+        only_second.insert("乙.md".to_string(), Some("乙的定稿".to_string()));
+        assert_eq!(
+            names(&sync_with(&b, None, &only_second).unwrap()),
+            vec!["甲.md"],
+            "丢掉前几轮的定稿就会退回原点",
+        );
+
+        // 累积起来一起带回来才走得完
+        fixes.insert("乙.md".to_string(), Some("乙的定稿".to_string()));
+        let done = sync_with(&b, None, &fixes).unwrap();
+        assert!(done.conflicts.is_empty(), "{:?}", done.conflicts);
+        assert_eq!(read(&b, "甲.md").as_deref(), Some("甲的定稿"));
+        assert_eq!(read(&b, "乙.md").as_deref(), Some("乙的定稿"));
         let repo = git2::Repository::open(&b).unwrap();
         assert_eq!(repo.state(), git2::RepositoryState::Clean);
     }

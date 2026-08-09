@@ -155,7 +155,7 @@ const vaultSyncResolve = vi.fn(async (_resolutions: unknown) => ({
   committed: null,
   pulled: 1,
   pushed: 1,
-  conflicts: [],
+  conflicts: [] as ConflictFile[],
 }));
 /** 冲突面板对比本地↔远端用。固定一段「第一行两边不同」的 diff */
 const textDiff = vi.fn(async (path: string, _old: string, _next: string): Promise<FileDiff> => ({
@@ -1067,6 +1067,110 @@ describe("同步", () => {
       await settle(400);
     });
     expect(vaultSyncResolve).toHaveBeenCalledWith([{ path: "乙.md", content: null }]);
+  });
+
+  /**
+   * 后端每轮只报变基走到的那一步的冲突，撞上下一步的新冲突会把整次变基撤回。
+   * 只带本轮的选择重放的话，上一步又会重新拦下来 —— 两批冲突来回弹，永远
+   * 同步不完。作者在一个目录被两台机器改成不同名字之后撞上过：面板反复弹，
+   * 选哪边都没用。定稿必须跨轮累积
+   */
+  it("下一轮冲突要带上前几轮已经定过的稿", async () => {
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{ path: "甲.md", base: "删除前", local: null, remote: "远端还改过" }],
+    });
+    // 第一轮定稿之后变基往前走一步，撞上下一步的另一篇
+    vaultSyncResolve.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{ path: "乙.md", base: "删除前", local: "本地还改过", remote: null }],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    const resolve = async (label: string) => {
+      const quick = [...document.querySelectorAll<HTMLButtonElement>(".conflict-quick button")];
+      await act(async () => {
+        quick.find((b) => b.textContent?.includes(label))!.click();
+        await settle(100);
+      });
+      await act(async () => {
+        document.querySelector<HTMLButtonElement>(".conflict-submit")!.click();
+        await settle(400);
+      });
+    };
+
+    await resolve("保持本地删除");
+    expect(vaultSyncResolve).toHaveBeenLastCalledWith([{ path: "甲.md", content: null }]);
+    expect(document.querySelector(".conflict-modal"), "还有下一批，面板留着").toBeTruthy();
+
+    await resolve("接受删除");
+    expect(vaultSyncResolve).toHaveBeenLastCalledWith([
+      { path: "甲.md", content: null },
+      { path: "乙.md", content: null },
+    ]);
+    expect(document.querySelector(".conflict-modal"), "解决完面板要关掉").toBeFalsy();
+
+    // 攒下的定稿只属于这一次同步，重新点同步不该把它们带上
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [{ path: "丙.md", base: "删除前", local: "本地还改过", remote: null }],
+    });
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+    await resolve("接受删除");
+    expect(vaultSyncResolve).toHaveBeenLastCalledWith([{ path: "丙.md", content: null }]);
+  });
+
+  /**
+   * 同一篇在两台机器上改成了不同名字：git 把**旧名字**也算进冲突，而旧名字
+   * 在两边都已经不存在。那一条没有任何内容可挑，不该摆到面板上让人在两个
+   * 空白之间选 —— 自动按「删掉旧名字」定稿
+   */
+  it("两边都没有的旧路径不进面板，但定稿要带上", async () => {
+    vaultSync.mockResolvedValueOnce({
+      committed: null,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [
+        { path: "旧名字.md", base: "改名前", local: null, remote: null },
+        { path: "乙.md", base: "删除前", local: "本地还改过", remote: null },
+      ],
+    });
+    await mount();
+    await act(async () => {
+      syncBtn()!.click();
+      await settle(400);
+    });
+
+    const modal = document.querySelector(".conflict-modal")!;
+    expect(modal.textContent).not.toContain("旧名字");
+    expect(document.querySelectorAll(".conflict-file").length).toBe(1);
+
+    const quick = [...document.querySelectorAll<HTMLButtonElement>(".conflict-quick button")];
+    await act(async () => {
+      quick.find((b) => b.textContent?.includes("接受删除"))!.click();
+      await settle(100);
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".conflict-submit")!.click();
+      await settle(400);
+    });
+    expect(vaultSyncResolve).toHaveBeenCalledWith([
+      { path: "旧名字.md", content: null },
+      { path: "乙.md", content: null },
+    ]);
   });
 
   it("frontmatter 不同属性自动合并，同一正文不要求重复确认", async () => {

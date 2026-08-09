@@ -1145,6 +1145,15 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   /** 同步撞上的冲突。非 null 时弹 ConflictView，选完边重放同步（§2.8） */
   const [conflicts, setConflicts] = useState<ConflictFile[] | null>(null);
+  /**
+   * 已经定过稿的冲突，跨轮累积。
+   *
+   * 后端每轮只报**变基走到的那一步**的冲突，撞上下一步的新冲突会把整次变基
+   * 撤回。只带本轮的选择重放的话，上一步又会重新拦下来 —— 两批冲突来回弹，
+   * 永远同步不完（一个目录在两台机器上改成不同名字最容易踩到）。
+   * 每轮把选择并进来一起重放，变基就能一步步往前走完。
+   */
+  const finalized = useRef(new Map<string, string | null>());
   /** 正在看的修改建议，以及冲突面板重放时必须保留的建议上下文。 */
   const [reviewing, setReviewing] = useState<Suggestion | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
@@ -1398,6 +1407,7 @@ export default function App() {
         setConflicts(out.conflicts);
       } else {
         setConflicts(null);
+        finalized.current.clear();
         const bits = [];
         if (out.pulled > 0) bits.push(`拿到 ${out.pulled} 个版本`);
         if (out.pushed > 0) bits.push(`传出 ${out.pushed} 个版本`);
@@ -1438,6 +1448,8 @@ export default function App() {
     setSyncing(true);
     try {
       if (dirtyRef.current && !(await saveNow())) return;
+      // 重新来过的一次同步，上一轮攒的定稿不再作数
+      finalized.current.clear();
       await handleSyncOutcome(await api.vaultSync());
     } catch (e) {
       setError((e as Error).message);
@@ -1506,6 +1518,7 @@ export default function App() {
         }
         setReviewConflict(null);
         setConflicts(null);
+        finalized.current.clear();
         setReviewing(null);
         await refreshAfterReview();
         setNotice(out.warning ?? (accepted.length > 0 ? "审阅完成，接受的内容已进入正式版本" : "审阅完成，这批建议已退回"));
@@ -1521,17 +1534,20 @@ export default function App() {
   /** 冲突 UI 的提交按钮：带着逐篇定稿重放同步（§2.8） */
   const resolveConflicts = useCallback(
     async (resolutions: SyncResolution[]) => {
+      for (const r of resolutions) finalized.current.set(r.path, r.content);
+      const all = [...finalized.current].map(([path, content]) => ({ path, content }));
       if (reviewConflict && reviewing) {
-        await finishReview(reviewing, reviewConflict.accepted, resolutions);
+        await finishReview(reviewing, reviewConflict.accepted, all);
         return;
       }
       if (syncing || reviewBusy) return;
       setSyncing(true);
       try {
-        const out = await api.vaultSyncResolve(resolutions);
+        const out = await api.vaultSyncResolve(all);
         await handleSyncOutcome(out);
-        // 两次同步之间远端又动了 —— 面板留着，换成新一轮的内容
-        if (out.conflicts.length > 0) setNotice("远端又有了新改动，再确认一轮");
+        // 面板留着，换成下一批的内容：可能是变基的下一步，也可能是这期间
+        // 远端又动了
+        if (out.conflicts.length > 0) setNotice("还有一批重叠要确认");
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -4017,7 +4033,10 @@ export default function App() {
           suggestion={reviewing}
           busy={reviewBusy}
           onClose={() => !reviewBusy && setReviewing(null)}
-          onSubmit={(accepted) => void finishReview(reviewing, accepted)}
+          onSubmit={(accepted) => {
+            finalized.current.clear();
+            void finishReview(reviewing, accepted);
+          }}
         />
       )}
 
@@ -4028,6 +4047,7 @@ export default function App() {
           onCancel={() => {
             setConflicts(null);
             setReviewConflict(null);
+            finalized.current.clear();
           }}
           onSubmit={(r) => void resolveConflicts(r)}
         />
