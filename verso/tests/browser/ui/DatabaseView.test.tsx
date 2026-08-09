@@ -516,6 +516,43 @@ describe("列与设置（§2.6）", () => {
     expect(tools[0].getBoundingClientRect().left - barBox.left).toBeGreaterThan(20);
   });
 
+  it("列表 / 看板 / 画廊里右键同样能改名", async () => {
+    // 表格之外的三种视图各有各的标题渲染，很容易只给表格加上菜单
+    const rows = [{ path: "论文/甲.md", title: "甲", props: { status: "在读" } }];
+    const properties = [{ key: "status", type: "string" }];
+    for (const [kind, sel, groupBy] of [
+      ["list", ".dbv-list-title", null],
+      ["board", ".dbview-card-title", "status"],
+      ["gallery", ".dbv-tile-title", null],
+    ] as const) {
+      // 视图种类来自查询结果，不是代码块里那行字 —— 所以夹具要一起换
+      viewMock = { columns: ["title", "status"], rows, view: kind, groupBy, properties };
+      const renamed: string[] = [];
+      const view = mount(['from: "论文/*"', `view: ${kind}`].join("\n"), (path) =>
+        renamed.push(path),
+      );
+      await settle();
+      const title = view.dom.querySelector<HTMLElement>(sel)!;
+      expect(title, `${sel} 没渲染出来`).not.toBeNull();
+      const outer = vi.fn();
+      document.body.addEventListener("contextmenu", outer);
+      title.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
+      );
+      document.body.removeEventListener("contextmenu", outer);
+      expect(outer, `${sel}: 右键事件冒到编辑器上去了`).not.toHaveBeenCalled();
+      await settle();
+      await userEvent.click(
+        [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) =>
+          button.textContent?.includes("重命名"),
+        )!,
+      );
+      await settle();
+      expect(renamed, `${sel}: 没改成名`).toHaveLength(1);
+    }
+    viewMock = DEFAULT_VIEW;
+  });
+
   it("已有的行右键就能改名，不必去文档树里找", async () => {
     const renamed: string[] = [];
     const view = mount(undefined, (path) => renamed.push(path));

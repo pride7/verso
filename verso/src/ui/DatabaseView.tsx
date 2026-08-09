@@ -2,10 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import { api } from "../host/api";
 import { useAsk } from "./AskDialog";
-import { CalendarView, canMoveDates, GalleryView, ListView } from "./DbViews";
+import { CalendarView, canMoveDates, GalleryView, ListView, RowTitle } from "./DbViews";
 import { ContextMenu } from "./ContextMenu";
 import { fitFloatingMenu } from "./floatingMenu";
-import { useLongPress } from "./longPress";
 import { Icon } from "./Icon";
 import { RenameInput } from "./Tree";
 import {
@@ -89,42 +88,6 @@ const cardMenu = (p: Panel) => (p && typeof p === "object" && "card" in p ? p.ca
 const menuAt = (p: Panel) =>
   p && typeof p === "object" && "x" in p ? { x: p.x, y: p.y } : null;
 
-/**
- * 标题格。单独成一个组件是因为**长按是个 hook** —— `cell()` 是普通函数，
- * 里面调不了 hook，而手指没有右键（§1.2），长按是它唯一的等价入口。
- */
-function TitleCell({
-  row,
-  onOpen,
-  onMenu,
-}: {
-  row: ViewRow;
-  onOpen: (path: string) => void;
-  onMenu?: (at: { x: number; y: number }) => void;
-}) {
-  const hold = useLongPress((at) => onMenu?.(at));
-  return (
-    <button
-      className="dbview-link"
-      onClick={() => onOpen(row.path)}
-      onContextMenu={(event) => {
-        if (!onMenu) return;
-        event.preventDefault();
-        event.stopPropagation();
-        // **还要拦住冒泡。** 这张表是长在编辑器里的一个 widget，而 `.editor-host`
-        // 上挂着正文的右键菜单（§4.10）—— 不拦的话两个菜单一起弹，正文那个
-        // 后画、盖在上面，看起来就是「右键点了没有改名」
-        onMenu({ x: event.clientX, y: event.clientY });
-      }}
-      {...(onMenu ? hold : {})}
-    >
-      {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}
-      <Icon name="doc" size={14} className="dbview-rowicon" />
-      <span>{row.title}</span>
-    </button>
-  );
-}
-
 export function DatabaseView({
   source,
   onOpen,
@@ -151,6 +114,10 @@ export function DatabaseView({
   const [renaming, setRenaming] = useState<string | null>(null);
   /** 右键/长按弹出来的那一行 */
   const [menu, setMenu] = useState<{ path: string; at: { x: number; y: number } } | null>(null);
+  /** 每种视图的标题都用同一条：表格、列表、看板、画廊、日历 */
+  const rowMenu = onRename
+    ? (path: string, at: { x: number; y: number }) => setMenu({ path, at })
+    : undefined;
   const [draft, setDraft] = useState("");
   /** 开着哪个浮层：设置 / 加一列 / 某个列头的菜单 */
   const [panel, setPanel] = useState<Panel>(null);
@@ -434,11 +401,11 @@ export function DatabaseView({
         );
       }
       return (
-        <TitleCell
-          row={row}
-          onOpen={onOpen}
-          onMenu={onRename ? (at) => setMenu({ path: row.path, at }) : undefined}
-        />
+        <RowTitle className="dbview-link" path={row.path} onOpen={onOpen} onMenu={rowMenu}>
+          {/* 一行就是一篇笔记 —— 前面那个图标是在说这件事，不是装饰 */}
+          <Icon name="doc" size={14} className="dbview-rowicon" />
+          <span>{row.title}</span>
+        </RowTitle>
       );
     }
     const type = typeOf(col);
@@ -781,9 +748,9 @@ export function DatabaseView({
                   }}
                 >
                   <div className="dbview-card-head">
-                    <button className="dbview-card-title" onClick={() => onOpen(r.path)}>
+                    <RowTitle className="dbview-card-title" path={r.path} onOpen={onOpen} onMenu={rowMenu}>
                       {r.title}
-                    </button>
+                    </RowTitle>
                     {/* 常显，不是 hover 才出现 —— 触摸屏上没有悬停这一步 */}
                     <button
                       className="dbview-card-more"
@@ -927,13 +894,14 @@ export function DatabaseView({
         {result.rows.length === 0 ? (
           <p className="dbview-none">没有匹配的笔记</p>
         ) : result.view === "list" ? (
-          <ListView rows={result.rows} cols={cardCols} typeOf={typeOf} onOpen={onOpen} />
+          <ListView rows={result.rows} cols={cardCols} typeOf={typeOf} onOpen={onOpen} onMenu={rowMenu} />
         ) : result.view === "gallery" ? (
           <GalleryView
             rows={result.rows}
             cols={cardCols}
             typeOf={typeOf}
             onOpen={onOpen}
+            onMenu={rowMenu}
             cover={cover}
             imageSrc={imageSrc ?? (() => null)}
           />
@@ -941,6 +909,7 @@ export function DatabaseView({
           <CalendarView
             rows={result.rows}
             onOpen={onOpen}
+            onMenu={rowMenu}
             dateField={dateField}
             // 内置的 created/updated 是文件自己的时间，拖了也写不回去 ——
             // 干脆不给拖，而不是拖完弹一个错

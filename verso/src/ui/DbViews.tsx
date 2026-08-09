@@ -32,6 +32,7 @@ import {
   type YearMonth,
 } from "../core/calendar";
 import type { ViewRow } from "../core/types";
+import { useLongPress } from "./longPress";
 
 interface Common {
   rows: ViewRow[];
@@ -39,6 +40,56 @@ interface Common {
   cols: string[];
   typeOf: (key: string) => string;
   onOpen: (path: string) => void;
+  /** 右键/长按这一条。给了才有菜单 */
+  onMenu?: (path: string, at: { x: number; y: number }) => void;
+}
+
+/**
+ * 一条记录的标题按钮。**每种视图都用它**，别各写各的 —— 表格、列表、看板、
+ * 画廊、日历里的标题都是同一件事：点开这篇，右键管它。
+ *
+ * 三处细节缺一不可：
+ *
+ * - **长按**：手指没有右键（§1.2），长按是它唯一的等价入口
+ * - **`stopPropagation`**：视图长在编辑器里的一个 widget 上，而 `.editor-host`
+ *   上挂着正文的右键菜单（§4.10）。不拦的话两个菜单一起弹、正文那个盖在
+ *   上面，表现就是「右键点了没反应」
+ * - **`onMenu` 没给就一个都不挂**：只读的地方不该白白吃掉系统菜单
+ */
+export function RowTitle({
+  className,
+  path,
+  title,
+  onOpen,
+  onMenu,
+  children,
+  ...rest
+}: {
+  className: string;
+  path: string;
+  title?: string;
+  onOpen: (path: string) => void;
+  onMenu?: (path: string, at: { x: number; y: number }) => void;
+  children: React.ReactNode;
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "title" | "className">) {
+  const hold = useLongPress((at) => onMenu?.(path, at));
+  return (
+    <button
+      className={className}
+      title={title}
+      onClick={() => onOpen(path)}
+      onContextMenu={(event) => {
+        if (!onMenu) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onMenu(path, { x: event.clientX, y: event.clientY });
+      }}
+      {...(onMenu ? hold : {})}
+      {...rest}
+    >
+      {children}
+    </button>
+  );
 }
 
 /** 一个属性的显示值。日期缩成年月日，别的原样 */
@@ -84,15 +135,15 @@ function Chips({
  * 和表格的区别不在样式而在**取舍**：表格保证每一列都对齐（好比较），列表
  * 放弃对齐换密度和更长的标题（好浏览）。所以这里不画表格线、不给每行等高。
  */
-export function ListView({ rows, cols, typeOf, onOpen }: Common) {
+export function ListView({ rows, cols, typeOf, onOpen, onMenu }: Common) {
   return (
     <ul className="dbv-list">
       {rows.map((r) => (
         <li key={r.path}>
-          <button className="dbv-list-title" onClick={() => onOpen(r.path)}>
+          <RowTitle className="dbv-list-title" path={r.path} onOpen={onOpen} onMenu={onMenu}>
             <Icon name="doc" size={13} />
             <span>{r.title}</span>
-          </button>
+          </RowTitle>
           <Chips row={r} cols={cols} typeOf={typeOf} inline />
         </li>
       ))}
@@ -124,6 +175,7 @@ function Tile({
   cols,
   typeOf,
   onOpen,
+  onMenu,
   cover,
   imageSrc,
 }: Omit<GalleryProps, "rows"> & { row: ViewRow }) {
@@ -151,9 +203,9 @@ function Tile({
           </span>
         )}
       </button>
-      <button className="dbv-tile-title" onClick={() => onOpen(row.path)}>
+      <RowTitle className="dbv-tile-title" path={row.path} onOpen={onOpen} onMenu={onMenu}>
         {row.title}
-      </button>
+      </RowTitle>
       <Chips row={row} cols={cols} typeOf={typeOf} />
     </article>
   );
@@ -184,7 +236,7 @@ interface CalendarProps extends Omit<Common, "cols" | "typeOf"> {
   onSetDate?: (path: string, ymd: string) => void;
 }
 
-export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarProps) {
+export function CalendarView({ rows, onOpen, onMenu, dateField, onSetDate }: CalendarProps) {
   /** 按日期分堆。认不出日期的单独一堆，摆在月历下面 */
   const { byDay, undated } = useMemo(() => {
     const byDay = new Map<string, ViewRow[]>();
@@ -263,18 +315,20 @@ export function CalendarView({ rows, onOpen, dateField, onSetDate }: CalendarPro
   /** 月历格子里和「没有日期」那一栏里的条目长一样，只是所在的容器不同 */
   const item = (r: ViewRow) => (
     <span className="dbv-cal-row" key={r.path}>
-      <button
+      <RowTitle
         className="dbv-cal-item"
+        path={r.path}
+        title={r.title}
+        onOpen={onOpen}
+        onMenu={onMenu}
         draggable={!!onSetDate}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", r.path);
         }}
-        onClick={() => onOpen(r.path)}
-        title={r.title}
       >
         {r.title}
-      </button>
+      </RowTitle>
       {onSetDate && (
         // 常显，不是 hover 才出现 —— 触摸屏上没有悬停这一步
         <button
