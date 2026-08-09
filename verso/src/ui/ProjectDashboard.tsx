@@ -9,24 +9,32 @@ import {
   PROJECT_STATUS_DEFAULTS,
   projectSections,
   projectStatusOptions,
+  removeProjectStatus,
   SECTION_STATUS_FALLBACK,
   sectionKind,
   sectionNameError,
   setProjectSections,
+  statusTone,
+  STATUS_TONE_LABEL,
   updateProjectSnapshot,
   type ProjectItem,
   type ProjectItemKind,
   type ProjectOverview,
 } from "../core/project";
 import type { NoteContent, NoteRef } from "../core/types";
+import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { useLongPress } from "./longPress";
+import { RenameInput } from "./Tree";
 
 interface Props {
   project: NoteContent;
   notes: NoteRef[];
   revision: number;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, opts?: { newTab?: boolean }) => void;
   onEdit: () => void;
+  /** 改名走上层那一条：还要跟着改标签页的路径、刷新文档树（§2.1） */
+  onRename: (path: string, title: string) => void;
   onChanged: () => void;
   onError: (message: string) => void;
 }
@@ -44,11 +52,12 @@ const TITLE_HINT: Record<ProjectItemKind, string> = {
 
 const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
-function StatusSelect({ value, options, onChange, label }: { value: string; options: string[]; onChange: (value: string, custom: boolean) => void; label: string }) {
+function StatusSelect({ value, options, onChange, onDelete, label }: { value: string; options: string[]; onChange: (value: string, custom: boolean) => void; onDelete: (option: string) => void; label: string }) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [custom, setCustom] = useState("");
+  const [dropping, setDropping] = useState<string | null>(null);
   const choices = unique([...options, value]);
   useEffect(() => {
     if (!open && !adding) return;
@@ -74,7 +83,8 @@ function StatusSelect({ value, options, onChange, label }: { value: string; opti
   return <div className="project-status-control" ref={root}>
     <button
       type="button"
-      className="project-status-trigger"
+      className="project-status-trigger tone tone-chip"
+      data-tone={statusTone(value)}
       aria-label={label}
       aria-haspopup="listbox"
       aria-expanded={open}
@@ -83,14 +93,32 @@ function StatusSelect({ value, options, onChange, label }: { value: string; opti
       <span>{value}</span><Icon name="chevron" size={11} />
     </button>
     {open && <div className="project-status-menu" role="listbox" aria-label={`${label}选项`}>
-      {choices.map((option) => <button
-        type="button"
-        role="option"
-        aria-selected={option === value}
-        className={option === value ? "is-selected" : ""}
-        key={option}
-        onClick={() => { setOpen(false); if (option !== value) onChange(option, false); }}
-      ><span>{option}</span>{option === value && <Icon name="check" size={12} />}</button>)}
+      {choices.map((option) => dropping === option
+        ? <div className="project-status-confirm" key={option}>
+          <p>删掉「{option}」？用着它的记录一个字都不改。</p>
+          <div>
+            <button type="button" className="danger" onClick={() => { setDropping(null); onDelete(option); }}>删除</button>
+            <button type="button" onClick={() => setDropping(null)}>取消</button>
+          </div>
+        </div>
+        : <div className="project-status-option" key={option}>
+          <button
+            type="button"
+            role="option"
+            aria-selected={option === value}
+            className={option === value ? "is-selected" : ""}
+            onClick={() => { setOpen(false); if (option !== value) onChange(option, false); }}
+          ><span><i className="tone tone-dot" data-tone={statusTone(option)} />{option}</span>{option === value && <Icon name="check" size={12} />}</button>
+          {/* 正在用的那个不给删：删了它还得留在菜单里（这一条仍写着它），
+              看着像没删掉。先换成别的，再回来删 */}
+          {option !== value && <button
+            type="button"
+            className="project-status-drop"
+            aria-label={`删掉状态${option}`}
+            title={`从词表里去掉「${option}」`}
+            onClick={() => setDropping(option)}
+          ><Icon name="close" size={11} /></button>}
+        </div>)}
       <button type="button" className="project-status-new" onClick={() => { setOpen(false); setAdding(true); }}><Icon name="plus" size={11} />添加状态…</button>
     </div>}
     {adding && <form className="project-status-add" onSubmit={(event) => {
@@ -104,24 +132,66 @@ function StatusSelect({ value, options, onChange, label }: { value: string; opti
       <input autoFocus value={custom} onChange={(event) => setCustom(event.target.value)} placeholder="新状态" />
       <button disabled={!custom.trim()}>添加</button>
       <button type="button" onClick={() => setAdding(false)}>取消</button>
+      {/* 新状态不会分到一个新颜色，而是落进已有的某一档。这句预览让人在按下
+          「添加」之前就看得见落在哪 —— 分档是按词形猜的，猜错了得看得见 */}
+      <p className="project-status-hint">
+        <i className="tone tone-dot" data-tone={statusTone(custom)} />
+        {custom.trim()
+          ? <>算作<strong className="tone" data-tone={statusTone(custom)}>{STATUS_TONE_LABEL[statusTone(custom)]}</strong>，用这一档的颜色</>
+          : <>颜色按词形分档：「…中」算推进，「待…」算没开始</>}
+      </p>
     </form>}
   </div>;
 }
 
-function ProjectItemRow({ item, options, showKind = true, onOpen, onStatus }: { item: ProjectItem; options: string[]; showKind?: boolean; onOpen: (path: string) => void; onStatus: (item: ProjectItem, value: string, custom: boolean) => void }) {
+interface RowProps {
+  item: ProjectItem;
+  options: string[];
+  showKind?: boolean;
+  /**
+   * 这一行属于哪张清单。同一条记录会同时出现在「正在推进」和它自己的分类卡片里
+   * —— 只按路径认的话，改一个名字会同时长出两个输入框，两个都 autofocus，
+   * 后长出来的把先长出来的挤掉，于是刚点开的改名框当场消失。
+   */
+  slot: string;
+  renaming: boolean;
+  onOpen: (path: string, opts?: { newTab?: boolean }) => void;
+  onMenu: (item: ProjectItem, slot: string, at: { x: number; y: number }) => void;
+  onRename: (path: string, title: string) => void;
+  onRenameCancel: () => void;
+  onStatus: (item: ProjectItem, value: string, custom: boolean) => void;
+  onDropStatus: (option: string) => void;
+}
+
+function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen, onMenu, onRename, onRenameCancel, onStatus, onDropStatus }: RowProps) {
   const fallback = item.kind ? PROJECT_STATUS_DEFAULTS[item.kind][0] : SECTION_STATUS_FALLBACK[0];
-  return <div className="project-item">
-    <button className="project-item-open" onClick={() => onOpen(item.path)}>
-      <span className="project-item-icon"><Icon name="doc" size={14} /></span>
-      <span className="project-item-copy"><strong>{item.title}</strong><small>{item.summary || "暂无摘要"}</small></span>
-    </button>
+  // 手指没有右键。菜单里那两条（开新标签、改名）在手机上只能靠长按（§1.2）
+  const hold = useLongPress((at) => onMenu(item, slot, at));
+  return <div
+    className="project-item"
+    onContextMenu={(event) => { event.preventDefault(); onMenu(item, slot, { x: event.clientX, y: event.clientY }); }}
+    {...(renaming ? {} : hold)}
+  >
+    {renaming
+      // 改名时图标照样占着位 —— 少了它整行会横向跳一下
+      ? <span className="project-item-open">
+        <span className="project-item-icon"><Icon name="doc" size={14} /></span>
+        <RenameInput className="project-item-rename" name={item.title} onSubmit={(value) => onRename(item.path, value)} onCancel={onRenameCancel} />
+      </span>
+      : <button className="project-item-open" onClick={(event) => onOpen(item.path, event.ctrlKey || event.metaKey ? { newTab: true } : undefined)}>
+        <span className="project-item-icon"><Icon name="doc" size={14} /></span>
+        <span className="project-item-copy"><strong>{item.title}</strong><small>{item.summary || "暂无摘要"}</small></span>
+      </button>}
     {showKind && <span className="project-kind">{item.section}</span>}
-    <StatusSelect value={item.status || fallback} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} />
+    <StatusSelect value={item.status || fallback} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} onDelete={onDropStatus} />
   </div>;
 }
 
-export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onChanged, onError }: Props) {
+export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onRename, onChanged, onError }: Props) {
   const [overview, setOverview] = useState<ProjectOverview | null>(null);
+  /** 右键/长按弹出来的那条记录 */
+  const [menu, setMenu] = useState<{ item: ProjectItem; slot: string; at: { x: number; y: number } } | null>(null);
+  const [renaming, setRenaming] = useState<{ slot: string; path: string } | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState(false);
@@ -148,7 +218,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
   };
   useEffect(reload, [project, notes, revision]);
   useEffect(() => {
-    void ensureProjectStatusSchema(api, [String(project.frontmatter.status ?? "")])
+    void ensureProjectStatusSchema(api)
       .then(setCustomStatuses)
       .catch(() => {});
   }, [project, revision]);
@@ -175,6 +245,44 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
     } catch (error) {
       onError((error as Error).message);
     }
+  };
+  /**
+   * 改名交回上层。乐观地把新标题写进总览 —— 后端要改文件名、重建索引、
+   * 再把文档树推回来，中间那几十毫秒里让刚改完的行还顶着旧名字，看着像没生效。
+   */
+  const submitRename = (path: string, title: string) => {
+    setRenaming(null);
+    const next = title.trim();
+    const old = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+    if (!next || next === old) return;
+    const renamed = `${path.slice(0, path.lastIndexOf("/") + 1)}${next}.md`;
+    setOverview((current) => current ? {
+      ...current,
+      items: current.items.map((item) => item.path === path ? { ...item, path: renamed, title: next } : item),
+    } : current);
+    onRename(path, next);
+  };
+  /**
+   * 从这个 vault 的状态词表里去掉一个。**不改任何笔记** —— 还写着这个词的
+   * 记录照常显示它，只是菜单里不再列出来（§2.10）。
+   */
+  const dropStatus = async (option: string) => {
+    try {
+      setCustomStatuses(await removeProjectStatus(api, option));
+      onChanged();
+    } catch (error) {
+      onError((error as Error).message);
+    }
+  };
+
+  /** 两处记录列表（「正在推进」和分类卡片）共用同一套行为 */
+  const rowProps = {
+    onOpen,
+    onMenu: (item: ProjectItem, slot: string, at: { x: number; y: number }) => setMenu({ item, slot, at }),
+    onRename: submitRename,
+    onRenameCancel: () => setRenaming(null),
+    onStatus: (target: ProjectItem, value: string, custom: boolean) => void setStatus(target.path, value, custom),
+    onDropStatus: (option: string) => void dropStatus(option),
   };
   const groups = sections.map((name) => ({
     name,
@@ -287,7 +395,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
       {overview ? (
         <div className="project-scroll">
           <section className="project-snapshot">
-            <div className="project-status"><span className="project-dot" /><StatusSelect value={overview.status} options={optionsFor("project")} label="项目状态" onChange={(value, custom) => void setStatus(project.path, value, custom)} /></div>
+            <div className="project-status"><span className="tone tone-dot" data-tone={statusTone(overview.status)} /><StatusSelect value={overview.status} options={optionsFor("project")} label="项目状态" onChange={(value, custom) => void setStatus(project.path, value, custom)} onDelete={(option) => void dropStatus(option)} /></div>
             <p className={overview.summary ? "" : "is-empty"}>{overview.summary || "写一句当前结论，让下次打开时立刻接上思路。"}</p>
             <div className="project-now-grid">
               <div><strong>接下来</strong><p className={overview.next ? "" : "is-empty"}>{overview.next || "还没有明确下一步"}</p></div>
@@ -299,7 +407,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
             <section className="project-section">
               <div className="project-section-head"><h2>正在推进</h2><span>{active.length}</span></div>
               {visibleItems.length ? visibleItems.map((item) => (
-                <ProjectItemRow key={item.path} item={item} options={optionsFor(item.kind)} onOpen={onOpen} onStatus={(target, value, custom) => void setStatus(target.path, value, custom)} />
+                <ProjectItemRow key={item.path} item={item} options={optionsFor(item.kind)} slot="active" renaming={renaming?.slot === "active" && renaming.path === item.path} {...rowProps} />
               )) : <p className="project-empty">还没有进行中的记录。</p>}
               {active.length > 3 && <button className="project-more" onClick={() => setExpandedItems((value) => !value)}>{expandedItems ? "收起" : `查看全部 ${active.length} 条`}</button>}
             </section>
@@ -356,7 +464,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
                       </div>
                     </div>
                     : <>
-                      {items.slice(0, expanded ? undefined : 3).map((item) => <ProjectItemRow key={item.path} item={item} options={optionsFor(kind)} showKind={false} onOpen={onOpen} onStatus={(target, value, custom) => void setStatus(target.path, value, custom)} />)}
+                      {items.slice(0, expanded ? undefined : 3).map((item) => <ProjectItemRow key={item.path} item={item} options={optionsFor(kind)} showKind={false} slot={name} renaming={renaming?.slot === name && renaming.path === item.path} {...rowProps} />)}
                       {!items.length && <p className="project-empty">还没有{name}记录。</p>}
                       {items.length > 3 && <button className="project-more" onClick={() => setExpandedSections((current) => {
                         const next = new Set(current);
@@ -383,6 +491,15 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onC
           </section>
         </div>
       ) : <div className="project-loading">正在整理项目…</div>}
+
+      {menu && <ContextMenu
+        at={menu.at}
+        groups={[
+          [{ label: "在新标签页打开", icon: "doc", run: () => onOpen(menu.item.path, { newTab: true }) }],
+          [{ label: "重命名", icon: "pencil", run: () => setRenaming({ slot: menu.slot, path: menu.item.path }) }],
+        ]}
+        onClose={() => setMenu(null)}
+      />}
 
       {captureOpen && <CaptureDialog projectPath={project.path} sections={sections} onClose={() => setCaptureOpen(false)} onDone={(path, open) => { setCaptureOpen(false); reload(); onChanged(); if (open) onOpen(path); }} onError={onError} />}
       {snapshotOpen && overview && <SnapshotDialog path={project.path} value={overview} onClose={() => setSnapshotOpen(false)} onDone={() => { setSnapshotOpen(false); reload(); onChanged(); }} onError={onError} />}

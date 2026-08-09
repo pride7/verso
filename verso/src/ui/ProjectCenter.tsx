@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../host/api";
+import { statusTone } from "../core/project";
 import type { ViewRow } from "../core/types";
 import { Icon } from "./Icon";
 
@@ -97,7 +98,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
             const blocker = value(project, "blocker");
             const updated = value(project, "updated").slice(0, 10);
             return <button className="project-center-card" key={project.path} onClick={() => onOpen(project.path)}>
-              <div className="project-center-card-meta"><span className="project-center-card-status"><i />{projectStatus}</span>{updated && <time>{updated}</time>}</div>
+              <div className="project-center-card-meta"><span className="project-center-card-status tone" data-tone={statusTone(projectStatus)}><i />{projectStatus}</span>{updated && <time>{updated}</time>}</div>
               <h2>{project.title}</h2>
               <p className={summary ? "" : "is-empty"}>{summary || "还没有项目摘要"}</p>
               <div className="project-center-card-now">

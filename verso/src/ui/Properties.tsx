@@ -76,7 +76,7 @@ export function Properties({ frontmatter, path, revision, onChanged }: Props) {
         // 旧 vault 可能还没有 status 类型定义。直接打开某篇实验/问题文档时也要
         // 完成迁移，不能要求用户先绕回项目总览打开一次。
         if (isProjectStatusKind(frontmatter.type)) {
-          await ensureProjectStatusSchema(api, [render(frontmatter.status)]);
+          await ensureProjectStatusSchema(api);
         }
         const next = await api.propSchema();
         if (active) setSchema(next);

@@ -38,6 +38,23 @@
   --warn: oklch(70% 0.12 70);
   --danger: oklch(58% 0.15 25);
 
+  /* ## 状态色：语义色相是固定的，不跟着主题色走（§2.10）
+
+     「已解决」和「待解决」原来长得一模一样 —— 两个都是主题色淡底。状态是
+     一屏里唯一需要**扫**而不是**读**的东西，全都同色等于把它退回纯文字。
+
+     分档只用四个：还没开始（中性）、正在推进（主题色）、卡住了（琥珀）、
+     有结论了（绿）。归档/废弃再退一档，连底都不要 —— 它已经离场了。
+
+     色相写死 195 之外的固定值，和 `--warn` / `--danger` / 代码高亮一个做法：
+     「完成」的含义不能跟着用户调主题色一起漂。主题色只留给「正在推进」那一
+     档 —— 它是这一屏里唯一**还在发生**的事，§6.2 那条「颜色只做重音」在这里
+     的落点就是它，而不是平均分给五个状态。 */
+  --tone-done: oklch(45% 0.1 150);
+  --tone-blocked: oklch(50% 0.11 70);
+  /* 淡彩底的浓度。深色底上要提到 15%，和 `--accent-wash` 同一个理由 */
+  --tone-wash-a: 12%;
+
   /* ## 主题色只有两个自由度：色相和鲜艳度
 
      明度**不给用户调** —— 深浅两套主题各自需要不同的明度才看得清，
@@ -154,6 +171,10 @@
   --d-accent-wash: color-mix(in oklch, var(--d-accent) 15%, transparent);
   --d-selected-bg: oklch(31% 0 0);
   --d-hover-bg: oklch(100% 0 0 / 0.07);
+  /* 状态色的深色版。同色相、明度翻上去、chroma 略降 —— 和 accent 一个道理 */
+  --d-tone-done: oklch(80% 0.09 150);
+  --d-tone-blocked: oklch(82% 0.1 70);
+  --d-tone-wash-a: 16%;
   /* 代码高亮的深色版。同色相、明度翻上去、chroma 略降 —— 和 accent 一个道理，
      深底上不提亮就糊成一团，不降饱和就刺眼 */
   --d-code-keyword: oklch(78% 0.11 300);
@@ -216,6 +237,9 @@
     --accent-wash: var(--d-accent-wash);
     --selected-bg: var(--d-selected-bg);
     --hover-bg: var(--d-hover-bg);
+    --tone-done: var(--d-tone-done);
+    --tone-blocked: var(--d-tone-blocked);
+    --tone-wash-a: var(--d-tone-wash-a);
     --shadow-sm: var(--d-shadow-sm);
     --shadow-md: var(--d-shadow-md);
     --shadow-lg: var(--d-shadow-lg);
@@ -247,6 +271,9 @@
   --accent-wash: var(--d-accent-wash);
   --selected-bg: var(--d-selected-bg);
   --hover-bg: var(--d-hover-bg);
+  --tone-done: var(--d-tone-done);
+  --tone-blocked: var(--d-tone-blocked);
+  --tone-wash-a: var(--d-tone-wash-a);
   --shadow-sm: var(--d-shadow-sm);
   --shadow-md: var(--d-shadow-md);
   --shadow-lg: var(--d-shadow-lg);
@@ -3584,15 +3611,8 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--accent-ink);
   font-size: 12px;
   font-weight: 650;
-}
-.project-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
 }
 .project-snapshot > p {
   margin: 15px 0 21px;
@@ -3696,6 +3716,22 @@ body.is-table-resizing * {
   min-width: 0;
   flex: 1;
 }
+/* 就地改名（§2.10）。高度按摘要那两行撑开 —— 进改名态时整行不该塌一半，
+   否则下面几行会跳一下，而人眼正盯着刚点开的这一行 */
+.project-item-rename {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-xs);
+  outline: none;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 570;
+}
 .project-item-copy strong,
 .project-item-copy small {
   display: block;
@@ -3717,6 +3753,41 @@ body.is-table-resizing * {
   display: inline-flex;
   flex: none;
 }
+/* 状态的四档语义色（§2.10）。底色和字色都从同一个 `--tone` 推出来，
+   所以加一档只要写一行 —— 也就不会出现「底改了字没改」的半吊子状态。 */
+.tone {
+  --tone: var(--muted);
+  --tone-bg: color-mix(in oklch, var(--tone) var(--tone-wash-a), transparent);
+  color: var(--tone);
+}
+/* 淡彩底要不要，由用它的地方决定：胶囊要，一行小字里的状态只要字色 */
+.tone-chip {
+  background: var(--tone-bg);
+}
+.tone[data-tone="active"] {
+  --tone: var(--accent-ink);
+  /* 主题色那一档沿用已有的 wash，和标签、分类胶囊保持同一块底 */
+  --tone-bg: var(--accent-wash);
+}
+.tone[data-tone="blocked"] {
+  --tone: var(--tone-blocked);
+}
+.tone[data-tone="done"] {
+  --tone: var(--tone-done);
+}
+/* 归档/废弃连底都不要：它不再是「一个状态」，只是一句还留着的说明 */
+.tone[data-tone="archived"] {
+  --tone: var(--muted-2);
+  --tone-bg: transparent;
+}
+/* 菜单里每一条前面的小圆点。有了它，选之前就看得出这个词属于哪一档 */
+.tone-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tone);
+}
 .project-status-trigger {
   max-width: 108px;
   display: inline-flex;
@@ -3726,11 +3797,13 @@ body.is-table-resizing * {
   border: 0;
   border-radius: 999px;
   outline: none;
-  background: var(--accent-wash);
-  color: var(--accent-ink);
   font: inherit;
   font-size: 10.5px;
   cursor: pointer;
+}
+/* 没有底色的那一档不能连边界也没有，否则它在一行里像掉了字 */
+.project-status-trigger[data-tone="archived"] {
+  box-shadow: inset 0 0 0 1px var(--hairline);
 }
 .project-status-trigger span {
   overflow: hidden;
@@ -3771,6 +3844,11 @@ body.is-table-resizing * {
   text-align: left;
   white-space: nowrap;
 }
+.project-status-menu button > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .project-status-menu button:hover,
 .project-status-menu button.is-selected {
   background: var(--hover-bg);
@@ -3786,6 +3864,74 @@ body.is-table-resizing * {
   border-top: 1px solid var(--hairline);
   border-radius: 0 0 var(--r-xs) var(--r-xs);
   color: var(--muted);
+}
+/* 一条选项 = 选它 + 删掉它。删按钮平时几乎看不见，指针进这一行才浮出来 ——
+   一列里挂着一排 × 会让「选一个状态」这件事看着像在管理设置 */
+.project-status-menu .project-status-option {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* 名字长就让名字先让位，别把删除按钮挤出去 */
+.project-status-menu .project-status-option > [role="option"] {
+  min-width: 0;
+}
+.project-status-menu .project-status-drop {
+  /* `.project-status-menu button` 那条把宽度设成了 100%，而层叠是**逐属性**的
+     —— 这条规则赢了别的属性不代表宽度也归它管。不写回 auto 的话，`flex: none`
+     会让这个按钮死死占住整条菜单的宽度，然后整个溢到菜单外面去 */
+  width: auto;
+  min-width: var(--tap-sm);
+  min-height: var(--tap-sm);
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: var(--r-xs);
+  color: var(--muted-2);
+  opacity: 0;
+}
+.project-status-option:hover .project-status-drop,
+.project-status-menu .project-status-drop:focus-visible {
+  opacity: 1;
+}
+.project-status-menu .project-status-drop:hover {
+  background: var(--hover-bg);
+  color: var(--danger);
+}
+/* 触摸屏上没有 hover，删按钮只能一直露着 */
+:root[data-touch="on"] .project-status-menu .project-status-drop {
+  opacity: 1;
+}
+.project-status-menu .project-status-confirm {
+  /* 定宽：这几句话不定宽的话，整张菜单会被它撑成一条横幅 */
+  width: 196px;
+  padding: 6px 8px 8px;
+  border-radius: var(--r-xs);
+  background: var(--hover-bg);
+}
+.project-status-confirm p {
+  margin: 0 0 7px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.project-status-confirm div {
+  display: flex;
+  gap: 6px;
+}
+.project-status-menu .project-status-confirm button {
+  width: auto;
+  min-height: var(--tap-sm);
+  justify-content: center;
+  padding: 3px 9px;
+  border-radius: var(--r-xs);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  font-size: 11px;
+}
+.project-status-menu .project-status-confirm .danger {
+  color: var(--danger);
 }
 .project-status-add {
   position: absolute;
@@ -3821,6 +3967,20 @@ body.is-table-resizing * {
 }
 .project-status-add button:first-of-type {
   color: var(--accent-ink);
+}
+/* 「这个词会落到哪一档」的预览，横跨整行摆在输入框下面 */
+.project-status-hint {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 0 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.project-status-hint strong {
+  font-weight: 600;
 }
 .project-section-link {
   margin-left: auto;
@@ -4338,13 +4498,13 @@ body.is-table-resizing * {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--accent-ink);
 }
 .project-center-card-status i {
   width: 6px;
   height: 6px;
+  flex: none;
   border-radius: 50%;
-  background: var(--accent);
+  background: currentColor;
 }
 .project-center-card h2 {
   margin: 14px 0 0;

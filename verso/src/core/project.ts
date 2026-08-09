@@ -63,23 +63,85 @@ export const PROJECT_STATUS_DEFAULTS: Record<ProjectStatusKind, string[]> = {
   resource: ["待整理", "已收录", "已归档"],
 };
 
+/** 一个状态处在事情的哪一段。四档语义色就按这个分（§2.10 / §6.2）。 */
+export type StatusTone = "todo" | "active" | "blocked" | "done" | "archived";
+
+/**
+ * 状态词按**词形**归档，不查一张固定的表。
+ *
+ * `status` 是可以现场新增的（§2.10），用户写的「复现中」「待复核」也必须落到
+ * 正确的一档 —— 查表的话自定义状态会全部退成同一个中性块，那这套颜色就只对
+ * 内置词表有效，而内置词表恰恰是最不需要帮助的那部分。
+ *
+ * 顺序有意义：「已暂停」既带「已」也不是完成态，必须先被 blocked 认走；
+ * 「计划中」以「中」结尾却还没开始，必须先被 todo 认走。
+ */
+const TONE_RULES: [StatusTone, RegExp][] = [
+  ["archived", /^(已)?(归档|废弃|作废|放弃|取消|过期)$/],
+  // 「等外部数据」「等复现」是卡住了，不是还没开始 —— 所以 `^等` 排在 `^待` 前面
+  ["blocked", /(暂停|搁置|阻塞|受阻|卡住|阻碍)|^等/],
+  ["done", /^(已)?(完成|解决|决定|收录|关闭|发布|通过|确认|接受|结束)$/],
+  ["todo", /^(待|计划|筹备|未|想法|排期|草稿)/],
+  ["active", /(中|进行|推进|复现)$/],
+];
+
+/**
+ * 每一档的人话名字。新增状态时当场显示它会落到哪一档 —— 分档规则是按词形
+ * 猜的，猜错了用户得看得见，而不是建完之后自己去数颜色。
+ */
+export const STATUS_TONE_LABEL: Record<StatusTone, string> = {
+  todo: "还没开始",
+  active: "正在推进",
+  blocked: "卡住了",
+  done: "有结论了",
+  archived: "已经收场",
+};
+
+/** 未知状态一律当「还没开始」处理：中性块最不会误导人。 */
+export function statusTone(status: string): StatusTone {
+  const value = status.trim();
+  if (!value) return "todo";
+  return TONE_RULES.find(([, pattern]) => pattern.test(value))?.[0] ?? "todo";
+}
+
 const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
 export function isProjectStatusKind(kind: unknown): kind is ProjectStatusKind {
   return typeof kind === "string" && kind in PROJECT_STATUS_DEFAULTS;
 }
 
-/** 当前文档类型对应的固定选项在前，自定义选项在后；总览和属性条都用这一顺序。 */
+const ALL_BUILT_IN = () => unique(Object.values(PROJECT_STATUS_DEFAULTS).flat());
+
+/**
+ * 当前文档类型对应的固定选项在前，自定义选项在后；总览和属性条都用这一顺序。
+ *
+ * 内置那几个也要**先在词表里还留着**才出现 —— 状态可以删（见下），删掉的
+ * 不能因为这里写死了一份而又冒出来。词表整个是空的（老 vault、或 schema
+ * 读不出来）才用内置那份兜底。
+ */
 export function projectStatusOptions(kind: unknown, schemaOptions: string[]): string[] {
-  if (!isProjectStatusKind(kind)) return unique(schemaOptions);
-  const builtIn = unique(Object.values(PROJECT_STATUS_DEFAULTS).flat());
-  const custom = schemaOptions.filter((value) => !builtIn.includes(value));
-  return unique([...PROJECT_STATUS_DEFAULTS[kind], ...custom]);
+  const known = unique(schemaOptions);
+  if (!isProjectStatusKind(kind)) return known;
+  if (!known.length) return [...PROJECT_STATUS_DEFAULTS[kind]];
+  const builtIn = ALL_BUILT_IN();
+  const mine = PROJECT_STATUS_DEFAULTS[kind].filter((value) => known.includes(value));
+  return unique([...mine, ...known.filter((value) => !builtIn.includes(value))]);
 }
 
 /**
  * `status` 是 vault 级单选属性。项目创建和总览都走这里，避免专用页面是菜单、
- * 回到普通属性条却又退化成文本框。已有自定义选项只合并，不覆盖。
+ * 回到普通属性条却又退化成文本框。
+ *
+ * **内置词表只在第一次播种。** 每次打开都并回内置那几个的话，「删掉一个状态」
+ * 这件事永远做不到 —— 下次打开它就回来了，而用户完全不知道是谁加的。播过种
+ * 之后词表就以文件里那份为准，和 `sections` 一个道理（§2.10）。
+ *
+ * 「播过种」的判据是词表里**还剩至少一个内置状态**。没有额外的标记位可存
+ * （`PropDef` 只有类型和选项），所以把五个内置的全删光会被当成没播过种、
+ * 下次打开重新给一份 —— 那时用户手上一个状态都没有，给回默认反而是对的。
+ *
+ * `extra` 只有用户**明确添加**新状态时才传。传「这篇笔记现在的值」会让删掉的
+ * 状态被一篇还没改过的旧笔记带回来。
  */
 export async function ensureProjectStatusSchema(
   api: Pick<ProjectApi, "propSchema" | "propDefSet">,
@@ -87,14 +149,28 @@ export async function ensureProjectStatusSchema(
 ): Promise<string[]> {
   const schema = await api.propSchema();
   const current = schema.status;
-  const options = unique([
-    ...Object.values(PROJECT_STATUS_DEFAULTS).flat(),
-    ...(current?.options ?? []),
-    ...extra,
-  ]);
-  if (current?.type !== "select" || JSON.stringify(current.options ?? []) !== JSON.stringify(options)) {
+  const existing = unique(current?.options ?? []);
+  const seeded = current?.type === "select" && existing.some((option) => ALL_BUILT_IN().includes(option));
+  const options = unique(seeded ? [...existing, ...extra] : [...ALL_BUILT_IN(), ...existing, ...extra]);
+  if (current?.type !== "select" || JSON.stringify(existing) !== JSON.stringify(options)) {
     await api.propDefSet("status", { type: "select", options });
   }
+  return options;
+}
+
+/**
+ * 从词表里去掉一个状态。**不动任何笔记** —— 已经用着它的记录仍写着那个词，
+ * 在自己那一行里照常显示。词表是菜单，不是数据；删菜单项不该改用户的文件
+ * （和「删掉一个分类不删任何文档」同一条，§2.10）。
+ */
+export async function removeProjectStatus(
+  api: Pick<ProjectApi, "propSchema" | "propDefSet">,
+  option: string,
+): Promise<string[]> {
+  const schema = await api.propSchema();
+  const current = unique(schema.status?.options ?? ALL_BUILT_IN());
+  const options = current.filter((value) => value !== option.trim());
+  await api.propDefSet("status", { type: "select", options });
   return options;
 }
 
@@ -172,7 +248,8 @@ export function isProject(note: NoteContent | null): boolean {
 }
 
 export async function markAsProject(api: ProjectApi, note: NoteContent): Promise<void> {
-  await ensureProjectStatusSchema(api, [asText(note.frontmatter.status)]);
+  // 不把这篇笔记现在的状态并进词表：那是它自己的值，不是这个 vault 的词汇
+  await ensureProjectStatusSchema(api);
   await api.propSet(note.path, "type", "project");
   // 已有 status 可能承载用户自己的词汇，不为了项目模式把它覆盖掉。
   if (!asText(note.frontmatter.status).trim()) await api.propSet(note.path, "status", "进行中");
@@ -368,7 +445,7 @@ export async function captureProjectEntry(
   const category = input.section.trim();
   const kind = sectionKind(category);
   const status = kind ? DEFAULT_STATUS[kind] : SECTION_STATUS_FALLBACK[0];
-  await ensureProjectStatusSchema(api, [status]);
+  await ensureProjectStatusSchema(api);
   const categoryPath = await ensureChild(api, projectPath, category, "project-section");
   let created: NoteMeta | null = null;
   for (let n = 1; n < 100; n += 1) {

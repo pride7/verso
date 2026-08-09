@@ -7,11 +7,15 @@ import {
   parseProgress,
   projectDocumentTemplate,
   projectSections,
+  ensureProjectStatusSchema,
+  projectStatusOptions,
+  removeProjectStatus,
   sectionNameError,
   setProjectSections,
+  statusTone,
   type ProjectApi,
 } from "../../../src/core/project";
-import type { NoteContent, NoteMeta } from "../../../src/core/types";
+import type { NoteContent, NoteMeta, PropSchema } from "../../../src/core/types";
 
 function note(path: string, frontmatter: Record<string, unknown> = {}, body = "", mtimeMs = 1): NoteContent {
   return { path, id: null, title: path.split("/").pop()!.replace(/\.md$/, ""), frontmatter, frontmatterText: null, body, mtimeMs };
@@ -167,5 +171,75 @@ describe("项目分类", () => {
     expect(sectionNameError("进展", [])).toContain("项目日志");
     expect(sectionNameError("会议/纪要", [])).toContain("不能有");
     expect(sectionNameError("实验、问题", [])).toContain("不能有");
+  });
+});
+
+describe("状态分档", () => {
+  it("内置词表的每一档都分得开", () => {
+    expect(["待解决", "待决定", "待整理", "计划中", "筹备中"].map(statusTone))
+      .toEqual(["todo", "todo", "todo", "todo", "todo"]);
+    expect(["进行中", "研究中"].map(statusTone)).toEqual(["active", "active"]);
+    expect(["已暂停", "已搁置"].map(statusTone)).toEqual(["blocked", "blocked"]);
+    expect(["已完成", "已解决", "已决定", "已收录"].map(statusTone))
+      .toEqual(["done", "done", "done", "done"]);
+    expect(["已归档", "已废弃"].map(statusTone)).toEqual(["archived", "archived"]);
+  });
+
+  it("自定义状态按词形归档，不靠查表", () => {
+    expect(statusTone("复现中")).toBe("active");
+    expect(statusTone("待复核")).toBe("todo");
+    expect(statusTone("等外部数据")).toBe("blocked");
+    // 认不出来的一律当「还没开始」：中性块最不会误导人
+    expect(statusTone("重要")).toBe("todo");
+    expect(statusTone("")).toBe("todo");
+  });
+});
+
+describe("状态词表", () => {
+  /** 只记下写进去的那一份，够这几条用 */
+  const vault = (options: string[] | null) => {
+    const writes: string[][] = [];
+    return {
+      writes,
+      api: {
+        propSchema: async (): Promise<PropSchema> => (options ? { status: { type: "select", options } } : {}),
+        propDefSet: async (_key: string, def: { options?: string[] }) => { writes.push(def.options ?? []); },
+      },
+    };
+  };
+
+  it("第一次打开播种内置词表", async () => {
+    const { api, writes } = vault(null);
+    const options = await ensureProjectStatusSchema(api);
+    expect(options).toContain("待解决");
+    expect(options).toContain("已归档");
+    expect(writes).toHaveLength(1);
+  });
+
+  it("播过种就不再并回内置那份 —— 否则删掉的状态下次打开又回来", async () => {
+    const { api, writes } = vault(["进行中", "已完成", "复现中"]);
+    expect(await ensureProjectStatusSchema(api)).toEqual(["进行中", "已完成", "复现中"]);
+    // 一个字都没变就不该写文件
+    expect(writes).toHaveLength(0);
+  });
+
+  it("明确添加的新状态仍然进词表", async () => {
+    const { api, writes } = vault(["进行中", "已完成"]);
+    expect(await ensureProjectStatusSchema(api, ["待复核"])).toEqual(["进行中", "已完成", "待复核"]);
+    expect(writes).toEqual([["进行中", "已完成", "待复核"]]);
+  });
+
+  it("删掉一个状态只改词表，不碰任何笔记", async () => {
+    const { api, writes } = vault(["进行中", "已暂停", "已完成"]);
+    expect(await removeProjectStatus(api, "已暂停")).toEqual(["进行中", "已完成"]);
+    expect(writes).toEqual([["进行中", "已完成"]]);
+  });
+
+  it("菜单只列词表里还剩的那些，删掉的不会因为内置写死了又冒出来", () => {
+    // 「已搁置」被删了：问题类的菜单里就不该再有它
+    expect(projectStatusOptions("question", ["待解决", "研究中", "已解决", "复现中"]))
+      .toEqual(["待解决", "研究中", "已解决", "复现中"]);
+    // 词表整个空的（老 vault / schema 读不出来）才用内置那份兜底
+    expect(projectStatusOptions("question", [])).toEqual(["待解决", "研究中", "已解决", "已搁置"]);
   });
 });

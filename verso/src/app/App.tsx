@@ -997,7 +997,7 @@ export default function App() {
 
   const createProjectAndOpen = useCallback(async () => {
     try {
-      await ensureProjectStatusSchema(api, ["进行中"]);
+      await ensureProjectStatusSchema(api);
       const meta = await api.createUntitled(null);
       await api.propSet(meta.path, "type", "project");
       await api.propSet(meta.path, "status", "进行中");
@@ -3655,8 +3655,9 @@ export default function App() {
           project={note}
           notes={noteList}
           revision={revision}
-          onOpen={(path) => void openPath(path)}
+          onOpen={(path, opts) => void openPath(path, opts)}
           onEdit={() => setProjectOpen(false)}
+          onRename={(path, title) => void submitRename(path, title)}
           onChanged={() => {
             void refresh();
             void reloadFromDisk();
