@@ -1707,7 +1707,7 @@ export default function App() {
   );
 
   /**
-   * 「在树里收起它」。写进这篇笔记自己的 frontmatter（`collapsed: true`），
+   * 「在树中收起」。写进这篇笔记自己的 frontmatter（`collapsed: true`），
    * 不写 `.verso/` —— 换台机器、拿别的编辑器打开都该跟着走（§0 第 1 条）。
    * 先声明成 checkbox，落盘的才是真布尔而不是字符串 `"true"`。
    */
@@ -4279,7 +4279,7 @@ export default function App() {
                 }}
               >
                 <Icon name={menu.node.collapsed ? "expand" : "collapse"} size={14} />
-                {menu.node.collapsed ? "在树里展开它" : "在树里收起它"}
+                {menu.node.collapsed ? "在树中展开" : "在树中收起"}
               </button>
             </li>
           )}
