@@ -110,6 +110,10 @@ function TitleCell({
       onContextMenu={(event) => {
         if (!onMenu) return;
         event.preventDefault();
+        event.stopPropagation();
+        // **还要拦住冒泡。** 这张表是长在编辑器里的一个 widget，而 `.editor-host`
+        // 上挂着正文的右键菜单（§4.10）—— 不拦的话两个菜单一起弹，正文那个
+        // 后画、盖在上面，看起来就是「右键点了没有改名」
         onMenu({ x: event.clientX, y: event.clientY });
       }}
       {...(onMenu ? hold : {})}

@@ -521,9 +521,15 @@ describe("列与设置（§2.6）", () => {
     const view = mount(undefined, (path) => renamed.push(path));
     await settle();
     const title = view.dom.querySelector<HTMLElement>(".dbview-link")!;
+    // 这张表长在编辑器里，`.editor-host` 上挂着正文自己的右键菜单 —— 事件要是
+    // 冒上去，两个菜单会一起弹，正文那个盖在上面，看起来就是「右键没反应」
+    const outer = vi.fn();
+    document.body.addEventListener("contextmenu", outer);
     title.dispatchEvent(
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
     );
+    document.body.removeEventListener("contextmenu", outer);
+    expect(outer, "右键事件冒到编辑器上去了").not.toHaveBeenCalled();
     await settle();
     await userEvent.click(
       [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) =>
