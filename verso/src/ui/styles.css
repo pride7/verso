@@ -3837,8 +3837,14 @@ body.is-table-resizing * {
   background: var(--raised);
   box-shadow: var(--shadow-md);
 }
-.project-status-menu button {
+/* **只管这两种按钮**：一条选项，和最下面那条「添加状态…」。
+   写成 `.project-status-menu button` 的话，行尾那一格、确认删除里的两个按钮
+   全都会跟着吃到 `width: 100%` 和 `space-between` —— 而层叠是逐属性的，
+   后面每加一个按钮都得记得把这几条一项项写回去。这个坑已经踩过两次了。 */
+.project-status-menu .project-status-option > [role="option"],
+.project-status-menu .project-status-new {
   width: 100%;
+  min-width: 0;
   min-height: 29px;
   display: flex;
   align-items: center;
@@ -3851,17 +3857,19 @@ body.is-table-resizing * {
   text-align: left;
   white-space: nowrap;
 }
-.project-status-menu button > span {
+.project-status-menu [role="option"] > span {
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .project-status-menu .project-status-new:hover,
 .project-status-menu .project-status-option:hover,
 .project-status-menu .project-status-option.is-selected {
   background: var(--hover-bg);
 }
-.project-status-menu button.is-selected {
+.project-status-menu [role="option"].is-selected {
   color: var(--accent-ink);
   font-weight: 600;
 }
@@ -3885,9 +3893,7 @@ body.is-table-resizing * {
   border-radius: var(--r-xs);
 }
 .project-status-menu .project-status-mark {
-  /* `.project-status-menu button` 那条把宽度设成了 100%，而层叠是**逐属性**的
-     —— 这条规则赢了别的属性不代表宽度也归它管。不写回定值的话，`flex: none`
-     会让这个按钮死死占住整条菜单的宽度，然后整个溢到菜单外面去 */
+  /* 定宽：勾和叉共用这一格，宽度一样才谈得上对齐 */
   width: 24px;
   min-width: var(--tap-sm);
   min-height: var(--tap-sm);
@@ -3905,10 +3911,6 @@ body.is-table-resizing * {
 .project-status-option:hover .project-status-drop,
 .project-status-menu .project-status-drop:focus-visible {
   opacity: 1;
-}
-/* 名字长就让名字先让位，行尾那一格不动 */
-.project-status-menu .project-status-option > [role="option"] {
-  min-width: 0;
 }
 .project-status-menu .project-status-drop:hover {
   background: var(--hover-bg);
