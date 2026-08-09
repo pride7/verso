@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../host/api";
-import { statusTone } from "../core/project";
+import { isSettledStatus, PROJECT_STATUSES, statusTone } from "../core/project";
 import type { ViewRow } from "../core/types";
 import { Icon } from "./Icon";
 
@@ -22,8 +22,7 @@ const SOURCE = [
   "limit: 500",
 ].join("\n");
 
-const STATUS_ORDER = ["筹备中", "进行中", "已暂停", "已完成", "已归档"];
-const CLOSED = /^(已完成|完成|已关闭|关闭|已归档)$/;
+const STATUS_ORDER = PROJECT_STATUSES;
 
 const value = (row: ViewRow, key: string) => row.props[key]?.trim() ?? "";
 const unique = (values: string[]) => [...new Set(values.filter(Boolean))];
@@ -59,7 +58,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
         .some((text) => text.toLocaleLowerCase().includes(needle));
     });
   }, [projects, query, status]);
-  const activeCount = projects?.filter((project) => !CLOSED.test(value(project, "status"))).length ?? 0;
+  const activeCount = projects?.filter((project) => !isSettledStatus(value(project, "status"))).length ?? 0;
 
   return <section className="project-center" aria-label="项目中心">
     <header className="project-center-head">

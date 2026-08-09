@@ -66,7 +66,7 @@ describe("视觉：状态分档", () => {
     document.querySelector<HTMLButtonElement>('.project-item button[aria-label="架构如何设计？的状态"]')!.click();
     await tick(60);
     [...document.querySelectorAll<HTMLElement>(".project-status-option")]
-      .find((row) => row.textContent === "已搁置")!
+      .find((row) => row.textContent === "已完成")!
       .querySelector<HTMLButtonElement>(".project-status-drop")!
       .click();
     await shot("32-tone-status-menu");

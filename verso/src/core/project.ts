@@ -53,23 +53,34 @@ const CATEGORY: Record<ProjectItemKind, string> = {
   resource: "资料",
 };
 
-const DEFAULT_STATUS: Record<ProjectItemKind, string> = {
-  experiment: "进行中",
-  question: "待解决",
-  decision: "已决定",
-  resource: "已收录",
-};
-
 export type ProjectStatusKind = ProjectItemKind | "project";
 
-/** 项目总览和普通属性条共用的状态词表；顺序也是 UI 的稳定顺序。 */
-export const PROJECT_STATUS_DEFAULTS: Record<ProjectStatusKind, string[]> = {
-  project: ["筹备中", "进行中", "已暂停", "已完成", "已归档"],
-  experiment: ["计划中", "进行中", "已暂停", "已完成", "已归档"],
-  question: ["待解决", "研究中", "已解决", "已搁置"],
-  decision: ["待决定", "已决定", "已废弃"],
-  resource: ["待整理", "已收录", "已归档"],
-};
+/**
+ * 状态只有三档，**所有分类共用一套**（v0.7.40）。
+ *
+ * 以前每一类各有一套说法（问题是待解决/研究中/已解决/已搁置，决策是待决定/
+ * 已决定/已废弃……）。十几个词分散在四张表里，代价是：你得记住在哪一类里
+ * 「完成」叫什么，跨分类看一眼「还剩多少没做完」也说不清楚。
+ *
+ * 三档就够：**还没开始 / 正在做 / 做完了**。这也正好是四档语义色里那三档
+ * 主色（另两档留给「卡住了」「已归档」这类现场新增的词）。要更细的说法，
+ * 「添加状态…」现场加就是了 —— 词表本来就是你的（§2.10）。
+ */
+export const PROJECT_STATUSES = ["未开始", "进行中", "已完成"];
+
+/**
+ * v0.7.40 之前我们按分类播下去的那些词。
+ *
+ * 迁移只收回**我们自己加的**：这些词是 Verso 播的种，不是用户打的字，所以
+ * 由 Verso 收回；用户现场加的一个都不动。已经写着这些词的笔记同样一个字
+ * 不改 —— 那一条照常显示、照常上色，只是菜单里不再列出来。
+ */
+const LEGACY_STATUSES = [
+  "筹备中", "计划中", "已暂停", "已归档",
+  "待解决", "研究中", "已解决", "已搁置",
+  "待决定", "已决定", "已废弃",
+  "待整理", "已收录",
+];
 
 /** 一个状态处在事情的哪一段。四档语义色就按这个分（§2.10 / §6.2）。 */
 export type StatusTone = "todo" | "active" | "blocked" | "done" | "archived";
@@ -115,10 +126,21 @@ export function statusTone(status: string): StatusTone {
 const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
 export function isProjectStatusKind(kind: unknown): kind is ProjectStatusKind {
-  return typeof kind === "string" && kind in PROJECT_STATUS_DEFAULTS;
+  return kind === "project" || (typeof kind === "string" && kind in CATEGORY);
 }
 
-const ALL_BUILT_IN = () => unique(Object.values(PROJECT_STATUS_DEFAULTS).flat());
+/** 有结论的那两档：`正在推进` 不收它们，排序也把它们放后面 */
+const SETTLED = new Set<StatusTone>(["done", "archived"]);
+
+/**
+ * 这条记录算不算「已经了结」。
+ *
+ * 用词形判断而不是一张关门词表：状态可以现场新增，`已通过`、`已作废` 这些
+ * 也该算了结。以前 UI 里各写各的正则，两处还不一样。
+ */
+export function isSettledStatus(status: string): boolean {
+  return SETTLED.has(statusTone(status));
+}
 
 /**
  * 当前文档类型对应的固定选项在前，自定义选项在后；总览和属性条都用这一顺序。
@@ -130,10 +152,9 @@ const ALL_BUILT_IN = () => unique(Object.values(PROJECT_STATUS_DEFAULTS).flat())
 export function projectStatusOptions(kind: unknown, schemaOptions: string[]): string[] {
   const known = unique(schemaOptions);
   if (!isProjectStatusKind(kind)) return known;
-  if (!known.length) return [...PROJECT_STATUS_DEFAULTS[kind]];
-  const builtIn = ALL_BUILT_IN();
-  const mine = PROJECT_STATUS_DEFAULTS[kind].filter((value) => known.includes(value));
-  return unique([...mine, ...known.filter((value) => !builtIn.includes(value))]);
+  if (!known.length) return [...PROJECT_STATUSES];
+  const mine = PROJECT_STATUSES.filter((value) => known.includes(value));
+  return unique([...mine, ...known.filter((value) => !PROJECT_STATUSES.includes(value))]);
 }
 
 /**
@@ -158,8 +179,16 @@ export async function ensureProjectStatusSchema(
   const schema = await api.propSchema();
   const current = schema.status;
   const existing = unique(current?.options ?? []);
-  const seeded = current?.type === "select" && existing.some((option) => ALL_BUILT_IN().includes(option));
-  const options = unique(seeded ? [...existing, ...extra] : [...ALL_BUILT_IN(), ...existing, ...extra]);
+  // 老 vault 的词表里还留着按分类播的那十几个词。**一次性收回**：它们是
+  // Verso 播的种，不是用户打的字。判据是「还有旧词，而且新的三档还没进来」——
+  // 迁移一跑，`未开始` 就成了这件事已经做过的标记，用户事后再把某个旧词加
+  // 回来也不会被二次清掉
+  const migrate =
+    existing.some((option) => LEGACY_STATUSES.includes(option)) &&
+    !existing.includes(PROJECT_STATUSES[0]);
+  const kept = migrate ? existing.filter((option) => !LEGACY_STATUSES.includes(option)) : existing;
+  const seeded = !migrate && current?.type === "select" && kept.some((option) => PROJECT_STATUSES.includes(option));
+  const options = unique(seeded ? [...kept, ...extra] : [...PROJECT_STATUSES, ...kept, ...extra]);
   if (current?.type !== "select" || JSON.stringify(existing) !== JSON.stringify(options)) {
     await api.propDefSet("status", { type: "select", options });
   }
@@ -176,14 +205,14 @@ export async function removeProjectStatus(
   option: string,
 ): Promise<string[]> {
   const schema = await api.propSchema();
-  const current = unique(schema.status?.options ?? ALL_BUILT_IN());
+  const current = unique(schema.status?.options ?? PROJECT_STATUSES);
   const options = current.filter((value) => value !== option.trim());
   await api.propDefSet("status", { type: "select", options });
   return options;
 }
 
-/** 自定义分类没有内置状态词表，先给这三个常用的，其余仍可从 schema 里选或现场新增。 */
-export const SECTION_STATUS_FALLBACK = ["进行中", "已完成", "已归档"];
+/** 分类不影响状态：所有记录共用同一套三档。留这个名字是为了少改一堆调用点。 */
+export const SECTION_STATUS_FALLBACK = PROJECT_STATUSES;
 
 /** 项目没写 `sections` 时的默认分类（§2.10）。写了就完全以文件里那一份为准。 */
 export const DEFAULT_SECTIONS = ["实验", "问题", "决策", "资料"];
@@ -358,9 +387,6 @@ export function parseProgress(body: string): ProjectProgress[] {
 function isPinned(value: unknown): boolean {
   return value === true || asText(value).trim() === "true";
 }
-
-/** 有结论的那两档：排在没结论的后面 */
-const SETTLED = new Set<StatusTone>(["done", "archived"]);
 
 /**
  * 排序规则：**置顶 → 还没结束的 → 创建时间（新的在前）**。就地排序，
@@ -538,7 +564,8 @@ export async function captureProjectEntry(
   if (!baseTitle) throw new Error("先写标题");
   const category = input.section.trim();
   const kind = sectionKind(category);
-  const status = kind ? DEFAULT_STATUS[kind] : SECTION_STATUS_FALLBACK[0];
+  // 新建的记录一律「未开始」—— 刚记下来的时候它确实还没开始，一键就能改
+  const status = PROJECT_STATUSES[0];
   await ensureProjectStatusSchema(api);
   const categoryPath = await ensureChild(api, projectPath, category, "project-section");
   let created: NoteMeta | null = null;

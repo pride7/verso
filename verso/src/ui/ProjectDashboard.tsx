@@ -7,11 +7,11 @@ import {
   loadProjectOverview,
   prepareItemMove,
   PROGRESS_SECTION,
-  PROJECT_STATUS_DEFAULTS,
+  PROJECT_STATUSES,
   projectSections,
   projectStatusOptions,
   removeProjectStatus,
-  SECTION_STATUS_FALLBACK,
+  isSettledStatus,
   sectionKind,
   sectionNameError,
   setProjectPinned,
@@ -44,9 +44,6 @@ interface Props {
   onError: (message: string) => void;
 }
 
-const CLOSED = /^(已完成|完成|已关闭|关闭|已解决|已归档)$/;
-/** 「决策」「资料」是归档型，默认状态本来就不是推进态，不进「正在推进」。 */
-const ARCHIVAL = new Set<ProjectItemKind>(["decision", "resource"]);
 /** 各分类新建文档时的标题示例；自定义分类没有，用通用提示。 */
 const TITLE_HINT: Record<ProjectItemKind, string> = {
   experiment: "温度消融实验",
@@ -173,7 +170,7 @@ interface RowProps {
 }
 
 function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen, onMenu, onRename, onRenameCancel, onStatus, onDropStatus }: RowProps) {
-  const fallback = item.kind ? PROJECT_STATUS_DEFAULTS[item.kind][0] : SECTION_STATUS_FALLBACK[0];
+  const fallback = PROJECT_STATUSES[0];
   // 手指没有右键。菜单里那两条（开新标签、改名）在手机上只能靠长按（§1.2）
   const hold = useLongPress((at) => onMenu(item, slot, at));
   return <div
@@ -233,13 +230,21 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
       .catch(() => {});
   }, [project, revision]);
 
+  /**
+   * 「正在推进」只看状态，不看分类（v0.7.40）。
+   *
+   * 以前「决策」「资料」整类被排除在外，理由是它们的默认状态（已决定 / 已收录）
+   * 本来就不是推进态。三档统一之后这条不成立了：一条还在定的决策就是**正在
+   * 定**，那正是要推进的事 —— 该由状态说了算，不该由它属于哪一类说了算。
+   */
   const active = useMemo(
-    () => overview?.items.filter((item) => !(item.kind && ARCHIVAL.has(item.kind)) && !CLOSED.test(item.status)) ?? [],
+    () => overview?.items.filter((item) => !isSettledStatus(item.status)) ?? [],
     [overview],
   );
   const visibleItems = expandedItems ? active : active.slice(0, 3);
+  // 分类不再影响状态：三档全局统一，自定义分类和内置四类走同一条
   const optionsFor = (kind: ProjectItem["kind"] | "project") =>
-    kind ? projectStatusOptions(kind, customStatuses) : unique([...SECTION_STATUS_FALLBACK, ...customStatuses]);
+    projectStatusOptions(kind ?? "project", customStatuses);
   const setStatus = async (path: string, value: string, custom: boolean) => {
     try {
       if (custom || !customStatuses.includes(value)) {

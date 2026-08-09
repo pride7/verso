@@ -133,7 +133,11 @@ describe("属性条", () => {
     expect(statusRow.querySelector(".props-input")).toBeNull();
     const labels = [...statusRow.querySelectorAll<HTMLButtonElement>(".optpick-list button")]
       .map((button) => button.textContent?.trim());
-    expect(labels).toEqual(["进行中", "计划中", "已暂停", "已完成", "已归档", "自定义状态"]);
+    // 三档在前（v0.7.40），词表里剩下的旧词跟在后面 —— 属性条不迁移词表，
+    // 它只是照着 schema 显示；收回旧词是 `ensureProjectStatusSchema` 的事
+    expect(labels).toEqual([
+      "进行中", "已完成", "筹备中", "计划中", "已暂停", "已归档", "待解决", "自定义状态",
+    ]);
     const completed = [...statusRow.querySelectorAll<HTMLButtonElement>(".optpick-list button")]
       .find((button) => button.textContent?.includes("已完成"))!;
     await userEvent.click(completed);

@@ -103,17 +103,17 @@ describe("单项目总览", () => {
     const status = document.querySelector<HTMLButtonElement>('.project-item button[aria-label="实验 1的状态"]')!;
     await userEvent.click(status);
     const options = [...document.querySelectorAll<HTMLButtonElement>('.project-status-menu [role="option"]')];
-    expect(options.map((option) => option.textContent)).toEqual(["计划中", "进行中", "已暂停", "已完成", "已归档", "自定义状态"]);
+    expect(options.map((option) => option.textContent)).toEqual(["未开始", "进行中", "已完成", "自定义状态"]);
     expect(options[1].getAttribute("aria-selected")).toBe("true");
-    await userEvent.click(options[3]);
+    await userEvent.click(options[2]);
     await tick();
     expect(apiMock.propSet).toHaveBeenCalledWith("项目/实验/实验 1.md", "status", "已完成");
 
     const updatedStatus = document.querySelector<HTMLButtonElement>('.project-item button[aria-label="实验 1的状态"]')!;
     await userEvent.click(updatedStatus);
     const updatedOptions = [...document.querySelectorAll<HTMLButtonElement>('.project-status-menu [role="option"]')];
-    expect(updatedOptions.map((option) => option.textContent)).toEqual(["计划中", "进行中", "已暂停", "已完成", "已归档", "自定义状态"]);
-    expect(updatedOptions[3].getAttribute("aria-selected")).toBe("true");
+    expect(updatedOptions.map((option) => option.textContent)).toEqual(["未开始", "进行中", "已完成", "自定义状态"]);
+    expect(updatedOptions[2].getAttribute("aria-selected")).toBe("true");
     await userEvent.click(document.querySelector<HTMLButtonElement>(".project-status-new")!);
     const custom = document.querySelector<HTMLInputElement>(".project-status-add input")!;
     await userEvent.fill(custom, "复现中");
@@ -214,7 +214,7 @@ describe("单项目总览", () => {
       expect(box.right, "删除按钮溢出菜单右边").toBeLessThanOrEqual(menuBox.right + 0.5);
     }
 
-    await userEvent.click(rows.find((row) => row.textContent === "已暂停")!.querySelector<HTMLButtonElement>(".project-status-drop")!);
+    await userEvent.click(rows.find((row) => row.textContent === "已完成")!.querySelector<HTMLButtonElement>(".project-status-drop")!);
     await tick();
     expect(document.querySelector(".project-status-confirm")?.textContent).toContain("用着它的记录一个字都不改");
     await userEvent.click(document.querySelector<HTMLButtonElement>(".project-status-confirm .danger")!);
@@ -222,11 +222,11 @@ describe("单项目总览", () => {
     // 写回去的是「少了这一条」的词表，笔记的 status 没有被动过
     expect(apiMock.propDefSet).toHaveBeenCalledWith("status", {
       type: "select",
-      options: expect.not.arrayContaining(["已暂停"]),
+      options: expect.not.arrayContaining(["已完成"]),
     });
     expect(apiMock.propSet).not.toHaveBeenCalled();
     expect([...document.querySelectorAll('.project-status-menu [role="option"]')].map((option) => option.textContent))
-      .toEqual(["计划中", "进行中", "已完成", "已归档", "自定义状态"]);
+      .toEqual(["未开始", "进行中", "自定义状态"]);
   });
 
   it("分类可以删掉，文档留在文档树里", async () => {
@@ -370,7 +370,10 @@ describe("单项目总览", () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
     root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
     await tick();
-    const row = document.querySelector(".project-item")!;
+    // 用分类卡片里的那一行：「正在推进」按状态过滤，选了「已完成」它会直接
+    // 离开那张清单，手里的 DOM 就成了游离节点
+    const row = [...document.querySelectorAll<HTMLElement>(".project-record-group .project-item")]
+      .find((item) => item.textContent?.includes("实验 1"))!;
     const pill = row.querySelector<HTMLButtonElement>(".project-status-trigger")!;
     expect(pill.dataset.tone).toBe("active");
     const active = getComputedStyle(pill).backgroundColor;
@@ -378,14 +381,14 @@ describe("单项目总览", () => {
     pill.click();
     await tick();
     const dots = [...row.querySelectorAll<HTMLElement>(".project-status-menu .tone-dot")];
-    // 计划中 / 进行中 / 已暂停 / 已完成 / 已归档，外加 schema 里那个自定义状态
-    expect(dots.map((dot) => dot.dataset.tone)).toEqual(["todo", "active", "blocked", "done", "archived", "todo"]);
-    expect(new Set(dots.map((dot) => getComputedStyle(dot).backgroundColor)).size).toBe(5);
+    // 未开始 / 进行中 / 已完成，外加 schema 里那个自定义状态
+    expect(dots.map((dot) => dot.dataset.tone)).toEqual(["todo", "active", "done", "todo"]);
+    expect(new Set(dots.map((dot) => getComputedStyle(dot).backgroundColor)).size).toBe(3);
 
-    // 换成「已暂停」，胶囊立刻换一档 —— 这正是原来看不出来的那件事
-    await userEvent.click([...row.querySelectorAll<HTMLButtonElement>(".project-status-menu button")].find((button) => button.textContent === "已暂停")!);
+    // 换成「已完成」，胶囊立刻换一档 —— 这正是原来看不出来的那件事
+    await userEvent.click([...row.querySelectorAll<HTMLButtonElement>(".project-status-menu button")].find((button) => button.textContent === "已完成")!);
     await tick();
-    expect(pill.dataset.tone).toBe("blocked");
+    expect(pill.dataset.tone).toBe("done");
     expect(getComputedStyle(pill).backgroundColor).not.toBe(active);
   });
 

@@ -149,7 +149,8 @@ describe("项目分类", () => {
     expect(path).toBe("项目/复现/复现 baseline.md");
     expect(writes[0]).toBe("");
     expect(props).toContainEqual([path, "type", "复现"]);
-    expect(props).toContainEqual([path, "status", "进行中"]);
+    // 新建的记录一律「未开始」——不再按分类给不同的默认值（v0.7.40）
+    expect(props).toContainEqual([path, "status", "未开始"]);
   });
 
   it("分类表落成 frontmatter 里的列表，而不是一行逗号串", async () => {
@@ -215,8 +216,8 @@ describe("状态词表", () => {
   it("第一次打开播种内置词表", async () => {
     const { api, writes } = vault(null);
     const options = await ensureProjectStatusSchema(api);
-    expect(options).toContain("待解决");
-    expect(options).toContain("已归档");
+    // 三档，所有分类共用一套（v0.7.40）
+    expect(options).toEqual(["未开始", "进行中", "已完成"]);
     expect(writes).toHaveLength(1);
   });
 
@@ -240,11 +241,25 @@ describe("状态词表", () => {
   });
 
   it("菜单只列词表里还剩的那些，删掉的不会因为内置写死了又冒出来", () => {
-    // 「已搁置」被删了：问题类的菜单里就不该再有它
-    expect(projectStatusOptions("question", ["待解决", "研究中", "已解决", "复现中"]))
-      .toEqual(["待解决", "研究中", "已解决", "复现中"]);
-    // 词表整个空的（老 vault / schema 读不出来）才用内置那份兜底
-    expect(projectStatusOptions("question", [])).toEqual(["待解决", "研究中", "已解决", "已搁置"]);
+    // 「已完成」被删了：菜单里就不该再有它，自定义的排在三档后面
+    expect(projectStatusOptions("question", ["未开始", "进行中", "复现中"]))
+      .toEqual(["未开始", "进行中", "复现中"]);
+    // 词表整个空的（老 vault / schema 读不出来）才用那三档兜底
+    expect(projectStatusOptions("question", [])).toEqual(["未开始", "进行中", "已完成"]);
+  });
+
+  it("老 vault 里按分类播的那十几个词，一次性收回", async () => {
+    const { api, writes } = vault(["待解决", "研究中", "已解决", "进行中", "复现中"]);
+    // 我们播的种由我们收回；用户自己加的「复现中」一个字不动
+    expect(await ensureProjectStatusSchema(api)).toEqual(["未开始", "进行中", "已完成", "复现中"]);
+    expect(writes).toHaveLength(1);
+
+    // 收回过一次就不再动 —— 用户事后自己把「已解决」加回来也不会被二次清掉
+    const after = vault(["未开始", "进行中", "已完成", "已解决"]);
+    expect(await ensureProjectStatusSchema(after.api)).toEqual([
+      "未开始", "进行中", "已完成", "已解决",
+    ]);
+    expect(after.writes).toHaveLength(0);
   });
 });
 
