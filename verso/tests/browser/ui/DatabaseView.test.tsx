@@ -500,6 +500,27 @@ describe("列与设置（§2.6）", () => {
     expect(view.state.doc.toString()).toMatch(/where: \S+ =/);
   });
 
+  it("更新时间也能筛，值写成 90d ago 时当场说清楚读作什么", async () => {
+    const view = mount(
+      ['from: "论文/**"', "view: table", 'where: updated < "90d ago"'].join("\n"),
+    );
+    await settle();
+    await userEvent.click(view.dom.querySelector<HTMLElement>(".dbview-tool")!);
+    await settle(200);
+
+    // 内置的两个时间列以前被排除在筛选属性之外 —— 而「长期没回头看的」这张
+    // 清单正是靠它们才写得出来
+    const key = view.dom.querySelector<HTMLSelectElement>('[aria-label="筛选属性 1"]')!;
+    expect([...key.options].map((option) => option.textContent)).toContain("更新时间");
+    expect(key.value).toBe("updated");
+
+    // 相对时间每次打开都按当天重新算，这一点不说的话，用户会以为它和写死一个
+    // 日期是一回事
+    const hint = view.dom.querySelector<HTMLElement>(".vset-hint")!;
+    expect(hint.textContent).toContain("90 天前");
+    expect(hint.textContent).toContain("按当天重新算");
+  });
+
   it("已有筛选用人话显示运算关系，多个条件明确写成并且", async () => {
     const view = mount(
       ['from: "论文/*"', "view: table", "where: status = 在读 and 难度 >= 3"].join("\n"),

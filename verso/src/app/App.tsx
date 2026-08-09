@@ -1635,15 +1635,53 @@ export default function App() {
     editorRef.current?.insert(yaml);
   }, []);
 
+  /**
+   * 知识库骨架（§2.6）。三个视图回答三个不同的问题，缺一个都不成立：
+   *
+   * - **全貌**：按分类分列的看板。分列的依据是分类而不是状态 —— 积累类的
+   *   笔记没有进度，用 `status` 分列的话每一列都不动，看板就退化成一个很占
+   *   地方的分组列表
+   * - **最近**：新加的在最上面，日常回看用
+   * - **长期没碰**：知识库真正会烂掉的地方不是分类不好，是**沉底** ——
+   *   东西还在，你想不起它在。这一条靠相对时间，写死日期下个月就过期
+   *
+   * 顺手把 `分类` 声明成单选：留成自由文本的话，半年后会同时有「HPC」
+   * 「hpc」「高性能」三个词，那时才是真的找不到。
+   */
+  const insertKnowledgeView = useCallback(() => {
+    const cur = noteRef.current;
+    if (!cur) return;
+    const dir = cur.path.replace(/\.md$/, "");
+    const block = (lines: string[]) => ["```verso-view", `from: "${dir}/**"`, ...lines, "```", ""];
+    void api.propDefSet("分类", { type: "select", options: [] }).catch(() => {});
+    editorRef.current?.insert([
+      "## 全貌",
+      "",
+      ...block(["view: board", "group-by: 分类"]),
+      "## 最近加的",
+      "",
+      ...block(["view: table", "columns: [title, 分类, tags, updated]", "sort: updated desc", "limit: 20"]),
+      "## 攒了但很久没回头看",
+      "",
+      ...block([
+        "view: table",
+        'where: updated < "90d ago"',
+        "columns: [title, 分类, updated]",
+        "sort: updated asc",
+      ]),
+    ].join("\n"));
+  }, []);
+
   /** `/` 菜单里那几条动作交回到这儿（见 editor/completion.ts） */
   useEffect(() => {
     setSlashAction((id) => {
       if (id === "template") setTemplateFor({ mode: "insert" });
       else if (id === "journal") addJournal();
       else if (id === "issues") insertIssueView();
+      else if (id === "knowledge") insertKnowledgeView();
     });
     return () => setSlashAction(null);
-  }, [addJournal, insertIssueView]);
+  }, [addJournal, insertIssueView, insertKnowledgeView]);
 
   /** 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename` */
   const renameNode = useCallback((node: TreeNode) => setRenaming(node.path), []);
@@ -3203,6 +3241,7 @@ export default function App() {
               if (it.action === "template") setTemplateFor({ mode: "insert" });
               else if (it.action === "journal") addJournal();
               else if (it.action === "issues") insertIssueView();
+              else if (it.action === "knowledge") insertKnowledgeView();
               else if (it.template) {
                 const { text, caret } = applyCaret(it.template);
                 ed()?.insert(text, caret);

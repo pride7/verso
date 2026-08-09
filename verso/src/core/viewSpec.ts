@@ -205,6 +205,37 @@ export function readWhere(yaml: string): Condition[] | null {
   return out;
 }
 
+/**
+ * 相对时间的单位。**写进文件的是这几个字母**，界面上才显示中文 ——
+ * 中文一旦进了 `.md`，这篇笔记就不能拖进别的编辑器用了（§0 第 1 条）。
+ */
+export const RELATIVE_UNITS = [
+  { unit: "d", label: "天" },
+  { unit: "w", label: "周" },
+  { unit: "m", label: "个月" },
+  { unit: "y", label: "年" },
+] as const;
+
+/**
+ * `90d ago` → `{ n: 90, unit: "d" }`。认不出来返回 null —— 那就是个普通字面值，
+ * 用户可能真想找 `updated = "2026-05-01"`。
+ *
+ * 规则必须和 Rust 侧的 `relative_modifier` 一致：界面读作一个意思、查询按另一个
+ * 意思跑，是最难查的一类毛病。
+ */
+export function readRelative(value: string): { n: number; unit: string } | null {
+  const m = /^\s*(\d+)\s*([dwmy])\s+ago\s*$/.exec(value);
+  if (!m) return null;
+  return { n: Number(m[1]), unit: m[2] };
+}
+
+/** 给人看的写法：`90d ago` → `90 天前`。不是相对时间就返回 null */
+export function describeRelative(value: string): string | null {
+  const rel = readRelative(value);
+  if (!rel) return null;
+  return `${rel.n} ${RELATIVE_UNITS.find((u) => u.unit === rel.unit)?.label ?? rel.unit}前`;
+}
+
 /** 值里有空格就加引号 —— Rust 侧按空格切 token */
 function quote(v: string): string {
   return /^-?\d+(\.\d+)?$/.test(v) || !/[\s"']/.test(v) ? v : `"${v.replace(/"/g, "")}"`;

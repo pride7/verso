@@ -260,6 +260,121 @@ fn view_source_distinguishes_direct_children_from_all_descendants() {
     assert!(recursive_paths.iter().any(|path| path == "项目/实验/嵌套.md"));
 }
 
+/// 相对时间：`updated < 90d ago`。
+///
+/// 写死日期的筛选下个月就过期，于是「长期没回头看的」那张清单没人维护得下去
+/// —— 而那正是知识库真正会烂掉的地方（§2.6）。
+#[test]
+fn relative_time_values_resolve_at_query_time() {
+    assert_eq!(view::relative_modifier("90d ago").as_deref(), Some("-90 days"));
+    assert_eq!(view::relative_modifier("2w ago").as_deref(), Some("-14 days"));
+    assert_eq!(view::relative_modifier("3m ago").as_deref(), Some("-3 months"));
+    assert_eq!(view::relative_modifier("1y ago").as_deref(), Some("-1 years"));
+    // 认不出来就当字面值 —— 用户可能真想找 `updated = "2026-05-01"`
+    assert_eq!(view::relative_modifier("2026-05-01"), None);
+    assert_eq!(view::relative_modifier("很久以前"), None);
+    assert_eq!(view::relative_modifier("-5d ago"), None);
+}
+
+/// `created` / `updated` 是 notes 的列，压根不在 props 表里（§2.6 把它们
+/// 排除在用户属性之外）—— 不单独接一条的话，`where updated < …` 会静静地
+/// 筛出空表，而查询本身还成功着。
+#[test]
+fn builtin_time_columns_are_filterable_and_fall_back_to_mtime() {
+    let (_t, _v, idx) = setup(&[
+        (
+            "老笔记.md",
+            "---
+id: 01EEEEEEEEEEEEEEEEEEEEEEEE
+title: 老笔记
+updated: 2020-01-02T10:00:00+08:00
+---
+
+很久没碰
+",
+        ),
+        // 没写 updated：要回落到文件的 mtime（刚写出来的，也就是「今天」），
+        // 否则一条相对时间筛选会把整个 vault 判成「很久没碰」
+        ("新笔记.md", "---
+id: 01FFFFFFFFFFFFFFFFFFFFFFFF
+title: 新笔记
+---
+
+刚写的
+"),
+    ]);
+
+    let stale: view::ViewSpec = serde_yaml::from_str("where: updated < \"90d ago\"
+").unwrap();
+    let paths: Vec<String> = view::query(idx.conn(), &stale)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(paths, vec!["老笔记.md".to_string()]);
+
+    let fresh: view::ViewSpec = serde_yaml::from_str("where: updated >= \"90d ago\"
+").unwrap();
+    let paths: Vec<String> = view::query(idx.conn(), &fresh)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(paths, vec!["新笔记.md".to_string()]);
+
+    // 绝对日期仍然照旧
+    let before: view::ViewSpec = serde_yaml::from_str("where: updated < \"2021-01-01\"
+").unwrap();
+    let paths: Vec<String> = view::query(idx.conn(), &before)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(paths, vec!["老笔记.md".to_string()]);
+}
+
+/// 普通日期属性上也能用相对时间 —— 「三个月前读的论文」和内置列一个道理。
+#[test]
+fn relative_time_works_on_date_properties() {
+    let (_t, _v, idx) = setup(&[
+        (
+            "旧论文.md",
+            "---
+id: 01GGGGGGGGGGGGGGGGGGGGGGGG
+title: 旧论文
+读于: 2020-03-04
+---
+
+
+",
+        ),
+        (
+            "新论文.md",
+            "---
+id: 01HHHHHHHHHHHHHHHHHHHHHHHH
+title: 新论文
+读于: 2999-01-01
+---
+
+
+",
+        ),
+    ]);
+
+    let spec: view::ViewSpec = serde_yaml::from_str("where: 读于 < \"1y ago\"
+").unwrap();
+    let paths: Vec<String> = view::query(idx.conn(), &spec)
+        .unwrap()
+        .rows
+        .into_iter()
+        .map(|row| row.path)
+        .collect();
+    assert_eq!(paths, vec!["旧论文.md".to_string()]);
+}
+
 // -------------------------------------------------------------- 增量更新
 
 #[test]

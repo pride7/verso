@@ -222,6 +222,43 @@ fn unquote(s: &str) -> String {
     t.to_string()
 }
 
+/// `90d ago` → SQLite 的日期修饰符 `-90 days`。认不出来返回 None，那时按
+/// 字面值比较（用户可能就是想找 `updated = "2026-05-01"`）。
+///
+/// **相对时间是知识库的必需品**：写死日期的筛选下个月就过期，「三个月没回头
+/// 看过的」那张清单因此没人维护得下去（DESIGN §2.6）。
+///
+/// 单位只认 d/w/m/y 四个字母。写进笔记的是 ASCII，界面上再显示成中文 ——
+/// 中文一旦进了 `.md`，这篇笔记就不能拖进别的编辑器用了（§0 第 1 条）。
+pub fn relative_modifier(value: &str) -> Option<String> {
+    let rest = value.trim().strip_suffix("ago")?.trim_end();
+    let unit = rest.chars().last()?;
+    let n: i64 = rest[..rest.len() - unit.len_utf8()].trim().parse().ok()?;
+    if n < 0 {
+        return None;
+    }
+    match unit {
+        // SQLite 的修饰符里没有「周」，换算成天
+        'd' => Some(format!("-{n} days")),
+        'w' => Some(format!("-{} days", n * 7)),
+        'm' => Some(format!("-{n} months")),
+        'y' => Some(format!("-{n} years")),
+        _ => None,
+    }
+}
+
+fn sql_cmp(op: Op) -> &'static str {
+    match op {
+        Op::Eq => "=",
+        Op::Ne => "<>",
+        Op::Gt => ">",
+        Op::Ge => ">=",
+        Op::Lt => "<",
+        Op::Le => "<=",
+        Op::Contains => "LIKE",
+    }
+}
+
 /// 执行视图查询。
 ///
 /// 所有用户输入都走参数绑定，绝不拼进 SQL —— 视图定义写在笔记里，
@@ -249,6 +286,47 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
     }
 
     for c in parse_where(spec.where_.as_deref().unwrap_or(""))? {
+        // 相对时间（`90d ago`）在哪儿都能用：内置列、日期属性都一样。
+        // 时间比较**统一按天** —— 「三个月没碰过」问的是哪一天，不是哪一秒，
+        // 而且索引里的时间戳带时区偏移，整串比字符串会在跨时区时出错
+        let rel = relative_modifier(&c.value);
+        let rhs = if rel.is_some() { "date('now','localtime',?)" } else { "?" };
+        let rhs_arg = |c: &Condition| match &rel {
+            Some(modifier) => SqlValue::Text(modifier.clone()),
+            None => SqlValue::Text(c.value.chars().take(10).collect()),
+        };
+
+        // `created` / `updated` 不在 props 表里 —— 它们是 notes 的列（§2.6 把
+        // 它们排除在用户属性之外）。而且多数笔记没有手写时间戳，缺了要回落到
+        // 文件的 mtime，和文档树排序同一条规矩（见 `Index::sort_keys`）；
+        // 不回落的话，一条 `updated < 90d ago` 会把整个 vault 筛成空的
+        if matches!(c.key.as_str(), "created" | "updated") {
+            let col = c.key.as_str();
+            let expr = format!(
+                "COALESCE(NULLIF(substr(n.{col},1,10),''), date(n.mtime_ms/1000,'unixepoch','localtime'))"
+            );
+            if matches!(c.op, Op::Contains) {
+                sql.push_str(&format!(" AND {expr} LIKE '%' || ? || '%'"));
+                args.push(SqlValue::Text(c.value.clone()));
+            } else {
+                sql.push_str(&format!(" AND {expr} {} {rhs}", sql_cmp(c.op)));
+                args.push(rhs_arg(&c));
+            }
+            continue;
+        }
+
+        // 日期属性上的相对时间。数值那条路走不通（`2026-05-01` 不是数字），
+        // 所以单独一支，同样按天截断
+        if rel.is_some() && !matches!(c.op, Op::Ne | Op::Contains) {
+            sql.push_str(&format!(
+                " AND n.id IN (SELECT note_id FROM props WHERE key = ? AND substr(value,1,10) {} {rhs})",
+                sql_cmp(c.op)
+            ));
+            args.push(SqlValue::Text(c.key.clone()));
+            args.push(rhs_arg(&c));
+            continue;
+        }
+
         match c.op {
             // `!=` 要用 NOT IN：属性缺失的笔记也应当算「不等于」，
             // 用 `IN (… value != ?)` 会把它们漏掉

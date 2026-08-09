@@ -17,7 +17,7 @@
  */
 
 /** `/` 菜单里那几条「不插文本、交回给 App 做一件事」的选项 */
-export type SlashAction = "template" | "journal" | "issues";
+export type SlashAction = "template" | "journal" | "issues" | "knowledge";
 
 export interface SlashItem {
   label: string;
@@ -65,6 +65,7 @@ export const BUILTIN_SLASH: SlashItem[] = [
   { label: "插入模板", detail: "template", action: "template" },
   { label: "进展记录", detail: "带时间戳的一节（§2.10）", action: "journal" },
   { label: "未关闭的条目", detail: "issue 列表", action: "issues" },
+  { label: "知识库", detail: "分类看板 + 最近 + 长期没碰", action: "knowledge" },
 ];
 
 /** 把模板拆成「要插入的文本」和「光标落点」。没写 `$0` 就落在末尾 */

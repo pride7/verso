@@ -7104,6 +7104,17 @@ textarea:focus-visible {
   gap: 4px;
   margin-bottom: 4px;
 }
+/* 「读作 90 天前」那一行。挂在条件下面，不占条件那一格的宽度 */
+.vset-hint {
+  margin: -2px 0 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+.vset-hint strong {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
 .vset-cond select {
   width: 100%;
 }

@@ -3,10 +3,12 @@ import { useEffect, useState } from "react";
 import { Icon, type IconName } from "./Icon";
 import {
   isBuiltin,
+  BUILTIN_COLUMNS,
   OPS,
   readColumns,
   readKey,
   readSourceScope,
+  describeRelative,
   readWhere,
   sourceWithScope,
   writeColumns,
@@ -61,7 +63,15 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
   const where = readWhere(source);
   const [draftFrom, setDraftFrom] = useState(from);
   const sourceScope = readSourceScope(from);
-  const filterableProperties = properties.filter((property) => !isBuiltin(property.key));
+  /**
+   * 内置的两个时间列现在也能筛（v0.7.37）。它们不在 props 表里，Rust 侧单独
+   * 接了一条 —— 而「三个月没回头看过的」正是知识库最需要、以前压根写不出来的
+   * 那张清单（§2.6）。
+   */
+  const filterableProperties = [
+    ...properties.filter((property) => !isBuiltin(property.key)),
+    ...BUILTIN_COLUMNS.map((key) => ({ key })),
+  ];
 
   useEffect(() => setDraftFrom(from), [from]);
 
@@ -228,7 +238,7 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
                     <input
                       aria-label={`筛选值 ${i + 1}`}
                       defaultValue={c.value}
-                      placeholder="输入要匹配的值"
+                      placeholder="值，或 90d ago"
                       onBlur={(e) =>
                         e.target.value !== c.value &&
                         patchWhere(
@@ -244,6 +254,14 @@ export function ViewSettings({ source, properties, onPatch, onClose }: Props) {
                       <Icon name="close" size={12} />
                     </button>
                   </div>
+                  {/* 相对时间读作什么，当场说清楚。`90d ago` 是写进文件的 ASCII，
+                      人读的是「90 天前」—— 而且它每次打开都按当天重新算，
+                      这一点不说的话，用户会以为它和写死一个日期是一回事 */}
+                  {describeRelative(c.value) && (
+                    <p className="vset-hint">
+                      读作 <strong>{describeRelative(c.value)}</strong>，每次打开都按当天重新算
+                    </p>
+                  )}
                 </div>
               ))}
               <button

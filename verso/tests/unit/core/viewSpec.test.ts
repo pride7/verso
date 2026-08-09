@@ -7,6 +7,8 @@ import {
   readKey,
   readSourceScope,
   readSort,
+  readRelative,
+  describeRelative,
   readWhere,
   writeColumns,
   writeKey,
@@ -169,6 +171,32 @@ describe("where", () => {
 
   it("清空条件就把 where 那一行删掉", () => {
     expect(writeWhere('where: a = 1\nview: table', [])).toBe("view: table");
+  });
+});
+
+describe("相对时间", () => {
+  it("认出 90d ago 这种写法，四个单位都认", () => {
+    expect(readRelative("90d ago")).toEqual({ n: 90, unit: "d" });
+    expect(readRelative("2w ago")).toEqual({ n: 2, unit: "w" });
+    expect(readRelative("3m ago")).toEqual({ n: 3, unit: "m" });
+    expect(readRelative("1y ago")).toEqual({ n: 1, unit: "y" });
+  });
+
+  it("不是相对时间就返回 null —— 用户可能真想找某个具体日期", () => {
+    expect(readRelative("2026-05-01")).toBeNull();
+    expect(readRelative("很久以前")).toBeNull();
+    expect(readRelative("90d")).toBeNull();
+    expect(readRelative("-5d ago")).toBeNull();
+  });
+
+  it("界面上读作中文，写进文件的仍是 ASCII", () => {
+    expect(describeRelative("90d ago")).toBe("90 天前");
+    expect(describeRelative("3m ago")).toBe("3 个月前");
+    expect(describeRelative("2026-05-01")).toBeNull();
+    // 带空格，所以写回去要加引号
+    expect(writeWhere("", [{ key: "updated", op: "<", value: "90d ago" }])).toBe(
+      'where: updated < "90d ago"',
+    );
   });
 });
 
