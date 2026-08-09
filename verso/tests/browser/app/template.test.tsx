@@ -302,6 +302,19 @@ describe("一个模板都没有时", () => {
   });
 });
 
+describe("模板目录与文档树", () => {
+  it("模板目录下的文件不在文档树中重复显示", async () => {
+    await mountApp();
+
+    const names = [...document.querySelectorAll<HTMLElement>(".tree-name")].map(
+      (node) => node.textContent,
+    );
+    expect(names).toContain("甲");
+    expect(names).not.toContain("会议纪要");
+    expect(names).not.toContain("日记");
+  });
+});
+
 describe("侧栏里的模板面板", () => {
   /** 点图标栏上的「模板」 */
   async function openPanel() {

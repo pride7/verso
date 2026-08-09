@@ -51,6 +51,7 @@ import { setSlashAction } from "../editor/completion";
 import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
 import { expandTemplate, pickTemplates } from "../core/template";
+import { hideTemplateSubtree } from "../core/treeVisibility";
 import { journalInsert } from "../core/journal";
 import { ensureProjectStatusSchema, isProject, markAsProject } from "../core/project";
 import { sendToTerminal } from "../core/termBus";
@@ -630,7 +631,14 @@ export default function App() {
    * 排序后的树。原始树保持 Rust 给的顺序，排序只影响显示 ——
    * 唯一会写文件的是手动排序，那是用户显式拖拽触发的
    */
-  const sortedTree = useMemo(() => sortTree(tree, settings.treeSort), [tree, settings.treeSort]);
+  const visibleTree = useMemo(
+    () => hideTemplateSubtree(tree, settings.templateDir),
+    [tree, settings.templateDir],
+  );
+  const sortedTree = useMemo(
+    () => sortTree(visibleTree, settings.treeSort),
+    [visibleTree, settings.treeSort],
+  );
 
   /**
    * 路径 → 文档图标。标签栏和快速切换器都按路径查，摊平成一张表最省事。
