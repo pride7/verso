@@ -106,23 +106,27 @@ function StatusSelect({ value, options, onChange, onDelete, label }: { value: st
             <button type="button" onClick={() => setDropping(null)}>取消</button>
           </div>
         </div>
-        : <div className="project-status-option" key={option}>
+        : <div className={`project-status-option${option === value ? " is-selected" : ""}`} key={option}>
           <button
             type="button"
             role="option"
             aria-selected={option === value}
             className={option === value ? "is-selected" : ""}
             onClick={() => { setOpen(false); if (option !== value) onChange(option, false); }}
-          ><span><i className="tone tone-dot" data-tone={statusTone(option)} />{option}</span>{option === value && <Icon name="check" size={12} />}</button>
-          {/* 正在用的那个不给删：删了它还得留在菜单里（这一条仍写着它），
+          ><span><i className="tone tone-dot" data-tone={statusTone(option)} />{option}</span></button>
+          {/* 勾和叉共用行尾这一格，所以两者在同一条竖线上。勾画在按钮里面的话，
+              它会贴着按钮的右内边，而叉是格子里居中 —— 两行一比就看得出没对齐。
+              正在用的那个不给删：删了它还得留在菜单里（这一条仍写着它），
               看着像没删掉。先换成别的，再回来删 */}
-          {option !== value && <button
-            type="button"
-            className="project-status-drop"
-            aria-label={`删掉状态${option}`}
-            title={`从词表里去掉「${option}」`}
-            onClick={() => setDropping(option)}
-          ><Icon name="close" size={11} /></button>}
+          {option === value
+            ? <span className="project-status-mark" aria-hidden="true"><Icon name="check" size={12} /></span>
+            : <button
+              type="button"
+              className="project-status-mark project-status-drop"
+              aria-label={`删掉状态${option}`}
+              title={`从词表里去掉「${option}」`}
+              onClick={() => setDropping(option)}
+            ><Icon name="close" size={11} /></button>}
         </div>)}
       <button type="button" className="project-status-new" onClick={() => { setOpen(false); setAdding(true); }}><Icon name="plus" size={11} />添加状态…</button>
     </div>}

@@ -3856,8 +3856,9 @@ body.is-table-resizing * {
   align-items: center;
   gap: 8px;
 }
-.project-status-menu button:hover,
-.project-status-menu button.is-selected {
+.project-status-menu .project-status-new:hover,
+.project-status-menu .project-status-option:hover,
+.project-status-menu .project-status-option.is-selected {
   background: var(--hover-bg);
 }
 .project-status-menu button.is-selected {
@@ -3872,35 +3873,42 @@ body.is-table-resizing * {
   border-radius: 0 0 var(--r-xs) var(--r-xs);
   color: var(--muted);
 }
-/* 一条选项 = 选它 + 删掉它。删按钮平时几乎看不见，指针进这一行才浮出来 ——
-   一列里挂着一排 × 会让「选一个状态」这件事看着像在管理设置 */
+/* 一条选项 = 选它 + 行尾一格。那一格里要么是当前项的勾，要么是删除的叉 ——
+   **同一格**，所以两者天然对齐；各画各的话，勾贴着按钮内边、叉在格子里居中，
+   两行一比就看得出差了半格。
+
+   删按钮平时几乎看不见，指针进这一行才浮出来 —— 一列里挂着一排 × 会让
+   「选一个状态」这件事看着像在管理设置 */
 .project-status-menu .project-status-option {
   display: flex;
   align-items: center;
-  gap: 2px;
+  border-radius: var(--r-xs);
 }
-/* 名字长就让名字先让位，别把删除按钮挤出去 */
-.project-status-menu .project-status-option > [role="option"] {
-  min-width: 0;
-}
-.project-status-menu .project-status-drop {
+.project-status-menu .project-status-mark {
   /* `.project-status-menu button` 那条把宽度设成了 100%，而层叠是**逐属性**的
-     —— 这条规则赢了别的属性不代表宽度也归它管。不写回 auto 的话，`flex: none`
+     —— 这条规则赢了别的属性不代表宽度也归它管。不写回定值的话，`flex: none`
      会让这个按钮死死占住整条菜单的宽度，然后整个溢到菜单外面去 */
-  width: auto;
+  width: 24px;
   min-width: var(--tap-sm);
   min-height: var(--tap-sm);
   flex: none;
   display: grid;
   place-items: center;
-  padding: 4px;
+  padding: 0;
   border-radius: var(--r-xs);
+  color: var(--accent-ink);
+}
+.project-status-menu .project-status-drop {
   color: var(--muted-2);
   opacity: 0;
 }
 .project-status-option:hover .project-status-drop,
 .project-status-menu .project-status-drop:focus-visible {
   opacity: 1;
+}
+/* 名字长就让名字先让位，行尾那一格不动 */
+.project-status-menu .project-status-option > [role="option"] {
+  min-width: 0;
 }
 .project-status-menu .project-status-drop:hover {
   background: var(--hover-bg);

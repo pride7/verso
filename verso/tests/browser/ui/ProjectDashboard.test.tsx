@@ -195,6 +195,13 @@ describe("单项目总览", () => {
 
     // 删除按钮必须整个待在菜单里。`.project-status-menu button` 那条把宽度设成
     // 100%，而层叠是逐属性的 —— 漏了写回 auto 的话它会顶着整条菜单的宽度溢出去
+    // 勾和叉共用行尾那一格，所以两者必须在同一条竖线上 —— 各画各的话差半格，
+    // 两行一比就看得出来
+    const centers = [...document.querySelectorAll<HTMLElement>(".project-status-mark")]
+      .map((mark) => { const box = mark.getBoundingClientRect(); return box.left + box.width / 2; });
+    expect(centers.length).toBeGreaterThan(1);
+    expect(Math.max(...centers) - Math.min(...centers), "勾和叉没对齐").toBeLessThanOrEqual(0.5);
+
     const menuBox = document.querySelector(".project-status-menu")!.getBoundingClientRect();
     for (const drop of document.querySelectorAll<HTMLElement>(".project-status-drop")) {
       const box = drop.getBoundingClientRect();
