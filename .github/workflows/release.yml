@@ -31,11 +31,80 @@ on:
         default: all
 
 jobs:
+  # **先把草稿 Release 建出来，再并行构建。**
+  #
+  # tauri-action 跑在下面那个 matrix 里，而它在没拿到 releaseId 时会自己
+  # 「查不到就建一个」。四个平台几乎同时启动时，两个都查到「不存在」，于是
+  # 同一个 tag 建出**两个** Release，18 个产物被劈成 8 + 11 —— 哪一个单独
+  # 发布都是残的，而 latest.json 记的是原始下载地址，指向的文件在另一个
+  # Release 里，自动更新当场 404。v0.7.41 上真发生过，两个草稿都只能删掉。
+  #
+  # 已经有同名 tag 的 Release 就复用：重跑、只补 Android APK 都走这条。
+  create-release:
+    name: 建草稿 Release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.pick.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 和下面 matrix 里那一步同源：正文取自 CHANGELOG 对应小节，取不到就失败，
+      # 避免建出一个没有更新说明的 Release
+      - name: 提取版本更新说明
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<VERSO_EOF'
+            node scripts/release-notes.mjs "${{ github.event.inputs.tag || github.ref_name }}"
+            echo 'VERSO_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 建（或复用）草稿 Release
+        id: pick
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          NOTES: ${{ steps.notes.outputs.body }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const list = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const found = list.find((release) => release.tag_name === tag);
+            if (found) {
+              core.info(`复用已有 Release #${found.id}`);
+              core.setOutput("id", String(found.id));
+              return;
+            }
+            const created = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Verso ${tag}`,
+              body: process.env.NOTES,
+              draft: true,
+              prerelease: false,
+            });
+            core.info(`新建 Release #${created.data.id}`);
+            core.setOutput("id", String(created.data.id));
+
   build:
     name: 构建桌面安装包（${{ matrix.platform }}）
     # 仅补充 Android APK 时跳过桌面端构建。tauri-action 向现有 Release 上传
     # 同名资产会失败，且已有桌面端产物无需重复生成。
     if: ${{ github.event_name == 'push' || github.event.inputs.only != 'android' }}
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -122,6 +191,9 @@ jobs:
           tagName: ${{ github.event.inputs.tag || github.ref_name }}
           releaseName: Verso ${{ github.event.inputs.tag || github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
+          # 上一个 job 建好的那一个。**不能省** —— 省了就退回「每个 runner
+          # 自己建一个」，同一个 tag 会冒出两个 Release
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseDraft: true
           prerelease: false
           # Windows 的 `targets: all` 同时生成 MSI 与 NSIS 安装包。自动更新优先使用
