@@ -371,12 +371,29 @@ describe("手机竖屏下的布局", () => {
       b.getAttribute("aria-label"),
     );
     // 桌面窄窗口上终端还在；手机上它整个不渲染（另有一条测试盯着）
-    expect(items).toEqual(["源码模式", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
+    expect(items).toEqual(["源码模式", "草稿台", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
 
     // 面板里的行同样要够一根手指
     for (const item of document.querySelectorAll<HTMLElement>(".rail-sheet-item")) {
       expect(item.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     }
+  });
+
+  it("Mod+Shift+Space 从任何一屏打开草稿台", async () => {
+    noteBody = "- 刚才想到的事";
+    await mount();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: " ",
+        code: "Space",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }));
+      await settle(350);
+    });
+    expect(document.querySelector(".scratchpad"), "快捷键没打开草稿台").toBeTruthy();
   });
 
   it("「更多」面板不会伸出屏幕", async () => {
@@ -993,7 +1010,7 @@ describe("手机上的点击目标", () => {
     ".tab-close, .tab-new, .tree-add, .crumb-icon, .props-toggle," +
     " .side-act, .status-git, .backlinks-head, .mathbar-pages, .hist-restore," +
     " .dbview-edit, .modal-close, .set-reset, .set-reset-all, .segmented, .swatches," +
-    " [class^='cm-'], [class*=' cm-']";
+    " .scratch-more, [class^='cm-'], [class*=' cm-']";
 
   /**
    * 形状不是方的那几个，逐个写明白 —— 用一条正则糊成「次要图标」会把
@@ -1223,6 +1240,14 @@ describe("手机上的点击目标", () => {
     await mount();
     await openAction("思维导图");
     expect(document.querySelector(".mindmap"), "导图没打开，这条就白测了").toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("草稿台上的每个入口都够得着", async () => {
+    noteBody = ["- 第一个念头", "  - 它的子项", "- 另一个方向"].join("\n");
+    await mount();
+    await openAction("草稿台");
+    expect(document.querySelector(".scratchpad"), "草稿台没打开，这条就白测了").toBeTruthy();
     expect(tooSmall()).toEqual([]);
   });
 

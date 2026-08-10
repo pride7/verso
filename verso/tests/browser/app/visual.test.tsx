@@ -121,6 +121,7 @@ const NOTE: NoteContent = {
   body: NOTE_BODY,
   mtimeMs: 0,
 };
+let currentNote = NOTE;
 
 const NOTES: NoteRef[] = [
   // 模板面板从笔记清单里挑（§4.6），所以这几条要在
@@ -175,7 +176,7 @@ vi.mock("../../../src/host/api", () => ({
     openVault: async () => VAULT,
     tree: async () => TREE,
     listNotes: async () => NOTES,
-    readNote: async () => NOTE,
+    readNote: async () => currentNote,
     writeNote: async () => 0,
     statNote: async () => 0,
     createNote: async () => ({ path: "新文档.md", id: "x", title: "新文档" }),
@@ -311,6 +312,7 @@ beforeEach(() => {
   localStorage.clear();
   theme = "light";
   mobileFlag = false;
+  currentNote = NOTE;
   workspace = { tabs: [], active: 0, pinnedCount: 0 };
   document.documentElement.removeAttribute("data-theme");
 });
@@ -513,6 +515,29 @@ describe("视觉工作台", () => {
     document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')?.click();
     await shot("15-light-mindmap");
     alive();
+  });
+
+  it("浅色 · 结构化草稿台", async () => {
+    currentNote = {
+      ...NOTE,
+      path: "草稿箱.md",
+      title: "草稿箱",
+      frontmatter: { type: "scratch" },
+      frontmatterText: "type: scratch\n",
+      body: [
+        "- 验证核心假设",
+        "  - 找三篇相关论文",
+        "  - 写一个最小实验",
+        "- 可能的问题",
+        "  - 数据量不够",
+        "- $E = mc^2$ 在这里有什么意义？",
+      ].join("\n"),
+    };
+    render();
+    await settle(700);
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="草稿台"]')?.click();
+    await shot("18-light-scratchpad");
+    expect(document.querySelector(".scratchpad"), "草稿台没打开，截图就没有意义").toBeTruthy();
   });
 
   it("浅色 · 思维导图的节点菜单", async () => {
@@ -833,6 +858,4 @@ describe("视觉工作台 · 手机竖屏", () => {
     alive();
   });
 });
-
-
 

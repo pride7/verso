@@ -41,6 +41,7 @@ import { HistoryView, type DiffSelection } from "../ui/HistoryView";
 import { DiffView } from "../ui/DiffView";
 import { MathBar } from "../ui/MathBar";
 import { MindMap } from "../ui/MindMap";
+import { Scratchpad } from "../ui/Scratchpad";
 import { ProjectCenter } from "../ui/ProjectCenter";
 import { ProjectDashboard } from "../ui/ProjectDashboard";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "../ui/VaultSwitcher";
@@ -398,6 +399,8 @@ export default function App() {
   >(null);
   /** 思维导图铺在正文上（§4.7）。它不是浮层，是同一篇笔记的另一种编辑视图 */
   const [mindmapOpen, setMindmapOpen] = useState(false);
+  /** 结构化草稿台（§4.7.1）。和导图一样只是当前 Markdown 的一种投影。 */
+  const [scratchpadOpen, setScratchpadOpen] = useState(false);
   /** 一屏项目总览；正文编辑器仍留在 DOM 中，退出时光标和撤销历史都还在。 */
   const [projectOpen, setProjectOpen] = useState(false);
   /** 跨笔记的项目中心；从这里进入某一张项目卡，才下钻到单项目总览。 */
@@ -741,6 +744,9 @@ export default function App() {
       diffReturnScroll.current = null;
       setNote(content);
       setBody(content.body);
+      // 换页默认回到这篇笔记自己的主视图。草稿台入口在 load 完之后
+      // 再显式打开，不能让「上一篇在卡片视图」泄漏到普通笔记。
+      setScratchpadOpen(false);
       const project = isProject(content);
       setProjectOpen(project);
       if (project) setMindmapOpen(false);
@@ -2532,6 +2538,7 @@ export default function App() {
   const toggleProject = useCallback(async () => {
     let current = noteRef.current;
     if (!current) return;
+    setScratchpadOpen(false);
     if (projectOpen && !projectCenterOpen) {
       setProjectOpen(false);
       return;
@@ -2582,6 +2589,60 @@ export default function App() {
     setProjectCenterOpen(false);
     setProjectOpen(true);
   }, [openPath, projectCenterOpen, projectOpen, refresh, reloadFromDisk, saveNow]);
+
+  /**
+   * 打开全库唯一的草稿箱。
+   *
+   * 不只按文件名认：用户可能早已有一篇普通的「草稿箱.md」，我们不能
+   * 悄悄给它改类型。只复用 `type: scratch` 的候选；重名就顺延数字。
+   */
+  const toggleScratchpad = useCallback(async () => {
+    if (scratchpadOpen) {
+      setScratchpadOpen(false);
+      return;
+    }
+    try {
+      // 走索引查属性，不扫全库逐篇读文件。草稿箱被用户改过名后仍能找回来。
+      const found = await api.viewQuery([
+        'where: type = "scratch"',
+        "sort: updated desc",
+        "limit: 1",
+      ].join("\n"));
+      let path: string | null = found.rows[0]?.path ?? null;
+      if (!path) {
+        const paths = new Set(noteListRef.current.map((candidate) => candidate.path));
+        let suffix = 1;
+        let title = "草稿箱";
+        while (paths.has(`${title}.md`)) title = `草稿箱 ${++suffix}`;
+        const meta = await api.createNote(null, title);
+        await api.propSet(meta.path, "type", "scratch");
+        path = meta.path;
+        await refresh();
+      }
+      setMindmapOpen(false);
+      setProjectCenterOpen(false);
+      setProjectOpen(false);
+      await openPath(path);
+      setScratchpadOpen(true);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }, [openPath, refresh, scratchpadOpen]);
+
+  /** 选中的卡片复制进一篇新笔记；草稿原件显式保留。 */
+  const promoteScratch = useCallback(async (markdown: string) => {
+    if (!markdown.trim()) return;
+    try {
+      const meta = await api.createUntitled(null);
+      await api.writeNote(meta.path, markdown);
+      await refresh();
+      await openPath(meta.path);
+      setRenaming(meta.path);
+      setNotice("已从草稿生成新文档，原卡片仍在草稿箱里");
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }, [openPath, refresh]);
 
   /**
    * 设置/去掉一篇笔记的图标（§2.3）。`icon` 为 null = 去掉。
@@ -2764,6 +2825,14 @@ export default function App() {
         run: () => pickView("template"),
       },
       {
+        id: "note.scratchpad",
+        group: "笔记",
+        label: scratchpadOpen ? "回到草稿正文" : "草稿台",
+        // Space = 一张还没有命名的空白纸。不占用字母，也不和系统快捷键撞。
+        defaultKeys: "Mod+Shift+Space",
+        run: () => void toggleScratchpad(),
+      },
+      {
         id: "note.mindmap",
         group: "笔记",
         label: mindmapOpen ? "回到正文" : "思维导图",
@@ -2771,7 +2840,10 @@ export default function App() {
         // WebView2 未必让给我们
         defaultKeys: "Mod+Shift+G",
         enabled: hasNote,
-        run: () => setMindmapOpen((v) => !v),
+        run: () => {
+          setScratchpadOpen(false);
+          setMindmapOpen((v) => !v);
+        },
       },
       {
         id: "note.project",
@@ -2791,6 +2863,7 @@ export default function App() {
         // 与单项目总览的 Mod+Shift+J 成对：Alt 表示再向上一层看全部项目。
         defaultKeys: "Mod+Alt+J",
         run: () => {
+          setScratchpadOpen(false);
           setMindmapOpen(false);
           setProjectCenterOpen((value) => !value);
         },
@@ -2839,7 +2912,10 @@ export default function App() {
         label: sourceMode ? "退出源码模式" : "源码模式",
         // Obsidian 用 Ctrl+E 在源码与预览之间切，沿用它的肌肉记忆
         defaultKeys: "Mod+E",
-        run: toggleSourceMode,
+        run: () => {
+          setScratchpadOpen(false);
+          toggleSourceMode();
+        },
       },
       {
         id: "view.tocFloat",
@@ -3182,6 +3258,8 @@ export default function App() {
     // label 会随它在「思维导图 / 回到正文」之间换 —— 漏掉的话命令面板里
     // 会一直显示「思维导图」，点它反而是关掉
     mindmapOpen,
+    scratchpadOpen,
+    toggleScratchpad,
     projectOpen,
     projectCenterOpen,
     toggleProject,
@@ -3475,6 +3553,7 @@ export default function App() {
     !!note &&
     !diffSelection &&
     !termOpen &&
+    !scratchpadOpen &&
     !mindmapOpen &&
     !projectOpen &&
     !projectCenterOpen;
@@ -3498,11 +3577,20 @@ export default function App() {
         layout={narrow ? "bottom" : "rail"}
         activityUnread={collaborationUnread}
         sourceMode={sourceMode}
-        onToggleSourceMode={toggleSourceMode}
+        onToggleSourceMode={() => {
+          setScratchpadOpen(false);
+          toggleSourceMode();
+        }}
+        scratchOn={scratchpadOpen}
+        onToggleScratch={() => void toggleScratchpad()}
         mindmapOn={note ? mindmapOpen : null}
-        onToggleMindmap={() => setMindmapOpen((v) => !v)}
+        onToggleMindmap={() => {
+          setScratchpadOpen(false);
+          setMindmapOpen((v) => !v);
+        }}
         projectOn={projectCenterOpen}
         onToggleProject={() => {
+          setScratchpadOpen(false);
           setMindmapOpen(false);
           setProjectCenterOpen((value) => !value);
         }}
@@ -3711,6 +3799,7 @@ export default function App() {
           // 点标签就是明确地回到笔记。尤其是点当前标签时，applyTabs 会因为
           // 路径没变而直接返回，不能指望它顺手关掉差异页。
           if (diffSelection) closeDiff();
+          setScratchpadOpen(false);
           setProjectCenterOpen(false);
           setProjectOpen(isProject(note));
           void applyTabs(gotoTab(tabsRef.current, i));
@@ -3724,6 +3813,25 @@ export default function App() {
         // 就是在说「我要多一页」，这时候还去看设置里的默认打开方式没有意义
         onNewTab={() => void createAndOpen(null, { newTab: true })}
       />
+
+      {/* 草稿台和导图一样与 main 占同一格，Editor 仍留在 DOM 中。
+          卡片修改因此走同一份 dispatch / 撤销栈 / 自动保存。 */}
+      {note && scratchpadOpen && !diffSelection && !projectCenterOpen && (
+        <Scratchpad
+          key={note.path}
+          title={note.title}
+          body={body}
+          onEdit={(edit) => editorRef.current?.replaceLines(edit.fromLine, edit.toLine, edit.insert)}
+          onUndo={() => { editorRef.current?.undo(); }}
+          onRedo={() => { editorRef.current?.redo(); }}
+          onMindmap={() => {
+            setScratchpadOpen(false);
+            setMindmapOpen(true);
+          }}
+          onSource={() => setScratchpadOpen(false)}
+          onPromote={(markdown) => void promoteScratch(markdown)}
+        />
+      )}
 
       {/* 思维导图铺满编辑区。**放在 main 外面、和它占同一片区域** ——
           Editor 必须留在 DOM 里：图上的每一次改动都要走它的 dispatch，
@@ -3884,7 +3992,7 @@ export default function App() {
           本来就可以重叠），于是侧栏收起、终端打开时它自己会跟着挪，
           不需要任何 JS 参与布局。
           只有一条标题时不显示 —— 那不叫目录，只是一块挡视线的东西 */}
-      {note && !diffSelection && !mindmapOpen && !projectOpen && !projectCenterOpen && tocFloat && headings.length >= 2 && (
+      {note && !diffSelection && !scratchpadOpen && !mindmapOpen && !projectOpen && !projectCenterOpen && tocFloat && headings.length >= 2 && (
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 
