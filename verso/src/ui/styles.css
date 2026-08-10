@@ -8459,15 +8459,18 @@ textarea:focus-visible {
   background: var(--hover-bg);
 }
 .scratch-menu {
+  position: fixed;
+  z-index: 80;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 100%;
-  margin: 2px 0 8px;
+  width: 286px;
+  margin: 0;
   padding: 5px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--raised);
   box-shadow: var(--shadow-lg);
+  overflow-y: auto;
 }
 .scratch-menu button {
   display: flex;

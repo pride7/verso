@@ -1249,6 +1249,19 @@ describe("手机上的点击目标", () => {
     await openAction("草稿台");
     expect(document.querySelector(".scratchpad"), "草稿台没打开，这条就白测了").toBeTruthy();
     expect(tooSmall()).toEqual([]);
+    const card = document.querySelector<HTMLElement>(".scratch-card")!;
+    const before = card.getBoundingClientRect();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".scratch-more")!.click();
+      await settle(100);
+    });
+    const menu = document.querySelector<HTMLElement>(".scratch-menu")!;
+    const popup = menu.getBoundingClientRect();
+    expect(menu.parentElement).toBe(document.body);
+    expect(card.getBoundingClientRect().height).toBe(before.height);
+    expect(popup.left >= before.right || popup.right <= before.left || popup.top >= before.bottom || popup.bottom <= before.top)
+      .toBe(true);
+    expect(tooSmall()).toEqual([]);
   });
 
   it("项目中心里的每个入口都够得着", async () => {

@@ -86,9 +86,20 @@ describe("结构化草稿台", () => {
     mount("- 甲\n- 乙");
     await new Promise((resolve) => setTimeout(resolve, 30));
     const more = document.querySelector<HTMLButtonElement>(".scratch-more")!;
+    const card = more.closest<HTMLElement>(".scratch-card")!;
+    const cardHeight = card.getBoundingClientRect().height;
     expect(more.getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
     await userEvent.click(more);
-    const items = [...document.querySelectorAll<HTMLButtonElement>(".scratch-menu button")];
+    const menu = document.querySelector<HTMLElement>(".scratch-menu")!;
+    const items = [...menu.querySelectorAll<HTMLButtonElement>("button")];
+    expect(menu.parentElement).toBe(document.body);
+    expect(getComputedStyle(menu).position).toBe("fixed");
+    expect(card.getBoundingClientRect().height).toBe(cardHeight);
+    const cardBox = card.getBoundingClientRect();
+    const menuBox = menu.getBoundingClientRect();
+    const overlaps = menuBox.left < cardBox.right && menuBox.right > cardBox.left &&
+      menuBox.top < cardBox.bottom && menuBox.bottom > cardBox.top;
+    expect(overlaps).toBe(false);
     expect(items.length).toBeGreaterThan(4);
     expect(items.every((button) => button.getBoundingClientRect().height >= 44)).toBe(true);
   });

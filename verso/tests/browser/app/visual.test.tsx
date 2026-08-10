@@ -538,6 +538,14 @@ describe("视觉工作台", () => {
     document.querySelector<HTMLElement>('.rail-btn[aria-label="草稿台"]')?.click();
     await shot("18-light-scratchpad");
     expect(document.querySelector(".scratchpad"), "草稿台没打开，截图就没有意义").toBeTruthy();
+    document.querySelector<HTMLElement>(".scratch-more")?.click();
+    await shot("19-light-scratchpad-menu");
+    const card = document.querySelector<HTMLElement>(".scratch-card")!.getBoundingClientRect();
+    const menu = document.querySelector<HTMLElement>(".scratch-menu")!;
+    const popup = menu.getBoundingClientRect();
+    expect(menu.parentElement).toBe(document.body);
+    expect(popup.left >= card.right || popup.right <= card.left || popup.top >= card.bottom || popup.bottom <= card.top)
+      .toBe(true);
   });
 
   it("浅色 · 思维导图的节点菜单", async () => {
@@ -858,4 +866,3 @@ describe("视觉工作台 · 手机竖屏", () => {
     alive();
   });
 });
-
