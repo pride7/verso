@@ -70,6 +70,46 @@ describe("结构化草稿台", () => {
     expect(document.activeElement).toBe(document.querySelectorAll(".scratch-text")[1]);
   });
 
+  it("中文输入法组词期间不重设选区，确认后只留下汉字", async () => {
+    mount("- ");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const area = document.querySelector<HTMLTextAreaElement>(".scratch-text")!;
+    await userEvent.click(area);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // WebKit 正在维护一段 marked text 时，任何 setSelectionRange 都会把那段
+    // 组词范围打散。旧实现每次 onChange 都 setState，effect 随后把光标移到
+    // 末尾，结果就是拼音留在前面、选中的汉字再追加一遍。
+    const nativeSelection = area.setSelectionRange.bind(area);
+    const resetSelection = vi.fn((...args: Parameters<HTMLTextAreaElement["setSelectionRange"]>) =>
+      nativeSelection(...args));
+    area.setSelectionRange = resetSelection;
+
+    area.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!
+      .call(area, "aa'aa'a'a");
+    area.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: "aa'aa'a'a",
+      inputType: "insertCompositionText",
+      isComposing: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(resetSelection, "组词期间 React 重设了选区").not.toHaveBeenCalled();
+
+    area.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "啊啊啊" }));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!
+      .call(area, "啊啊啊");
+    area.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      data: "啊啊啊",
+      inputType: "insertText",
+    }));
+    area.blur();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(document.querySelector<HTMLTextAreaElement>(".scratch-text")?.value).toBe("啊啊啊");
+  });
+
   it("选中父卡片后连子树生成正式文档", async () => {
     const { promoted } = mount("- 甲\n  - 甲一\n- 乙");
     await new Promise((resolve) => setTimeout(resolve, 30));

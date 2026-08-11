@@ -1556,6 +1556,11 @@ CodeMirror 会在 KaTeX 上下各残留一个正文行盒。公式自己的垂�
 - 组词**结束后那一拍必须补一次重建**，否则跳过的那些更新永远补不回来
 - `parseRefresh` 也要跟着停：它在解析推进时派发 effect，而组词过程中解析一直
   在推进
+- **中西文自动间距也属于 decoration**：拼音本身是西文，若 `typography` 在
+  组词途中给它套上 `.cm-hs`，WebKit 的 marked text 会被拆成 `<span>`，表现为
+  拼音固化、候选汉字追加在后面。它必须与 live preview 共用同一份
+  `compositionTracker`，到 `compositionend` 后再按最终文本重建；追踪器因此放在
+  PREVIEW compartment 外，源码模式下也不能漏掉
 - **英文键盘永远复现不了**（没有组词这一步），所以只能靠模拟 composition 事件
   来守（`tests/browser/editor/composition.test.ts`）
 
@@ -1873,6 +1878,13 @@ project` 的笔记打开就进项目总览是同一条规则 —— 一篇笔记
 文件会把真正的笔记挤下去，而模板另有面板、`/` 菜单和命令三个入口。草稿箱只有
 一篇，藏起来就没有地方给它改名、移动、删除和翻历史了；而且既然点开就是卡片
 界面，「在树里看见它却打开一篇奇怪的 md」这个理由本身就不存在了。
+
+卡片编辑框与思维导图节点一样使用**非受控 textarea**：进入编辑态时铺一次初值，
+确认、失焦或执行结构操作时再从 DOM 读回。不能在每次 `onChange` 后由 React 写回
+`value` —— macOS 的 WKWebView 正在维护中文输入法的 marked text 时，这次写回连同
+`setSelectionRange` 会拆掉组词范围，结果同样是拼音留在前面、汉字又追加一次。
+`compositionstart` 到 `compositionend` 之间不改 value、不重设选区；Enter / Tab
+仍同时检查 `isComposing` 和 `keyCode === 229`，与 §6.5 的全局输入法护栏一致。
 
 ### 4.8 行内格式的快捷键（v0.6.15）
 

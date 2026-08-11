@@ -7,7 +7,7 @@
  * 用英文键盘打字**永远复现不了**（没有组词这一步），所以这条只能靠模拟
  * composition 事件来守。
  */
-import { EditorSelection } from "@codemirror/state";
+import { EditorSelection, Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -41,6 +41,44 @@ function mount(doc: string) {
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("组词期间不动 decoration", () => {
+  it("普通正文里的拼音不加中西文间距，避免 WebKit 固化组词文本", async () => {
+    const view = mount("中文");
+    await settle(250);
+    view.focus();
+    view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) });
+
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const provisional = "aa'aa'a'a";
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: provisional },
+      selection: EditorSelection.cursor(view.state.doc.length + provisional.length),
+      annotations: Transaction.userEvent.of("input.type.compose.start"),
+    });
+    await settle();
+
+    // 旧实现此时会给拼音套 `.cm-hs` span。WebKit 正在维护 marked text，
+    // 替换这段 DOM 会让拼音固化，候选汉字随后只能追加在它后面。
+    expect(
+      view.contentDOM.querySelector(".cm-hs"),
+      "组词中的拼音被 typography decoration 改写了",
+    ).toBeNull();
+
+    view.contentDOM.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "啊啊啊" }),
+    );
+    view.dispatch({
+      changes: {
+        from: view.state.doc.length - provisional.length,
+        to: view.state.doc.length,
+        insert: "啊啊啊",
+      },
+      selection: EditorSelection.cursor(view.state.doc.length - provisional.length + 3),
+      annotations: Transaction.userEvent.of("input.type.compose"),
+    });
+    await settle();
+    expect(view.state.doc.toString()).toBe("中文啊啊啊");
+  });
+
   it("在行内公式后面用输入法打字，公式不会被顶掉", async () => {
     const view = mount("行内 $x$");
     await settle(250);

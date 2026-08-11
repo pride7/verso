@@ -87,6 +87,25 @@ function nodeLabel(node: MindNode): string {
   return node.indent > 0 ? `层级 ${Math.floor(node.indent / 2) + 1}` : "想法";
 }
 
+function fitCardText(area: HTMLTextAreaElement) {
+  area.style.height = "0";
+  area.style.height = `${area.scrollHeight}px`;
+}
+
+/** 卡片在 Markdown 里只能占一行；粘贴或 Shift+Enter 得到的换行就地铺平。 */
+function flattenCardText(area: HTMLTextAreaElement) {
+  const next = area.value.replace(/[\r\n]+/g, " ");
+  if (next === area.value) return;
+  const before = area.value;
+  const start = area.selectionStart;
+  const end = area.selectionEnd;
+  const direction = area.selectionDirection;
+  area.value = next;
+  // 只在真的清掉换行时修正光标；组词期间不会走到这里。
+  const flattenedPosition = (position: number) => before.slice(0, position).replace(/[\r\n]+/g, " ").length;
+  area.setSelectionRange(flattenedPosition(start), flattenedPosition(end), direction);
+}
+
 function ScratchCard({
   node,
   bodyLines,
@@ -109,27 +128,32 @@ function ScratchCard({
   children,
 }: CardProps) {
   const raw = (bodyLines[node.line - 1] ?? "").slice(node.prefix.length);
-  const [value, setValue] = useState(raw);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const composingRef = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => setValue(raw), [raw]);
   useEffect(() => {
     const area = areaRef.current;
     if (!area) return;
-    area.style.height = "0";
-    area.style.height = `${area.scrollHeight}px`;
-    if (editing) {
+    // 非编辑状态下仍要接住撤销、同步等外部改动；组词或正在输入时不能写 DOM。
+    if (document.activeElement !== area && !composingRef.current && area.value !== raw) {
+      area.value = raw;
+    }
+    fitCardText(area);
+    if (editing && document.activeElement !== area) {
       area.focus();
       area.setSelectionRange(area.value.length, area.value.length);
     }
-  }, [editing, value]);
+  }, [editing, raw]);
 
   useLayoutEffect(() => {
     if (menu && menuRef.current) fitFloatingMenu(menuRef.current, menu.x, menu.y, 6);
   }, [menu]);
 
   const commit = () => {
+    const area = areaRef.current;
+    if (!area) return;
+    const value = area.value.replace(/[\r\n]+/g, " ");
     if (value.trim() !== raw.trim()) onCommit(value);
   };
 
@@ -178,12 +202,29 @@ function ScratchCard({
         <textarea
           ref={areaRef}
           className="scratch-text"
-          value={value}
+          // 非受控：WebKit 的输入法正在维护 marked text 时，React 每次按键都
+          // 写回 value、重设选区，会把组词范围拆掉，留下拼音再追加汉字。
+          // 浏览器先独占这格；确认、失焦或结构操作时才从 DOM 读回 Markdown。
+          defaultValue={raw}
           rows={1}
           placeholder="记下一个还没想完的念头…"
           aria-label="草稿卡片内容"
           onFocus={onEditing}
-          onChange={(event) => setValue(event.target.value.replace(/[\r\n]+/g, " "))}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composingRef.current = false;
+            fitCardText(event.currentTarget);
+          }}
+          onInput={(event) => {
+            // 输入法占着 DOM 时连换行整理也不做。Safari/WKWebView 对 marked
+            // text 的范围很敏感，任何 value/selection 写入都可能把拼音固化。
+            if (!composingRef.current && !event.nativeEvent.isComposing) {
+              flattenCardText(event.currentTarget);
+            }
+            fitCardText(event.currentTarget);
+          }}
           onBlur={commit}
           onKeyDown={(event) => {
             // 组词中的 Enter/Tab 是在跟候选框说话。两条一起查：Safari 在

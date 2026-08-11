@@ -79,15 +79,14 @@ export function compositionStale(probe: CompositionProbe): boolean {
 /**
  * 每个 view 最后一次 composition 事件的时刻。
  *
- * 用 WeakMap 而不是把它挂在某个插件的实例上：**两处**要用同一个判断 ——
- * `livePreview` 决定要不要重建 decoration，`parseRefresh` 决定要不要派发
- * 「解析又推进了」。各记各的迟早会分叉，而分叉的表现是「一边解冻了另一边
- * 还冻着」，比两边都冻更难查。
+ * 用 WeakMap 而不是把它挂在某个插件的实例上：`livePreview`、`parseRefresh`
+ * 和 `typography` 都要用同一个判断。各记各的迟早会分叉，而分叉的表现是
+ * 「公式解冻了，中西文间距还在改组词 DOM」之类的半好半坏，比全冻住更难查。
  */
 const lastCompositionEvent = new WeakMap<EditorView, number>();
 
 /**
- * 把 composition 事件记下来。两个插件共用这一份账。
+ * 把 composition 事件记下来。所有会改编辑器 DOM 的插件共用这一份账。
  *
  * 挂成 `domEventHandlers` 而不是某个插件的 `eventHandlers`：它不属于任何
  * 一个插件，谁先谁后也不该影响它。

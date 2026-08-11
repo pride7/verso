@@ -31,6 +31,7 @@ import {
 } from "@codemirror/view";
 
 import { latinRuns } from "../core/hanspace";
+import { compositionActive } from "./compositionGuard";
 
 const both = Decoration.mark({ class: "cm-hs cm-hs-l cm-hs-r" });
 const left = Decoration.mark({ class: "cm-hs cm-hs-l" });
@@ -99,13 +100,25 @@ function build(view: EditorView): DecorationSet {
 class Typography implements PluginValue {
   decorations: DecorationSet;
 
+  /** 上一次更新时输入法是不是正在组词 */
+  private composing = false;
+
   constructor(view: EditorView) {
     this.decorations = build(view);
   }
 
   update(u: ViewUpdate) {
+    // 拼音本身也是西文。这里如果照常加 `.cm-hs`，会把 WebKit 正在维护的
+    // marked text 换成一层 span：拼音因此固化，候选汉字只能追加在后面。
+    // 组词结束那一拍再按最终汉字重建，期间一个 DOM 节点都不换。
+    if (compositionActive(u.view)) {
+      this.composing = true;
+      return;
+    }
+    const ended = this.composing;
+    this.composing = false;
     // 选区变化不影响它 —— 这一层和光标在哪无关，不像别的 live preview
-    if (u.docChanged || u.viewportChanged) this.decorations = build(u.view);
+    if (ended || u.docChanged || u.viewportChanged) this.decorations = build(u.view);
   }
 }
 

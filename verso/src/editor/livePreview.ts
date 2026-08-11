@@ -38,7 +38,7 @@ import {
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
-import { compositionActive, compositionTracker } from "./compositionGuard";
+import { compositionActive } from "./compositionGuard";
 import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
 import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
 import { mathSource } from "./mathSource";
@@ -438,9 +438,6 @@ const inlinePreviewPlugin = ViewPlugin.fromClass(InlinePreviewPlugin, {
 });
 
 export const livePreview: Extension = [
-  // 必须排在两个用它的插件前面：它只是记账（每次 composition 事件记一个
-  // 时刻），`livePreview` 和 `parseRefresh` 都照这本账判断「真的在组词吗」
-  compositionTracker,
   parseRefresh,
   blockMathField,
   inlinePreviewPlugin,
