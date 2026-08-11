@@ -117,6 +117,14 @@ export interface Settings {
   /** 自己加的 `/` 菜单条目，JSON 文本，由 `lib/slash.ts` 解析 */
   slashCustom: string;
   /**
+   * 图标栏中隐藏的项目（id 见 `ui/ActivityBar` 的 `RAIL_ITEMS`）。
+   *
+   * 和 `slashHidden` 一样只存**与默认不同**的那部分：将来图标栏加了新入口，
+   * 未配置过的用户仍会自动显示新入口。隐藏的仅是图标 —— 命令、快捷键、命令面板
+   * 一概照旧，所以这是界面偏好而不是功能开关。
+   */
+  railHidden: string[];
+  /**
    * 改过的快捷键。命令 id → 键位（`Mod+Shift+P` 这种写法）。
    *
    * 只存**与默认不同**的那几条，空串表示显式解绑。没出现在这里的命令
@@ -153,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   customSnippets: "",
   slashHidden: [],
   slashCustom: "",
+  railHidden: [],
   keybindings: {},
 };
 
@@ -226,6 +235,11 @@ export function sanitize(s: Settings): Settings {
       ? s.slashHidden.filter((v): v is string => typeof v === "string")
       : [],
     slashCustom: typeof s.slashCustom === "string" ? s.slashCustom : "",
+    // 同上。多余的 id 留着无妨（图标栏按自己那张表渲染），但类型必须对，
+    // 否则设置面板将无法正常显示，而它正是恢复图标显示的唯一入口
+    railHidden: Array.isArray(s.railHidden)
+      ? s.railHidden.filter((v): v is string => typeof v === "string")
+      : [],
     // 设置文件能手改，这里可能是 null、数组、字符串 —— 全都会让设置界面
     // 里的快捷键那一页崩掉，而那正是唯一能把它改回来的地方
     keybindings:

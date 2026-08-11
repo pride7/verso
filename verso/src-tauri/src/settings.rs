@@ -194,6 +194,14 @@ pub struct Settings {
     #[serde(default)]
     pub slash_custom: String,
 
+    /// 图标栏中隐藏的项目 id（`tree` / `search` / `term` …）。
+    ///
+    /// 和上面几条一样**不在 Rust 侧建模**：图标栏上有哪些格子全在前端
+    /// `ui/ActivityBar.tsx` 里。只存**被隐藏的项目**，所以将来往图标栏
+    /// 加新入口时，未配置过的用户仍会自动显示新入口。
+    #[serde(default)]
+    pub rail_hidden: Vec<String>,
+
     /// 改过的快捷键：命令 id → 键位（`"Mod+Shift+P"`）。空串表示显式解绑。
     ///
     /// 和 snippet 一样**不在 Rust 侧建模**：命令表和键位写法全在前端
@@ -233,6 +241,7 @@ impl Default for Settings {
             custom_snippets: String::new(),
             slash_hidden: Vec::new(),
             slash_custom: String::new(),
+            rail_hidden: Vec::new(),
             keybindings: BTreeMap::new(),
         }
     }
@@ -284,6 +293,7 @@ impl Settings {
         }
         // 手改的文件里塞进来一堆超长字符串，会让设置界面那一页铺满整个面板
         self.slash_hidden.retain(|name| name.len() <= 64);
+        self.rail_hidden.retain(|id| id.len() <= 64);
         // 上限 50：再多等于没折叠。手滑打成 500 会让「只看最新」悄悄失效
         self.journal_keep = clamp(self.journal_keep, 0.0, 50.0, default_journal_keep()).round();
         // 上限两小时：再长就等于没开

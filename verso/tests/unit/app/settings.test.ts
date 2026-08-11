@@ -71,6 +71,15 @@ describe("设置夹紧", () => {
     expect(s.theme).toBe("system");
   });
 
+  // 这两份名单是设置文件里最容易被手改坏的东西，而它们各自那一页正是
+  // 唯一能把隐藏掉的条目找回来的地方 —— 类型不对就当成「没隐藏过」
+  it("隐藏名单不是字符串数组时当成空", () => {
+    expect(sanitize({ ...DEFAULT_SETTINGS, railHidden: "term" as never }).railHidden).toEqual([]);
+    expect(sanitize({ ...DEFAULT_SETTINGS, railHidden: [1, "term"] as never }).railHidden).toEqual([
+      "term",
+    ]);
+  });
+
   it("字体名和 snippet 文本不动 —— 那是用户原话", () => {
     const s = sanitize({ ...DEFAULT_SETTINGS, bodyFont: "  等线  ", customSnippets: "[]" });
     expect(s.bodyFont).toBe("  等线  ");

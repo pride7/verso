@@ -12,6 +12,19 @@ export type SidebarView =
   | "history"
   | "outline";
 
+/** 动作组按钮的 id。和 `SidebarView` 一起构成「图标栏上的一格」 */
+export type RailActionId =
+  | "source"
+  | "scratch"
+  | "mindmap"
+  | "project"
+  | "term"
+  | "palette"
+  | "settings";
+
+/** 图标栏上任意一格的 id。两组不重名，所以可以共用一个隐藏名单 */
+export type RailItemId = SidebarView | RailActionId;
+
 interface Props {
   view: SidebarView;
   onView: (v: SidebarView) => void;
@@ -48,6 +61,13 @@ interface Props {
   onSystemTerminal: () => void;
   onPalette: () => void;
   onSettings: () => void;
+  /**
+   * 用户在设置里收起来的格子（`settings.railHidden`）。
+   *
+   * 收起来的**只是图标**：对应的命令、快捷键、命令面板一概照旧。这一条也是
+   * 这个名单只记 id、不记「启用」的原因 —— 它是界面偏好，不是功能开关。
+   */
+  hidden: readonly string[];
 }
 
 /** `cmd` 是这个图标对应的命令 id —— 快捷键提示从命令表里现取 */
@@ -60,6 +80,69 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] =
   { id: "history", icon: "history", label: "动态", cmd: "vault.history" },
   // 大纲是「当前这篇」的视图，排在三个跨文档视图后面
   { id: "outline", icon: "outline", label: "大纲", cmd: "note.outline" },
+];
+
+/**
+ * 动作组。顺序就是条上（或窄屏 `⋯` 面板里）的顺序。
+ *
+ * 名字和图标定义在这里而不是写在下面的渲染代码里：设置面板要照着同一份表
+ * 列出「显示哪些图标」，各写一份迟早会对不上。运行时的状态和回调仍然由
+ * 组件按 id 补上 —— 那些东西没法写成模块级常量。
+ */
+const ACTIONS: { id: RailActionId; icon: IconName; label: string; cmd: string | null }[] = [
+  // 源码模式排在动作组的第一个：它作用于正文，比终端和设置更「靠近内容」。
+  // Obsidian 和 Typora 都给了这个开关一个常驻按钮 —— 只藏在快捷键和命令
+  // 面板里的话，不知道它存在的人永远不会用到
+  { id: "source", icon: "code", label: "源码模式", cmd: "view.sourceMode" },
+  // 草稿台是全库入口，不要绑在「当前已打开一篇」上。
+  // 和导图相邻，因为两者都是 Markdown 结构的另一种看法。
+  { id: "scratch", icon: "pencil", label: "草稿台", cmd: "note.scratchpad" },
+  // 导图是「当前这篇」的另一种视图，紧挨着源码模式 —— 它俩是一类：
+  // 都是把同一份内容换个样子看。只能靠快捷键进去的话，不知道它存在的人
+  // 永远不会用到（§0：不能假设有键盘）
+  { id: "mindmap", icon: "mindmap", label: "思维导图", cmd: "note.mindmap" },
+  { id: "project", icon: "project", label: "项目中心", cmd: "view.projects" },
+  // 终端的 tooltip 要额外说右键，所以它的提示由组件自己拼，这里不给 cmd
+  { id: "term", icon: "terminal", label: "终端", cmd: null },
+  { id: "palette", icon: "command", label: "命令面板", cmd: "view.palette" },
+  { id: "settings", icon: "settings", label: "设置", cmd: "view.settings" },
+];
+
+/**
+ * 「设置」这一格不可隐藏 —— 它是把别的格子找回来的唯一入口。
+ *
+ * 命令面板也能开设置，但那要么靠快捷键、要么靠另一个同样可隐藏的图标；
+ * 在没有键盘的设备上（§0）把两个都收起来就真的出不来了。
+ */
+export const RAIL_FIXED: RailItemId = "settings";
+
+/** 动作组一项的运行时部分：现在是不是开着、点了做什么 */
+interface ActionState {
+  /** null = 这个按钮不带开关态（命令面板、设置），或者现在没有可操作的对象 */
+  on: boolean | null;
+  run: () => void;
+  extra?: { disabled?: boolean; onContextMenu?: (e: React.MouseEvent) => void; title?: string };
+}
+
+/** 图标栏上全部可选的格子。设置面板照着它列出「显示哪些」 */
+export const RAIL_ITEMS: {
+  id: RailItemId;
+  icon: IconName;
+  label: string;
+  group: "view" | "action";
+}[] = [
+  ...VIEWS.map((v) => ({
+    id: v.id as RailItemId,
+    icon: v.icon,
+    label: v.label,
+    group: "view" as const,
+  })),
+  ...ACTIONS.map((a) => ({
+    id: a.id as RailItemId,
+    icon: a.icon,
+    label: a.label,
+    group: "action" as const,
+  })),
 ];
 
 /**
@@ -79,7 +162,7 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] =
  *
  * ## 横排时动作组收进 `⋯`
  *
- * 竖排能排下十二个图标，390px 宽的一行排不下 —— 硬塞进去每个只剩 32px，
+ * 竖排能排下十三个图标，390px 宽的一行排不下 —— 硬塞进去每个只剩 30px，
  * 又回到「看得见点不中」。所以横排时**只有视图组留在条上**（六个，各约
  * 55px，中间的命中区仍是一根手指），动作组收进最后那个 `⋯` 弹出的面板。
  *
@@ -87,6 +170,12 @@ const VIEWS: { id: SidebarView; icon: IconName; label: string; cmd: string }[] =
  * 于是选中态永远看得见 —— 把其中两个塞进弹出层的话，切到「标签」时整条
  * 栏上没有任何一处亮着，用户会以为没切成功。动作组反过来，本来就不带
  * 选中态（源码模式和导图除外，它们在面板里自己带勾）。
+ *
+ * ## 可以收起其中几格
+ *
+ * 功能越加越多，这条栏也就越长；十三个图标里总有几个某个人从来不用。
+ * `hidden` 把它们摘掉，**但只摘图标** —— 命令、快捷键、命令面板全不受影响，
+ * 所以这是一个界面偏好而不是功能开关。「设置」那一格摘不掉（见 `RAIL_FIXED`）。
  */
 export function ActivityBar({
   view,
@@ -109,8 +198,11 @@ export function ActivityBar({
   onSystemTerminal,
   onPalette,
   onSettings,
+  hidden,
 }: Props) {
   const bottom = layout === "bottom";
+  const off = new Set(hidden);
+  const shown = (id: RailItemId) => id === RAIL_FIXED || !off.has(id);
   const [sheet, setSheet] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -131,17 +223,12 @@ export function ActivityBar({
   }, [sheet]);
 
   /** 动作组的一项。竖排时是个光图标的按钮，横排时是面板里带文字的一行 */
-  const action = (
-    key: string,
-    icon: IconName,
-    label: string,
-    cmd: string | null,
-    on: boolean | null,
-    run: () => void,
-    extra?: { disabled?: boolean; onContextMenu?: (e: React.MouseEvent) => void; title?: string },
+  const renderAction = (
+    { id, icon, label, cmd }: (typeof ACTIONS)[number],
+    { on, run, extra }: ActionState,
   ) => (
     <button
-      key={key}
+      key={id}
       className={
         bottom
           ? `rail-sheet-item${on ? " is-on" : ""}`
@@ -163,40 +250,35 @@ export function ActivityBar({
     </button>
   );
 
-  const actions = [
-    // 源码模式排在动作组的第一个：它作用于正文，比终端和设置更「靠近内容」。
-    // Obsidian 和 Typora 都给了这个开关一个常驻按钮 —— 只藏在快捷键和命令
-    // 面板里的话，不知道它存在的人永远不会用到
-    action("source", "code", "源码模式", "view.sourceMode", sourceMode, onToggleSourceMode),
-    // 草稿台是全库入口，不要绑在「当前已打开一篇」上。
-    // 和导图相邻，因为两者都是 Markdown 结构的另一种看法。
-    action("scratch", "pencil", "草稿台", "note.scratchpad", scratchOn, onToggleScratch),
-    // 导图是「当前这篇」的另一种视图，紧挨着源码模式 —— 它俩是一类：
-    // 都是把同一份内容换个样子看。只能靠快捷键进去的话，不知道它存在的人
-    // 永远不会用到（§0：不能假设有键盘）
-    action("mindmap", "mindmap", "思维导图", "note.mindmap", mindmapOn, onToggleMindmap, {
-      disabled: mindmapOn === null,
-    }),
-    action("project", "project", "项目中心", "view.projects", projectOn, onToggleProject),
-    ...(showTerm
-      ? [
-          action("term", "terminal", "终端", null, termOpen, onToggleTerm, {
-            title: `${hint("终端", keyOf("term.toggle"))}　右键：在系统终端中打开`,
-            onContextMenu: (e: React.MouseEvent) => {
-              // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
-              e.preventDefault();
-              onSystemTerminal();
-            },
-          }),
-        ]
-      : []),
-    action("palette", "command", "命令面板", "view.palette", null, onPalette),
-    action("settings", "settings", "设置", "view.settings", null, onSettings),
-  ];
+  const state: Record<RailActionId, ActionState> = {
+    source: { on: sourceMode, run: onToggleSourceMode },
+    scratch: { on: scratchOn, run: onToggleScratch },
+    mindmap: { on: mindmapOn, run: onToggleMindmap, extra: { disabled: mindmapOn === null } },
+    project: { on: projectOn, run: onToggleProject },
+    term: {
+      on: termOpen,
+      run: onToggleTerm,
+      extra: {
+        title: `${hint("终端", keyOf("term.toggle"))}　右键：在系统终端中打开`,
+        onContextMenu: (e: React.MouseEvent) => {
+          // 右键改成调起独立的系统终端窗口（§7.3 方案 A）
+          e.preventDefault();
+          onSystemTerminal();
+        },
+      },
+    },
+    palette: { on: null, run: onPalette },
+    settings: { on: null, run: onSettings },
+  };
+
+  const actions = ACTIONS
+    // 移动端没有终端（§7.3 没有可用的 PTY），整个按钮不渲染
+    .filter((a) => (a.id !== "term" || showTerm) && shown(a.id))
+    .map((a) => renderAction(a, state[a.id]));
 
   return (
     <nav className={`rail${bottom ? " is-bottom" : ""}`} aria-label="侧栏视图">
-      {VIEWS.map((v) => (
+      {VIEWS.filter((v) => shown(v.id)).map((v) => (
         <button
           key={v.id}
           className={`rail-btn${sidebarOpen && view === v.id ? " is-on" : ""}`}

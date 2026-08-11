@@ -3602,6 +3602,7 @@ export default function App() {
         }
         onPalette={() => setPaletteOpen(true)}
         onSettings={() => openSettings()}
+        hidden={settings.railHidden}
       />
 
       {/* 抽屉打开时正文上盖一层，点它就关。窄屏上没有「点旁边空白处」

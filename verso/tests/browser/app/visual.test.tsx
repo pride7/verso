@@ -647,6 +647,29 @@ describe("视觉工作台", () => {
     alive();
   });
 
+  // 收起来的是**图标**，不是功能：这一格摘掉之后条上不该再有它，
+  // 而对应的命令和快捷键照旧（那部分归 App 的命令表管，不在这张图里）
+  it("浅色 · 图标栏取舍", async () => {
+    render();
+    await settle(400);
+    clickRail("设置");
+    await settle(200);
+    for (const label of ["标签", "模板", "终端"]) {
+      [...document.querySelectorAll<HTMLElement>(".rail-pick")]
+        .find((b) => b.textContent === label)
+        ?.click();
+      await settle(60);
+    }
+    document.querySelector<HTMLElement>(".rail-picker")?.scrollIntoView({ block: "center" });
+    await shot("06b-light-rail-picker");
+    for (const label of ["标签", "模板", "终端"]) {
+      expect(document.querySelector(`.rail-btn[aria-label="${label}"]`)).toBeNull();
+    }
+    // 「设置」摘不掉 —— 它是把上面那几个找回来的唯一入口
+    expect(document.querySelector('.rail-btn[aria-label="设置"]')).not.toBeNull();
+    expect(document.querySelector('.rail-btn[aria-label="文档树"]')).not.toBeNull();
+  });
+
   it("浅色 · 同步设置", async () => {
     render();
     await settle(400);

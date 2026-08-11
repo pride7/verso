@@ -18,6 +18,7 @@ import type {
   GitIdentity,
   RemoteInfo,
 } from "../core/types";
+import { RAIL_FIXED, RAIL_ITEMS } from "./ActivityBar";
 import type { Command } from "./CommandPalette";
 import { Icon } from "./Icon";
 import {
@@ -809,6 +810,14 @@ export function SettingsPanel({
         ? settings.slashHidden.filter((x) => x !== label)
         : [...settings.slashHidden, label],
     });
+  // 同样只记录已隐藏的项目，具体约定见 settings.ts 中 railHidden 的注释
+  const railHidden = new Set(settings.railHidden);
+  const toggleRail = (id: string) =>
+    onChange({
+      railHidden: railHidden.has(id)
+        ? settings.railHidden.filter((x) => x !== id)
+        : [...settings.railHidden, id],
+    });
   const activeTab = TABS.find((item) => item.id === tab)!;
 
   return (
@@ -956,6 +965,41 @@ export function SettingsPanel({
                 placeholder="例如：JetBrains Mono"
                 onChange={(v) => onChange({ monoFont: v })}
               />
+
+              <h3 className="set-section">侧栏图标</h3>
+              <p className="set-note">
+                可选择左侧图标栏（窄屏设备上显示为底部导航）的入口。隐藏图标不影响对应功能，
+                仍可通过命令面板和快捷键访问；「设置」入口始终显示。
+              </p>
+              {(
+                [
+                  ["view", "侧栏视图"],
+                  ["action", "操作"],
+                ] as const
+              ).map(([group, caption]) => (
+                <div className="rail-picker" key={group}>
+                  <span className="rail-picker-caption">{caption}</span>
+                  <div className="rail-picker-items" role="group" aria-label={caption}>
+                    {RAIL_ITEMS.filter((item) => item.group === group).map((item) => {
+                      const fixed = item.id === RAIL_FIXED;
+                      const on = fixed || !railHidden.has(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          className={`rail-pick${on ? " is-on" : ""}`}
+                          disabled={fixed}
+                          aria-pressed={on}
+                          title={fixed ? "「设置」入口不可隐藏" : undefined}
+                          onClick={() => toggleRail(item.id)}
+                        >
+                          <Icon name={item.icon} size={15} />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </>
           )}
 

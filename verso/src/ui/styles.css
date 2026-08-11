@@ -6081,8 +6081,8 @@ textarea:focus-visible {
    2. **图标栏从左边竖排变成底部横排**（§6.3「移动 单栏 + 抽屉 …… 底部
       工具条固定」）。竖排在手机上要付两笔账：横向白白扣掉 44px（390 的
       屏上是 11%），而且整条都落在屏幕左上角 —— 单手握持时最够不到的地方。
-      横过来两笔都省了，代价是一行排不下十二个图标，动作组因此收进 `⋯`
-      （见 ActivityBar）。
+      横过来两笔都省了，代价是一行排不下十三个图标，动作组因此收进 `⋯`
+      （见 ActivityBar）；用不上的那几格还可以在设置里收起来。
    ========================================================================== */
 
 @media (max-width: 640px) {
@@ -6701,6 +6701,65 @@ textarea:focus-visible {
     inset 0 0 0 1px oklch(0% 0 0 / 0.12),
     0 0 0 2px var(--bg),
     0 0 0 4px var(--text);
+}
+
+/* ---------- 设置里的图标栏取舍 ---------- */
+
+/* 铺成一片，不是每格一行 `.set-row`：这十三格是一起看的 —— 决定「留哪些」
+   要能一眼扫完全部，逐行排开会让它长过整屏 */
+.rail-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.rail-picker:last-child {
+  border-bottom: none;
+}
+.rail-picker-caption {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.rail-picker-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* 每格都带图标：要留哪个是照着图标认的，光看名字对不上条上的那一竖排。
+   未选中态用**虚线框 + 透明底**，不是只把颜色压淡一点 —— 十三格摆在一起时，
+   靠明度差一档去分「留」和「不留」得凑近了逐个比，虚线一眼就扫得出来 */
+.rail-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: var(--tap-sm);
+  padding: 6px 11px;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.rail-pick:not(.is-on) svg {
+  opacity: 0.55;
+}
+.rail-pick:hover:not(:disabled) {
+  color: var(--text);
+}
+/* 选中态和别处一致：中性灰的亮面 + 一点投影，不用主题色块（§6.2 颜色只做重音） */
+.rail-pick.is-on {
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+/* 「设置」那一格：仍然显示成选中，只是按不动。压成未选中的样子会让人以为
+   自己刚把它关掉了 */
+.rail-pick:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 /* ---------- 图片（§4.2 / §4.3） ---------- */
