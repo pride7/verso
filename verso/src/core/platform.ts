@@ -20,13 +20,17 @@ export const isMac: boolean =
  *
  * Mac 上用符号且**不加分隔符**（`⇧⌘P`），这是系统菜单的写法；其他平台
  * 用 `Ctrl+Shift+P`。顺序也不一样：Mac 的惯例是 ⌃⌥⇧⌘ 固定次序。
+ *
+ * `mac` 可以显式传，只为让这两条路都能测 —— 和 `keymap.ts` 的 `eventSpec`
+ * 同一个口子。不留这个参数的话，跑测试的那台机器是什么系统，就只有那一半
+ * 被测到：开发机从 Windows 换到 Mac 之后，这五条用例全红。
  */
-export function keyLabel(spec: string): string {
+export function keyLabel(spec: string, mac: boolean = isMac): string {
   const parts = spec.split("+").map((p) => p.trim());
   const key = parts[parts.length - 1];
   const mods = new Set(parts.slice(0, -1).map((m) => m.toLowerCase()));
 
-  if (!isMac) {
+  if (!mac) {
     const order = ["ctrl", "alt", "shift"];
     const names: Record<string, string> = { mod: "Ctrl", ctrl: "Ctrl", alt: "Alt", shift: "Shift" };
     const out = [

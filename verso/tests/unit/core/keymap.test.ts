@@ -44,8 +44,10 @@ describe("键位规范化", () => {
 
 describe("按键 → 键位", () => {
   it("认物理键位而不是字符：Shift+[ 不会变成 {", () => {
-    // 这正是用 code 不用 key 的理由 —— key 在按下 Shift 时报的是上档字符
-    expect(eventSpec(press("BracketLeft", { ctrlKey: true, shiftKey: true }, "{"))).toBe(
+    // 这正是用 code 不用 key 的理由 —— key 在按下 Shift 时报的是上档字符。
+    // 平台显式传 false：这条测的是 code 与 key 的区别，不是平台差异，
+    // 不传的话在 Mac 上 ctrlKey 会走 v0.7.48 那条 ⌃ 单列的路
+    expect(eventSpec(press("BracketLeft", { ctrlKey: true, shiftKey: true }, "{"), false)).toBe(
       "Mod+Shift+[",
     );
   });
