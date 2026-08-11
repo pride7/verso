@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../host/api";
 import type { TreeSort } from "../core/treeSort";
 
-/** 点侧栏文件时：开新标签 / 替换当前标签 */
+/** 打开文档时：新建标签 / 复用普通标签 */
 export type TabOpen = "new" | "replace";
 
 export interface Settings {
@@ -83,7 +83,7 @@ export interface Settings {
    */
   autoCommitOnClose: boolean;
   /**
-   * 点侧栏里的文件时开新标签还是替换当前标签。
+   * 打开文档时新建标签还是复用普通标签。
    *
    * 两种模式下 Ctrl/⌘+点 和中键都强制开新标签 —— 那是一个明确的表态，
    * 不该被设置盖掉。

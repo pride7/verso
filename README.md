@@ -9,7 +9,7 @@
 桌面与移动端共用 Tauri 2、Rust、React 和 CodeMirror 6。安装包约 10 MB，内存占用约为
 同类 Electron 应用的一半。
 
-当前版本：**v0.7.23**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
+当前版本：**v0.8.1**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
@@ -110,13 +110,13 @@ Verso 不绑定模型，也不提供“AI 续写”按钮；它提供的是一�
 
 | 项目 | 状态 |
 |---|---|
-| 当前版本 | v0.7.23 |
+| 当前版本 | v0.8.1 |
 | 桌面端 | Windows / macOS 已有安装包；CI 同时产出 Linux 的 deb、rpm 与 AppImage（v1 暂不声明 Linux 支持） |
-| 移动端 | Android 提供 APK；iOS 尚未打包 |
+| 移动端 | Android 已完成并提供 APK；iOS 暂缓，需 Mac、Xcode 和真机 |
 | 自动更新 | 桌面端已接入 GitHub Releases |
-| 已完成 | M0 地基 · M1 编辑器 · M2 公式 · M3 索引与 database · M4 打磨 · M5 同步与协作 |
-| 进行中 | M6 移动端 |
-| 未开始 | M7 发布：将 `publish: true` 的笔记生成静态站点 |
+| 已完成 | M0 地基 · M1 编辑器 · M2 公式 · M3 索引与 database · M4 打磨 · M5 同步与协作 · M6a 安卓 |
+| 当前重点 | 界面文案、层级、留白和移动端细节收敛 |
+| 暂缓 | M6b iOS；内置网页发布（整站发布使用 Quartz，单篇交付使用 PDF） |
 
 ## 下载
 
@@ -131,7 +131,7 @@ Verso 不绑定模型，也不提供“AI 续写”按钮；它提供的是一�
 | macOS（Intel） | `Verso_<版本>_x64.dmg` |
 | Android（arm64） | `Verso_<版本>_arm64.apk` |
 | Linux（Debian / Ubuntu / Fedora / 其他） | `.deb` / `.rpm` / `.AppImage`（v1 暂不声明支持） |
-| iOS | 尚未打包，需自行从源码构建 |
+| iOS | 暂缓，需 Mac、Xcode 和真机 |
 
 发布页里的 `.sig` 与 `latest.json` 由自动更新机制使用，不需要手动下载。
 

@@ -873,7 +873,12 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
           <button onClick={() => zoomTo(1)} title="恢复 100% 比例">
             {Math.round(cam.k * 100)}%
           </button>
-          <button onClick={onClose} title="回到正文（Esc）" aria-label="关闭思维导图">
+          <button
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={onClose}
+            title="回到正文（Esc）"
+            aria-label="关闭思维导图"
+          >
             <Icon name="close" size={14} />
           </button>
         </span>

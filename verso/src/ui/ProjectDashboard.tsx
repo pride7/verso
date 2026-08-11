@@ -40,6 +40,8 @@ interface Props {
   onRename: (path: string, title: string) => void;
   /** 换分类 = 真的移动文件，同样要上层去修标签页路径和手排顺序 */
   onMove: (path: string, newParentDoc: string) => void;
+  /** 删除复用文档树的确认与标签清理流程；测试或只读嵌入可不提供 */
+  onDelete?: (path: string) => void;
   onChanged: () => void;
   onError: (message: string) => void;
 }
@@ -194,7 +196,7 @@ function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen
   </div>;
 }
 
-export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onRename, onMove, onChanged, onError }: Props) {
+export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onRename, onMove, onDelete, onChanged, onError }: Props) {
   const [overview, setOverview] = useState<ProjectOverview | null>(null);
   /** 右键/长按弹出来的那条记录 */
   const [menu, setMenu] = useState<{ item: ProjectItem; slot: string; at: { x: number; y: number } } | null>(null);
@@ -565,6 +567,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
             }] : [],
           ],
           [{ label: "重命名", icon: "pencil", run: () => setRenaming({ slot: menu.slot, path: menu.item.path }) }],
+          onDelete ? [{ label: "删除", icon: "trash", danger: true, run: () => onDelete(menu.item.path) }] : [],
         ]}
         onClose={() => setMenu(null)}
       />}

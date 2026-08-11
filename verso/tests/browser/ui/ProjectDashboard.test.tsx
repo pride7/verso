@@ -419,6 +419,21 @@ describe("单项目总览", () => {
     expect(document.querySelector(".project-item-copy strong")?.textContent).toBe("编码器消融");
   });
 
+  it("右键菜单可以删除记录，并把确认与清理交给上层", async () => {
+    const onDelete = vi.fn();
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onDelete={onDelete} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    const row = document.querySelector(".project-item")!;
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    await tick();
+    const remove = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")]
+      .find((button) => button.textContent?.trim() === "删除")!;
+    expect(remove.classList).toContain("ctx-danger");
+    await userEvent.click(remove);
+    expect(onDelete).toHaveBeenCalledWith("项目/实验/实验 1.md");
+  });
+
   it("手指没有右键：长按同样弹出那份菜单，划动则不弹", async () => {
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
     root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);

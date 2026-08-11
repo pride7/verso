@@ -149,8 +149,8 @@ describe("项目分类", () => {
     expect(path).toBe("项目/复现/复现 baseline.md");
     expect(writes[0]).toBe("");
     expect(props).toContainEqual([path, "type", "复现"]);
-    // 新建的记录一律「未开始」——不再按分类给不同的默认值（v0.7.40）
-    expect(props).toContainEqual([path, "status", "未开始"]);
+    // 建记录往往就是开始做的时刻，默认「进行中」省掉创建后再改一次。
+    expect(props).toContainEqual([path, "status", "进行中"]);
   });
 
   it("分类表落成 frontmatter 里的列表，而不是一行逗号串", async () => {

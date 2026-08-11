@@ -203,7 +203,7 @@ describe("开与关", () => {
     expect(activeTab()).toBe("甲");
   });
 
-  it("设置成「替换当前」时，标签数不涨", async () => {
+  it("设置成「复用标签」时，标签数不涨", async () => {
     saved = { tabOpen: "replace" };
     await mountApp();
     await clickTree("甲");
@@ -338,6 +338,24 @@ describe("固定", () => {
     if (!item) throw new Error(`菜单里没有「${label}」，有的是：${document.querySelector(".tab-menu")?.textContent}`);
     await click(item);
   }
+
+  it("复用模式从固定页连续打开文档时只保留一个普通标签", async () => {
+    saved = { tabOpen: "replace" };
+    workspace = { tabs: ["甲.md"], active: 0, pinnedCount: 1 };
+    await mountApp();
+
+    await clickTree("乙");
+    expect(tabNames()).toEqual(["甲", "乙"]);
+    expect(activeTab()).toBe("乙");
+
+    // 即使用户切回固定入口，下一次打开也复用普通标签，不再往后追加。
+    const pinned = document.querySelector<HTMLElement>(".tab.is-pinned");
+    if (!pinned) throw new Error("没有恢复固定标签");
+    await click(pinned);
+    await clickTree("丙");
+    expect(tabNames()).toEqual(["甲", "丙"]);
+    expect(activeTab()).toBe("丙");
+  });
 
   it("双击固定，它挪到最前并带上图钉", async () => {
     await mountApp();

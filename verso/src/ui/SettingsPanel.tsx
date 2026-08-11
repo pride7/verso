@@ -1110,9 +1110,9 @@ export function SettingsPanel({
 
               <div className="set-row">
                 <div className="set-label">
-                  <span>点击侧栏文档时</span>
+                  <span>打开文档时</span>
                   <span className="set-hint">
-                    按住 Ctrl/⌘ 单击或使用鼠标中键时，始终在新标签页中打开。
+                    “复用标签”不会替换固定标签；按住 Ctrl/⌘ 单击或使用鼠标中键时，始终新建标签。
                   </span>
                 </div>
                 <div className="set-control">
@@ -1120,7 +1120,7 @@ export function SettingsPanel({
                     {(
                       [
                         ["new", "新建标签"],
-                        ["replace", "替换当前标签"],
+                        ["replace", "复用标签"],
                       ] as const
                     ).map(([v, label]) => (
                       <button

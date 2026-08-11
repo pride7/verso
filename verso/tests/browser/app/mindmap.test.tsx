@@ -745,6 +745,24 @@ describe("思维导图", () => {
     expect(document.querySelector(".cm-content")).not.toBeNull();
   });
 
+  it("点关闭按钮回到正文", async () => {
+    await open();
+    const close = document.querySelector<HTMLButtonElement>('.mm-tools button[aria-label="关闭思维导图"]')!;
+    const pointerdown = new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerType: "touch",
+    });
+    close.dispatchEvent(pointerdown);
+    expect(pointerdown.defaultPrevented, "关闭按钮不该被工具栏的防失焦护栏拦住").toBe(false);
+    await act(async () => {
+      close.click();
+      await settle(100);
+    });
+    expect(document.querySelector(".mindmap")).toBeNull();
+    expect(document.querySelector(".cm-content")).not.toBeNull();
+  });
+
   /**
    * 长条目换行。**只有真实布局引擎知道一行能放几个字** —— 高度是量出来再拿去
    * 排版的（两趟），纯 Node 里量到的恒为 0，排出来的图会全叠在一起而测试全绿

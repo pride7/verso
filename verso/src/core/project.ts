@@ -564,8 +564,9 @@ export async function captureProjectEntry(
   if (!baseTitle) throw new Error("先写标题");
   const category = input.section.trim();
   const kind = sectionKind(category);
-  // 新建的记录一律「未开始」—— 刚记下来的时候它确实还没开始，一键就能改
-  const status = PROJECT_STATUSES[0];
+  // 项目记录通常是在已经着手时才建立；默认「进行中」省掉创建后立刻再改一次。
+  // 这只决定新记录的初值，缺少 status 的旧记录仍由界面按「未开始」显示。
+  const status = PROJECT_STATUSES[1];
   await ensureProjectStatusSchema(api);
   const categoryPath = await ensureChild(api, projectPath, category, "project-section");
   let created: NoteMeta | null = null;

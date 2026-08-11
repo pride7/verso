@@ -203,11 +203,22 @@ describe("固定", () => {
     expect(out.pinnedCount).toBe(1);
   });
 
-  // 钉住的意思就是「它一直在这儿」，被替换掉等于钉了个寂寞
-  it("「替换当前」不会换掉固定的那一个", () => {
+  // 钉住的意思就是「它一直在这儿」；普通标签则仍应遵守替换模式
+  it("复用模式从固定标签打开时，复用后面的第一个普通标签", () => {
     const pinned = pinTab(s, 0);
     const out = openTab({ ...pinned, active: 0 }, "新.md", "replace");
-    expect(out.tabs).toEqual(["甲.md", "新.md", "乙.md", "丙.md", "丁.md"]);
+    expect(out.tabs).toEqual(["甲.md", "新.md", "丙.md", "丁.md"]);
+    expect(out.active).toBe(1);
+    expect(out.pinnedCount).toBe(1);
+  });
+
+  it("固定标签后还没有普通标签时，只新建一个可复用的内容标签", () => {
+    const first = openTab(st(["项目.md"], 0, 1), "问题一.md", "replace");
+    const second = openTab({ ...first, active: 0 }, "问题二.md", "replace");
+    expect(first.tabs).toEqual(["项目.md", "问题一.md"]);
+    expect(second.tabs).toEqual(["项目.md", "问题二.md"]);
+    expect(second.active).toBe(1);
+    expect(second.pinnedCount).toBe(1);
   });
 
   it("拖进固定区就固定，拖出去就取消", () => {

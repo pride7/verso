@@ -60,12 +60,15 @@ export function openTab(s: TabState, path: string, mode: "new" | "replace"): Tab
 
   if (s.tabs.length === 0) return { tabs: [path], active: 0, pinnedCount: 0 };
 
-  // 固定的那个**不会被替换掉**。钉住的意思就是「它一直在这儿」，
-  // 让"点侧栏替换当前页"把它换走，等于钉了个寂寞
-  if (mode === "replace" && !isPinned(s, s.active)) {
+  // 固定的那个**不会被替换掉**。若当前正停在固定标签，就复用固定区后面的
+  // 第一个普通标签作为内容槽；没有普通标签才新建一个。这样既保住固定页，
+  // 也不会让「复用标签」在固定页上变成每点一次都新增标签。
+  if (mode === "replace") {
     const tabs = [...s.tabs];
-    tabs[s.active] = path;
-    return { ...s, tabs };
+    const at = isPinned(s, s.active) ? s.pinnedCount : s.active;
+    if (at < tabs.length) tabs[at] = path;
+    else tabs.push(path);
+    return { ...s, tabs, active: at };
   }
 
   // 插在当前页右边；当前页是固定的就落到固定区之后 —— 固定区中间不能插进
@@ -79,8 +82,9 @@ export function openTab(s: TabState, path: string, mode: "new" | "replace"): Tab
 /**
  * 固定一个标签：挪到固定区末尾。
  *
- * 「固定」在这里意味着三件事：排在最前、批量关闭时留着、不会被"替换当前页"
- * 换走。**不**意味着关不掉 —— × 照样在，需要一个不打开菜单也能关掉它的办法。
+ * 「固定」在这里意味着三件事：排在最前、批量关闭时留着、不会被复用模式
+ * 换走。复用模式从固定页打开别处时，复用它后面的普通标签。**不**意味着关不掉
+ * —— × 照样在，需要一个不打开菜单也能关掉它的办法。
  */
 export function pinTab(s: TabState, index: number): TabState {
   if (index < 0 || index >= s.tabs.length || isPinned(s, index)) return s;

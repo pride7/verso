@@ -941,7 +941,7 @@ export default function App() {
    * 打开一篇笔记。
    *
    * `newTab` 明确给了就听它的（Ctrl/⌘+点、中键），否则按设置里的
-   * 「点文件时开新标签还是替换当前」。已经开着的那一篇总是切过去。
+   * 「打开文档时新建标签还是复用标签」。已经开着的那一篇总是切过去。
    */
   const openPath = useCallback(
     async (path: string, opts?: { newTab?: boolean }) => {
@@ -4049,6 +4049,10 @@ export default function App() {
           onEdit={() => setProjectOpen(false)}
           onRename={(path, title) => void submitRename(path, title)}
           onMove={(path, target) => void moveNode(path, target)}
+          onDelete={(path) => {
+            const node = tree.flatMap(flatten).find((candidate) => candidate.path === path);
+            if (node) void deleteNode(node);
+          }}
           onChanged={() => {
             void refresh();
             void reloadFromDisk();
