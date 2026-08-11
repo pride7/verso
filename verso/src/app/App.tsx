@@ -543,7 +543,7 @@ export default function App() {
     const text = await readText();
     // 读剪贴板没有兜底（见 host/clipboard），所以这里只能说清楚还有哪条路
     if (text === null) return setError("读不到剪贴板，用 Ctrl/⌘+V");
-    if (text) editorRef.current?.insert(text);
+    if (text) editorRef.current?.paste(text);
   }, []);
 
   /** 浮动大纲开不开。和终端面板一样跨会话保留 —— 嫌它挡事的人不想每次启动再关一遍 */
@@ -3236,6 +3236,17 @@ export default function App() {
         label: "这一列的对齐（左 → 中 → 右）",
         enabled: hasNote,
         run: table("align-cycle"),
+      },
+      {
+        id: "formula.convertDelimiters",
+        group: "公式",
+        label: "转换 LaTeX 公式定界符",
+        // 没有默认键位：粘贴时已经自动处理，这条主要用于修整旧文档。
+        enabled: hasNote,
+        run: () => {
+          const count = editorRef.current?.convertMathDelimiters() ?? 0;
+          setNotice(count ? `已转换 ${count} 个公式` : "没有可转换的 LaTeX 公式定界符");
+        },
       },
       {
         id: "formula.symbols",

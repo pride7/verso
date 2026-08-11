@@ -13,6 +13,7 @@ import {
 } from "../editor/fold";
 import { toggleFormatSpec, type InlineFormat } from "../editor/format";
 import { toggleBlockSpec, type BlockKind } from "../editor/paragraph";
+import { mathDelimiterConversion, pastedMathText } from "../editor/mathDelimiters";
 import { tableAt, tableOpSpec, type TableOp } from "../editor/tableOps";
 import { foldTargets } from "../core/journal";
 import { parseCustomSnippets } from "../core/snippets/custom";
@@ -38,6 +39,8 @@ export interface EditorHandle {
    * 不给就落在末尾 —— 模板里的 `{{cursor}}` 靠它落点（§4.6）
    */
   insert: (text: string, cursorOffset?: number) => void;
+  /** 按粘贴语义插入纯文本：其中的 LaTeX 公式定界符会自动转成 Markdown。 */
+  paste: (text: string) => void;
   /**
    * 插一段带跳转点的 snippet（`$1` `$2`），光标落在第一个跳转点上。
    *
@@ -53,6 +56,8 @@ export interface EditorHandle {
   selectedText: () => string;
   /** 开关一种行内格式（粗体、斜体…，§4.8）。逻辑在 `editor/format.ts` */
   toggleFormat: (kind: InlineFormat) => void;
+  /** 转换选区里的 LaTeX 公式定界符；没有选区时处理整篇。返回转换数量。 */
+  convertMathDelimiters: () => number;
   /**
    * 把选中的这几行换成标题 / 引用 / 列表（§4.10）。逻辑在
    * `editor/paragraph.ts` —— 和 `/` 菜单的区别是「换」不是「插」
@@ -308,6 +313,19 @@ export function Editor({
         });
         view.focus();
       },
+      paste: (text: string) => {
+        const view = viewRef.current;
+        if (!view) return;
+        const selection = view.state.selection.main;
+        const converted = pastedMathText(view.state, text).text;
+        view.dispatch({
+          changes: { from: selection.from, to: selection.to, insert: converted },
+          selection: { anchor: selection.from + converted.length },
+          userEvent: "input.paste",
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
       insertSnippet: (replacement: string) => {
         const view = viewRef.current;
         if (!view) return;
@@ -361,6 +379,15 @@ export function Editor({
         });
         // 快捷键是在全局那一层截下来的，焦点可能根本不在编辑器里
         view.focus();
+      },
+      convertMathDelimiters: () => {
+        const view = viewRef.current;
+        if (!view) return 0;
+        const conversion = mathDelimiterConversion(view.state);
+        if (!conversion) return 0;
+        view.dispatch(conversion.spec);
+        view.focus();
+        return conversion.count;
       },
       setBlock: (kind: BlockKind) => {
         const view = viewRef.current;

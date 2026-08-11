@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createExtensions } from "../../../src/editor";
 import { setImageResolver } from "../../../src/editor/image";
+import { pastedMathText } from "../../../src/editor/mathDelimiters";
 import "../../../src/ui/styles.css";
 
 /** 1×1 的透明 PNG。用 data URL 就不必依赖 Tauri 的 asset 协议 */
@@ -164,5 +165,46 @@ describe("粘贴图片", () => {
     pasteImage(view);
     await settle();
     expect(view.state.doc.toString()).toBe("开头\n");
+  });
+});
+
+describe("粘贴文本里的公式", () => {
+  function pasteText(view: EditorView, text: string) {
+    const dt = new DataTransfer();
+    dt.setData("text/plain", text);
+    const event = new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
+    view.contentDOM.dispatchEvent(event);
+    return event;
+  }
+
+  it("自动把 LaTeX 定界符换成 Markdown 定界符", async () => {
+    const view = mount("前后");
+    view.dispatch({ selection: { anchor: 1 } });
+    const event = pasteText(view, String.raw`\(x+1\) 与 \[y^2\]`);
+    await settle();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("前$x+1$ 与 $$y^2$$后");
+  });
+
+  it("粘贴内容自己的行内代码不转换", async () => {
+    const view = mount("");
+    pasteText(view, ["代码 `", String.raw`\(x\)`, "`，公式 ", String.raw`\(y\)`].join(""));
+    await settle();
+    expect(view.state.doc.toString()).toBe(["代码 `", String.raw`\(x\)`, "`，公式 $y$"].join(""));
+  });
+
+  it("光标在代码块里时不接管粘贴", async () => {
+    const view = mount("```tex\n\n```\n");
+    view.dispatch({ selection: { anchor: 7 } });
+    await settle();
+    expect(pastedMathText(view.state, String.raw`\(x\)`)).toEqual({
+      text: String.raw`\(x\)`,
+      count: 0,
+    });
   });
 });

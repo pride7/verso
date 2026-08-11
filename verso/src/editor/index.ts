@@ -24,6 +24,7 @@ import { insertMarkdownLineBreak } from "./lineBreak";
 import { listRenumber } from "./listRenumber";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
+import { mathDelimiterPaste } from "./mathDelimiters";
 import { mathPreview } from "./mathPreview";
 import { paragraphSpacing } from "./paragraphSpacing";
 import { imagePaste, type SaveImage } from "./paste";
@@ -178,6 +179,9 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
       () => cb.saveImage,
       (m) => cb.onError?.(m),
     ),
+    // 从论文、聊天工具或 LaTeX 文档粘贴公式时，把 \(...\) / \[...\]
+    // 换成 Verso 能渲染的 $...$ / $$...$$。图片粘贴优先走上面那条。
+    mathDelimiterPaste(),
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
     // 处理要先于「插入缩进」拿到这个键

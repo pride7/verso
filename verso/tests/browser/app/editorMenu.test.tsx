@@ -424,3 +424,28 @@ describe("正文里的右键菜单（§4.10）", () => {
     expect(box.top).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("公式定界符命令", () => {
+  it("命令面板一键转换整篇里的 LaTeX 定界符", async () => {
+    body = "第一 \\(x+1\\)，第二 \\[y^2\\]。";
+    await mountApp();
+
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="命令面板"]')!.click();
+      await settle(120);
+    });
+    const command = [...document.querySelectorAll<HTMLButtonElement>(".palette-list button")].find(
+      (button) => button.querySelector(".palette-label")?.textContent === "转换 LaTeX 公式定界符",
+    );
+    expect(command, "命令面板里没有公式定界符转换").toBeTruthy();
+
+    await act(async () => {
+      command!.click();
+      await settle(120);
+    });
+    await flush();
+
+    expect(saved).toBe("第一 $x+1$，第二 $$y^2$$。");
+    expect(document.body.textContent).toContain("已转换 2 个公式");
+  });
+});
