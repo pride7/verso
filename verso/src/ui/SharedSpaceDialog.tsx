@@ -132,7 +132,6 @@ export function SharedSpaceDialog({
         <header className="vault-manager-head">
           <div>
             <h2 id="shared-space-title">{space.name}</h2>
-            <p>管理这里的内容和访问成员。</p>
           </div>
           <button className="modal-close" onClick={onClose} disabled={busy || !!memberBusy} aria-label="关闭">
             <Icon name="close" size={15} />

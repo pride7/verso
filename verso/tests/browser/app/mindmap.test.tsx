@@ -249,7 +249,7 @@ describe("项目默认视图", () => {
   it("项目中心可以把当前普通笔记原地设为项目", async () => {
     await mountApp();
     await click(document.querySelector('.rail-btn[aria-label="项目中心"]')!);
-    await click([...document.querySelectorAll(".project-center-head button")].find((button) => button.textContent === "将当前笔记设为项目")!);
+    await click([...document.querySelectorAll(".project-center-head button")].find((button) => button.textContent === "设为项目")!);
     expect(frontmatter.type).toBe("project");
     expect(document.querySelector(".project-center")).toBeNull();
     expect(document.querySelector(".project-dashboard")).not.toBeNull();

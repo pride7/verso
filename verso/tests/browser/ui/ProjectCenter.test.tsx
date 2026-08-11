@@ -62,7 +62,7 @@ describe("项目中心", () => {
   it("当前是普通笔记时，也能选择把它直接设为项目", async () => {
     const props = mount({ promotableNote: "已有方案" });
     await tick();
-    const promote = [...document.querySelectorAll<HTMLButtonElement>(".project-center-head button")].find((button) => button.textContent === "将当前笔记设为项目")!;
+    const promote = [...document.querySelectorAll<HTMLButtonElement>(".project-center-head button")].find((button) => button.textContent === "设为项目")!;
     expect(promote.title).toContain("已有方案");
     await userEvent.click(promote);
     expect(props.onPromote).toHaveBeenCalledOnce();

@@ -89,7 +89,7 @@ describe("单项目总览", () => {
     experiment.click();
     await tick();
     expect(document.querySelector(".project-dialog h2")?.textContent).toBe("新建实验文档");
-    expect(document.querySelector(".project-dialog header p")?.textContent).toContain("完整编辑器");
+    expect(document.querySelector(".project-dialog header p")).toBeNull();
     expect(document.querySelector<HTMLInputElement>(".project-template-choice input")?.checked).toBe(false);
     const title = document.querySelector<HTMLInputElement>(".project-dialog input")!;
     await userEvent.fill(title, "温度消融");
@@ -219,7 +219,7 @@ describe("单项目总览", () => {
 
     await userEvent.click(rows.find((row) => row.textContent === "已完成")!.querySelector<HTMLButtonElement>(".project-status-drop")!);
     await tick();
-    expect(document.querySelector(".project-status-confirm")?.textContent).toContain("用着它的记录一个字都不改");
+    expect(document.querySelector(".project-status-confirm")?.textContent).toContain("已有记录不受影响");
     await userEvent.click(document.querySelector<HTMLButtonElement>(".project-status-confirm .danger")!);
     await tick();
     // 写回去的是「少了这一条」的词表，笔记的 status 没有被动过
@@ -240,7 +240,7 @@ describe("单项目总览", () => {
     await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-records-head button")].find((button) => button.textContent === "管理分类")!);
     await userEvent.click(document.querySelector<HTMLButtonElement>('button[aria-label="删除分类实验"]')!);
     // 非空分类要先说清楚文件不会被删，再让人按下去
-    expect(document.querySelector(".project-section-confirm p")?.textContent).toContain("5 篇文档仍留在文档树");
+    expect(document.querySelector(".project-section-confirm p")?.textContent).toContain("文档不会删除");
     await userEvent.click(document.querySelector<HTMLButtonElement>(".project-section-confirm .danger")!);
     await tick();
     expect(apiMock.propDefSet).toHaveBeenCalledWith("sections", { type: "multi" });

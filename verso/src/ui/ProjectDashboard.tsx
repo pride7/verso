@@ -97,7 +97,7 @@ function StatusSelect({ value, options, onChange, onDelete, label }: { value: st
     {open && <div className="project-status-menu" role="listbox" aria-label={`${label}选项`}>
       {choices.map((option) => dropping === option
         ? <div className="project-status-confirm" key={option}>
-          <p>删掉「{option}」？用着它的记录一个字都不改。</p>
+          <p>删除「{option}」？已有记录不受影响。</p>
           <div>
             <button type="button" className="danger" onClick={() => { setDropping(null); onDelete(option); }}>删除</button>
             <button type="button" onClick={() => setDropping(null)}>取消</button>
@@ -143,8 +143,8 @@ function StatusSelect({ value, options, onChange, onDelete, label }: { value: st
       <p className="project-status-hint">
         <i className="tone tone-dot" data-tone={statusTone(custom)} />
         {custom.trim()
-          ? <>算作<strong className="tone" data-tone={statusTone(custom)}>{STATUS_TONE_LABEL[statusTone(custom)]}</strong>，用这一档的颜色</>
-          : <>颜色按词形分档：「…中」算推进，「待…」算没开始</>}
+          ? <>归入<strong className="tone" data-tone={statusTone(custom)}>{STATUS_TONE_LABEL[statusTone(custom)]}</strong></>
+          : <>颜色按状态词自动归类</>}
       </p>
     </form>}
   </div>;
@@ -186,7 +186,7 @@ function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen
       </span>
       : <button className="project-item-open" onClick={(event) => onOpen(item.path, event.ctrlKey || event.metaKey ? { newTab: true } : undefined)}>
         <span className="project-item-icon"><Icon name="doc" size={14} /></span>
-        <span className="project-item-copy"><strong>{item.title}</strong><small>{item.summary || "暂无摘要"}</small></span>
+        <span className="project-item-copy"><strong>{item.title}</strong>{item.summary && <small>{item.summary}</small>}</span>
       </button>}
     {item.pinned && <span className="project-item-pin" title="已置顶" aria-label="已置顶"><Icon name="pin" size={12} /></span>}
     {showKind && <span className="project-kind">{item.section}</span>}
@@ -450,10 +450,10 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
         <div className="project-scroll">
           <section className="project-snapshot">
             <div className="project-status"><span className="tone tone-dot" data-tone={statusTone(overview.status)} /><StatusSelect value={overview.status} options={optionsFor("project")} label="项目状态" onChange={(value, custom) => void setStatus(project.path, value, custom)} onDelete={(option) => void dropStatus(option)} /></div>
-            <p className={overview.summary ? "" : "is-empty"}>{overview.summary || "写一句当前结论，让下次打开时立刻接上思路。"}</p>
+            <p className={overview.summary ? "" : "is-empty"}>{overview.summary || "还没有项目摘要"}</p>
             <div className="project-now-grid">
               <div><strong>接下来</strong><p className={overview.next ? "" : "is-empty"}>{overview.next || "还没有明确下一步"}</p></div>
-              <div><strong>阻碍</strong><p className={overview.blocker ? "" : "is-empty"}>{overview.blocker || "目前没有记录阻碍"}</p></div>
+              <div><strong>阻碍</strong><p className={overview.blocker ? "" : "is-empty"}>{overview.blocker || "暂无阻碍"}</p></div>
             </div>
           </section>
 
@@ -471,13 +471,13 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
               {overview.progress.slice(0, expandedProgress ? undefined : 3).map((entry) => (
                 <article className="project-progress" key={`${entry.at}-${entry.text}`}><time>{entry.at}</time><p>{entry.text}</p></article>
               ))}
-              {!overview.progress.length && <p className="project-empty">记录第一条进展，不用整理，写下刚发生的事就好。</p>}
+              {!overview.progress.length && <p className="project-empty">还没有进展记录。</p>}
               {overview.progress.length > 3 && <button className="project-more" onClick={() => setExpandedProgress((value) => !value)}>{expandedProgress ? "收起" : `查看全部 ${overview.progress.length} 条`}</button>}
             </section>
           </div>
           <section className="project-records">
             <div className="project-records-head">
-              <div><h2>项目内容</h2><p>每一类记录都可以直接进入完整文档；分类由这个项目自己决定。</p></div>
+              <h2>项目内容</h2>
               <button className="project-section-link" onClick={() => managing ? stopManaging() : setManaging(true)}>{managing ? "完成" : "管理分类"}</button>
             </div>
             <div className={`project-record-grid${drag ? " is-sorting" : ""}`}>
@@ -510,8 +510,8 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
                   {pendingDelete === name
                     ? <div className="project-section-confirm">
                       <p>{items.length
-                        ? `删除「${name}」？这一类不再出现在总览里，${items.length} 篇文档仍留在文档树，把分类加回来就能找回。`
-                        : `删除「${name}」？之后随时可以加回来。`}</p>
+                        ? `删除「${name}」？分类会从总览移除，文档不会删除。`
+                        : `删除「${name}」？`}</p>
                       <div>
                         <button className="danger" onClick={() => void writeSections(sections.filter((item) => item !== name))}>删除</button>
                         <button onClick={() => setPendingDelete(null)}>取消</button>
@@ -541,7 +541,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
                   : <button className="project-section-new" onClick={() => setAdding(true)}><Icon name="plus" size={12} />添加分类</button>}
               </section>}
             </div>
-            {!groups.length && !managing && <p className="project-empty">还没有分类。点「管理分类」加一个，比如实验、问题或资料。</p>}
+            {!groups.length && !managing && <p className="project-empty">还没有分类。</p>}
           </section>
         </div>
       ) : <div className="project-loading">正在整理项目…</div>}
@@ -594,15 +594,15 @@ function CaptureDialog({ projectPath, sections, onClose, onDone, onError }: { pr
   };
   return <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="project-dialog" onSubmit={(event) => void submit(event)}>
-      <header><div><h2>{section === null ? "记录一条进展" : `新建${section}文档`}</h2><p>{section === null ? "一句话记下刚刚发生的事。" : "创建后进入完整编辑器，可写公式、图片、代码和表格。"}</p></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
+      <header><div><h2>{section === null ? "记录一条进展" : `新建${section}文档`}</h2></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
       <div className="project-dialog-body">
         <div className="project-kind-tabs">
           <button type="button" className={section === null ? "is-on" : ""} onClick={() => setSection(null)}>{PROGRESS_SECTION}</button>
           {sections.map((value) => <button type="button" className={section === value ? "is-on" : ""} key={value} onClick={() => setSection(value)}>{value}</button>)}
         </div>
         {section !== null && <label>标题<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`例如：${kind ? TITLE_HINT[kind] : `一条${section}记录`}`} /></label>}
-        <label>{section === null ? "刚刚发生了什么" : "一句摘要（可选）"}<textarea autoFocus={section === null} value={content} onChange={(event) => setContent(event.target.value)} rows={section === null ? 6 : 3} placeholder={section === null ? "一句话也可以，之后随时补充" : "这句话会显示在项目总览；详细内容进入文档后再写"} /></label>
-        {kind && <label className="project-template-choice"><input type="checkbox" checked={useTemplate} onChange={(event) => setUseTemplate(event.target.checked)} /><span><strong>使用建议结构</strong><small>可选。按记录类型加入几个 Markdown 标题，进入文档后可任意删改。</small></span></label>}
+        <label>{section === null ? "刚刚发生了什么" : "一句摘要（可选）"}<textarea autoFocus={section === null} value={content} onChange={(event) => setContent(event.target.value)} rows={section === null ? 6 : 3} placeholder={section === null ? "写下刚发生的事" : "写一句摘要"} /></label>
+        {kind && <label className="project-template-choice"><input type="checkbox" checked={useTemplate} onChange={(event) => setUseTemplate(event.target.checked)} /><span><strong>使用建议结构</strong><small>按类型插入可编辑的 Markdown 标题。</small></span></label>}
       </div>
       <footer><button type="button" onClick={onClose}>取消</button><button className="primary" disabled={busy || (section === null ? !content.trim() : !title.trim())}>{busy ? "创建中…" : section === null ? "保存进展" : "创建并开始记录"}</button></footer>
     </form>
@@ -616,7 +616,7 @@ function SnapshotDialog({ path, value, onClose, onDone, onError }: { path: strin
   const submit = async (event: FormEvent) => { event.preventDefault(); setBusy(true); try { await updateProjectSnapshot(api, path, form); onDone(); } catch (error) { onError((error as Error).message); setBusy(false); } };
   return <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="project-dialog" onSubmit={(event) => void submit(event)}>
-      <header><div><h2>更新当前状态</h2><p>这里只保留现在仍然有用的信息。</p></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
+      <header><div><h2>更新当前状态</h2></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
       <div className="project-dialog-body">
         <label>当前结论<textarea autoFocus value={form.summary} onChange={(event) => field("summary", event.target.value)} rows={3} /></label>
         <label>接下来<textarea value={form.next} onChange={(event) => field("next", event.target.value)} rows={3} placeholder="最多三件事" /></label>

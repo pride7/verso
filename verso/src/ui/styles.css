@@ -3594,7 +3594,7 @@ body.is-table-resizing * {
 .project-scroll {
   overflow-y: auto;
   min-height: 0;
-  padding: 30px clamp(24px, 5vw, 72px) 52px;
+  padding: 24px clamp(24px, 5vw, 72px) 44px;
 }
 .project-snapshot,
 .project-columns,
@@ -3603,7 +3603,7 @@ body.is-table-resizing * {
   margin-inline: auto;
 }
 .project-snapshot {
-  padding: 24px 26px;
+  padding: 22px 24px;
   border-radius: var(--r-lg);
   background: color-mix(in oklch, var(--surface) 74%, var(--bg));
 }
@@ -3652,8 +3652,8 @@ body.is-table-resizing * {
 .project-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 34px;
-  margin-top: 32px;
+  gap: 28px;
+  margin-top: 26px;
 }
 .project-section-head {
   display: flex;
@@ -3723,8 +3723,7 @@ body.is-table-resizing * {
   min-width: 0;
   flex: 1;
 }
-/* 就地改名（§2.10）。高度按摘要那两行撑开 —— 进改名态时整行不该塌一半，
-   否则下面几行会跳一下，而人眼正盯着刚点开的这一行 */
+/* 就地改名（§2.10）。输入框保持固定高度，避免点开时整行跳动。 */
 .project-item-rename {
   flex: 1;
   min-width: 0;
@@ -4035,7 +4034,7 @@ body.is-table-resizing * {
   font-size: 12px;
 }
 .project-records {
-  margin-top: 36px;
+  margin-top: 30px;
   margin-inline: auto;
 }
 .project-records-head {
@@ -4047,11 +4046,6 @@ body.is-table-resizing * {
 .project-records-head h2 {
   margin: 0;
   font-size: 15px;
-}
-.project-records-head p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 11.5px;
 }
 .project-record-grid {
   display: grid;
@@ -4261,11 +4255,6 @@ body.is-table-resizing * {
   margin: 0;
   font-size: 17px;
 }
-.project-dialog header p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
 .project-dialog-body {
   overflow-y: auto;
   padding: 17px 20px;
@@ -4377,7 +4366,7 @@ body.is-table-resizing * {
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px clamp(24px, 5vw, 72px) 22px;
+  padding: 24px clamp(24px, 5vw, 72px) 18px;
   border-bottom: 1px solid var(--hairline);
 }
 .project-center-head > div:first-child {
@@ -4388,15 +4377,10 @@ body.is-table-resizing * {
   font-size: clamp(25px, 3vw, 34px);
   letter-spacing: -0.03em;
 }
-.project-center-head p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
 .project-center-scroll {
   min-height: 0;
   overflow-y: auto;
-  padding: 26px clamp(24px, 5vw, 72px) 52px;
+  padding: 22px clamp(24px, 5vw, 72px) 44px;
 }
 .project-center-overview,
 .project-center-tools,
@@ -4417,7 +4401,7 @@ body.is-table-resizing * {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 16px 18px;
+  padding: 14px 16px;
 }
 .project-center-overview > div + div {
   border-left: 1px solid var(--hairline);
@@ -4434,8 +4418,8 @@ body.is-table-resizing * {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 22px;
-  margin-bottom: 15px;
+  margin-top: 18px;
+  margin-bottom: 12px;
 }
 .project-center-search {
   width: min(250px, 36%);
@@ -4545,9 +4529,6 @@ body.is-table-resizing * {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-.project-center-card > p.is-empty {
-  color: var(--muted-2);
-}
 .project-center-card-now {
   display: grid;
   gap: 5px;
@@ -4588,6 +4569,23 @@ body.is-table-resizing * {
 .project-center-empty p {
   margin: 0;
   font-size: 11.5px;
+}
+
+@media (min-width: 721px) {
+  .project-center-card {
+    min-height: 172px;
+    padding: 15px 16px;
+  }
+  .project-center-card h2 {
+    margin-top: 11px;
+  }
+  .project-center-card > p {
+    margin-top: 5px;
+    margin-bottom: 12px;
+  }
+  .project-center-card-now {
+    padding-top: 9px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -4635,9 +4633,6 @@ body.is-table-resizing * {
   .project-center-head {
     align-items: flex-start;
     padding: 18px 16px 14px;
-  }
-  .project-center-head p {
-    display: none;
   }
   .project-center-scroll {
     padding: 16px 14px 36px;

@@ -65,10 +65,9 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
       <div>
         <span className="project-kicker">项目</span>
         <h1>项目中心</h1>
-        <p>在一个地方掌握所有项目，再进入某个项目查看完整总览。</p>
       </div>
       <div className="project-actions">
-        {promotableNote && <button className="project-btn" onClick={onPromote} title={`将「${promotableNote}」设为项目`}>将当前笔记设为项目</button>}
+        {promotableNote && <button className="project-btn" onClick={onPromote} title={`将「${promotableNote}」设为项目`}>设为项目</button>}
         <button className="project-btn primary" onClick={onNew}><Icon name="plus" size={14} />新建项目</button>
         <button className="project-icon-btn" onClick={onClose} aria-label="返回当前笔记" title="返回当前笔记"><Icon name="close" size={15} /></button>
       </div>
@@ -78,7 +77,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
       <div className="project-center-overview">
         <div><strong>{projects?.length ?? 0}</strong><span>全部项目</span></div>
         <div><strong>{activeCount}</strong><span>仍在推进</span></div>
-        <div><strong>{(projects?.length ?? 0) - activeCount}</strong><span>已经结束</span></div>
+        <div><strong>{(projects?.length ?? 0) - activeCount}</strong><span>已结束</span></div>
       </div>
 
       <div className="project-center-tools">
@@ -99,7 +98,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
             return <button className="project-center-card" key={project.path} onClick={() => onOpen(project.path)}>
               <div className="project-center-card-meta"><span className="project-center-card-status tone" data-tone={statusTone(projectStatus)}><i />{projectStatus}</span>{updated && <time>{updated}</time>}</div>
               <h2>{project.title}</h2>
-              <p className={summary ? "" : "is-empty"}>{summary || "还没有项目摘要"}</p>
+              {summary && <p>{summary}</p>}
               <div className="project-center-card-now">
                 <span><small>接下来</small>{next || "尚未记录"}</span>
                 {blocker && <span className="has-blocker"><small>阻碍</small>{blocker}</span>}
@@ -107,7 +106,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
             </button>;
           })}
         </div>
-      ) : <div className="project-center-empty"><Icon name="project" size={22} /><strong>{projects.length ? "没有符合条件的项目" : "还没有项目"}</strong><p>{projects.length ? "换个状态或关键词试试。" : "新建一个项目，或者把现有笔记设为项目。"}</p></div>}
+      ) : <div className="project-center-empty"><Icon name="project" size={22} /><strong>{projects.length ? "没有符合条件的项目" : "还没有项目"}</strong><p>{projects.length ? "换个状态或关键词试试。" : "新建项目，或将现有笔记设为项目。"}</p></div>}
     </div>
   </section>;
 }
