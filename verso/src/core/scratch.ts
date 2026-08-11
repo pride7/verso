@@ -16,6 +16,23 @@ import {
   type Edit,
   type MindNode,
 } from "./mindmap";
+import type { NoteContent } from "./types";
+
+/** `type` 属性里那个值。建草稿箱、查草稿箱、认草稿箱都用它，不要各写一个字面量 */
+export const SCRATCH_TYPE = "scratch";
+
+/**
+ * 认草稿箱的 frontmatter 标记。§4.7.1
+ *
+ * **不按文件名认**：用户可能早就有一篇普通的「草稿箱.md」，那是他的笔记，
+ * 不能因为重名就被当成草稿台接管。反过来，改了名的草稿箱也仍然认得出来。
+ *
+ * 和 `isProject()` 是同一类判断，写法也保持一致 —— 这两处决定的是同一件事：
+ * 打开一篇笔记时，该显示它自己的视图还是普通正文。
+ */
+export function isScratch(note: NoteContent | null): boolean {
+  return note?.frontmatter.type === SCRATCH_TYPE;
+}
 
 export function scratchTree(body: string, title = "草稿箱"): MindNode {
   return parseMindmap(body, title);

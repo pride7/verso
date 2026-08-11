@@ -64,6 +64,7 @@ import { expandTemplate, pickTemplates } from "../core/template";
 import { hideTemplateSubtree } from "../core/treeVisibility";
 import { journalInsert } from "../core/journal";
 import { ensureProjectStatusSchema, isProject, markAsProject } from "../core/project";
+import { isScratch, SCRATCH_TYPE } from "../core/scratch";
 import { sendToTerminal } from "../core/termBus";
 import { normalizeIcon, pushRecentIcon } from "../core/emoji";
 import { useUpdate } from "../host/update";
@@ -887,12 +888,16 @@ export default function App() {
       diffReturnScroll.current = null;
       setNote(content);
       setBody(content.body);
-      // 换页默认回到这篇笔记自己的主视图。草稿台入口在 load 完之后
-      // 再显式打开，不能让「上一篇在卡片视图」泄漏到普通笔记。
-      setScratchpadOpen(false);
+      // 换页回到**这篇笔记自己的**主视图 —— 按类型判断，而不是一律关掉。
+      // 草稿箱自己的主视图就是卡片界面：从文档树点开它却看见一堆 frontmatter，
+      // 和点开一篇项目笔记却看见 YAML 是同一种错。按类型判断也不会把
+      // 「上一篇在卡片视图」泄漏到普通笔记 —— 那正是当初一律关掉的理由。
+      // 想看原始 Markdown 走草稿台头部那个「正文」按钮。
+      const scratch = isScratch(content);
+      setScratchpadOpen(scratch);
       const project = isProject(content);
       setProjectOpen(project);
-      if (project) setMindmapOpen(false);
+      if (project || scratch) setMindmapOpen(false);
       savedMtime.current = content.mtimeMs;
       setSaveState("saved");
       setExternalChange(false);
@@ -2755,7 +2760,7 @@ export default function App() {
     try {
       // 走索引查属性，不扫全库逐篇读文件。草稿箱被用户改过名后仍能找回来。
       const found = await api.viewQuery([
-        'where: type = "scratch"',
+        `where: type = "${SCRATCH_TYPE}"`,
         "sort: updated desc",
         "limit: 1",
       ].join("\n"));
@@ -2766,7 +2771,7 @@ export default function App() {
         let title = "草稿箱";
         while (paths.has(`${title}.md`)) title = `草稿箱 ${++suffix}`;
         const meta = await api.createNote(null, title);
-        await api.propSet(meta.path, "type", "scratch");
+        await api.propSet(meta.path, "type", SCRATCH_TYPE);
         path = meta.path;
         await refresh();
       }
@@ -2774,6 +2779,10 @@ export default function App() {
       setProjectCenterOpen(false);
       setProjectOpen(false);
       await openPath(path);
+      // `loadNote` 已经按 `type: scratch` 打开过一次了，这里再来一发是**兜底**：
+      // 这条路是靠索引查出来的候选，而索引是 `.verso/` 里的派生数据，可能比
+      // 磁盘旧一拍。那时按类型判会判成「不是草稿箱」，表现成「点了草稿台没反应」。
+      // 这个入口的承诺就是「把草稿台打开」，它得自己说了算。
       setScratchpadOpen(true);
     } catch (cause) {
       setError((cause as Error).message);

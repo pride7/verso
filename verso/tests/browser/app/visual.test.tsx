@@ -535,9 +535,13 @@ describe("视觉工作台", () => {
     };
     render();
     await settle(700);
-    document.querySelector<HTMLElement>('.rail-btn[aria-label="草稿台"]')?.click();
+    // 不点图标栏：`type: scratch` 的笔记打开时就该是卡片界面，和项目笔记
+    // 打开就进总览是同一条规则。这里再点一下反而会把它关掉
     await shot("18-light-scratchpad");
-    expect(document.querySelector(".scratchpad"), "草稿台没打开，截图就没有意义").toBeTruthy();
+    expect(
+      document.querySelector(".scratchpad"),
+      "草稿箱打开时就该是卡片界面，不该还要再点一次图标",
+    ).toBeTruthy();
     document.querySelector<HTMLElement>(".scratch-more")?.click();
     await shot("19-light-scratchpad-menu");
     const card = document.querySelector<HTMLElement>(".scratch-card")!.getBoundingClientRect();
