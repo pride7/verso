@@ -50,9 +50,29 @@ describe("按键 → 键位", () => {
     );
   });
 
-  it("字母统一大写，Ctrl 与 Cmd 都算 Mod", () => {
-    expect(eventSpec(press("KeyP", { ctrlKey: true }))).toBe("Mod+P");
-    expect(eventSpec(press("KeyP", { metaKey: true }))).toBe("Mod+P");
+  it("字母统一大写，非 Mac 上 Ctrl 与 Cmd 都算 Mod", () => {
+    expect(eventSpec(press("KeyP", { ctrlKey: true }), false)).toBe("Mod+P");
+    expect(eventSpec(press("KeyP", { metaKey: true }), false)).toBe("Mod+P");
+  });
+
+  /**
+   * Mac 上 ⌃ 和 ⌘ 是两个键。
+   *
+   * ⌃A/⌃E/⌃B/⌃F/⌃N/⌃P 是 macOS 系统级的文本编辑键，同一批键还是中文输入法
+   * 翻候选、选字的键。折成 Mod 的话，打中文时按 ⌃N 会被当成「新建文档」
+   * 截走 —— 而派发那一步是 preventDefault，系统和输入法一个都收不到。
+   */
+  it("Mac 上 ⌃ 不是 ⌘：它配出来的键位匹配不到任何命令", () => {
+    expect(eventSpec(press("KeyN", { metaKey: true }), true)).toBe("Mod+N");
+    // `normalizeSpec` 永远不产出带 Ctrl 的键位（它把 Ctrl 折进了 Mod），
+    // 所以这一发必然落空，原样交还给输入法和系统 —— 这正是要的结果
+    expect(eventSpec(press("KeyN", { ctrlKey: true }), true)).toBe("Ctrl+N");
+    expect(normalizeSpec("Ctrl+N")).toBe("Mod+N");
+    expect(eventSpec(press("KeyN", { ctrlKey: true }), true)).not.toBe(normalizeSpec("Ctrl+N"));
+  });
+
+  it("Mac 上 ⌃⌘ 一起按仍然认得出 Mod", () => {
+    expect(eventSpec(press("KeyS", { ctrlKey: true, metaKey: true }), true)).toBe("Mod+Ctrl+S");
   });
 
   it("只按修饰键不算一次按键", () => {
@@ -67,7 +87,7 @@ describe("按键 → 键位", () => {
   });
 
   it("没有 code 的事件退回 key", () => {
-    expect(eventSpec(press("", { ctrlKey: true }, "e"))).toBe("Mod+E");
+    expect(eventSpec(press("", { ctrlKey: true }, "e"), false)).toBe("Mod+E");
   });
 });
 

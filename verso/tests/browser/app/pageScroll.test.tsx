@@ -108,6 +108,15 @@ const { default: App } = await import("../../../src/app/App");
 let root: Root | null = null;
 const settle = (ms = 1200) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 这个测试引擎认不认 `overscroll-behavior`。
+ *
+ * Playwright 的 WebKit 构建里它整个不存在：`CSS.supports` 直接 false，写进
+ * 行内样式也会被丢掉。真机上的 WKWebView（Safari 16+）是有的，所以这条差异
+ * 属于**测试引擎**而不是应用 —— 认不得就跳过，不要为了让它变绿去改 CSS。
+ */
+const SUPPORTS_OVERSCROLL = CSS.supports("overscroll-behavior-y", "contain");
+
 afterEach(() => {
   root?.unmount();
   root = null;
@@ -175,8 +184,12 @@ describe("页面本身不该能滚", () => {
    * 只能钉住那条声明本身，像 `tauriConfig.test.ts` 钉 `dragDropEnabled` 一样。
    *
    * 删掉它的症状：触控板两指一滑，整个界面连图标栏带状态栏一起晃，边上露白。
+   *
+   * **认不认这个属性要先问一句**（见 `SUPPORTS_OVERSCROLL`）。Playwright 的
+   * WebKit 构建没开它，而 Safari 16+ / macOS 的 WKWebView 是有的 —— 断言不了
+   * 只说明这个测试引擎测不了，不说明应用写错了。把 CSS 改掉才是真的错。
    */
-  it("关掉了弹性 overscroll", async () => {
+  it.skipIf(!SUPPORTS_OVERSCROLL)("关掉了弹性 overscroll", async () => {
     mountApp();
     await settle(300);
     expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("none");
@@ -184,7 +197,7 @@ describe("页面本身不该能滚", () => {
   });
 
   /** 编辑区滚到头之后不该把外层带着一起动 */
-  it("编辑区不把滚动链传给外层", async () => {
+  it.skipIf(!SUPPORTS_OVERSCROLL)("编辑区不把滚动链传给外层", async () => {
     mountApp();
     await settle(500);
     const main = document.querySelector<HTMLElement>(".main")!;

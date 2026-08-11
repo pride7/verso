@@ -117,6 +117,7 @@
 | ↳ 结构化草稿台：随手记、Markdown 卡片整理、一键生成正式文档（§4.7.1） | `v0.7.45` ✅ |
 | ↳ 修：草稿卡片菜单改为卡片外部浮层（§4.7.1） | `v0.7.46` ✅ |
 | ↳ 侧栏图标显示项可自定义（§6.3） | `v0.7.47` ✅ |
+| ↳ 修：macOS 上用中文输入法打字（组词护栏卡死、⌃ 被当成 ⌘）+ WebKit 测试车道（§4.2/§6.5） | `v0.7.48` ✅ |
 | ↳ 窄屏布局：侧栏变抽屉（M6 提前） | `v0.6.2` ✅ |
 | ↳ 移动端公式工具条（§5.5） | `v0.6.3` ✅ |
 | ↳ 文档图标（frontmatter `icon`，§2.3） | `v0.6.13` ✅ |
@@ -290,9 +291,11 @@ cd src-tauri && cargo test     # Rust：树合并、frontmatter、重命名事�
 pnpm exec tsc --noEmit         # 前端类型检查
 pnpm test                      # 前端（Node）：解析器、模糊匹配、snippet 匹配
 pnpm test:browser              # 前端（真实 Chromium）：补全、live preview、database 视图
+pnpm test:webkit               # 同一批，换 WebKit 跑（= Mac 的内核）。改编辑器/输入法/布局时跑
 ```
 
-**提交前这四条都要过。** `pnpm test:all` 把后两条串起来跑。
+**提交前这四条都要过。** `pnpm test:all` 把中间两条串起来跑。
+`test:webkit` 是手动车道，不在里面 —— 为什么见「什么时候必须写 browser 测试」。
 
 ### 剪贴板：写有兜底，读没有
 
@@ -508,6 +511,13 @@ border-box` 的勾选框，减掉 3px 边框再减掉 12px 内边距，内容盒
 这类东西写进 `tests/browser/`，由 `vitest.browser.config.ts` 用
 Playwright 拉真实 Chromium 跑。Tauri 在 Windows 上用的就是 WebView2（Chromium
 内核），所以结论和应用里高度一致。
+
+**但那句话只对 Windows 和 Android 成立。** macOS / iOS 上跑的是 WKWebView
+（WebKit 内核）。贴着引擎的东西（编辑器、输入法、布局）改完，再用
+`pnpm test:webkit` 把同一批测试在 WebKit 里跑一遍 —— 第一次跑就抓出了「callout
+的 2.5px 左边线在 Mac 上被舍成 2px」。第一次用要先 `pnpm exec playwright
+install webkit`。它是**手动车道**，不进 `test:all`：两个内核一起跑要一倍时间，
+而且视觉工作台的截图会互相覆盖。理由和已知差异见 DESIGN.md §6.5。
 
 判断标准很简单：**如果一个函数单测通过、应用里却坏了，说明缺的是 browser
 测试，不是更多单测。** `/` 命令菜单的 bug 就是这么找出来的（见下）。

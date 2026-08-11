@@ -542,7 +542,11 @@ export const versoTheme = EditorView.theme({
     // **不要底色。** 一整块底（无论彩的还是灰的）都会把 callout 变成一个
     // 「提示框控件」，而它其实是旁注。颜色收在左边那条线和图标+标题上，
     // 识别度一点没丢，正文却清爽得多
-    borderLeft: "2.5px solid var(--callout, var(--accent))",
+    // 3px 是**整数**，不是 2.5 —— 边框宽度取的是「用值」，两个引擎的取整
+    // 方向不一样：Blink 把 2.5 进位成 3，WebKit（也就是 macOS 的 WKWebView）
+    // 舍成 2。写小数的结果是同一条线在 Mac 上比引用块细一档，而这两者本该
+    // 一样粗（`.cm-quote` 也是 3px）
+    borderLeft: "3px solid var(--callout, var(--accent))",
     background: "transparent",
   },
   // ⚠️ 行装饰**绝不能用纵向 margin**。

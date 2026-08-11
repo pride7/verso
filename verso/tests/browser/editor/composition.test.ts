@@ -76,4 +76,55 @@ describe("组词期间不动 decoration", () => {
     expect(view.state.doc.toString()).toBe("行内 $x$啊");
     expect(view.contentDOM.querySelector(".katex")).not.toBeNull();
   });
+
+  /**
+   * **`compositionend` 不一定来。** CodeMirror 自己在源码里写着
+   * "Safari will occasionally forget to fire compositionend"，而它只给
+   * dead-key 那一种情况打了补丁 —— macOS 的 WKWebView 正是 Safari 的引擎。
+   *
+   * 上面那条测试永远碰不到这个：它自己把 compositionend 发全了。
+   * 而漏掉一次的后果不是「这次组词出错」，是 live preview **从此**冻住 ——
+   * 护栏只认 `view.compositionStarted`，那面旗只有 compositionend 能清。
+   *
+   * 所以这一条只发 compositionstart，然后照着「人接着往下打字」的样子走，
+   * 看它能不能自己缓过来（判据见 `editor/compositionGuard.ts`）。
+   */
+  it("compositionend 没来：接着打字也能自己解冻，不会冻到换笔记", async () => {
+    const view = mount("行内 $x$");
+    await settle(250);
+    view.focus();
+    view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) });
+    await settle();
+
+    // 组词开始 —— 之后**再也不发 compositionend**
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    view.contentDOM.dispatchEvent(
+      new CompositionEvent("compositionupdate", { bubbles: true, data: "啊" }),
+    );
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "啊" },
+      selection: EditorSelection.cursor(view.state.doc.length + 1),
+    });
+    await settle(300);
+    // 这一刻护栏仍然该生效：CM 说在组词，而且刚刚才有过 composition 事件
+    expect(view.compositionStarted, "CM 的旗应当还举着").toBe(true);
+    expect(view.contentDOM.querySelector(".katex"), "组词期间不该切成渲染态").toBeNull();
+
+    // 人接着正常打字：文档一直在变，但**不会再有 composition 事件**
+    for (let i = 0; i < 8; i++) {
+      view.dispatch({
+        changes: { from: view.state.doc.length, insert: "a" },
+        selection: EditorSelection.cursor(view.state.doc.length + 1),
+      });
+      await settle(500);
+    }
+
+    // 旗还卡着（没人清得掉它），但 decoration 必须已经恢复更新
+    expect(view.compositionStarted, "这一条测的正是旗卡住的情形").toBe(true);
+    expect(
+      view.contentDOM.querySelector(".katex"),
+      "compositionend 漏发之后 live preview 冻住了 —— 这正是 Mac 上打中文的症状",
+    ).not.toBeNull();
+    expect(view.state.doc.toString()).toBe("行内 $x$啊aaaaaaaa");
+  });
 });

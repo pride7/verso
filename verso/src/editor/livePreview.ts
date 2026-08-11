@@ -38,6 +38,7 @@ import {
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
+import { compositionActive, compositionTracker } from "./compositionGuard";
 import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
 import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
 import { mathSource } from "./mathSource";
@@ -399,7 +400,13 @@ class InlinePreviewPlugin implements PluginValue {
     // 用 `compositionStarted` 而不是 `composing`：后者要等 CM 真的数到一次
     // 变更才为真（`inputState.composing > 0`），而输入法从 compositionstart
     // 那一刻起就已经占着这段 DOM 了。
-    if (update.view.compositionStarted) {
+    //
+    // 判据不是 `view.compositionStarted` 本身，而是 `compositionActive()` ——
+    // 那面旗只有 `compositionend` 能清，而 WebKit（= macOS 的 WKWebView）会
+    // 漏发那个事件。漏一次就不是「这次组词出错」，是从此每一次更新都被这里
+    // 挡掉，整个 live preview 冻到换一篇笔记为止。兜底的判据见
+    // `compositionGuard.ts`。
+    if (compositionActive(update.view)) {
       this.composing = true;
       return;
     }
@@ -431,6 +438,9 @@ const inlinePreviewPlugin = ViewPlugin.fromClass(InlinePreviewPlugin, {
 });
 
 export const livePreview: Extension = [
+  // 必须排在两个用它的插件前面：它只是记账（每次 composition 事件记一个
+  // 时刻），`livePreview` 和 `parseRefresh` 都照这本账判断「真的在组词吗」
+  compositionTracker,
   parseRefresh,
   blockMathField,
   inlinePreviewPlugin,

@@ -33,6 +33,8 @@ import { StateEffect, type Extension } from "@codemirror/state";
 import { EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import type { Tree } from "@lezer/common";
 
+import { compositionActive } from "./compositionGuard";
+
 /** 语法树推进了。块级 decoration 的 StateField 应当在收到它时重算。 */
 export const parseAdvanced = StateEffect.define<null>();
 
@@ -41,17 +43,28 @@ export const parseAdvanced = StateEffect.define<null>();
  * 所有可能。刷新本身极轻（只是让一个 StateField 重算），多刷几次无所谓。
  */
 function scheduleRefresh(view: EditorView) {
-  const fire = () => {
+  // 组词期间要往后推的次数上限。120ms × 50 ≈ 6 秒，比
+  // `compositionGuard` 解除卡死的门槛长一截 —— 到那时旗一定已经落了。
+  // 有个上限是因为这是个会自己排下一次的循环，view 万一被扔掉就没人收尾。
+  const MAX_DEFERS = 50;
+  const fire = (deferred = 0) => {
+    if (!view.dom.isConnected) return;
     // 组词期间不要惊动 decoration：那会把输入法正在编辑的 DOM 换掉（见
-    // livePreview 里 `composing` 那段）。组词结束后自然会再刷一次
-    if (view.dom.isConnected && !view.compositionStarted) {
-      view.dispatch({ effects: parseAdvanced.of(null) });
+    // livePreview 里 `composing` 那段）。
+    //
+    // **但不能就这么丢掉。** 丢了就再没人通知「解析又往前走了一截」，那一段
+    // 从此不会被渲染 —— 一边打中文一边看着公式和表格停在源码上，正是这么来的。
+    // 原来这里写着「组词结束后自然会再刷一次」，而那件事并不会自己发生。
+    if (compositionActive(view)) {
+      if (deferred < MAX_DEFERS) setTimeout(() => fire(deferred + 1), 120);
+      return;
     }
+    view.dispatch({ effects: parseAdvanced.of(null) });
   };
-  queueMicrotask(fire);
-  requestAnimationFrame(fire);
-  setTimeout(fire, 60);
-  setTimeout(fire, 300);
+  queueMicrotask(() => fire());
+  requestAnimationFrame(() => fire());
+  setTimeout(() => fire(), 60);
+  setTimeout(() => fire(), 300);
 }
 
 export const parseRefresh: Extension = ViewPlugin.fromClass(

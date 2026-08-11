@@ -48,7 +48,10 @@ describe("单项目总览", () => {
     document.body.appendChild(host);
     root = createRoot(host);
     root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
-    await tick();
+    // 首屏要等的是**这一块真的挂上去**，不是一个拍脑袋的毫秒数：这一条要读
+    // 子文档、算摘要，冷启动那一次（模块刚 import、CSS 刚解析）在慢一些的
+    // 引擎上过不了 80ms。之后几条都在已经渲染好的 DOM 上操作，tick 够用
+    await vi.waitFor(() => expect(document.querySelector(".project-snapshot")).not.toBeNull());
     expect(document.querySelector(".project-snapshot")?.textContent).toContain("先确认误差来源");
     const active = document.querySelector(".project-columns .project-section:first-child")!;
     expect(active.querySelectorAll(".project-item")).toHaveLength(3);

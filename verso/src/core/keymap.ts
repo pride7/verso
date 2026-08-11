@@ -17,6 +17,8 @@
  *   开着的时候 `.key` 可能是 `Process`，那会让所有快捷键失灵。
  */
 
+import { isMac } from "./platform";
+
 /** 修饰键的规范次序。存储和比较都按这个顺序，`Shift+Mod+P` 和 `Mod+Shift+P` 才是同一个键位 */
 const MOD_ORDER = ["Mod", "Alt", "Shift"] as const;
 
@@ -115,12 +117,32 @@ export function normalizeSpec(spec: string): string {
 
 /**
  * 这一发按键对应哪个键位。只按着修饰键、或者认不出来时返回 `null`。
+ *
+ * ## Mac 上 ⌃ 和 ⌘ 是两个键
+ *
+ * **存储**把 Ctrl / Cmd 折成同一个 `Mod`（见 `normalizeSpec`），那是对的 ——
+ * 配置要能跨平台。但**派发**不能跟着折：
+ *
+ * - `⌃A/⌃E/⌃B/⌃F/⌃N/⌃P/⌃K/⌃D` 在 macOS 上是**系统级**的文本编辑键，
+ *   每一个输入框里都有；
+ * - 同一批键还是中文输入法翻候选、选字的键。
+ *
+ * 折成 Mod 的话，Mac 上打中文时按 ⌃N 会被我们当成 `Mod+N`（新建文档）截走，
+ * 而派发那一步是 `preventDefault()` + `stopPropagation()` —— 系统和输入法
+ * 一个都收不到。界面上的提示写的又是 ⌘N，从头到尾看不出是谁干的。
+ *
+ * 所以 Mac 上 ⌃ 单独出一个 `Ctrl` 前缀。`normalizeSpec` 永远不会产出带
+ * `Ctrl` 的键位（它把 Ctrl 折进 Mod 了），于是这类事件必然匹配不到任何一条
+ * 命令，原样落回给输入法和系统 —— 这正是想要的。
+ *
+ * `mac` 可以显式传，只为让这两条路都能在 Node 里测。
  */
-export function eventSpec(e: KeyboardEvent): string | null {
+export function eventSpec(e: KeyboardEvent, mac: boolean = isMac): string | null {
   const key = eventKey(e);
   if (!key) return null;
   const mods: string[] = [];
-  if (e.ctrlKey || e.metaKey) mods.push("Mod");
+  if (mac ? e.metaKey : e.ctrlKey || e.metaKey) mods.push("Mod");
+  if (mac && e.ctrlKey) mods.push("Ctrl");
   if (e.altKey) mods.push("Alt");
   if (e.shiftKey) mods.push("Shift");
   return [...mods, key].join("+");

@@ -1,7 +1,7 @@
 {
   "name": "verso",
   "private": true,
-  "version": "0.7.47",
+  "version": "0.7.48",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:webkit": "vitest run --config vitest.webkit.config.ts",
     "test:all": "vitest run && vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {

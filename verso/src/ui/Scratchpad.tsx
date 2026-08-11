@@ -186,7 +186,10 @@ function ScratchCard({
           onChange={(event) => setValue(event.target.value.replace(/[\r\n]+/g, " "))}
           onBlur={commit}
           onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
+            // 组词中的 Enter/Tab 是在跟候选框说话。两条一起查：Safari 在
+            // 确认候选词的那一次 Enter 上会把 `isComposing` 报成 false，
+            // 只查它的话，选个词就多一张卡片
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               commit();

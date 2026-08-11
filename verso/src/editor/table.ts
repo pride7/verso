@@ -329,8 +329,10 @@ class TableWidget extends WidgetType {
     };
 
     const onCellKey = (e: KeyboardEvent) => {
-      // 输入法组词中的 Enter/方向键是在跟候选框说话，不是跟表格
-      if (!editing || e.isComposing) return;
+      // 输入法组词中的 Enter/方向键是在跟候选框说话，不是跟表格。
+      // 两条一起查：Safari 在确认候选词的那一次 Enter 上会把 `isComposing`
+      // 报成 false，只查它的话，选个词就跳去了下一格
+      if (!editing || e.isComposing || e.keyCode === 229) return;
       const { row, col, el } = editing;
       const last = data.rows.length - 1;
       const cols = data.header.length;

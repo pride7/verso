@@ -2447,6 +2447,14 @@ export default function App() {
   // 用户在设置里改过的会盖掉默认值。见 `lib/keymap.ts`
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // **输入法正在组词时，键盘整个归输入法。**
+      //
+      // 组词期间按下的键有它自己的意思（翻候选、选字、上屏），而我们这一层
+      // 是 `preventDefault()` + `stopPropagation()` —— 截走一发，输入法就
+      // 少一发。`keyCode === 229` 是同一件事的另一种上报方式：Safari 在
+      // 确认候选词的那一次 Enter 上会把 `isComposing` 报成 false，只查一个
+      // 挡不住（`ui/MindMap` 里也是两条一起查）。
+      if (e.isComposing || e.keyCode === 229) return;
       const target = e.target as HTMLElement | null;
       // 浮层（命令面板、设置、快速跳转）里的按键归浮层自己管。设置里正在
       // 录快捷键时尤其重要：按下的组合键不能顺手把那条命令也执行一遍
