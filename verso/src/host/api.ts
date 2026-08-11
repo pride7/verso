@@ -306,6 +306,14 @@ export const api = {
   /** 收尾做完了，可以真的关窗了。见 `onAppClosing` */
   closeNow: () => call<null>("close_now"),
 
+  /**
+   * 弹出系统打印面板。**只在 macOS 上走这条路** —— 那里前端的
+   * `window.print()` 是空转的（理由见 `src-tauri/src/lib.rs` 的 `print_webview`）。
+   *
+   * 立刻返回：面板是挂在窗口上的 sheet，返回不代表用户已经打完。
+   */
+  printWebview: () => call<null>("print_webview"),
+
   // —— §2.1 每个 vault 的界面状态：标签页 ——
   /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */
   workspaceGet: () => call<Workspace>("workspace_get"),

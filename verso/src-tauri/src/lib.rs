@@ -1516,6 +1516,27 @@ fn close_now(window: tauri::Window) {
     let _ = window.destroy();
 }
 
+/// 打印当前 webview 的内容（→ 系统打印对话框 →「存储为 PDF」）。
+///
+/// **macOS 上前端的 `window.print()` 是空转的。** 按下去既不弹对话框也不报错，
+/// 也没有任何异常可以捕获 —— 从前端看，它和「快捷键没生效」长得一模一样，
+/// 这正是最难查的那种失败。原因是 WKWebView 没有实现那条路：真正能弹出面板的
+/// 是 AppKit 的 `NSPrintOperation`，只有原生侧够得着。
+///
+/// wry 把它封在 `Webview::print()` 里（`printOperationWithPrintInfo:` →
+/// `runOperationModalForWindow`），tauri 的文档注释也写明「Currently only
+/// supported on macOS on wry」。Windows / Linux 上 `window.print()` 本来就能用，
+/// 前端不会走到这里。
+///
+/// 面板是挂在窗口上的 sheet，且 wry 开了 `canSpawnSeparateThread` —— 这个命令
+/// **立刻返回**，返回不代表用户已经打完。所以前端不能一收到结果就把打印内容
+/// 从 DOM 里撤掉（见 `App.tsx` 的 `runPrint`）。
+#[cfg(desktop)]
+#[tauri::command]
+fn print_webview(webview: tauri::Webview) -> std::result::Result<(), String> {
+    webview.print().map_err(|e| e.to_string())
+}
+
 
 // —— §2.8 远端同步（M5b）——
 
@@ -1783,6 +1804,8 @@ pub fn run() {
             settings_get,
             settings_set,
             close_now,
+            #[cfg(desktop)]
+            print_webview,
         ])
         .on_window_event(|window, event| {
             // 点 X 的那一刻，编辑器里最后敲的几个字可能还没落盘（§2.7 的自动

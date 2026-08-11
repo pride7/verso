@@ -10481,3 +10481,528 @@ body.is-row-resizing {
     display: block;
   }
 }
+
+/* ==================== 打印与导出 PDF ====================
+   §6 的排版规范落到纸上。
+
+   ## 为什么排版规则不在 `@media print` 里
+
+   打印对话框里有一张"版式预览"，它必须和真正印出来的**是同一份规则** ——
+   预览和结果不一致的预览，比没有预览更糟。所以这一节分成两半：
+
+   - **排版**（字号、行距、段距、表格、callout…）：写在外面，屏幕和纸共用
+   - **隔离与分页**（藏掉界面、@page、break-inside）：只有打印才需要，留在
+     `@media print` 里。这些在屏幕上无从谈起 —— 视口里根本没有"页"这个东西
+
+   ## 两个可调量走 CSS 变量
+
+   字号和页边距由打印对话框控制。`--print-font` 挂在 `.print-doc` 上，预览和
+   打印都吃得到；页边距在预览里是 `.print-page` 的 padding，在纸上则是 `@page
+   margin` —— 后者**不能用 var**（各引擎对 @page 里的自定义属性支持不一致，而
+   我们的目标之一是 WKWebView），所以打印时由 `PrintView` 现场注入一段
+   `<style>`。两处取的是同一个数。 */
+
+/* ---------------- 排版：屏幕预览与纸上共用 ---------------- */
+
+.print-doc {
+  /* **版心由页边距决定，不设 max-width。**
+     原来写的是 `max-width: var(--content-width)` + `margin: 0 auto`，两个机制
+     在打架：42rem ≈ 178mm 比 A4 可印区还宽，一格都没约束到，只是让"居中"
+     变成空操作，而左右不等的页边距又把内容顶向一边。 */
+  font-family: var(--font-body);
+  /* 纸上按 pt 走。11pt 对应 §6.1 那个 16.5px 的观感。
+     行高从 1.85 收到 1.75：屏幕上 1.85 是为长时间滚动阅读设的，而纸上真正
+     决定可读性的是**行距与段距的对比**，行距占满了就没有对比可言（见 p） */
+  font-size: var(--print-font, 11pt);
+  line-height: 1.75;
+  /* 墨色写死，不走 `--text`：深色主题的正文色接近白，打在白纸上等于没有字 */
+  color: #1a1a1a;
+  background: #fff;
+}
+
+/* ---- 标题。§6.1：层级靠字重和留白区分，不靠字号暴涨 ---- */
+
+.print-doc h1,
+.print-doc h2,
+.print-doc h3,
+.print-doc h4,
+.print-doc h5,
+.print-doc h6 {
+  font-weight: 600;
+  line-height: 1.35;
+  /* 留白**上重下轻**：一个标题属于它下面那段，不属于上面那段。上下一样宽
+     的话，读的人分不出这个标题是给谁当帽子的 */
+  margin: 2em 0 0.4em;
+}
+
+/* 一节刚开头就又起一个小标题（`## 甲` 紧跟 `### 甲一`），中间不该再拉开
+   一整段留白 —— 那会让人以为这两个标题不相干 */
+.print-doc h1 + h2,
+.print-doc h2 + h3,
+.print-doc h3 + h4 {
+  margin-top: 0.8em;
+}
+
+.print-doc h1 { font-size: 1.75em; }
+.print-doc h2 { font-size: 1.4em; }
+.print-doc h3 { font-size: 1.15em; }
+.print-doc h4,
+.print-doc h5,
+.print-doc h6 { font-size: 1em; }
+
+.print-doc-title {
+  margin-top: 0;
+  padding-bottom: 0.4em;
+  border-bottom: 0.5pt solid #c8c8c8;
+}
+
+/* ---- 正文 ---- */
+
+.print-doc p {
+  /* **不是 §6.1 那个 0.35em。** 那是屏幕设定，而且屏幕上还有滚动位置、光标、
+     选区这些别的线索帮着分段；纸上只剩空白这一个手段。0.35em 配 1.75 行高
+     的结果是段距比行距还小 —— 四段挤成一坨。段距必须明显大于行距 */
+  margin: 0 0 0.85em;
+}
+
+.print-doc ul,
+.print-doc ol {
+  margin: 0.85em 0;
+  padding-left: 1.6em;
+}
+
+/* 列表项之间不用段距 —— 一条列表是一个整体，项与项之间拉开就散了 */
+.print-doc li + li {
+  margin-top: 0.2em;
+}
+
+.print-doc li > p {
+  margin: 0;
+}
+
+.print-doc li.task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+
+.print-doc .task-check {
+  margin-right: 0.4em;
+}
+
+/* 字重跟着 §6：600 不是 700。有些字体没有 600 会跳到 700，满页加粗时
+   那一档太黑，会把正文压成斑马纹 */
+.print-doc strong {
+  font-weight: 600;
+}
+
+.print-doc a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: #b0b0b0;
+}
+
+/* 内部链接在纸上点不动，别装成能点的样子 */
+.print-doc .wikilink {
+  text-decoration: none;
+  border-bottom: 0.5pt dotted #b0b0b0;
+}
+
+.print-doc .tag {
+  color: #555;
+}
+
+.print-doc mark {
+  background: none;
+  /* 底色在黑白打印机上会糊成一片灰。下划线更稳，也省墨 */
+  border-bottom: 1pt solid #888;
+}
+
+/* `---` 在长笔记里往往每节一条。又深又贴着下一个标题的话，页面会被切得很碎 ——
+   它的活儿只是"这里换个话题"，而那件事标题上方的留白已经在做了 */
+.print-doc hr {
+  margin: 1.8em 0;
+  border: none;
+  border-top: 0.5pt solid #e2e2e2;
+}
+
+.print-doc hr + h1,
+.print-doc hr + h2,
+.print-doc hr + h3,
+.print-doc hr + h4 {
+  margin-top: 1.2em;
+}
+
+/* ---- 公式 ---- */
+
+.print-doc .math-block {
+  margin: 0.9em 0;
+  text-align: center;
+}
+
+.print-doc .math-error {
+  font-family: var(--font-mono);
+  border-bottom: 1pt solid #999;
+}
+
+/* ---- 代码 ---- */
+
+.print-doc pre {
+  margin: 0.8em 0;
+  padding: 0.7em 0.9em;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  border: 0.5pt solid #d0d0d0;
+  border-radius: 3pt;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.print-doc code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.print-doc pre code {
+  font-size: inherit;
+}
+
+/* ---- 表格 ---- */
+
+.print-doc table {
+  width: 100%;
+  margin: 1.1em 0;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  /* **行高必须自己写。** 继承正文那个 1.75 之后，一个字的单元格也占三行的高，
+     四行表格能撑掉小半页 —— 表格是密排的信息，不是用来长时间顺读的 */
+  line-height: 1.45;
+}
+
+/* **不画竖线，横线只留三条。**
+   全格线是网页表格的习惯（屏幕上要靠线把格子框住），印刷里几乎从不这么做 ——
+   竖线会和汉字的竖向笔画抢注意力，把一张表切成一堆小盒子。留表首、表头下、
+   表尾三条，列与列之间靠对齐和间距分开，这也是学术排版（booktabs）的做法。
+   行与行之间给一条极浅的线：数据行多的时候横向串行比好看更要紧 */
+.print-doc th,
+.print-doc td {
+  padding: 0.45em 0.7em;
+  border: none;
+  border-bottom: 0.5pt solid #ececec;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* 第一列贴着版心左边缘起排，最后一列贴右边缘收 —— 表格才和正文对得齐 */
+.print-doc th:first-child,
+.print-doc td:first-child {
+  padding-left: 0;
+}
+
+.print-doc th:last-child,
+.print-doc td:last-child {
+  padding-right: 0;
+}
+
+.print-doc thead th {
+  border-top: 1pt solid #999;
+  border-bottom: 0.5pt solid #999;
+}
+
+.print-doc tbody tr:last-child td {
+  border-bottom: 1pt solid #999;
+}
+
+.print-doc th {
+  font-weight: 600;
+  /* **中文表头必须 nowrap。** CJK 可以在任意字符之间断行，于是 auto 布局会把
+     "我的排序"这种列压成一字一行的竖条，而下面的格子里只有一个字符。
+     表头都很短，钉住它们反而让列宽分配回到内容本身 */
+  white-space: nowrap;
+}
+
+/* 视图印出来的表格上方那行说明：它是查询结果，不是手写的表 */
+.print-doc .dbview-caption {
+  margin: 1.1em 0 -0.6em;
+  font-size: 0.85em;
+  color: #777;
+}
+
+.print-doc .dbview-group {
+  margin-top: 1.2em;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+/* ---- callout / 引用 ---- */
+
+.print-doc blockquote,
+.print-doc .callout {
+  margin: 0.9em 0;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 2pt solid #c0c0c0;
+}
+
+.print-doc .callout-title {
+  font-weight: 600;
+}
+
+/* 六个色族在黑白打印下分不出来，也不该靠色块分。左边那根线按色族深浅拉开
+   一档就够了 —— 彩打时仍然有颜色，黑白打印时是不同的灰 */
+.print-doc .callout-warning { border-left-color: #b8860b; }
+.print-doc .callout-danger { border-left-color: #a33; }
+.print-doc .callout-tip { border-left-color: #2a7f62; }
+.print-doc .callout-question { border-left-color: #5566aa; }
+
+/* ---- 图片与其他 ---- */
+
+.print-doc img {
+  max-width: 100%;
+  height: auto;
+}
+
+.print-doc .img-missing {
+  font-size: 0.9em;
+  color: #777;
+}
+
+.print-doc .dbview-placeholder {
+  padding: 0.6em 0.9em;
+  border: 0.5pt dashed #c0c0c0;
+  border-radius: 3pt;
+  font-size: 0.9em;
+  color: #777;
+}
+
+/* 挂在 body 下的那一份是**打印容器**，屏幕上永远不显示。
+   预览里的那一份长在 `.print-page` 里，不受这条影响 */
+body > .print-doc {
+  display: none;
+}
+
+/* ---------------- 打印对话框与版式预览 ---------------- */
+
+.print-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, 94vw);
+  height: min(760px, 90vh);
+  /* 和别的对话框同一套材质（`.join-vault` 那一组）—— 少了这层，它会和
+     遮罩糊成一整块，看不出是个浮层 */
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modal-in var(--t-base);
+}
+
+.print-dialog-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 预览区。灰底衬出纸张边缘 —— 白纸放在白界面上看不出版心和页边距 */
+.print-preview {
+  flex: 1;
+  min-width: 0;
+  padding: 20px;
+  overflow: auto;
+  background: var(--rail);
+  /* zoom 而不是 transform：它是**真正的缩放**，字号、行宽、断行全部按比例
+     变，所以预览里哪个字换行，纸上就是哪个字。transform 只改绘制，
+     滚动区域和布局都对不上 */
+  zoom: var(--print-zoom, 0.82);
+}
+
+/* 一张纸。宽度写 A4，页边距就是它的 padding —— 拖动页边距那一栏时，
+   看到的是纸上真实的留白，不是一个示意图 */
+.print-page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: var(--print-margin-top, 20mm) var(--print-margin-side, 22mm)
+    var(--print-margin-bottom, 22mm);
+  background: #fff;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 18%);
+}
+
+.print-page .print-doc {
+  display: block;
+}
+
+.print-options {
+  flex: 0 0 260px;
+  padding: 18px 20px;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+}
+
+.print-options h3 {
+  margin: 0 0 14px;
+  font-size: 0.95em;
+}
+
+.print-option {
+  margin-bottom: 18px;
+}
+
+.print-option > label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* 三档选择（字号、页边距）：分段控件而不是下拉 —— 三个值全摆出来，
+   点一下就换，改完预览立刻跟着变 */
+.print-seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.print-seg button {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 0.85em;
+  color: var(--muted);
+}
+
+.print-seg button + button {
+  border-left: 1px solid var(--border);
+}
+
+.print-seg button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.print-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.print-check input {
+  margin-top: 3px;
+}
+
+.print-check-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.print-dialog-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.print-dialog-count {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* 窄屏：预览让位。手机上那张 A4 纸缩到看不清字，留着只占地方 */
+@media (max-width: 720px) {
+  .print-dialog-body {
+    flex-direction: column;
+  }
+  .print-preview {
+    display: none;
+  }
+  .print-options {
+    flex: 1;
+    border-left: none;
+  }
+}
+
+/* ---------------- 只有打印时才需要的：隔离与分页 ---------------- */
+
+@media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    /* 纸是白的。不写这一句的话，用户在打印对话框里勾了「打印背景图形」
+       就会得到一整页主题底色 —— 浅色主题下是一片灰，深色主题下是一片黑 */
+    background: #fff !important;
+  }
+
+  /* 界面其余部分整个不打印。判据是「不是打印文档」，不是逐个列举面板 ——
+     以后加一个新面板不该需要回来改这里 */
+  body > *:not(.print-doc) {
+    display: none !important;
+  }
+
+  body > .print-doc {
+    display: block;
+  }
+
+  @page {
+    /* 默认值。对话框改过之后由 `PrintView` 注入的 <style> 覆盖 ——
+       @page 里不能可靠地用自定义属性，见本节开头 */
+    margin: 20mm 22mm 22mm;
+  }
+
+  /* 标题落在页脚、正文翻到下一页 —— 打印里最显廉价的一种断法 */
+  .print-doc h1,
+  .print-doc h2,
+  .print-doc h3,
+  .print-doc h4,
+  .print-doc h5,
+  .print-doc h6 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* 一行孤零零留在页底或页顶 */
+  .print-doc p {
+    orphans: 2;
+    widows: 2;
+  }
+
+  /* 独立公式几乎总是很短，切断它没有任何好处 */
+  .print-doc .math-block,
+  .print-doc img,
+  .print-doc blockquote,
+  .print-doc .callout {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* 长代码块**不能**整块 avoid：那会把它整个推到下一页，然后照样溢出。
+     让它断，但不许只断出三行以内的零头 */
+  .print-doc pre {
+    break-inside: auto;
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* 长表格照样要能跨页，但表头每页都重印一次 */
+  .print-doc table {
+    break-inside: auto;
+  }
+
+  .print-doc thead {
+    display: table-header-group;
+  }
+
+  .print-doc tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

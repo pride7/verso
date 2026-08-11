@@ -41,6 +41,14 @@ import { HistoryView, type DiffSelection } from "../ui/HistoryView";
 import { DiffView } from "../ui/DiffView";
 import { MathBar } from "../ui/MathBar";
 import { MindMap } from "../ui/MindMap";
+import {
+  composePrintHtml,
+  PrintDialog,
+  type PrintOptions,
+  type PrintPart,
+  type PrintSource,
+} from "../ui/PrintDialog";
+import { PrintView } from "../ui/PrintView";
 import { Scratchpad } from "../ui/Scratchpad";
 import { ProjectCenter } from "../ui/ProjectCenter";
 import { ProjectDashboard } from "../ui/ProjectDashboard";
@@ -49,6 +57,7 @@ import { SharedSpaceDialog } from "../ui/SharedSpaceDialog";
 import { JoinVaultDialog, type JoinVaultInput } from "../ui/JoinVaultDialog";
 import { ShareNoteDialog, type ShareNoteInput } from "../ui/ShareNoteDialog";
 import { setSlashAction } from "../editor/completion";
+import { viewSources } from "../editor/exportHtml";
 import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
 import { expandTemplate, pickTemplates } from "../core/template";
@@ -77,7 +86,7 @@ import {
 import { attachmentPath } from "../core/vaultPath";
 import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "../core/treeSort";
 import { bindingOf, eventSpec, hint } from "../core/keymap";
-import { keyLabel } from "../core/platform";
+import { isMac, keyLabel } from "../core/platform";
 import {
   readSeenCommits,
   unreadCollaborationEntries,
@@ -102,6 +111,7 @@ import type {
   SyncResolution,
   TreeNode,
   VaultInfo,
+  ViewResult,
 } from "../core/types";
 import "katex/dist/katex.min.css";
 import "../ui/styles.css";
@@ -724,6 +734,139 @@ export default function App() {
     },
     [vault],
   );
+
+  /**
+   * 打印（→ 系统对话框里「存储为 PDF」）。
+   *
+   * **不能直接打印编辑器**：CodeMirror 只渲染视口，屏幕外的段落根本不在
+   * DOM 里，打出来是截断的一段 —— 而且短笔记全在 DOM 里、看着正常，
+   * 只有长笔记才出问题。所以这里把整篇重新渲染一遍（`editor/exportHtml.ts`），
+   * 挂进一个独立的打印容器（`ui/PrintView.tsx`），样式见 styles.css 末尾。
+   *
+   * 内部链接不传 `resolveLink`：单篇打印时，指向别处的链接在纸上点不动，
+   * 渲染成不可点的文本比留一个死链诚实。
+   */
+  // `fileName` 和 `title` 分开：标题可以不印，但存 PDF 的默认文件名总该是笔记名
+  const [printing, setPrinting] = useState<{
+    title: string | null;
+    html: string;
+    fileName: string;
+  } | null>(null);
+  /** 打印对话框的素材。非 null = 对话框开着 */
+  const [printSource, setPrintSource] = useState<PrintSource | null>(null);
+
+  /**
+   * 备料：读子文档、把 database 视图查一遍，然后开对话框。
+   *
+   * **一次性全备齐**，哪怕用户最后没勾「连子文档」。理由是对话框里改一个
+   * 勾选框就要重排预览，而读盘和查询都是异步的 —— 让勾选框等 IPC 会把一个
+   * 顺手的操作变成一连串卡顿。多读几篇笔记的代价远小于此。
+   */
+  const printNote = useCallback(
+    async (path?: string) => {
+      // 不传就是「当前这篇」。文档树右键那条会传路径 —— 右键的目标未必是
+      // 打开着的那一篇，照 `note` 打就成了「点了 A 却印出 B」
+      const target = path ?? note?.path;
+      if (!target) return;
+
+      const content =
+        target === note?.path ? note : await api.readNote(target).catch(() => null);
+      if (!content) {
+        setNotice("无法读取此文档，无法打印");
+        return;
+      }
+
+      // 子文档按树的顺序、带着层级收集。深度决定标题降几级
+      const node = tree.flatMap(flatten).find((n) => n.path === target);
+      const parts: PrintPart[] = [{ title: content.title, body: content.body, depth: 0 }];
+      const collect = async (nodes: TreeNode[], depth: number) => {
+        for (const child of nodes) {
+          if (child.kind !== "document") continue;
+          const sub = await api.readNote(child.path).catch(() => null);
+          // 读不出来的那一篇跳过就是了 —— 不能让一篇坏文件挡住整次打印
+          if (sub) parts.push({ title: sub.title, body: sub.body, depth });
+          await collect(child.children, depth + 1);
+        }
+      };
+      await collect(node?.children ?? [], 1);
+
+      // 视图的查询结果。查不动的那些不进表，对话框会印占位说明
+      const views = new Map<string, ViewResult>();
+      await Promise.all(
+        parts
+          .flatMap((p) => viewSources(p.body))
+          .map(async (src) => {
+            const result = await api.viewQuery(src).catch(() => null);
+            if (result) views.set(src, result);
+          }),
+      );
+
+      setPrintSource({ title: content.title, parts, views, resolveImage: imageSrc });
+    },
+    [note, tree, imageSrc],
+  );
+
+  /** 对话框里的选项就是设置里那几条 —— 选过的下次沿用 */
+  const printOptions: PrintOptions = useMemo(
+    () => ({
+      fontSize: settings.printFontSize,
+      margin: settings.printMargin,
+      title: settings.printTitle,
+      children: settings.printChildren,
+      viewResults: settings.printViewResults,
+    }),
+    [settings],
+  );
+
+  /** 对话框按下「打印…」：拼出最终 HTML，挂进打印容器 */
+  const startPrint = useCallback(() => {
+    if (!printSource) return;
+    const html = composePrintHtml(printSource, printOptions);
+    setPrinting({
+      title: printOptions.title ? printSource.title : null,
+      html,
+      fileName: printSource.title,
+    });
+    setPrintSource(null);
+  }, [printSource, printOptions]);
+
+  /**
+   * 内容已经排好版了，可以真的按下打印。
+   *
+   * **macOS 走原生那条路。** 那里 `window.print()` 是空转的：不弹面板、不报错、
+   * 没有异常可捕获 —— 从用户看就是「按了没反应」，和快捷键没生效分不开。
+   * 见 `src-tauri/src/lib.rs` 的 `print_webview`。
+   *
+   * 两条路都是**异步**的（macOS 的面板是另起线程渲染的 sheet，`afterprint`
+   * 也不保证发），所以内容不能一调用完就从 DOM 里撤掉 —— 撤早了打出来是
+   * 空白页。兜底定时器保证界面不会永远卡在打印态；反正 `.print-doc` 在屏幕上
+   * 本来就不可见，多挂一会儿没有代价。
+   */
+  const runPrint = useCallback(() => {
+    const later = setTimeout(() => setPrinting(null), 60_000);
+    const abort = (msg: string) => {
+      clearTimeout(later);
+      setPrinting(null);
+      setNotice(msg);
+    };
+
+    if (isMac) {
+      void api.printWebview().catch((e) => abort(`打印失败：${String(e)}`));
+      return;
+    }
+
+    if (typeof window.print !== "function") {
+      abort("当前平台不支持打印");
+      return;
+    }
+    const finish = () => {
+      clearTimeout(later);
+      window.removeEventListener("afterprint", finish);
+      setPrinting(null);
+    };
+    window.addEventListener("afterprint", finish);
+    window.print();
+  }, []);
 
   /** 一页不再开着了：它的编辑器状态和滚动位置都没有留着的理由 */
   const forgetTab = useCallback((path: string) => {
@@ -2941,6 +3084,16 @@ export default function App() {
         run: () => void saveNow(),
       },
       {
+        id: "note.print",
+        group: "笔记",
+        label: "打印或导出 PDF",
+        // **不用 Mod+P**：那是快速跳转，一个每天按几十次的键，不能为了
+        // 一个偶尔用一次的功能让出去。加 Alt 和「用模板新建」那一对同理
+        defaultKeys: "Mod+Alt+P",
+        enabled: hasNote,
+        run: () => void printNote(),
+      },
+      {
         id: "note.rename",
         group: "笔记",
         label: "重命名当前文档",
@@ -3281,6 +3434,7 @@ export default function App() {
     commitNow,
     git,
     saveNow,
+    printNote,
     renameNode,
     reloadFromDisk,
     openVault,
@@ -4331,6 +4485,37 @@ export default function App() {
         />
       )}
 
+      {/* 版式预览 + 那几个旋钮。素材已经在 `printNote` 里备齐，这里不再有异步 */}
+      {printSource && (
+        <PrintDialog
+          source={printSource}
+          options={printOptions}
+          onChange={(next) =>
+            void updateSettings({
+              printFontSize: next.fontSize,
+              printMargin: next.margin,
+              printTitle: next.title,
+              printChildren: next.children,
+              printViewResults: next.viewResults,
+            })
+          }
+          onPrint={startPrint}
+          onClose={() => setPrintSource(null)}
+        />
+      )}
+
+      {/* 打印时才挂进 DOM。它自己 portal 到 body，屏幕上不可见 —— 只有
+          打印样式表会让它现身，同时把界面其余部分整个藏掉 */}
+      {printing && (
+        <PrintView
+          title={printing.title}
+          html={printing.html}
+          layout={printOptions}
+          fileName={printing.fileName}
+          onReady={runPrint}
+        />
+      )}
+
       {/**
        * 正文里的右键菜单（§4.10）。
        *
@@ -4441,6 +4626,23 @@ export default function App() {
               >
                 <Icon name="doc" size={14} />
                 创建为文档
+              </button>
+            </li>
+          )}
+          {/* 打印这一篇。命令面板和 `Mod+Alt+P` 之外必须有一个**看得见**的
+              入口：没人会去命令面板里找「导出」，而这是把一篇笔记交出去的
+              唯一一条路 */}
+          {menu.node.kind === "document" && (
+            <li>
+              <button
+                onClick={() => {
+                  const { node } = menu;
+                  setMenu(null);
+                  void printNote(node.path);
+                }}
+              >
+                <Icon name="printer" size={14} />
+                打印或导出 PDF
               </button>
             </li>
           )}

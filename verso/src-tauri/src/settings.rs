@@ -41,6 +41,17 @@ fn default_journal_keep() -> f64 {
     3.0
 }
 
+/// 11pt 对应 §6.1 那个 16.5px 的观感
+fn default_print_font_size() -> f64 {
+    11.0
+}
+
+/// 22mm。照 §6.1「一行不超过 40 汉字」倒推：A4 宽 210mm 减掉两边就是
+/// 166mm 版心，11pt 下正好约 42 个汉字
+fn default_print_margin() -> f64 {
+    22.0
+}
+
 /// 停手多少分钟之后自动记一个版本。§2.8
 fn default_auto_commit_idle() -> f64 {
     5.0
@@ -202,6 +213,23 @@ pub struct Settings {
     #[serde(default)]
     pub rail_hidden: Vec<String>,
 
+    // —— 打印 / 导出 PDF。对话框里选过的下次沿用 ——
+    /// 正文字号（pt）。纸上按 pt 而不是 px：px 在纸上没有确定含义
+    #[serde(default = "default_print_font_size")]
+    pub print_font_size: f64,
+    /// 左右页边距（mm）。上下由它推出来，见前端 `PRINT_MARGINS`
+    #[serde(default = "default_print_margin")]
+    pub print_margin: f64,
+    /// 第一页印不印笔记标题。正文里已经写了大标题的人不需要再来一个
+    #[serde(default = "default_true")]
+    pub print_title: bool,
+    /// 连同子文档一起导出。子文档的标题整体降一级，接在父文档后面
+    #[serde(default)]
+    pub print_children: bool,
+    /// database 视图印查询结果，还是只印一句占位说明
+    #[serde(default = "default_true")]
+    pub print_view_results: bool,
+
     /// 改过的快捷键：命令 id → 键位（`"Mod+Shift+P"`）。空串表示显式解绑。
     ///
     /// 和 snippet 一样**不在 Rust 侧建模**：命令表和键位写法全在前端
@@ -242,6 +270,11 @@ impl Default for Settings {
             slash_hidden: Vec::new(),
             slash_custom: String::new(),
             rail_hidden: Vec::new(),
+            print_font_size: default_print_font_size(),
+            print_margin: default_print_margin(),
+            print_title: default_true(),
+            print_children: false,
+            print_view_results: default_true(),
             keybindings: BTreeMap::new(),
         }
     }
@@ -286,6 +319,10 @@ impl Settings {
         self.content_width = clamp(self.content_width, 24.0, 80.0, default_content_width());
         self.ui_font_size = clamp(self.ui_font_size, 11.0, 20.0, default_ui_font_size());
         self.terminal_font_size = clamp(self.terminal_font_size, 9.0, 24.0, default_terminal_font_size());
+        // 字号夹在能读得下去的范围里；页边距上限留 40mm —— 再大版心就只剩
+        // 一条窄缝，A4 上一行放不下二十个字
+        self.print_font_size = clamp(self.print_font_size, 8.0, 16.0, default_print_font_size());
+        self.print_margin = clamp(self.print_margin, 8.0, 40.0, default_print_margin());
         // 模板目录是路径的一段，`..` 会被 `Vault::resolve` 挡下来，但那时
         // 报的是「路径越界」这种看不懂的错。这里直接规整掉，行为是「当成没设」
         if self.template_dir.contains("..") {

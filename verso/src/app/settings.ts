@@ -124,6 +124,19 @@ export interface Settings {
    * 一概照旧，所以这是界面偏好而不是功能开关。
    */
   railHidden: string[];
+
+  // —— 打印或导出 PDF。对话框里选过的下次沿用 ——
+  /** 正文字号（pt）。纸上按 pt 而不是 px —— px 在纸上没有确定含义 */
+  printFontSize: number;
+  /** 左右页边距（mm）。上下由它推出来，见 `PRINT_MARGINS` */
+  printMargin: number;
+  /** 是否在第一页显示笔记标题 */
+  printTitle: boolean;
+  /** 是否同时打印子文档，子文档标题整体下移一级 */
+  printChildren: boolean;
+  /** 是否打印 database 视图查询结果，否则只打印占位说明 */
+  printViewResults: boolean;
+
   /**
    * 改过的快捷键。命令 id → 键位（`Mod+Shift+P` 这种写法）。
    *
@@ -162,6 +175,11 @@ export const DEFAULT_SETTINGS: Settings = {
   slashHidden: [],
   slashCustom: "",
   railHidden: [],
+  printFontSize: 11,
+  printMargin: 22,
+  printTitle: true,
+  printChildren: false,
+  printViewResults: true,
   keybindings: {},
 };
 
@@ -278,6 +296,17 @@ export function sanitize(s: Settings): Settings {
       ? ((s.accentHue % 360) + 360) % 360
       : DEFAULT_SETTINGS.accentHue,
     accentChroma: num(s.accentChroma, 0, 0.16, DEFAULT_SETTINGS.accentChroma),
+    // 与 Rust 的 clamp 保持同一组边界。页边距上限 40mm —— 再大版心就只剩
+    // 一条窄缝，A4 上一行放不下二十个字
+    printFontSize: num(s.printFontSize, 8, 16, DEFAULT_SETTINGS.printFontSize),
+    printMargin: num(s.printMargin, 8, 40, DEFAULT_SETTINGS.printMargin),
+    printTitle: typeof s.printTitle === "boolean" ? s.printTitle : DEFAULT_SETTINGS.printTitle,
+    printChildren:
+      typeof s.printChildren === "boolean" ? s.printChildren : DEFAULT_SETTINGS.printChildren,
+    printViewResults:
+      typeof s.printViewResults === "boolean"
+        ? s.printViewResults
+        : DEFAULT_SETTINGS.printViewResults,
     bodyFontSize: num(s.bodyFontSize, 12, 28, DEFAULT_SETTINGS.bodyFontSize),
     lineHeight: num(s.lineHeight, 1.2, 2.4, DEFAULT_SETTINGS.lineHeight),
     paragraphSpacing: num(s.paragraphSpacing, 0, 1.2, DEFAULT_SETTINGS.paragraphSpacing),
