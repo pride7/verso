@@ -155,6 +155,7 @@
 | ↳ 修：macOS 正文与草稿卡片输入中文不再残留拼音（§4.2/§4.7.1） | `v0.8.2` ✅ |
 | ↳ 粘贴与命令面板可转换 LaTeX 公式定界符（§4.3） | `v0.8.3` ✅ |
 | ↳ 项目总览可搜索记录正文与进展；修 Mac 中文组词错位与确认后多一行（§2.10/§4.2） | `v0.8.4` ✅ |
+| ↳ 修：Apple Silicon 自动更新清单不再被 Intel 并行任务覆盖（§2.11） | `v0.8.5` ✅ |
 | M6b 移动端（iOS） | 暂缓（原计划 `v0.9.0`，需 Mac + Xcode + 设备） |
 | M7 发布 | 暂缓（原计划 `v0.10.0`，按需评估） |
 
@@ -189,8 +190,8 @@ node scripts/version.mjs 0.2.0     # 三处一起改
 
 推 tag 触发 [.github/workflows/release.yml](.github/workflows/release.yml)：编 Windows /
 macOS(arm+intel) / Linux 四份桌面包 + 安卓 arm64 APK，传到一个**草稿** release，
-最后由 finalize job 在正文末尾追加「下载哪一个」对照表（追加发生在 `latest.json`
-上传之后，应用内「检查更新」读到的还是干净的更新日志）。
+最后由 finalize job 重建完整 `latest.json`，再在正文末尾追加「下载哪一个」对照表
+（追加发生在 `latest.json` 上传之后，应用内「检查更新」读到的还是干净的更新日志）。
 **不要改成给资产改名**：`latest.json` 记的是原始下载地址，资产一改名，
 自动更新当场 404 —— 平台标注只能走正文对照表这条路。
 
@@ -206,7 +207,7 @@ git push && git push origin v0.6.14
 **点 Publish 之前没有任何用户会更新到这一版** —— 客户端读的是
 `releases/latest/download/latest.json`，那个地址只认已发布、非预发布的 release。
 
-六件必须知道的事：
+七件必须知道的事：
 
 1. **`~/.tauri/verso.key` 是不可再生的。** 更新包用它签名，公钥编在
    `tauri.conf.json` 里。这把私钥丢了，所有已经装出去的客户端就**永远**收不到
@@ -250,6 +251,11 @@ git push && git push origin v0.6.14
    **未签名的 APK（装不上）**并打一条 warning。给已发布的版本补 APK 用
    `gh workflow run release.yml -f tag=v0.6.21 -f only=android` —— 只跑安卓
    那一半，不会因为桌面包重传同名资产而失败。
+7. **不能相信 matrix 任务各自写出的 `latest.json` 已经完整。** 两个 macOS
+   架构并行上传时，后完成的 Intel 任务曾覆盖 Apple Silicon 的
+   `darwin-aarch64-app` 条目，安装包都在但 M 系列芯片无法检查更新。finalize
+   必须运行 `scripts/updater-manifest.mjs`，按 Release 中实际存在的安装包与
+   `.sig` 重建全部 11 个桌面平台键；缺一项就让发布失败。
 
 ## 目录结构
 

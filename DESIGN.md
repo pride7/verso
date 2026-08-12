@@ -1420,6 +1420,8 @@ WKWebView 没有实现那条路 —— 按下去不弹面板、不报错、没�
 
 **release 是草稿，要人点一下才发布。** 编译要十几分钟，中途发现哪个平台挂了还能删了重来；而 `releases/latest/download/…` 这个地址只认已发布、非预发布的那一个 —— 在点 Publish 之前，没有任何用户会被推到这一版。
 
+**`latest.json` 必须在所有构建结束后统一重建，不能把 matrix 任务的增量合并当成最终结果。** macOS Intel 与 Apple Silicon 是两笔并行任务；后完成的一笔可能用自己的平台条目覆盖另一笔，安装包虽然都在，客户端却会报找不到 `darwin-aarch64-app`。finalize 阶段以 Release 中实际存在的安装包和 `.sig` 为输入，重建 Windows、Linux、macOS 两种架构的完整平台映射；缺任何一项就失败，不允许留下可发布的残缺清单。
+
 **更新说明就是 CHANGELOG 里那一节**（`scripts/release-notes.mjs` 取出来 → release 正文 → `latest.json` 的 `notes` → 用户在更新界面里读到的那段话）。这条链决定了 CHANGELOG 那几段话不是流水账，是给人看的。
 
 **macOS 的包没有签名和公证**，Gatekeeper 会拦。这一项要等有 Apple 开发者账号时再说，在那之前 mac 版是「能装但要手动放行」的状态。

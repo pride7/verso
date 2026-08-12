@@ -306,7 +306,8 @@ jobs:
 
   # 所有构建完成后执行以下操作：
   # 1. 将 Android APK 上传至同一 Release（支持草稿或已发布状态）；
-  # 2. 在 Release 正文末尾追加平台与安装包对照表。
+  # 2. 按最终资产重建完整 latest.json；
+  # 3. 在 Release 正文末尾追加平台与安装包对照表。
   # 下载说明在 latest.json 上传后追加，因此仅显示于 GitHub Release 页面，客户端
   # 「检查更新」仍只读取 CHANGELOG 内容。不得重命名已有资产：latest.json 保存的是
   # 原始下载地址，重命名会导致自动更新请求返回 404。
@@ -330,6 +331,10 @@ jobs:
           name: android-apk
       - name: 上传 Android APK 至 Release
         run: gh release upload "$TAG" Verso_*_arm64.apk --clobber
+      - name: 重建完整的自动更新清单
+        run: |
+          node scripts/updater-manifest.mjs "$TAG"
+          gh release upload "$TAG" latest.json --clobber
       - name: 更新 Release 下载说明
         run: |
           VERSION="${TAG#v}"
