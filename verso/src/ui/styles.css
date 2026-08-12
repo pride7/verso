@@ -8093,6 +8093,17 @@ textarea:focus-visible {
 .dbv-list-title:hover {
   color: var(--accent);
 }
+.dbv-list-rename {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dbv-list-rename > svg {
+  flex: none;
+  color: var(--muted);
+}
 
 /* 画廊：自适应列数。`auto-fill` + `minmax` 让窄栏里自动变成两列甚至一列，
    不必为侧栏宽度写断点 */

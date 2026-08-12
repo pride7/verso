@@ -1926,13 +1926,28 @@ export default function App() {
     [refresh],
   );
 
-  /** 按路径改名。database 视图、项目总览这些没有 `TreeNode` 的地方走它 */
+  /**
+   * 按路径改名。database 视图里的标题不借文档树的输入框：那一行可能因为
+   * `collapsed: true` 根本没渲染，侧栏虽然开着也没有可编辑的位置。列表 /
+   * 表格把新标题直接传回来；较窄的视图则在当前页面问一句。两种都走
+   * `submitRename` 的同一条重命名事务。
+   */
   const renameByPath = useCallback(
-    (path: string) => {
+    (path: string, title?: string) => {
+      if (title !== undefined) {
+        void submitRename(path, title);
+        return;
+      }
       const node = tree.flatMap(flatten).find((candidate) => candidate.path === path);
-      if (node) renameNode(node);
+      const fallback = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+      void ask({
+        question: "把这篇文档改成什么名字？",
+        initial: node?.name ?? fallback,
+        okLabel: "改名",
+        hint: "文件名会跟着改；它底下的子文档也跟着走。",
+      }).then((name) => name && void submitRename(path, name));
     },
-    [renameNode, tree],
+    [ask, submitRename, tree],
   );
 
   /**

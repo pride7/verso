@@ -167,7 +167,7 @@ interface Props {
   /** vault 变化时递增，反向链接与 database 视图靠它重查 */
   revision: number;
   /** database 视图里改一行的名字。改名要连标签页路径一起修，只能交回上层 */
-  onRenameNote: (path: string) => void;
+  onRenameNote: (path: string, title?: string) => void;
   /** database 视图改写了某篇笔记的属性 */
   onNoteChanged: () => void;
   /** 设置里的自定义 snippet（Latex Suite 格式的 JSON 文本） */
@@ -259,7 +259,7 @@ export function Editor({
             source={source}
             onOpen={(p) => cb.current.onNavigate(p)}
             onChanged={() => cb.current.onChanged()}
-            onRename={(path) => cb.current.onRenameNote(path)}
+            onRename={(path, title) => cb.current.onRenameNote(path, title)}
             revision={cb.current.revision}
             onPatch={patch}
             onEditSource={editSource}

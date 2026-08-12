@@ -58,7 +58,7 @@ interface Props {
    * 改一行的名字。**不在这里直接调 `renameNote`**：改名要跟着修打开中的
    * 标签页路径和手排顺序，那是上层的事（§2.1）。
    */
-  onRename?: (path: string) => void;
+  onRename?: (path: string, title?: string) => void;
 }
 
 /**
@@ -301,6 +301,12 @@ export function DatabaseView({
     const next = title.trim();
     const old = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
     if (!next || next === old) return;
+    // App 提供了统一重命名事务时交回去：标签路径、子树和手排顺序都要一起修。
+    // 只有独立测试或兼容旧嵌入没有上层回调时，才直接走后端。
+    if (onRename) {
+      onRename(path, next);
+      return;
+    }
     try {
       await api.renameNote(path, next);
       onChanged();
@@ -349,6 +355,18 @@ export function DatabaseView({
     } catch (e) {
       setError((e as Error).message);
     }
+  };
+
+  /**
+   * 表格和列表有足够横向空间，标题直接在原位置变成输入框；看板、画廊、
+   * 日历的标题盒太窄或嵌在日期格里，仍交给 App 的独立输入框处理。
+   */
+  const renameFromMenu = () => {
+    if (!menu || !onRename) return;
+    const path = menu.path;
+    setMenu(null);
+    if (result.view === "table" || result.view === "list") setRenaming(path);
+    else onRename(path);
   };
 
   /**
@@ -575,7 +593,7 @@ export function DatabaseView({
           {menu && onRename && (
         <ContextMenu
           at={menu.at}
-          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          groups={[[{ label: "重命名", icon: "pencil", run: renameFromMenu }]]}
           onClose={() => setMenu(null)}
         />
       )}
@@ -694,7 +712,7 @@ export function DatabaseView({
           {menu && onRename && (
         <ContextMenu
           at={menu.at}
-          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          groups={[[{ label: "重命名", icon: "pencil", run: renameFromMenu }]]}
           onClose={() => setMenu(null)}
         />
       )}
@@ -877,7 +895,7 @@ export function DatabaseView({
           {menu && onRename && (
         <ContextMenu
           at={menu.at}
-          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          groups={[[{ label: "重命名", icon: "pencil", run: renameFromMenu }]]}
           onClose={() => setMenu(null)}
         />
       )}
@@ -894,7 +912,16 @@ export function DatabaseView({
         {result.rows.length === 0 ? (
           <p className="dbview-none">没有匹配的笔记</p>
         ) : result.view === "list" ? (
-          <ListView rows={result.rows} cols={cardCols} typeOf={typeOf} onOpen={onOpen} onMenu={rowMenu} />
+          <ListView
+            rows={result.rows}
+            cols={cardCols}
+            typeOf={typeOf}
+            onOpen={onOpen}
+            onMenu={rowMenu}
+            renaming={renaming}
+            onRenameSubmit={(path, title) => void commitRename(path, title)}
+            onRenameCancel={() => setRenaming(null)}
+          />
         ) : result.view === "gallery" ? (
           <GalleryView
             rows={result.rows}
@@ -964,7 +991,7 @@ export function DatabaseView({
         {menu && onRename && (
         <ContextMenu
           at={menu.at}
-          groups={[[{ label: "重命名", icon: "pencil", run: () => onRename(menu.path) }]]}
+          groups={[[{ label: "重命名", icon: "pencil", run: renameFromMenu }]]}
           onClose={() => setMenu(null)}
         />
       )}

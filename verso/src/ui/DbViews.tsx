@@ -33,6 +33,7 @@ import {
 } from "../core/calendar";
 import type { ViewRow } from "../core/types";
 import { useLongPress } from "./longPress";
+import { RenameInput } from "./Tree";
 
 interface Common {
   rows: ViewRow[];
@@ -135,15 +136,40 @@ function Chips({
  * 和表格的区别不在样式而在**取舍**：表格保证每一列都对齐（好比较），列表
  * 放弃对齐换密度和更长的标题（好浏览）。所以这里不画表格线、不给每行等高。
  */
-export function ListView({ rows, cols, typeOf, onOpen, onMenu }: Common) {
+export function ListView({
+  rows,
+  cols,
+  typeOf,
+  onOpen,
+  onMenu,
+  renaming,
+  onRenameSubmit,
+  onRenameCancel,
+}: Common & {
+  renaming?: string | null;
+  onRenameSubmit?: (path: string, title: string) => void;
+  onRenameCancel?: () => void;
+}) {
   return (
     <ul className="dbv-list">
       {rows.map((r) => (
         <li key={r.path}>
-          <RowTitle className="dbv-list-title" path={r.path} onOpen={onOpen} onMenu={onMenu}>
-            <Icon name="doc" size={13} />
-            <span>{r.title}</span>
-          </RowTitle>
+          {renaming === r.path && onRenameSubmit ? (
+            <span className="dbv-list-rename">
+              <Icon name="doc" size={13} />
+              <RenameInput
+                name={r.title}
+                className="dbview-rename"
+                onSubmit={(title) => onRenameSubmit(r.path, title)}
+                onCancel={() => onRenameCancel?.()}
+              />
+            </span>
+          ) : (
+            <RowTitle className="dbv-list-title" path={r.path} onOpen={onOpen} onMenu={onMenu}>
+              <Icon name="doc" size={13} />
+              <span>{r.title}</span>
+            </RowTitle>
+          )}
           <Chips row={r} cols={cols} typeOf={typeOf} inline />
         </li>
       ))}

@@ -8,8 +8,9 @@
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
-import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
+import type { NoteContent, NoteRef, TreeNode, VaultInfo, ViewResult } from "../../../src/core/types";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -32,6 +33,9 @@ const doc = (name: string, path: string): TreeNode => ({
 
 /** 后端建出来的那篇会被加进这里，下一次 `tree()` 就能看见 */
 let tree: TreeNode[] = [doc("甲", "甲.md")];
+let workspace = { tabs: [] as string[], active: 0, pinnedCount: 0 };
+let bodies: Record<string, string> = {};
+let viewResult: ViewResult = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
 
 const createUntitled = vi.fn(async () => {
   tree = [...tree, doc("未命名", "未命名.md")];
@@ -58,7 +62,7 @@ vi.mock("../../../src/host/api", () => ({
         title: path,
         frontmatter: {},
         frontmatterText: "",
-        body: "",
+        body: bodies[path] ?? "",
         mtimeMs: 0,
       }) as NoteContent,
     writeNote: async () => 0,
@@ -72,7 +76,7 @@ vi.mock("../../../src/host/api", () => ({
     backlinks: async () => [],
     allTags: async () => [],
     notesByTag: async () => [],
-    viewQuery: async () => ({ columns: [], rows: [], view: "table", groupBy: null }),
+    viewQuery: async () => viewResult,
     propSet: async () => {},
     propRename: async () => {},
     propSchema: async () => ({}),
@@ -80,7 +84,7 @@ vi.mock("../../../src/host/api", () => ({
     reorder: async () => {},
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,
-    workspaceGet: async () => ({ tabs: [], active: 0, pinnedCount: 0 }),
+    workspaceGet: async () => workspace,
     workspaceSet: async () => {},
     getSettings: async () => ({}),
     setSettings: async (s: unknown) => s,
@@ -110,6 +114,9 @@ const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   tree = [doc("甲", "甲.md")];
+  workspace = { tabs: [], active: 0, pinnedCount: 0 };
+  bodies = {};
+  viewResult = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
   createUntitled.mockClear();
   renameNote.mockClear();
 });
@@ -233,5 +240,65 @@ describe("新建文档：不弹窗，就地改名", () => {
     await key(el, "Enter");
     expect(renameNote).not.toHaveBeenCalled();
     expect(names()).toContain("未命名");
+  });
+});
+
+describe("database 视图里改名", () => {
+  it("子文档在树中被收起时，仍在当前视图弹输入框并完成改名", async () => {
+    const child = doc("MoE", "分类总览/MoE.md");
+    tree = [{
+      ...doc("分类总览", "分类总览.md"),
+      childDir: "分类总览",
+      collapsed: true,
+      children: [child],
+    }];
+    workspace = { tabs: ["分类总览.md"], active: 0, pinnedCount: 0 };
+    bodies["分类总览.md"] = [
+      "# 分类总览",
+      "",
+      "```verso-view",
+      'from: "分类总览/**"',
+      "view: list",
+      "```",
+      "",
+    ].join("\n");
+    viewResult = {
+      columns: ["title"],
+      rows: [{ path: child.path, title: child.name, props: {} }],
+      view: "list",
+      groupBy: null,
+      properties: [],
+    };
+
+    await mountApp();
+    const title = document.querySelector<HTMLElement>(".dbv-list-title");
+    expect(title, "列表视图没有渲染出来").not.toBeNull();
+    await act(async () => {
+      title!.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 240,
+        clientY: 240,
+      }));
+      await settle(100);
+    });
+    const rename = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("重命名"),
+    );
+    expect(rename, "右键菜单没有重命名").not.toBeUndefined();
+    await act(async () => {
+      rename!.click();
+      await settle(100);
+    });
+
+    const listInput = document.querySelector<HTMLInputElement>(".dbv-list .dbview-rename");
+    expect(listInput, "列表标题没有原位变成输入框").not.toBeNull();
+    expect(listInput!.value).toBe("MoE");
+    expect(document.activeElement, "焦点没有落进列表改名框").toBe(listInput);
+    expect(document.querySelector(".tree-rename"), "不该把折叠树节点切进改名态").toBeNull();
+
+    await userEvent.fill(listInput!, "MoE 专家模型");
+    await key(listInput!, "Enter");
+    expect(renameNote).toHaveBeenCalledWith(child.path, "MoE 专家模型");
   });
 });

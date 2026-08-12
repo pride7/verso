@@ -548,6 +548,13 @@ describe("列与设置（§2.6）", () => {
         )!,
       );
       await settle();
+      if (kind === "list") {
+        const input = view.dom.querySelector<HTMLInputElement>(".dbv-list .dbview-rename")!;
+        expect(input, "列表标题没有原位变成输入框").not.toBeNull();
+        await userEvent.fill(input, "新名字");
+        await userEvent.keyboard("{Enter}");
+        await settle();
+      }
       expect(renamed, `${sel}: 没改成名`).toHaveLength(1);
     }
     viewMock = DEFAULT_VIEW;
@@ -573,6 +580,11 @@ describe("列与设置（§2.6）", () => {
         button.textContent?.includes("重命名"),
       )!,
     );
+    await settle();
+    const input = view.dom.querySelector<HTMLInputElement>(".dbview-table .dbview-rename")!;
+    expect(input, "表格标题没有原位变成输入框").not.toBeNull();
+    await userEvent.fill(input, "新名字");
+    await userEvent.keyboard("{Enter}");
     await settle();
     // 改名要连标签页路径一起修，所以交回上层，不在这里直接调 renameNote
     expect(renamed).toHaveLength(1);
