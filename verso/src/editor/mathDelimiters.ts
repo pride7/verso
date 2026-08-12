@@ -27,7 +27,7 @@ function codeRanges(tree: Tree, from = 0, to = tree.length, offset = 0): TextRan
   return ranges;
 }
 
-function pointInCode(state: EditorState, at: number): boolean {
+export function pointInCode(state: EditorState, at: number): boolean {
   const tree = ensureSyntaxTree(state, state.doc.length, 50) ?? syntaxTree(state);
   return codeRanges(tree).some((range) => at >= range.from && at < range.to);
 }

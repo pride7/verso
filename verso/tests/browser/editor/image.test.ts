@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createExtensions } from "../../../src/editor";
 import { setImageResolver } from "../../../src/editor/image";
 import { pastedMathText } from "../../../src/editor/mathDelimiters";
+import { installAttachmentDrop } from "../../../src/editor/paste";
 import "../../../src/ui/styles.css";
 
 /** 1×1 的透明 PNG。用 data URL 就不必依赖 Tauri 的 asset 协议 */
@@ -138,7 +139,7 @@ describe("粘贴图片", () => {
         onSaveNow: () => {},
         onFollowLink: () => {},
         getNotes: () => [],
-        saveImage: async (name, data) => {
+        saveAttachment: async (name, data) => {
           saved.push({ name, data });
           return "attachments/粘贴-1.png";
         },
@@ -165,6 +166,67 @@ describe("粘贴图片", () => {
     pasteImage(view);
     await settle();
     expect(view.state.doc.toString()).toBe("开头\n");
+  });
+});
+
+describe("拖入附件", () => {
+  it("拖到编辑器外层空白时，图片用嵌入语法且不会打开成页面", async () => {
+    const saved: string[] = [];
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      doc: "正文",
+      parent,
+      extensions: createExtensions({
+        onChange: () => {},
+        onSaveNow: () => {},
+        onFollowLink: () => {},
+        getNotes: () => [],
+      }),
+    });
+    views.push(view);
+    const removeDrop = installAttachmentDrop(
+      parent,
+      view,
+      () => async (name) => {
+        saved.push(name);
+        return `attachments/${name}`;
+      },
+      () => {},
+    );
+    view.dispatch({ selection: { anchor: 2 } });
+
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array([1])], "图.png", { type: "image/png" }));
+    data.items.add(new File([new Uint8Array([2])], "资料.pdf", { type: "application/pdf" }));
+    const event = new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true });
+    // 正文很短时，用户实际投到的是宿主的空白，而不是 `.cm-content`。
+    parent.dispatchEvent(event);
+    await settle();
+    removeDrop();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(saved).toEqual(["图.png", "资料.pdf"]);
+    expect(view.state.doc.toString()).toBe("正文![[attachments/图.png]]\n[[attachments/资料.pdf]]");
+  });
+
+  it("存盘能力暂不可用时也拦住默认导航，并给出提示", () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({ doc: "正文", parent });
+    views.push(view);
+    const errors: string[] = [];
+    const removeDrop = installAttachmentDrop(parent, view, () => undefined, (m) => errors.push(m));
+
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array([1])], "图.png", { type: "image/png" }));
+    const event = new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true });
+    parent.dispatchEvent(event);
+    removeDrop();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(errors).toEqual(["请先打开仓库，再拖入附件"]);
+    expect(view.state.doc.toString()).toBe("正文");
   });
 });
 

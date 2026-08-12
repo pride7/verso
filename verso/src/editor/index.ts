@@ -28,7 +28,8 @@ import { markdownExtended } from "./markdownExtended";
 import { mathDelimiterPaste } from "./mathDelimiters";
 import { mathPreview } from "./mathPreview";
 import { paragraphSpacing } from "./paragraphSpacing";
-import { imagePaste, type SaveImage } from "./paste";
+import { imagePaste, type SaveAttachment } from "./paste";
+import { richTextPaste } from "./richPaste";
 import { snippetEngine } from "./snippets";
 import { tables } from "./table";
 import { parseCustomSnippets } from "../core/snippets/custom";
@@ -98,9 +99,9 @@ export interface EditorCallbacks {
   customSnippets?: SnippetSpec[];
   /** 建 view 时是不是源码模式。之后的切换走 `applySourceMode` */
   sourceMode?: boolean;
-  /** 粘贴图片时把它存进 vault，返回相对路径（§4.3）。不给就不接管粘贴 */
-  saveImage?: SaveImage;
-  /** 存图失败时报给用户 —— 粘贴没反应是最难自查的一类问题 */
+  /** 粘贴图片或拖入文件时存进 vault，返回相对路径。不给就不接管文件传入 */
+  saveAttachment?: SaveAttachment;
+  /** 存附件失败时报给用户 —— 粘贴没反应是最难自查的一类问题 */
   onError?: (msg: string) => void;
 }
 
@@ -139,6 +140,11 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     dropCursor(),
     rectangularSelection(),
     EditorView.lineWrapping,
+
+    // 放在 markdown() 前面：lang-markdown 自己也会把“选区 + 看起来像 URL 的
+    // 文本”包成链接，而且连含空格的多个网址也会误包。事件必须先经过 Verso
+    // 的严格规则，网页 HTML 也由这里转成 Markdown。
+    richTextPaste(),
 
     markdown({
       base: markdownLanguage,
@@ -179,7 +185,7 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // §4.3 粘贴图片。用 getter 取回调 —— 和 getNotes 同理，App 那边每次
     // 渲染都是新函数，直接闭包进来会让编辑器跟着重建
     imagePaste(
-      () => cb.saveImage,
+      () => cb.saveAttachment,
       (m) => cb.onError?.(m),
     ),
     // 从论文、聊天工具或 LaTeX 文档粘贴公式时，把 \(...\) / \[...\]

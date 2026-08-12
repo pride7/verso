@@ -135,6 +135,26 @@ export interface NoteRef {
   name: string;
 }
 
+export interface AttachmentReference {
+  note: string;
+  line: number;
+}
+
+export interface MissingAttachment {
+  path: string;
+  references: AttachmentReference[];
+}
+
+export interface UnusedAttachment {
+  path: string;
+  size: number;
+}
+
+export interface AttachmentAudit {
+  missing: MissingAttachment[];
+  unused: UnusedAttachment[];
+}
+
 export interface SearchHit {
   path: string;
   title: string;

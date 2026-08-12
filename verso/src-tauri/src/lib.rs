@@ -1025,7 +1025,7 @@ fn frontmatter_write(state: State<'_, AppState>, path: String, yaml: String) -> 
     Ok(mtime)
 }
 
-/// 粘贴板里的图片落盘。`data` 是 base64（IPC 传大字节数组极慢，终端那边
+/// 粘贴的图片或拖入的文件落盘。`data` 是 base64（IPC 传大字节数组极慢，终端那边
 /// 也是这么传的），返回 vault 相对路径供前端拼 `![[]]`。
 #[tauri::command]
 fn attachment_write(state: State<'_, AppState>, name: String, data: String) -> Result<String> {
@@ -1034,6 +1034,21 @@ fn attachment_write(state: State<'_, AppState>, name: String, data: String) -> R
         .decode(data.as_bytes())
         .map_err(|e| Error::Vault(format!("附件数据不是合法的 base64: {e}")))?;
     state.with_vault(|v| v.write_attachment(&name, &bytes))
+}
+
+/// 全库附件体检：引用存在性与 attachments/ 中未被任何文档引用的文件。
+#[tauri::command]
+fn attachment_audit(state: State<'_, AppState>) -> Result<vault::attach::AttachmentAudit> {
+    state.with_vault(|v| v.attachment_audit())
+}
+
+/// 删除选中的未使用附件。Vault 会在删除瞬间重新扫描，已重新被引用的文件跳过。
+#[tauri::command]
+fn attachment_delete_unused(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<String>> {
+    state.with_vault(|v| v.attachment_delete_unused(&paths))
 }
 
 /// 属性 schema（`.verso-props.json`）。见 `vault::schema`
@@ -1748,6 +1763,8 @@ pub fn run() {
             note_read,
             note_write,
             attachment_write,
+            attachment_audit,
+            attachment_delete_unused,
             frontmatter_write,
             note_create,
             note_create_untitled,

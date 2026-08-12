@@ -139,7 +139,13 @@ pub fn spawn_shell(cwd: &std::path::Path, cols: u16, rows: u16) -> Result<Spawne
 }
 
 impl PtyManager {
-    pub fn open(&self, app: &AppHandle, cwd: &std::path::Path, cols: u16, rows: u16) -> Result<String> {
+    pub fn open(
+        &self,
+        app: &AppHandle,
+        cwd: &std::path::Path,
+        cols: u16,
+        rows: u16,
+    ) -> Result<String> {
         let Spawned {
             master,
             writer,
@@ -202,7 +208,13 @@ impl PtyManager {
                         },
                     );
                 }
-                let _ = app.emit("pty:exit", PtyExit { id: id2, code: None });
+                let _ = app.emit(
+                    "pty:exit",
+                    PtyExit {
+                        id: id2,
+                        code: None,
+                    },
+                );
             });
         }
 
@@ -312,8 +324,12 @@ mod tests {
             }
 
             // 等 shell 真正就绪（有提示符）再发命令，否则输入会被启动过程吞掉
-            if !sent_cmd && (answered_dsr || acc.contains('>') || acc.contains('$')) {
-                s.writer.write_all(b"echo verso-pty-marker-7f3a\r\n").unwrap();
+            if !sent_cmd
+                && (answered_dsr || acc.contains('>') || acc.contains('$') || acc.contains('%'))
+            {
+                s.writer
+                    .write_all(b"echo verso-pty-marker-7f3a\r\n")
+                    .unwrap();
                 s.writer.flush().unwrap();
                 sent_cmd = true;
                 acc.clear(); // 只关心命令之后的输出
@@ -400,6 +416,12 @@ mod tests {
                 answered_dsr = true;
                 // 答完 DSR 还得留点时间让提示符起来。抢在那之前发的输入会被
                 // 启动过程吞掉，而且吞得静悄悄 —— 看着就像命令没执行
+                ready_at = Some(Instant::now() + Duration::from_millis(1500));
+            }
+
+            // zsh 的默认提示符是 `%`，而且有些终端配置不会先发 DSR。此前只
+            // 等 DSR 会导致测试看见提示符却永远不发送命令，30 秒后假失败。
+            if ready_at.is_none() && (acc.contains('>') || acc.contains('$') || acc.contains('%')) {
                 ready_at = Some(Instant::now() + Duration::from_millis(1500));
             }
 

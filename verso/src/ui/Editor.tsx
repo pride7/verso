@@ -13,9 +13,11 @@ import {
 } from "../editor/fold";
 import { toggleFormatSpec, type InlineFormat } from "../editor/format";
 import { toggleBlockSpec, type BlockKind } from "../editor/paragraph";
-import { mathDelimiterConversion, pastedMathText } from "../editor/mathDelimiters";
+import { mathDelimiterConversion } from "../editor/mathDelimiters";
+import { textForPaste } from "../editor/richPaste";
 import { tableAt, tableOpSpec, type TableOp } from "../editor/tableOps";
 import { calculateCurrent } from "../editor/calculation";
+import { installAttachmentDrop } from "../editor/paste";
 import { foldTargets } from "../core/journal";
 import { parseCustomSnippets } from "../core/snippets/custom";
 import { expand } from "../core/snippets/match";
@@ -186,8 +188,8 @@ interface Props {
   journalKeep?: number;
   /** 源码模式下手改了 frontmatter。抛错 = YAML 没通过解析，文件没被动 */
   onSaveFrontmatter: (yaml: string) => Promise<void>;
-  /** 粘贴进来的图片存盘，返回 vault 相对路径（§4.3） */
-  onSaveImage: (name: string, dataBase64: string) => Promise<string>;
+  /** 粘贴图片或拖入文件时存盘，返回 vault 相对路径（§4.3 / §4.4） */
+  onSaveAttachment: (name: string, dataBase64: string) => Promise<string>;
   /** `![[图.png]]` 的目标名 → 能显示的 URL。null = 显示不了 */
   imageSrc: (target: string) => string | null;
   onError: (msg: string) => void;
@@ -224,12 +226,13 @@ export function Editor({
   // App 那边是显式传的
   journalKeep = 0,
   onSaveFrontmatter,
-  onSaveImage,
+  onSaveAttachment,
   imageSrc,
   onError,
   restoreState,
   onStashState,
 }: Props) {
+  const editorRoot = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   /** CM6 widget 里挂的 React root，卸载时要一个个清掉 */
@@ -320,7 +323,7 @@ export function Editor({
         const view = viewRef.current;
         if (!view) return;
         const selection = view.state.selection.main;
-        const converted = pastedMathText(view.state, text).text;
+        const converted = textForPaste(view.state, text);
         view.dispatch({
           changes: { from: selection.from, to: selection.to, insert: converted },
           selection: { anchor: selection.from + converted.length },
@@ -532,7 +535,7 @@ ${insert}` },
     onRenameNote,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
-    onSaveImage,
+    onSaveAttachment,
     onError,
     imageSrc,
     revision,
@@ -547,7 +550,7 @@ ${insert}` },
     onRenameNote,
     onChanged: onNoteChanged,
     onSaveFrontmatter,
-    onSaveImage,
+    onSaveAttachment,
     onError,
     imageSrc,
     revision,
@@ -565,7 +568,7 @@ ${insert}` },
 
   // 只在挂载时建一次 view
   useEffect(() => {
-    if (!host.current) return;
+    if (!editorRoot.current || !host.current) return;
 
     // 切回一个之前开过的标签时，直接接着上次那份 state 用 —— 光标、选区、
     // 撤销历史都在里面。文档对不上就说明这篇在别处被改过，那份历史已经不
@@ -586,13 +589,21 @@ ${insert}` },
             getNotes: () => cb.current.getNotes(),
             customSnippets: parseCustomSnippets(initialSnippets.current).specs,
             sourceMode: initialSourceMode.current,
-            saveImage: (name, data) => cb.current.onSaveImage(name, data),
+            saveAttachment: (name, data) => cb.current.onSaveAttachment(name, data),
             onError: (m) => cb.current.onError(m),
           }),
         }),
       parent: host.current,
     });
     viewRef.current = view;
+    // 接在整篇 `.editor` 而不是 `.cm-content`：短文下面的空白、属性条和面包屑
+    // 都属于当前文档，文件落在那里同样要归档并插进 Markdown，不能页面导航。
+    const removeAttachmentDrop = installAttachmentDrop(
+      editorRoot.current,
+      view,
+      () => cb.current.onSaveAttachment,
+      (message) => cb.current.onError(message),
+    );
 
     // 复用的那份 state 里，compartment 装的还是**离开这一页时**的配置。
     // 中途切过源码模式或改过 snippet 的话，这里要按当前值再压一遍
@@ -639,6 +650,7 @@ ${insert}` },
         for (const t of timers.slice(1)) clearTimeout(t);
       }
       cb.current.onStashState?.(view.state);
+      removeAttachmentDrop();
       view.destroy();
       viewRef.current = null;
     };
@@ -684,7 +696,7 @@ ${insert}` },
       : normalizeIcon(String(note.frontmatter.icon));
 
   return (
-    <div className="editor">
+    <div className="editor" ref={editorRoot}>
       <nav className="breadcrumb">
         {/* 图标的主入口。摆在这里而不是只放右键菜单里：这一行就是这篇文档的
             «标题栏»，Notion / 思源 都在这个位置改图标，而右键菜单是要先想到

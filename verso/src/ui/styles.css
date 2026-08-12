@@ -10867,6 +10867,128 @@ body > .print-doc {
 
 /* ---------------- 打印对话框与版式预览 ---------------- */
 
+/* ---------------- 附件体检 ---------------- */
+
+.attachment-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 40px));
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: modal-in var(--t-base);
+}
+.attachment-dialog-body {
+  min-height: 180px;
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+}
+.attachment-empty {
+  margin: 40px 0;
+  color: var(--muted);
+  text-align: center;
+}
+.attachment-section + .attachment-section {
+  margin-top: 22px;
+}
+.attachment-section > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.attachment-section h3 {
+  margin: 0;
+  font-size: 13.5px;
+}
+.attachment-section > header > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.attachment-section > p {
+  margin: 5px 0 10px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.attachment-section ul {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  list-style: none;
+  overflow: hidden;
+}
+.attachment-item {
+  min-height: 42px;
+  padding: 9px 11px;
+  box-sizing: border-box;
+  background: var(--surface);
+}
+.attachment-item + .attachment-item {
+  border-top: 1px solid var(--hairline);
+}
+.attachment-item label,
+.attachment-path {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-size: 12px;
+}
+.attachment-item label > span,
+.attachment-path span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.attachment-item small {
+  flex: none;
+  color: var(--muted);
+}
+.attachment-item.is-missing {
+  background: color-mix(in oklch, var(--danger) 4%, var(--surface));
+}
+.attachment-item.is-missing .attachment-path svg {
+  color: var(--danger);
+}
+.attachment-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 7px 0 0 23px;
+}
+.attachment-refs button,
+.attachment-select-all {
+  min-height: var(--tap-sm);
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+.attachment-select-all {
+  margin-left: auto;
+}
+.attachment-dialog-foot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.attachment-dialog-foot > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.attachment-dialog-foot button {
+  min-height: var(--tap);
+}
+
+@media (max-width: 560px) {
+  .attachment-dialog-body { padding: 14px; }
+  .attachment-dialog-foot { padding: 12px 14px; }
+}
+
 .print-dialog {
   display: flex;
   flex-direction: column;

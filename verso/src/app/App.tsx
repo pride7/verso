@@ -50,6 +50,7 @@ import {
 } from "../ui/PrintDialog";
 import { PrintView } from "../ui/PrintView";
 import { Scratchpad } from "../ui/Scratchpad";
+import { AttachmentDialog } from "../ui/AttachmentDialog";
 import { ProjectCenter } from "../ui/ProjectCenter";
 import { ProjectDashboard } from "../ui/ProjectDashboard";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "../ui/VaultSwitcher";
@@ -60,6 +61,7 @@ import { setSlashAction } from "../editor/completion";
 import { viewSources } from "../editor/exportHtml";
 import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
+import { hasTransferredFiles } from "../editor/paste";
 import { expandTemplate, pickTemplates } from "../core/template";
 import { hideTemplateSubtree } from "../core/treeVisibility";
 import { journalInsert } from "../core/journal";
@@ -264,6 +266,20 @@ export default function App() {
       /* 桌面老版本：当作不是手机 */
     }
   }, []);
+  // 文件若落在面包屑、属性条等正文宿主以外的位置，也不能让 WebView 用默认
+  // 行为打开它。正文宿主自己的处理器会继续收到事件并完成归档/插入；这里只
+  // 负责兜住整个窗口的危险导航动作，不接管文档树等应用内拖拽。
+  useEffect(() => {
+    const preventFileNavigation = (event: DragEvent) => {
+      if (hasTransferredFiles(event.dataTransfer)) event.preventDefault();
+    };
+    window.addEventListener("dragover", preventFileNavigation);
+    window.addEventListener("drop", preventFileNavigation);
+    return () => {
+      window.removeEventListener("dragover", preventFileNavigation);
+      window.removeEventListener("drop", preventFileNavigation);
+    };
+  }, []);
   /**
    * 指针是手指还是鼠标。**又是和「窄屏」不同的第三件事**：
    *
@@ -437,6 +453,7 @@ export default function App() {
   /** 设置打开时停在哪一页。状态栏那个「有新版本」要能直接跳到「更新」 */
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [attachmentAuditOpen, setAttachmentAuditOpen] = useState(false);
   const editorRef = useRef<EditorHandle | null>(null);
   /** 命令表的最新一份。全局快捷键从这里查，监听器就不必跟着命令表重装 */
   const commandsRef = useRef<Command[]>([]);
@@ -716,10 +733,15 @@ export default function App() {
   /**
    * 粘贴进来的图片存进 vault（§4.3）。返回相对路径，编辑器据此插入 `![[]]`。
    */
-  const saveImage = useCallback(
+  const saveAttachment = useCallback(
     (name: string, dataBase64: string) => api.writeAttachment(name, dataBase64),
     [],
   );
+
+  const openAttachmentAudit = useCallback(async () => {
+    if (dirtyRef.current && !(await saveNow())) return;
+    setAttachmentAuditOpen(true);
+  }, [saveNow]);
 
   /**
    * `![[图.png]]` 的目标名 → webview 能显示的 URL。
@@ -3042,6 +3064,13 @@ export default function App() {
         run: () => pickView("history"),
       },
       {
+        id: "vault.attachments",
+        group: "仓库",
+        label: "检查附件",
+        enabled: !!vault,
+        run: () => void openAttachmentAudit(),
+      },
+      {
         id: "note.outline",
         group: "笔记",
         label: "大纲",
@@ -3482,6 +3511,7 @@ export default function App() {
     settings.terminalMention,
     updateSettings,
     vault,
+    openAttachmentAudit,
     recentVaults,
     remote,
     syncing,
@@ -4154,7 +4184,7 @@ export default function App() {
             sourceMode={sourceMode}
             journalKeep={settings.journalKeep}
             onSaveFrontmatter={saveFrontmatter}
-            onSaveImage={saveImage}
+            onSaveAttachment={saveAttachment}
             imageSrc={imageSrc}
             onError={setError}
             restoreState={editorStates.current.get(note.path) ?? null}
@@ -4336,6 +4366,25 @@ export default function App() {
       )}
 
       {askUI}
+
+      {attachmentAuditOpen && (
+        <AttachmentDialog
+          onOpen={(path, line) => {
+            setAttachmentAuditOpen(false);
+            void openPath(path).then(() => requestAnimationFrame(() => editorRef.current?.gotoLine(line)));
+          }}
+          onChanged={(deleted, skipped) => {
+            setRevision((value) => value + 1);
+            setGitActivity((value) => value + 1);
+            setNotice(
+              skipped
+                ? `已清理 ${deleted} 个附件；${skipped} 个已重新被引用，未删除`
+                : `已清理 ${deleted} 个未使用附件`,
+            );
+          }}
+          onClose={() => setAttachmentAuditOpen(false)}
+        />
+      )}
 
       {reviewing && (
         <ReviewDialog

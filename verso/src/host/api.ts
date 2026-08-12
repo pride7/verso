@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import type {
   Backlink,
+  AttachmentAudit,
   CommitInfo,
   FileChange,
   FileDiff,
@@ -145,11 +146,16 @@ export const api = {
   createTemplate: (dir: string) => call<NoteMeta>("template_create", { dir }),
   statNote: (path: string) => call<number>("note_stat", { path }),
   /**
-   * 粘贴板里的图片落盘到 `attachments/`，返回 vault 相对路径。
+   * 粘贴的图片或拖入的文件落盘到 `attachments/`，返回 vault 相对路径。
    * `data` 是 base64 —— IPC 传大字节数组极慢。
    */
   writeAttachment: (name: string, data: string) =>
     call<string>("attachment_write", { name, data }),
+  /** 全库附件体检：缺失引用与未使用文件。 */
+  attachmentAudit: () => call<AttachmentAudit>("attachment_audit"),
+  /** 删除时后端会再扫描一次，已经重新被引用的文件不会删。 */
+  deleteUnusedAttachments: (paths: string[]) =>
+    call<string[]>("attachment_delete_unused", { paths }),
   /**
    * 源码模式里手改 frontmatter。只换 frontmatter，正文由 `writeNote` 各写各的。
    * YAML 解析不过会抛错，那时文件没被动过。返回写入后的 mtime。

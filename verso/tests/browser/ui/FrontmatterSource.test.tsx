@@ -63,7 +63,7 @@ function mount(note: NoteContent, onSaveFrontmatter: (yaml: string) => Promise<v
         customSnippets: "",
         sourceMode,
         onSaveFrontmatter,
-        onSaveImage: async () => "attachments/x.png",
+        onSaveAttachment: async () => "attachments/x.png",
         imageSrc: () => null,
         onError: () => {},
       }),

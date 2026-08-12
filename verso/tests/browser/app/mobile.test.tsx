@@ -129,6 +129,11 @@ vi.mock("../../../src/host/api", () => ({
     propDefSet: async () => {},
     reorder: async () => {},
     writeAttachment: async () => "",
+    attachmentAudit: async () => ({
+      missing: [{ path: "attachments/缺失.pdf", references: [{ note: "甲.md", line: 2 }] }],
+      unused: [{ path: "attachments/闲置.png", size: 2048 }],
+    }),
+    deleteUnusedAttachments: async () => [],
     writeFrontmatter: async () => 0,
     gitStatus: async () => ({
       enabled: true,
@@ -1011,7 +1016,7 @@ describe("手机上的点击目标", () => {
     ".tab-close, .tab-new, .tree-add, .crumb-icon, .props-toggle," +
     " .side-act, .status-git, .backlinks-head, .mathbar-pages, .hist-restore," +
     " .dbview-edit, .modal-close, .set-reset, .set-reset-all, .segmented, .swatches," +
-    " .scratch-more, [class^='cm-'], [class*=' cm-']";
+    " .scratch-more, .attachment-refs, .attachment-select-all, [class^='cm-'], [class*=' cm-']";
 
   /**
    * 形状不是方的那几个，逐个写明白 —— 用一条正则糊成「次要图标」会把
@@ -1156,6 +1161,19 @@ describe("手机上的点击目标", () => {
     await mount();
     await openAction("设置");
     expect(document.querySelector(".settings")).toBeTruthy();
+    expect(tooSmall()).toEqual([]);
+  });
+
+  it("附件体检里的每个入口都够得着", async () => {
+    await mount();
+    await openAction("命令面板");
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>(".palette-list button")]
+        .find((button) => button.textContent?.includes("检查附件"))!
+        .click();
+      await settle(400);
+    });
+    expect(document.querySelector(".attachment-dialog"), "附件体检没打开").toBeTruthy();
     expect(tooSmall()).toEqual([]);
   });
 

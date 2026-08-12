@@ -63,7 +63,7 @@ describe("Editor 里的 database 视图", () => {
           customSnippets: "",
           sourceMode: false,
           onSaveFrontmatter: async () => {},
-          onSaveImage: async () => "attachments/x.png",
+          onSaveAttachment: async () => "attachments/x.png",
           imageSrc: () => null,
           onError: () => {},
         }),
