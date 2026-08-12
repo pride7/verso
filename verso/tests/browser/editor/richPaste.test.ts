@@ -61,6 +61,90 @@ describe("网页内容转 Markdown", () => {
     expect(view.state.doc.toString()).toBe("结论 $x+1$开头\n");
   });
 
+  it("HTML 里的块公式方括号不被提前转义", () => {
+    expect(htmlToMarkdown(String.raw`<p>\[x_{i}+a_b\]</p>`))
+      .toBe(String.raw`\[x_{i}+a_b\]`);
+
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`\[x_{i}+a_b\]`,
+      String.raw`<p>\[x_{i}+a_b\]</p>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("$$x_{i}+a_b$$");
+  });
+
+  it("公式内部的 Markdown 字符与跨节点排版保持 LaTeX 原样", () => {
+    const source = String.raw`\(a*b + _x_ + \left[y\right]\)`;
+    expect(htmlToMarkdown(`<p>${source}</p>`)).toBe(source);
+
+    const view = mount();
+    const event = paste(
+      view,
+      source,
+      String.raw`<p>\(<span>a*b + _x_ + \left[</span><em>y</em><span>\right]</span>\)</p>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(String.raw`$a*b + _x_ + \left[y\right]$`);
+  });
+
+  it("多段行内/块公式和块公式换行一起转换", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`先 \(a_b\)，再 \[c*d + \left[e\right]\]`,
+      String.raw`<p>先 <span>\(a_b\)</span>，再 <span>\[</span><br><span>c*d + \left[e\right]</span><br><span>\]</span></p>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("先 $a_b$，再 $$\nc*d + \\left[e\\right]\n$$");
+  });
+
+  it("已经是 Markdown 定界符的公式也完整保留", () => {
+    const source = "$a*b + _x_ + \\left[y\\right]$\n\n$$c*d + [e]$$";
+    const view = mount();
+    const event = paste(
+      view,
+      source,
+      "<p>$a*b + _x_ + \\left[y\\right]$</p><p>$$c*d + [e]$$</p>",
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(source);
+    expect(htmlToMarkdown("<p>这本书 $5 起，精装 $20 封顶。</p>"))
+      .toBe("这本书 $5 起，精装 $20 封顶。");
+  });
+
+  it("包住整条公式的网页强调留在公式外，公式内部的强调标签不写进源码", () => {
+    expect(htmlToMarkdown(String.raw`<em>\(x_i\)</em>`)).toBe(String.raw`*\(x_i\)*`);
+    expect(htmlToMarkdown(String.raw`<span>\(x_<em>i</em>\)</span>`)).toBe(String.raw`\(x_i\)`);
+  });
+
+  it("代码里的 LaTeX 定界符保持代码，不参与公式转换", () => {
+    const view = mount();
+    const event = paste(view, String.raw`\(x_i\)`, String.raw`<code>\(x_i\)</code>`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("`\\(x_i\\)`");
+  });
+
+  it("未闭合和被再次转义的定界符不被误转换", () => {
+    const source = String.raw`未闭合 \(x_i；字面量 \\(y_i\\)`;
+    const view = mount();
+    const event = paste(view, source, `<p>${source}</p>`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("公式中的网页链接标签只保留 LaTeX 文字，普通链接仍转成 Markdown", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`\(x_i\) 与 论文`,
+      String.raw`<p>\(<a href="https://wrong.test">x_i</a>\) 与 <a href="https://paper.test">论文</a></p>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(String.raw`$x_i$ 与 [论文](https://paper.test)`);
+  });
+
   it("变量名和公式下标里的下划线保持原样", () => {
     expect(htmlToMarkdown("<p>a_b foo_bar_baz x_{i}</p>")).toBe("a_b foo_bar_baz x_{i}");
     expect(htmlToMarkdown("<p>字面量 _不是强调_</p>")).toBe(String.raw`字面量 \_不是强调\_`);

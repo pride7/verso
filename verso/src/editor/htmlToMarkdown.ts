@@ -5,7 +5,12 @@
  * HTML 原样塞进正文：网页内容属于外部输入，而且纯 Markdown 才是仓库真源。
  */
 
-import { parser as markdownParser } from "@lezer/markdown";
+import { GFM, parser as baseMarkdownParser } from "@lezer/markdown";
+
+import { latexMathDelimiterChanges, type TextRange } from "../core/mathDelimiters";
+import { markdownExtended } from "./markdownExtended";
+
+const markdownParser = baseMarkdownParser.configure([GFM, markdownExtended]);
 
 const SKIP = new Set(["script", "style", "noscript", "template", "svg", "canvas", "form"]);
 const BLOCK = new Set([
@@ -15,6 +20,12 @@ const BLOCK = new Set([
 
 interface Context {
   pre?: boolean;
+  formulas?: FormulaProtection;
+}
+
+interface FormulaProtection {
+  text: WeakMap<Text, TextRange[]>;
+  inlineElements: WeakSet<Element>;
 }
 
 /**
@@ -40,12 +51,125 @@ function escapeEmphasisUnderscores(value: string): string {
   return escaped;
 }
 
+/** `[` / `]` 前这一道反斜杠是否是活跃的 LaTeX 定界符反斜杠。 */
+function hasActiveBackslash(value: string, at: number): boolean {
+  let count = 0;
+  for (let cursor = at - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) count += 1;
+  return count % 2 === 1;
+}
+
 function text(value: string, pre = false): string {
   if (pre) return value.replace(/\r\n?/g, "\n");
   const normalized = value
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ");
-  return escapeEmphasisUnderscores(normalized).replace(/([*[\]])/g, "\\$1");
+  return escapeEmphasisUnderscores(normalized).replace(/[*[\]]/g, (mark, at, source) => {
+    // `\[...\]` 还要交给下一层转成 `$$...$$`。这里若先把方括号写成
+    // `\\[` / `\\]`，定界符反斜杠会被转义，公式转换就再也认不出来。
+    if ((mark === "[" || mark === "]") && hasActiveBackslash(source, at)) return mark;
+    return `\\${mark}`;
+  });
+}
+
+/**
+ * 先按整棵 HTML 的文本顺序找公式，而不是让每个 `<span>` 各猜各的。网页常把
+ * 一条公式拆成许多行内节点；公式范围跨节点时，里面的 Markdown 特殊字符仍然
+ * 必须原样保留，网页为了排版加的 `<em>` / `<strong>` 也不能变成公式源码。
+ */
+function protectFormulas(root: Element): FormulaProtection {
+  const nodes: Text[] = [];
+  const offsets = new WeakMap<Text, TextRange>();
+  let source = "";
+  const collect = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const textNode = node as Text;
+      const from = source.length;
+      source += textNode.nodeValue ?? "";
+      nodes.push(textNode);
+      offsets.set(textNode, { from, to: source.length });
+      return;
+    }
+    if (node instanceof Element
+      && (SKIP.has(node.tagName.toLowerCase()) || node.getAttribute("aria-hidden") === "true")) {
+      return;
+    }
+    for (const child of [...node.childNodes]) collect(child);
+  };
+  collect(root);
+
+  const changes = latexMathDelimiterChanges(source);
+  const formulas: TextRange[] = [];
+  for (let at = 0; at + 1 < changes.length; at += 2) {
+    formulas.push({ from: changes[at].from, to: changes[at + 1].to });
+  }
+  markdownParser.parse(source).iterate({
+    enter(node) {
+      if (node.name === "InlineMath" || node.name === "BlockMath") {
+        formulas.push({ from: node.from, to: node.to });
+        return false;
+      }
+    },
+  });
+  formulas.sort((a, b) => a.from - b.from || a.to - b.to);
+  for (let at = formulas.length - 1; at > 0; at -= 1) {
+    const previous = formulas[at - 1];
+    const current = formulas[at];
+    if (current.from >= previous.to) continue;
+    previous.to = Math.max(previous.to, current.to);
+    formulas.splice(at, 1);
+  }
+
+  const protectedText = new WeakMap<Text, TextRange[]>();
+  for (const node of nodes) {
+    const offset = offsets.get(node)!;
+    const local = formulas.flatMap((formula) => {
+      const from = Math.max(offset.from, formula.from);
+      const to = Math.min(offset.to, formula.to);
+      return to > from ? [{ from: from - offset.from, to: to - offset.from }] : [];
+    });
+    if (local.length) protectedText.set(node, local);
+  }
+
+  const inlineElements = new WeakSet<Element>();
+  const inlineMarkup = new Set(["a", "b", "del", "em", "i", "s", "strike", "strong"]);
+  const measure = (node: Node): TextRange | null => {
+    if (node.nodeType === Node.TEXT_NODE) return offsets.get(node as Text) ?? null;
+    let from = Infinity;
+    let to = -Infinity;
+    for (const child of [...node.childNodes]) {
+      const range = measure(child);
+      if (!range) continue;
+      from = Math.min(from, range.from);
+      to = Math.max(to, range.to);
+    }
+    if (!Number.isFinite(from)) return null;
+    if (node instanceof Element && inlineMarkup.has(node.tagName.toLowerCase())
+      && formulas.some((formula) => from >= formula.from && to <= formula.to
+        && (from > formula.from || to < formula.to))) {
+      inlineElements.add(node);
+    }
+    return { from, to };
+  };
+  measure(root);
+  return { text: protectedText, inlineElements };
+}
+
+function textNode(node: Text, ctx: Context): string {
+  const value = node.nodeValue ?? "";
+  const ranges = ctx.formulas?.text.get(node) ?? [];
+  if (!ranges.length) return text(value, !!ctx.pre);
+  let result = "";
+  let cursor = 0;
+  for (const range of ranges) {
+    result += text(value.slice(cursor, range.from), !!ctx.pre);
+    // 与原来的 HTML 空白语义一致，但公式源码中的 Markdown 特殊字符一律不碰。
+    result += value.slice(range.from, range.to)
+      .replace(/\r\n?/g, "\n")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ");
+    cursor = range.to;
+  }
+  return result + text(value.slice(cursor), !!ctx.pre);
 }
 
 function children(el: Element, ctx: Context = {}): string {
@@ -73,7 +197,7 @@ function safeHref(raw: string | null): string | null {
   return /^(?:https?:|mailto:)/i.test(href) ? href : null;
 }
 
-function renderList(el: Element, ordered: boolean, depth = 0): string {
+function renderList(el: Element, ordered: boolean, depth = 0, ctx: Context = {}): string {
   let n = Number(el.getAttribute("start") ?? 1);
   const lines: string[] = [];
   for (const child of [...el.children]) {
@@ -84,24 +208,24 @@ function renderList(el: Element, ordered: boolean, depth = 0): string {
     });
     const body = [...child.childNodes]
       .filter((node) => !(node instanceof Element && ["ul", "ol"].includes(node.tagName.toLowerCase())))
-      .map((node) => render(node, {}))
+      .map((node) => render(node, ctx))
       .join("")
       .replace(/\s*\n+\s*/g, " ")
       .trim();
     const prefix = ordered ? `${n}. ` : "- ";
     lines.push(`${"  ".repeat(depth)}${prefix}${body}`.trimEnd());
     for (const list of nested) {
-      lines.push(renderList(list, list.tagName.toLowerCase() === "ol", depth + 1).trimEnd());
+      lines.push(renderList(list, list.tagName.toLowerCase() === "ol", depth + 1, ctx).trimEnd());
     }
     n += 1;
   }
   return `${lines.join("\n")}\n\n`;
 }
 
-function table(el: Element): string {
+function table(el: Element, ctx: Context): string {
   const rows = [...el.querySelectorAll("tr")].map((row) =>
     [...row.querySelectorAll(":scope > th, :scope > td")].map((cell) =>
-      children(cell).replace(/\s*\n+\s*/g, " ").trim().replace(/\|/g, "\\|"),
+      children(cell, ctx).replace(/\s*\n+\s*/g, " ").trim().replace(/\|/g, "\\|"),
     ),
   ).filter((row) => row.length > 0);
   if (!rows.length) return "";
@@ -115,26 +239,27 @@ function table(el: Element): string {
 }
 
 function render(node: Node, ctx: Context): string {
-  if (node.nodeType === Node.TEXT_NODE) return text(node.nodeValue ?? "", !!ctx.pre);
+  if (node.nodeType === Node.TEXT_NODE) return textNode(node as Text, ctx);
   if (!(node instanceof Element)) return "";
   const tag = node.tagName.toLowerCase();
   if (SKIP.has(tag) || node.getAttribute("aria-hidden") === "true") return "";
   if (tag === "br") return "\n";
-  if (/^h[1-6]$/.test(tag)) return `${"#".repeat(Number(tag[1]))} ${children(node).trim()}\n\n`;
-  if (tag === "strong" || tag === "b") return `**${children(node).trim()}**`;
-  if (tag === "em" || tag === "i") return `*${children(node).trim()}*`;
-  if (tag === "del" || tag === "s" || tag === "strike") return `~~${children(node).trim()}~~`;
+  if (ctx.formulas?.inlineElements.has(node)) return children(node, ctx);
+  if (/^h[1-6]$/.test(tag)) return `${"#".repeat(Number(tag[1]))} ${children(node, ctx).trim()}\n\n`;
+  if (tag === "strong" || tag === "b") return `**${children(node, ctx).trim()}**`;
+  if (tag === "em" || tag === "i") return `*${children(node, ctx).trim()}*`;
+  if (tag === "del" || tag === "s" || tag === "strike") return `~~${children(node, ctx).trim()}~~`;
   if (tag === "pre") return fenced(node.textContent ?? "");
   if (tag === "code") return ctx.pre ? text(node.textContent ?? "", true) : inlineCode(node.textContent ?? "");
   if (tag === "blockquote") {
-    const body = children(node).trim().split("\n").map((line) => `> ${line}`.trimEnd()).join("\n");
+    const body = children(node, ctx).trim().split("\n").map((line) => `> ${line}`.trimEnd()).join("\n");
     return `${body}\n\n`;
   }
-  if (tag === "ul" || tag === "ol") return renderList(node, tag === "ol");
-  if (tag === "table") return table(node);
+  if (tag === "ul" || tag === "ol") return renderList(node, tag === "ol", 0, ctx);
+  if (tag === "table") return table(node, ctx);
   if (tag === "hr") return "---\n\n";
   if (tag === "a") {
-    const label = children(node).trim();
+    const label = children(node, ctx).trim();
     const href = safeHref(node.getAttribute("href"));
     return href && label ? `[${label}](${href.replace(/\)/g, "%29")})` : label;
   }
@@ -150,7 +275,7 @@ function render(node: Node, ctx: Context): string {
 export function htmlToMarkdown(html: string): string {
   if (!html.trim()) return "";
   const doc = new DOMParser().parseFromString(html, "text/html");
-  return children(doc.body)
+  return children(doc.body, { formulas: protectFormulas(doc.body) })
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
