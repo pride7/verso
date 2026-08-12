@@ -5,6 +5,8 @@
  * HTML 原样塞进正文：网页内容属于外部输入，而且纯 Markdown 才是仓库真源。
  */
 
+import { parser as markdownParser } from "@lezer/markdown";
+
 const SKIP = new Set(["script", "style", "noscript", "template", "svg", "canvas", "form"]);
 const BLOCK = new Set([
   "address", "article", "aside", "details", "div", "figcaption", "figure", "footer",
@@ -15,12 +17,35 @@ interface Context {
   pre?: boolean;
 }
 
+/**
+ * 下划线只有真的被 Markdown 解析成强调标记时才需要转义。`a_b`、
+ * `foo_bar_baz`、`x_{i}` 里的下划线本来就是普通字符；一律补反斜杠不仅制造
+ * 无意义的 diff，也会把从网页或 Verso 自己复制的变量名改坏。
+ */
+function escapeEmphasisUnderscores(value: string): string {
+  const marks = new Set<number>();
+  markdownParser.parse(value).iterate({
+    enter(node) {
+      if (node.name !== "EmphasisMark") return;
+      for (let at = node.from; at < node.to; at += 1) {
+        if (value[at] === "_") marks.add(at);
+      }
+    },
+  });
+  if (!marks.size) return value;
+  let escaped = "";
+  for (let at = 0; at < value.length; at += 1) {
+    escaped += marks.has(at) ? "\\_" : value[at];
+  }
+  return escaped;
+}
+
 function text(value: string, pre = false): string {
   if (pre) return value.replace(/\r\n?/g, "\n");
-  return value
+  const normalized = value
     .replace(/\u00a0/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/([*_[\]])/g, "\\$1");
+    .replace(/\s+/g, " ");
+  return escapeEmphasisUnderscores(normalized).replace(/([*[\]])/g, "\\$1");
 }
 
 function children(el: Element, ctx: Context = {}): string {

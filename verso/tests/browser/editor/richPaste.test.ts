@@ -60,6 +60,20 @@ describe("网页内容转 Markdown", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(view.state.doc.toString()).toBe("结论 $x+1$开头\n");
   });
+
+  it("变量名和公式下标里的下划线保持原样", () => {
+    expect(htmlToMarkdown("<p>a_b foo_bar_baz x_{i}</p>")).toBe("a_b foo_bar_baz x_{i}");
+    expect(htmlToMarkdown("<p>字面量 _不是强调_</p>")).toBe(String.raw`字面量 \_不是强调\_`);
+
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`a_b 与 \(x_{i}\)`,
+      String.raw`<span>a_b 与 \(x_{i}\)</span>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("a_b 与 $x_{i}$");
+  });
 });
 
 describe("选区上粘贴网址", () => {
