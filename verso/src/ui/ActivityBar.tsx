@@ -45,7 +45,7 @@ interface Props {
   activityUnread: number;
   sourceMode: boolean;
   onToggleSourceMode: () => void;
-  /** 全库的结构化草稿台。没打开笔记时也能进，首次会建草稿箱。 */
+  /** 全库的结构化收集箱。没打开笔记时也能进，首次会创建。 */
   scratchOn: boolean;
   onToggleScratch: () => void;
   /** 思维导图开着没有。null = 现在没有打开的笔记，这个按钮不该能按 */
@@ -94,9 +94,9 @@ const ACTIONS: { id: RailActionId; icon: IconName; label: string; cmd: string | 
   // Obsidian 和 Typora 都给了这个开关一个常驻按钮 —— 只藏在快捷键和命令
   // 面板里的话，不知道它存在的人永远不会用到
   { id: "source", icon: "code", label: "源码模式", cmd: "view.sourceMode" },
-  // 草稿台是全库入口，不要绑在「当前已打开一篇」上。
+  // 收集箱是全库入口，不要绑在「当前已打开一篇」上。
   // 和导图相邻，因为两者都是 Markdown 结构的另一种看法。
-  { id: "scratch", icon: "pencil", label: "草稿台", cmd: "note.scratchpad" },
+  { id: "scratch", icon: "pencil", label: "收集箱", cmd: "note.scratchpad" },
   // 导图是「当前这篇」的另一种视图，紧挨着源码模式 —— 它俩是一类：
   // 都是把同一份内容换个样子看。只能靠快捷键进去的话，不知道它存在的人
   // 永远不会用到（§0：不能假设有键盘）

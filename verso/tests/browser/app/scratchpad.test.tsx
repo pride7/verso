@@ -46,6 +46,17 @@ const bodies: Record<string, string> = {
 const fronts: Record<string, Record<string, unknown>> = {
   "草稿箱.md": { type: "scratch" },
 };
+const createUntitled = vi.fn(async (_parent: string | null) => ({
+  path: "草稿箱/未命名.md",
+  id: null,
+  title: "未命名",
+}));
+const createNote = vi.fn(async (_parent: string | null, title: string) => ({
+  path: `${title}.md`,
+  id: null,
+  title,
+}));
+let foundScratch = true;
 
 vi.mock("../../../src/host/api", () => ({
   api: {
@@ -67,8 +78,8 @@ vi.mock("../../../src/host/api", () => ({
       }) as NoteContent,
     writeNote: async () => 0,
     statNote: async () => 0,
-    createNote: async () => ({ path: "x.md", id: null, title: "x" }),
-    createUntitled: async () => ({ path: "x.md", id: null, title: "x" }),
+    createNote: (parent: string | null, title: string) => createNote(parent, title),
+    createUntitled: (parent: string | null) => createUntitled(parent),
     renameNote: async () => "",
     moveNote: async () => "",
     deleteNote: async () => {},
@@ -79,7 +90,7 @@ vi.mock("../../../src/host/api", () => ({
     // 图标栏那个入口靠它找草稿箱
     viewQuery: async () => ({
       columns: [],
-      rows: [{ path: "草稿箱.md" }],
+      rows: foundScratch ? [{ path: "草稿箱.md" }] : [],
       view: "table",
       groupBy: null,
     }),
@@ -117,7 +128,12 @@ const { default: App } = await import("../../../src/app/App");
 let root: Root | null = null;
 const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  foundScratch = true;
+  createNote.mockClear();
+  createUntitled.mockClear();
+});
 
 afterEach(() => {
   root?.unmount();
@@ -190,5 +206,36 @@ describe("草稿箱在文档树里", () => {
       await settle(400);
     });
     expect(document.querySelector(".scratchpad"), "点了「正文」应当退出卡片界面").toBeNull();
+  });
+
+  it("整理卡片时在当前收集箱下面建立直属子文档", async () => {
+    await mountApp();
+    await clickTree("草稿箱");
+    const first = document.querySelector<HTMLElement>(".scratch-select");
+    expect(first).toBeTruthy();
+    await act(async () => {
+      first!.click();
+      await settle(50);
+    });
+    const promote = [...document.querySelectorAll<HTMLButtonElement>(".scratch-toolbar button")]
+      .find((button) => button.textContent?.includes("整理为子文档"));
+    expect(promote).toBeTruthy();
+    await act(async () => {
+      promote!.click();
+      await settle(500);
+    });
+    expect(createUntitled).toHaveBeenCalledWith("草稿箱.md");
+  });
+
+  it("第一次打开时创建名为“收集箱”的笔记，旧名称只用于兼容", async () => {
+    foundScratch = false;
+    await mountApp();
+    const open = document.querySelector<HTMLElement>('.rail-btn[aria-label="收集箱"]');
+    expect(open).toBeTruthy();
+    await act(async () => {
+      open!.click();
+      await settle(500);
+    });
+    expect(createNote).toHaveBeenCalledWith(null, "收集箱");
   });
 });

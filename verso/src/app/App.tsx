@@ -410,7 +410,7 @@ export default function App() {
   >(null);
   /** 思维导图铺在正文上（§4.7）。它不是浮层，是同一篇笔记的另一种编辑视图 */
   const [mindmapOpen, setMindmapOpen] = useState(false);
-  /** 结构化草稿台（§4.7.1）。和导图一样只是当前 Markdown 的一种投影。 */
+  /** 结构化收集箱（§4.7.1）。和导图一样只是当前 Markdown 的一种投影。 */
   const [scratchpadOpen, setScratchpadOpen] = useState(false);
   /** 一屏项目总览；正文编辑器仍留在 DOM 中，退出时光标和撤销历史都还在。 */
   const [projectOpen, setProjectOpen] = useState(false);
@@ -889,10 +889,10 @@ export default function App() {
       setNote(content);
       setBody(content.body);
       // 换页回到**这篇笔记自己的**主视图 —— 按类型判断，而不是一律关掉。
-      // 草稿箱自己的主视图就是卡片界面：从文档树点开它却看见一堆 frontmatter，
+      // 收集箱自己的主视图就是卡片界面：从文档树点开它却看见一堆 frontmatter，
       // 和点开一篇项目笔记却看见 YAML 是同一种错。按类型判断也不会把
       // 「上一篇在卡片视图」泄漏到普通笔记 —— 那正是当初一律关掉的理由。
-      // 想看原始 Markdown 走草稿台头部那个「正文」按钮。
+      // 想看原始 Markdown 走收集箱头部那个「正文」按钮。
       const scratch = isScratch(content);
       setScratchpadOpen(scratch);
       const project = isProject(content);
@@ -2747,9 +2747,9 @@ export default function App() {
   }, [openPath, projectCenterOpen, projectOpen, refresh, reloadFromDisk, saveNow]);
 
   /**
-   * 打开全库唯一的草稿箱。
+   * 打开全库唯一的收集箱。
    *
-   * 不只按文件名认：用户可能早已有一篇普通的「草稿箱.md」，我们不能
+   * 不只按文件名认：用户可能早已有一篇普通的「收集箱.md」，我们不能
    * 悄悄给它改类型。只复用 `type: scratch` 的候选；重名就顺延数字。
    */
   const toggleScratchpad = useCallback(async () => {
@@ -2758,7 +2758,7 @@ export default function App() {
       return;
     }
     try {
-      // 走索引查属性，不扫全库逐篇读文件。草稿箱被用户改过名后仍能找回来。
+      // 走索引查属性，不扫全库逐篇读文件。收集箱被用户改过名后仍能找回来。
       const found = await api.viewQuery([
         `where: type = "${SCRATCH_TYPE}"`,
         "sort: updated desc",
@@ -2768,8 +2768,8 @@ export default function App() {
       if (!path) {
         const paths = new Set(noteListRef.current.map((candidate) => candidate.path));
         let suffix = 1;
-        let title = "草稿箱";
-        while (paths.has(`${title}.md`)) title = `草稿箱 ${++suffix}`;
+        let title = "收集箱";
+        while (paths.has(`${title}.md`)) title = `收集箱 ${++suffix}`;
         const meta = await api.createNote(null, title);
         await api.propSet(meta.path, "type", SCRATCH_TYPE);
         path = meta.path;
@@ -2781,24 +2781,26 @@ export default function App() {
       await openPath(path);
       // `loadNote` 已经按 `type: scratch` 打开过一次了，这里再来一发是**兜底**：
       // 这条路是靠索引查出来的候选，而索引是 `.verso/` 里的派生数据，可能比
-      // 磁盘旧一拍。那时按类型判会判成「不是草稿箱」，表现成「点了草稿台没反应」。
-      // 这个入口的承诺就是「把草稿台打开」，它得自己说了算。
+      // 磁盘旧一拍。那时按类型判会判成「不是收集箱」，表现成「点了收集箱没反应」。
+      // 这个入口的承诺就是「把收集箱打开」，它得自己说了算。
       setScratchpadOpen(true);
     } catch (cause) {
       setError((cause as Error).message);
     }
   }, [openPath, refresh, scratchpadOpen]);
 
-  /** 选中的卡片复制进一篇新笔记；草稿原件显式保留。 */
+  /** 选中的卡片复制为收集箱的直属子文档；原卡片显式保留。 */
   const promoteScratch = useCallback(async (markdown: string) => {
     if (!markdown.trim()) return;
     try {
-      const meta = await api.createUntitled(null);
+      const parent = noteRef.current?.path;
+      if (!parent || !isScratch(noteRef.current)) throw new Error("请先打开收集箱");
+      const meta = await api.createUntitled(parent);
       await api.writeNote(meta.path, markdown);
       await refresh();
       await openPath(meta.path);
       setRenaming(meta.path);
-      setNotice("已从草稿生成新文档，原卡片仍在草稿箱里");
+      setNotice("已整理为收集箱的子文档，原卡片仍在收集箱里");
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -2987,7 +2989,7 @@ export default function App() {
       {
         id: "note.scratchpad",
         group: "笔记",
-        label: scratchpadOpen ? "回到草稿正文" : "草稿台",
+        label: scratchpadOpen ? "查看收集箱正文" : "收集箱",
         // Space = 一张还没有命名的空白纸。不占用字母，也不和系统快捷键撞。
         defaultKeys: "Mod+Shift+Space",
         run: () => void toggleScratchpad(),
@@ -3246,6 +3248,18 @@ export default function App() {
         run: () => {
           const count = editorRef.current?.convertMathDelimiters() ?? 0;
           setNotice(count ? `已转换 ${count} 个公式` : "没有可转换的 LaTeX 公式定界符");
+        },
+      },
+      {
+        id: "calculation.evaluate",
+        group: "计算",
+        label: "计算当前表达式",
+        // 等号后的自动建议已经覆盖高频路径；这条是选区和当前行的明确入口，
+        // 不抢一个全局键位，想要的人可以在设置里自己绑定。
+        enabled: hasNote,
+        run: () => {
+          const result = editorRef.current?.calculate() ?? null;
+          setNotice(result === null ? "没有可计算的纯数字表达式" : `计算结果：${result}`);
         },
       },
       {
@@ -3997,7 +4011,7 @@ export default function App() {
         onNewTab={() => void createAndOpen(null, { newTab: true })}
       />
 
-      {/* 草稿台和导图一样与 main 占同一格，Editor 仍留在 DOM 中。
+      {/* 收集箱和导图一样与 main 占同一格，Editor 仍留在 DOM 中。
           卡片修改因此走同一份 dispatch / 撤销栈 / 自动保存。 */}
       {note && scratchpadOpen && !diffSelection && !projectCenterOpen && (
         <Scratchpad

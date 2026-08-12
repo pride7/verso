@@ -16,6 +16,7 @@ import type { SyntaxNode } from "@lezer/common";
 import type { NoteRef } from "../core/types";
 
 import { autoFence } from "./autoFence";
+import { calculationAssistance } from "./calculation";
 import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
 import { compositionKeyGuard, compositionTracker } from "./compositionGuard";
@@ -184,6 +185,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // 从论文、聊天工具或 LaTeX 文档粘贴公式时，把 \(...\) / \[...\]
     // 换成 Verso 能渲染的 $...$ / $$...$$。图片粘贴优先走上面那条。
     mathDelimiterPaste(),
+
+    // `64 * 512 =` 后只显示可忽略的结果建议；Tab 才写进 Markdown。
+    // 放在 snippet 前面，让屏幕上已经明确出现的「Tab 写入」优先于 tabout。
+    calculationAssistance,
 
     // §5 公式快速输入。必须排在 defaultKeymap 之前 —— snippet 的 Tab
     // 处理要先于「插入缩进」拿到这个键

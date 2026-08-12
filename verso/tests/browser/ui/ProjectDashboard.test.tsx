@@ -86,6 +86,8 @@ describe("单项目总览", () => {
     await tick();
     expect(document.querySelectorAll(".project-item")).toHaveLength(0);
     expect(document.querySelector(".project-progress")?.textContent).toContain("完成基线");
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".project-progress p")!).fontSize)
+      .toBe("13.5px");
     expect(document.querySelector(".project-search-count")?.textContent).toBe("0 条记录 · 1 条进展");
 
     await userEvent.click(document.querySelector<HTMLButtonElement>('button[aria-label="清空搜索"]')!);

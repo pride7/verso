@@ -15,6 +15,7 @@ import { toggleFormatSpec, type InlineFormat } from "../editor/format";
 import { toggleBlockSpec, type BlockKind } from "../editor/paragraph";
 import { mathDelimiterConversion, pastedMathText } from "../editor/mathDelimiters";
 import { tableAt, tableOpSpec, type TableOp } from "../editor/tableOps";
+import { calculateCurrent } from "../editor/calculation";
 import { foldTargets } from "../core/journal";
 import { parseCustomSnippets } from "../core/snippets/custom";
 import { expand } from "../core/snippets/match";
@@ -58,6 +59,8 @@ export interface EditorHandle {
   toggleFormat: (kind: InlineFormat) => void;
   /** 转换选区里的 LaTeX 公式定界符；没有选区时处理整篇。返回转换数量。 */
   convertMathDelimiters: () => number;
+  /** 计算选区或当前行并写入结果。返回结果；null 表示不是纯数字算式。 */
+  calculate: () => string | null;
   /**
    * 把选中的这几行换成标题 / 引用 / 列表（§4.10）。逻辑在
    * `editor/paragraph.ts` —— 和 `/` 菜单的区别是「换」不是「插」
@@ -388,6 +391,10 @@ export function Editor({
         view.dispatch(conversion.spec);
         view.focus();
         return conversion.count;
+      },
+      calculate: () => {
+        const view = viewRef.current;
+        return view ? calculateCurrent(view) : null;
       },
       setBlock: (kind: BlockKind) => {
         const view = viewRef.current;

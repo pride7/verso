@@ -11,6 +11,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
+import { isMac } from "../../../src/core/platform";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -224,12 +225,12 @@ describe("项目默认视图", () => {
   it("项目中心快捷键可以随时打开和关闭", async () => {
     await mountApp();
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ctrlKey: true, altKey: true, bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ...(isMac ? { metaKey: true } : { ctrlKey: true }), altKey: true, bubbles: true }));
       await settle(120);
     });
     expect(document.querySelector(".project-center")).not.toBeNull();
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ctrlKey: true, altKey: true, bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", code: "KeyJ", ...(isMac ? { metaKey: true } : { ctrlKey: true }), altKey: true, bubbles: true }));
       await settle(120);
     });
     expect(document.querySelector(".project-center")).toBeNull();
@@ -591,7 +592,7 @@ describe("思维导图", () => {
     expect(node("甲一")!.classList).toContain("is-selected");
 
     await act(async () => {
-      await userEvent.keyboard("{Control>}a{/Control}{Backspace}");
+      await userEvent.keyboard(isMac ? "{Meta>}a{/Meta}{Backspace}" : "{Control>}a{/Control}{Backspace}");
       await settle(150);
     });
     expect(node("甲一"), "清空搜索后应恢复原来的折叠状态").toBeUndefined();

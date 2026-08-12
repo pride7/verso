@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { KeyOverrides } from "../../../src/core/keymap";
+import { isMac, keyLabel } from "../../../src/core/platform";
 import { KeyBindings } from "../../../src/ui/KeyBindings";
 import type { Command } from "../../../src/ui/CommandPalette";
 
@@ -46,12 +47,15 @@ function press(init: KeyboardEventInit) {
   window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
 }
 
+const mod = (rest: KeyboardEventInit = {}): KeyboardEventInit =>
+  isMac ? { ...rest, metaKey: true } : { ...rest, ctrlKey: true };
+
 describe("快捷键设置", () => {
   it("默认键位照着命令表显示", async () => {
     render();
     await tick();
-    expect(cap(0).textContent).toBe("Ctrl+N");
-    expect(cap(1).textContent).toBe("Ctrl+S");
+    expect(cap(0).textContent).toBe(keyLabel("Mod+N"));
+    expect(cap(1).textContent).toBe(keyLabel("Mod+S"));
     // 没绑的那条不能显示成空按钮 —— 那看着像坏了
     expect(cap(2).textContent).toBe("未绑定");
   });
@@ -63,10 +67,10 @@ describe("快捷键设置", () => {
     await tick();
     expect(cap(0).textContent).toBe("请按组合键…");
 
-    press({ code: "KeyK", ctrlKey: true, altKey: true });
+    press(mod({ code: "KeyK", altKey: true }));
     await tick();
     expect(overrides["note.new"]).toBe("Mod+Alt+K");
-    expect(cap(0).textContent).toBe("Ctrl+Alt+K");
+    expect(cap(0).textContent).toBe(keyLabel("Mod+Alt+K"));
   });
 
   it("光按着修饰键不算数，等后面那个真正的键", async () => {
@@ -111,7 +115,7 @@ describe("快捷键设置", () => {
     press({ code: "Escape" });
     await tick();
     expect(overrides).toEqual({});
-    expect(cap(0).textContent).toBe("Ctrl+N");
+    expect(cap(0).textContent).toBe(keyLabel("Mod+N"));
   });
 
   it("撞键不拦，两条都标出来", async () => {
@@ -119,7 +123,7 @@ describe("快捷键设置", () => {
     await tick();
     cap(1).click();
     await tick();
-    press({ code: "KeyN", ctrlKey: true });
+    press(mod({ code: "KeyN" }));
     await tick();
     expect(document.querySelectorAll(".key-cap.is-conflict").length).toBe(2);
   });
@@ -129,7 +133,7 @@ describe("快捷键设置", () => {
     await tick();
     cap(0).click();
     await tick();
-    press({ code: "KeyK", ctrlKey: true });
+    press(mod({ code: "KeyK" }));
     await tick();
     expect(overrides["note.new"]).toBe("Mod+K");
 
@@ -137,7 +141,7 @@ describe("快捷键设置", () => {
     document.querySelectorAll<HTMLElement>(".key-row .set-reset")[0].click();
     await tick();
     expect(overrides).toEqual({});
-    expect(cap(0).textContent).toBe("Ctrl+N");
+    expect(cap(0).textContent).toBe(keyLabel("Mod+N"));
   });
 
   it("筛选按命令名和分组走", async () => {

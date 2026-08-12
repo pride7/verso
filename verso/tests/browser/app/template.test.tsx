@@ -14,6 +14,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
+import { isMac, keyLabel } from "../../../src/core/platform";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -549,10 +550,10 @@ describe("默认快捷键", () => {
     await mountApp();
     await openPalette();
 
-    expect(keyOf("插入模板")).toBe("Ctrl+Alt+T");
+    expect(keyOf("插入模板")).toBe(keyLabel("Mod+Alt+T"));
     // 和「新建文档」的 Ctrl+N 成一对：多按一个 Alt = 这次带模板
-    expect(keyOf("用模板新建文档")).toBe("Ctrl+Alt+N");
-    expect(keyOf("模板面板")).toBe("Ctrl+Shift+M");
+    expect(keyOf("用模板新建文档")).toBe(keyLabel("Mod+Alt+N"));
+    expect(keyOf("模板面板")).toBe(keyLabel("Mod+Shift+M"));
   });
 
   /**
@@ -582,7 +583,7 @@ describe("默认快捷键", () => {
       window.dispatchEvent(
         new KeyboardEvent("keydown", {
           code: "KeyT",
-          ctrlKey: true,
+          ...(isMac ? { metaKey: true } : { ctrlKey: true }),
           altKey: true,
           bubbles: true,
           cancelable: true,

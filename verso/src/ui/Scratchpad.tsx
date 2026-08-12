@@ -161,7 +161,7 @@ function ScratchCard({
     <div className="scratch-branch" data-line={node.line}>
       <article className={`scratch-card${selected ? " is-selected" : ""}`}>
         <header className="scratch-card-head">
-          <label className="scratch-select" title="选中后可生成正式文档">
+          <label className="scratch-select" title="选中后可整理为子文档">
             <input
               type="checkbox"
               checked={selected}
@@ -347,10 +347,10 @@ export function Scratchpad({ title, body, onEdit, onUndo, onRedo, onMindmap, onS
   const markdown = selectedScratchMarkdown(body, root, selected);
 
   return (
-    <section className="scratchpad" aria-label="草稿台">
+    <section className="scratchpad" aria-label="收集箱">
       <header className="scratch-head">
         <div>
-          <span className="scratch-eyebrow">草稿台</span>
+          <span className="scratch-eyebrow">收集箱</span>
           <h1>{title}</h1>
           <p>先记下，再整理。每张卡片都是普通 Markdown。</p>
         </div>
@@ -371,7 +371,7 @@ export function Scratchpad({ title, body, onEdit, onUndo, onRedo, onMindmap, onS
           disabled={!markdown}
           onClick={() => markdown && onPromote(markdown)}
         >
-          <Icon name="doc" size={14} />生成文档
+          <Icon name="doc" size={14} />整理为子文档
         </button>
       </div>
 
@@ -383,8 +383,8 @@ export function Scratchpad({ title, body, onEdit, onUndo, onRedo, onMindmap, onS
         ) : body.trim() ? (
           <div className="scratch-empty">
             <Icon name="text" size={24} />
-            <strong>这篇草稿里是自由段落</strong>
-            <p>草稿台只把标题和列表排成卡片；回到正文可继续编辑原内容。</p>
+            <strong>当前内容包含自由段落</strong>
+            <p>收集箱只把标题和列表排成卡片；回到正文可继续编辑原内容。</p>
             <button onClick={onSource}>回到正文</button>
           </div>
         ) : (

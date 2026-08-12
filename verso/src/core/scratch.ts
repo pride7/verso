@@ -1,5 +1,5 @@
 /**
- * 结构化草稿台（DESIGN.md §4.7.1）。
+ * 结构化收集箱（DESIGN.md §4.7.1）。
  *
  * 它不定义新格式：卡片就是思维导图已经认得的 Markdown 标题/列表项，
  * 所有结构操作仍然产出一次按行编辑。这层保持纯 TS，便于把「缩进到底改了
@@ -18,14 +18,15 @@ import {
 } from "./mindmap";
 import type { NoteContent } from "./types";
 
-/** `type` 属性里那个值。建草稿箱、查草稿箱、认草稿箱都用它，不要各写一个字面量 */
+/** `type` 属性里那个值。建收集箱、查收集箱、认收集箱都用它，不要各写一个字面量 */
 export const SCRATCH_TYPE = "scratch";
 
 /**
- * 认草稿箱的 frontmatter 标记。§4.7.1
+ * 认收集箱的 frontmatter 标记。§4.7.1
  *
- * **不按文件名认**：用户可能早就有一篇普通的「草稿箱.md」，那是他的笔记，
- * 不能因为重名就被当成草稿台接管。反过来，改了名的草稿箱也仍然认得出来。
+ * **不按文件名认**：用户可能早就有一篇普通的「收集箱.md」，那是他的笔记，
+ * 不能因为重名就被收集箱视图接管。反过来，旧版「草稿箱」或改过名的收集箱
+ * 也仍然认得出来。
  *
  * 和 `isProject()` 是同一类判断，写法也保持一致 —— 这两处决定的是同一件事：
  * 打开一篇笔记时，该显示它自己的视图还是普通正文。
@@ -34,7 +35,7 @@ export function isScratch(note: NoteContent | null): boolean {
   return note?.frontmatter.type === SCRATCH_TYPE;
 }
 
-export function scratchTree(body: string, title = "草稿箱"): MindNode {
+export function scratchTree(body: string, title = "收集箱"): MindNode {
   return parseMindmap(body, title);
 }
 
@@ -42,7 +43,7 @@ export function scratchCards(root: MindNode): MindNode[] {
   return flatten(root).filter((node) => node.kind !== "root");
 }
 
-/** 在全文末尾加一张顶层卡片。根节点默认会加标题，草稿台刻意用列表。 */
+/** 在全文末尾加一张顶层卡片。根节点默认会加标题，收集箱刻意用列表。 */
 export function addScratchCard(body: string, root: MindNode, text = ""): { edit: Edit; line: number } {
   if (body.length === 0) {
     return { edit: { fromLine: 1, toLine: 1, insert: `- ${text.trim()}` }, line: 1 };

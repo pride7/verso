@@ -11,6 +11,7 @@ import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { sendToTerminal } from "../../../src/core/termBus";
+import { isMac } from "../../../src/core/platform";
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
 
 const VAULT: VaultInfo = {
@@ -159,8 +160,11 @@ async function mount() {
 
 /** 从某个元素上发一个按键。target 决定了它会不会被「终端里键盘归 shell」挡掉 */
 async function hotkeyOn(el: HTMLElement, key: string, opts: KeyboardEventInit = {}) {
+  const platformOpts = isMac && opts.ctrlKey && !opts.metaKey
+    ? { ...opts, ctrlKey: false, metaKey: true }
+    : opts;
   await act(async () => {
-    el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...opts }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...platformOpts }));
     await settle(300);
   });
 }

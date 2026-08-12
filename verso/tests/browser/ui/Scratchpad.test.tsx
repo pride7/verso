@@ -110,12 +110,12 @@ describe("结构化草稿台", () => {
     expect(document.querySelector<HTMLTextAreaElement>(".scratch-text")?.value).toBe("啊啊啊");
   });
 
-  it("选中父卡片后连子树生成正式文档", async () => {
+  it("选中父卡片后连子树整理为子文档", async () => {
     const { promoted } = mount("- 甲\n  - 甲一\n- 乙");
     await new Promise((resolve) => setTimeout(resolve, 30));
     await userEvent.click(document.querySelectorAll<HTMLElement>('.scratch-select')[0]);
     const button = [...document.querySelectorAll<HTMLButtonElement>(".scratch-toolbar button")]
-      .find((candidate) => candidate.textContent?.includes("生成文档"))!;
+      .find((candidate) => candidate.textContent?.includes("整理为子文档"))!;
     expect(button.disabled).toBe(false);
     await userEvent.click(button);
     expect(promoted).toHaveBeenCalledWith("- 甲\n  - 甲一");

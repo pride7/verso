@@ -11,6 +11,7 @@ import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
+import { isMac } from "../../../src/core/platform";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -371,7 +372,7 @@ describe("手机竖屏下的布局", () => {
       b.getAttribute("aria-label"),
     );
     // 桌面窄窗口上终端还在；手机上它整个不渲染（另有一条测试盯着）
-    expect(items).toEqual(["源码模式", "草稿台", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
+    expect(items).toEqual(["源码模式", "收集箱", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
 
     // 面板里的行同样要够一根手指
     for (const item of document.querySelectorAll<HTMLElement>(".rail-sheet-item")) {
@@ -386,7 +387,7 @@ describe("手机竖屏下的布局", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", {
         key: " ",
         code: "Space",
-        ctrlKey: true,
+        ...(isMac ? { metaKey: true } : { ctrlKey: true }),
         shiftKey: true,
         bubbles: true,
         cancelable: true,
@@ -1246,7 +1247,7 @@ describe("手机上的点击目标", () => {
   it("草稿台上的每个入口都够得着", async () => {
     noteBody = ["- 第一个念头", "  - 它的子项", "- 另一个方向"].join("\n");
     await mount();
-    await openAction("草稿台");
+    await openAction("收集箱");
     expect(document.querySelector(".scratchpad"), "草稿台没打开，这条就白测了").toBeTruthy();
     expect(tooSmall()).toEqual([]);
     const card = document.querySelector<HTMLElement>(".scratch-card")!;

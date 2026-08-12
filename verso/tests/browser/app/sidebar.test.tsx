@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../../src/host/dialog", () => ({ confirm: vi.fn(async () => true) }));
 
 import type { NoteContent, NoteRef, RecentVault, SharedSpaceAccess, TreeNode, VaultInfo } from "../../../src/core/types";
+import { isMac } from "../../../src/core/platform";
 
 const VAULT: VaultInfo = {
   root: "D:/Notes/vault",
@@ -272,7 +273,13 @@ describe("图标栏", () => {
     await mountApp();
     expect(el(".sidebar-head")!.textContent).toBe("文档");
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "h", code: "KeyH", ctrlKey: true, shiftKey: true, bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "h",
+        code: "KeyH",
+        ...(isMac ? { metaKey: true } : { ctrlKey: true }),
+        shiftKey: true,
+        bubbles: true,
+      }));
       await settle(120);
     });
     expect(el(".sidebar-head")!.textContent).toBe("动态");

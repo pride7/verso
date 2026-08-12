@@ -2409,6 +2409,32 @@ body.is-table-resizing * {
   margin-left: -26px;
 }
 
+/* `64 * 512 =` 后的结果只是建议，不是文档内容。数值贴着等号，接受方式缩成
+   一枚弱提示；编辑器失焦时收起，避免打开命令面板后页面上还悬着操作暗示。 */
+.cm-calculation-suggestion {
+  color: color-mix(in oklch, var(--text) 42%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+}
+.cm-calculation-value {
+  font-variant-numeric: tabular-nums;
+}
+.cm-calculation-hint {
+  margin-left: 7px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  color: var(--muted);
+  background: var(--raised);
+  font-family: var(--font-ui);
+  font-size: 0.68em;
+  vertical-align: 0.08em;
+}
+.cm-editor:not(.cm-focused) .cm-calculation-suggestion {
+  display: none;
+}
+
 /* ---------- frontmatter 属性条（§2.3） ---------- */
 
 .props {
@@ -3050,6 +3076,9 @@ body.is-table-resizing * {
 .backlink {
   display: block;
   width: 100%;
+  /* 触摸端整行都是入口。此前只有 27px 高，Chromium 恰好被底栏盖住而跳过
+     审计，WebKit 露出半行后才把这个真实的小目标报出来。 */
+  min-height: var(--tap);
   text-align: left;
   padding: 6px 8px;
   border-radius: var(--r-sm);
@@ -4067,7 +4096,10 @@ body.is-table-resizing * {
 }
 .project-progress p {
   margin: 3px 0 0;
-  line-height: 1.5;
+  /* 进展是可扫读的时间线条目，不是本页结论。此前继承正文 16px，在日期和
+     其他记录标题都只有 10.5–12.5px 时显得像一排二级标题，抢过了区块层级。 */
+  font-size: 13.5px;
+  line-height: 1.55;
   white-space: pre-wrap;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -8380,7 +8412,7 @@ textarea:focus-visible {
   font-size: 12.5px;
 }
 
-/* ---------- 结构化草稿台（§4.7.1） ---------- */
+/* ---------- 结构化收集箱（§4.7.1） ---------- */
 
 .scratchpad {
   grid-area: main;

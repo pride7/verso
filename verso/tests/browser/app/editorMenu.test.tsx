@@ -226,7 +226,11 @@ describe("正文里的右键菜单（§4.10）", () => {
     await mountApp();
     await rightClickAt("第一行");
     const rows = await openSub("文本格式");
-    expect(rows.map((b) => b.textContent?.replace(/Ctrl.*|⌘.*/, ""))).toEqual([
+    expect(rows.map((button) => {
+      const clone = button.cloneNode(true) as HTMLElement;
+      clone.querySelector(".ctx-key")?.remove();
+      return clone.textContent;
+    })).toEqual([
       "加粗",
       "斜体",
       "行内代码",
