@@ -966,7 +966,7 @@ export default function App() {
    * 「打开文档时新建标签还是复用标签」。已经开着的那一篇总是切过去。
    */
   const openPath = useCallback(
-    async (path: string, opts?: { newTab?: boolean }) => {
+    async (path: string, opts?: { newTab?: boolean; replaceWithin?: string }) => {
       // 窄屏上侧栏是**盖在正文上的抽屉**：点开一篇之后自己收起来。
       // 不收的话用户还得再关一次，而他刚才那一下表达的正是「我要看这一篇」
       if (narrowRef.current) setSidebarOpen(false);
@@ -980,12 +980,14 @@ export default function App() {
       if (leaving && mainRef.current) scrollTops.current.set(leaving, mainRef.current.scrollTop);
 
       const mode = (opts?.newTab ?? settings.tabOpen === "new") ? "new" : "replace";
-      const next = openTab(tabsRef.current, path, mode);
+      const beforeTabs = tabsRef.current;
+      const next = openTab(beforeTabs, path, mode, opts?.replaceWithin);
       // 替换模式下被顶掉的那一页，缓存也跟着丢 —— 留着只会占内存，
       // 而且下次它再被打开时，文件很可能已经变了
       if (mode === "replace") {
-        const dropped = tabsRef.current.tabs[tabsRef.current.active];
-        if (dropped && !next.tabs.includes(dropped)) forgetTab(dropped);
+        for (const dropped of beforeTabs.tabs) {
+          if (!next.tabs.includes(dropped)) forgetTab(dropped);
+        }
       }
       tabsRef.current = next;
       setTabState(next);
@@ -4100,7 +4102,7 @@ export default function App() {
           project={note}
           notes={noteList}
           revision={revision}
-          onOpen={(path, opts) => void openPath(path, opts)}
+          onOpen={(path, opts) => void openPath(path, { ...opts, replaceWithin: note.path })}
           onEdit={() => setProjectOpen(false)}
           onRename={(path, title) => void submitRename(path, title)}
           onMove={(path, target) => void moveNode(path, target)}

@@ -54,7 +54,16 @@ function clamp(s: TabState): TabState {
  * 新标签插在**当前页右边**而不是队尾：从一篇笔记点进它的链接时，新页紧挨着
  * 来源，读完关掉就回到原处。浏览器和 VS Code 都是这个行为。
  */
-export function openTab(s: TabState, path: string, mode: "new" | "replace"): TabState {
+export function openTab(
+  s: TabState,
+  path: string,
+  mode: "new" | "replace",
+  /**
+   * 项目总览传入它自己的路径。复用模式因此只会替换这个项目目录里的普通
+   * 内容页；另一个项目已经打开的内容页不是它的槽，必须并排留下。
+   */
+  replaceWithin?: string,
+): TabState {
   const existing = s.tabs.indexOf(path);
   if (existing >= 0) return { ...s, active: existing };
 
@@ -65,7 +74,23 @@ export function openTab(s: TabState, path: string, mode: "new" | "replace"): Tab
   // 也不会让「复用标签」在固定页上变成每点一次都新增标签。
   if (mode === "replace") {
     const tabs = [...s.tabs];
-    const at = isPinned(s, s.active) ? s.pinnedCount : s.active;
+    let at: number;
+    if (replaceWithin) {
+      const prefix = `${replaceWithin.replace(/\.md$/i, "")}/`;
+      const inProject = (candidate: string) => candidate.startsWith(prefix);
+      // 当前就在这个项目的内容页时，手感仍是普通的“替换当前”。从项目总览
+      // 或另一个项目过来时，则找到本项目原有的内容槽；第一次打开才新增。
+      at = !isPinned(s, s.active) && inProject(s.tabs[s.active] ?? "")
+        ? s.active
+        : tabs.findIndex((candidate, index) => index >= s.pinnedCount && inProject(candidate));
+      if (at < 0) {
+        at = Math.max(s.active + 1, s.pinnedCount);
+        tabs.splice(at, 0, path);
+        return { ...s, tabs, active: at };
+      }
+    } else {
+      at = isPinned(s, s.active) ? s.pinnedCount : s.active;
+    }
     if (at < tabs.length) tabs[at] = path;
     else tabs.push(path);
     return { ...s, tabs, active: at };

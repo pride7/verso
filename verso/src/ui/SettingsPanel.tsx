@@ -1112,7 +1112,7 @@ export function SettingsPanel({
                 <div className="set-label">
                   <span>打开文档时</span>
                   <span className="set-hint">
-                    “复用标签”不会替换固定标签；按住 Ctrl/⌘ 单击或使用鼠标中键时，始终新建标签。
+                    “复用标签”不会替换固定标签；项目记录只复用本项目的内容页。按住 Ctrl/⌘ 单击或使用鼠标中键时，始终新建标签。
                   </span>
                 </div>
                 <div className="set-control">

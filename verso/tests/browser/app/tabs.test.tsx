@@ -40,9 +40,25 @@ const BODIES: Record<string, string> = {
   "甲.md": "# 甲\n\n甲的正文。\n",
   "乙.md": "# 乙\n\n乙的正文。\n",
   "丙.md": "# 丙\n\n丙的正文。\n",
+  "项目甲.md": "# 项目甲\n",
+  "项目甲/实验/甲记录.md": "# 甲记录\n",
+  "项目甲/实验/甲后续.md": "# 甲后续\n",
+  "项目乙.md": "# 项目乙\n",
+  "项目乙/问题/乙记录.md": "# 乙记录\n",
 };
 
-const NOTES: NoteRef[] = TREE.map((n) => ({ path: n.path, name: n.name }));
+const PROJECT_TITLES: Record<string, string> = {
+  "项目甲.md": "项目甲",
+  "项目甲/实验/甲记录.md": "甲记录",
+  "项目甲/实验/甲后续.md": "甲后续",
+  "项目乙.md": "项目乙",
+  "项目乙/问题/乙记录.md": "乙记录",
+};
+
+const NOTES: NoteRef[] = [
+  ...TREE.map((n) => ({ path: n.path, name: n.name })),
+  ...Object.entries(PROJECT_TITLES).map(([path, name]) => ({ path, name })),
+];
 
 let saved: Record<string, unknown> = { tabOpen: "new" };
 let workspace = { tabs: [] as string[], active: 0, pinnedCount: 0 };
@@ -62,8 +78,14 @@ vi.mock("../../../src/host/api", () => ({
       ({
         path,
         id: path,
-        title: path,
-        frontmatter: {},
+        title: PROJECT_TITLES[path] ?? path,
+        frontmatter: path === "项目甲.md" || path === "项目乙.md"
+          ? { type: "project" }
+          : path.includes("/实验/")
+            ? { type: "experiment", status: "进行中" }
+            : path.includes("/问题/")
+              ? { type: "question", status: "进行中" }
+              : {},
         frontmatterText: "",
         body: BODIES[path] ?? "",
         mtimeMs: 0,
@@ -355,6 +377,32 @@ describe("固定", () => {
     await clickTree("丙");
     expect(tabNames()).toEqual(["甲", "丙"]);
     expect(activeTab()).toBe("丙");
+  });
+
+  it("复用模式给每个项目各留一个内容标签", async () => {
+    saved = { tabOpen: "replace" };
+    workspace = { tabs: ["项目甲.md", "项目乙.md"], active: 0, pinnedCount: 2 };
+    await mountApp();
+
+    const openProjectItem = async (title: string) => {
+      const item = [...document.querySelectorAll<HTMLElement>(".project-item-open")].find(
+        (button) => button.querySelector("strong")?.textContent === title,
+      );
+      if (!item) throw new Error(`项目总览里没有「${title}」`);
+      await click(item);
+    };
+
+    await openProjectItem("甲记录");
+    expect(tabNames()).toEqual(["项目甲", "项目乙", "甲记录"]);
+
+    await pickTab(1);
+    await openProjectItem("乙记录");
+    expect(tabNames()).toEqual(["项目甲", "项目乙", "乙记录", "甲记录"]);
+
+    await pickTab(0);
+    await openProjectItem("甲后续");
+    expect(tabNames()).toEqual(["项目甲", "项目乙", "乙记录", "甲后续"]);
+    expect(activeTab()).toBe("甲后续");
   });
 
   it("双击固定，它挪到最前并带上图钉", async () => {

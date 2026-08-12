@@ -47,6 +47,42 @@ describe("打开", () => {
     const s = st(["甲.md", "乙.md"], 1);
     expect(openTab(s, "新.md", "replace")).toEqual(st(["甲.md", "新.md"], 1));
   });
+
+  it("项目内复用各自的内容槽，不覆盖另一个项目", () => {
+    const s = st(
+      ["项目甲.md", "项目乙.md", "项目甲/实验/旧记录.md"],
+      1,
+      2,
+    );
+    const firstInB = openTab(s, "项目乙/问题/第一条.md", "replace", "项目乙.md");
+    expect(firstInB).toEqual(st([
+      "项目甲.md",
+      "项目乙.md",
+      "项目乙/问题/第一条.md",
+      "项目甲/实验/旧记录.md",
+    ], 2, 2));
+
+    const nextInA = openTab(firstInB, "项目甲/资料/新记录.md", "replace", "项目甲.md");
+    expect(nextInA).toEqual(st([
+      "项目甲.md",
+      "项目乙.md",
+      "项目乙/问题/第一条.md",
+      "项目甲/资料/新记录.md",
+    ], 3, 2));
+  });
+
+  it("项目内当前内容页仍优先替换当前页", () => {
+    const s = st([
+      "项目.md",
+      "项目/实验/显式新开.md",
+      "项目/问题/当前.md",
+    ], 2, 1);
+    expect(openTab(s, "项目/资料/下一篇.md", "replace", "项目.md")).toEqual(st([
+      "项目.md",
+      "项目/实验/显式新开.md",
+      "项目/资料/下一篇.md",
+    ], 2, 1));
+  });
 });
 
 describe("关闭", () => {
