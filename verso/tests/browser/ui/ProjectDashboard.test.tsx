@@ -8,7 +8,7 @@ const project = {
   path: "项目.md", id: null, title: "可信解码", frontmatter: { type: "project", status: "进行中", summary: "先确认误差来源。", next: "跑完消融", blocker: "缺一组数据" }, frontmatterText: null, body: "", mtimeMs: 1,
 };
 const children = Array.from({ length: 5 }, (_, i) => ({
-  path: `项目/实验/实验 ${i + 1}.md`, id: null, title: `实验 ${i + 1}`, frontmatter: { type: "experiment", status: "进行中", summary: `结果 ${i + 1}` }, frontmatterText: null, body: "", mtimeMs: 10 - i,
+  path: `项目/实验/实验 ${i + 1}.md`, id: null, title: `实验 ${i + 1}`, frontmatter: { type: "experiment", status: "进行中", summary: `结果 ${i + 1}` }, frontmatterText: null, body: i === 4 ? "## 方法\n\n正文采用贝叶斯优化。" : "", mtimeMs: 10 - i,
 }));
 const progress = { path: "项目/进展.md", id: null, title: "进展", frontmatter: { type: "project-log" }, frontmatterText: null, body: "## 2026-08-06 10:00\n\n完成基线。", mtimeMs: 20 };
 const disk = new Map([...children, progress].map((value) => [value.path, value]));
@@ -37,6 +37,7 @@ const tick = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
 // 后跑的文件会在手机尺寸下跑，而它们的几何断言都是照桌面写的
 afterEach(async () => {
   root?.unmount(); root = null; document.body.innerHTML = ""; vi.clearAllMocks();
+  delete document.documentElement.dataset.touch;
   statusOptions = [...INITIAL_STATUSES];
   await page.viewport(1440, 900);
 });
@@ -59,6 +60,38 @@ describe("单项目总览", () => {
     (active.querySelector(".project-more") as HTMLButtonElement).click();
     await tick();
     expect(active.querySelectorAll(".project-item")).toHaveLength(5);
+    expect(document.querySelectorAll(".project-record-group")).toHaveLength(4);
+  });
+
+  it("搜索记录的完整正文和进展，命中项不受三条折叠限制", async () => {
+    document.documentElement.dataset.touch = "on";
+    await page.viewport(390, 844);
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={project} notes={[...disk.keys()].map((path) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await vi.waitFor(() => expect(document.querySelector(".project-snapshot")).not.toBeNull());
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="搜索项目记录与进展"]')!;
+
+    // 关键词只出现在第五条的正文第二段，不在标题或摘要里；它原本也沉在“查看全部”后面。
+    await userEvent.fill(search, "贝叶斯");
+    await tick();
+    expect([...document.querySelectorAll(".project-columns .project-item-copy strong")].map((row) => row.textContent)).toEqual(["实验 5"]);
+    expect(document.querySelectorAll(".project-record-group")).toHaveLength(1);
+    expect(document.querySelector(".project-search-count")?.textContent).toBe("1 条记录 · 0 条进展");
+    expect(document.querySelector(".project-more")).toBeNull();
+    const clear = document.querySelector<HTMLButtonElement>('button[aria-label="清空搜索"]')!;
+    expect(clear.getBoundingClientRect().width).toBeGreaterThanOrEqual(32);
+    expect(clear.getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
+
+    await userEvent.fill(search, "基线");
+    await tick();
+    expect(document.querySelectorAll(".project-item")).toHaveLength(0);
+    expect(document.querySelector(".project-progress")?.textContent).toContain("完成基线");
+    expect(document.querySelector(".project-search-count")?.textContent).toBe("0 条记录 · 1 条进展");
+
+    await userEvent.click(document.querySelector<HTMLButtonElement>('button[aria-label="清空搜索"]')!);
+    await tick();
+    expect(search.value).toBe("");
+    expect(document.querySelectorAll(".project-columns .project-section:first-child .project-item")).toHaveLength(3);
     expect(document.querySelectorAll(".project-record-group")).toHaveLength(4);
   });
 

@@ -386,7 +386,7 @@ class InlinePreviewPlugin implements PluginValue {
   private composing = false;
 
   update(update: ViewUpdate) {
-    // **组词期间一个 decoration 都不要动。**
+    // **组词期间不能重建 decoration，但位置必须跟着文档变化映射。**
     //
     // 中文输入法在 contentDOM 里**就地**组词，CM 靠读回那段 DOM 才知道用户
     // 到底输入了什么。这期间我们要是把某段 decoration 换掉（哪怕只是「源码
@@ -396,6 +396,11 @@ class InlinePreviewPlugin implements PluginValue {
     // 而这里每次组词都会被触发：`parseRefresh` 在解析推进时派发 effect，
     // 组词过程中解析一直在推进。用英文键盘打字不会复现（没有组词这一步），
     // 所以它只在中日韩输入法下出现。
+    //
+    // 不能只 `return`。拼音每多一个字符，后文所有位置都会往后移；旧
+    // decoration 若停在原坐标，列表圆点就会从行首一路倒退到标题和正文里，
+    // 公式也会盖错内容 —— 用户截图里「圆点跑到句尾」就是这条。`map` 只让
+    // 原来的装饰随 changes 平移，不创建 widget、不碰输入法占着的 marked text。
     //
     // 用 `compositionStarted` 而不是 `composing`：后者要等 CM 真的数到一次
     // 变更才为真（`inputState.composing > 0`），而输入法从 compositionstart
@@ -408,6 +413,7 @@ class InlinePreviewPlugin implements PluginValue {
     // `compositionGuard.ts`。
     if (compositionActive(update.view)) {
       this.composing = true;
+      this.decorations = this.decorations.map(update.changes);
       return;
     }
     // 组词刚结束：这一拍必须重建 —— 组词期间跳过的那些更新要在这里补上

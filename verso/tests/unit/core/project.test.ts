@@ -4,6 +4,8 @@ import {
   captureProjectEntry,
   DEFAULT_SECTIONS,
   loadProjectOverview,
+  matchesProjectItem,
+  matchesProjectProgress,
   parseProgress,
   projectDocumentTemplate,
   projectSections,
@@ -26,6 +28,25 @@ function note(path: string, frontmatter: Record<string, unknown> = {}, body = ""
 }
 
 describe("项目记录", () => {
+  it("总览搜索覆盖标题、分类、状态、完整正文与进展，并支持空格分词", () => {
+    const item: ProjectItem = {
+      path: "项目/实验/温度消融.md",
+      id: null,
+      title: "温度消融",
+      section: "实验",
+      kind: "experiment",
+      status: "进行中",
+      summary: "初步结果",
+      searchText: "第一段没有关键词。\n\n第二段采用贝叶斯优化。",
+      pinned: false,
+      mtimeMs: 1,
+    };
+    expect(matchesProjectItem(item, "贝叶斯")).toBe(true);
+    expect(matchesProjectItem(item, "实验 进行中")).toBe(true);
+    expect(matchesProjectItem(item, "实验 已完成")).toBe(false);
+    expect(matchesProjectProgress({ at: "2026-08-06 10:00", text: "完成基线。" }, "08-06 基线")).toBe(true);
+  });
+
   it("日期日志按普通 Markdown 标题解析", () => {
     expect(parseProgress("## 2026-08-06 09:30\n\n完成基线。\n\n## 2026-08-05 18:00\n\n开始。\n")).toEqual([
       { at: "2026-08-06 09:30", text: "完成基线。" },
@@ -283,7 +304,7 @@ describe("置顶与换分类", () => {
   it("置顶压过一切，其次是「还没结束的」，最后才按创建时间", () => {
     const row = (title: string, extra: Partial<ProjectItem>): ProjectItem => ({
       path: `${title}.md`, id: null, title, section: "实验", kind: null,
-      status: "", summary: "", pinned: false, mtimeMs: 0, ...extra,
+      status: "", summary: "", searchText: "", pinned: false, mtimeMs: 0, ...extra,
     });
     const rows = [
       row("已完成的", { status: "已完成", id: "01F" }),
@@ -299,7 +320,7 @@ describe("置顶与换分类", () => {
   it("改状态不该让一条跳到最前面 —— 那正是按修改时间排的毛病", () => {
     const base = (title: string, id: string, status: string, mtimeMs: number): ProjectItem => ({
       path: `${title}.md`, id, title, section: "问题", kind: "question",
-      status, summary: "", pinned: false, mtimeMs,
+      status, summary: "", searchText: "", pinned: false, mtimeMs,
     });
     // 「乙」刚被改过状态，所以它的 mtime 最新
     const rows = [

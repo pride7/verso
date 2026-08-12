@@ -113,6 +113,9 @@ class Typography implements PluginValue {
     // 组词结束那一拍再按最终汉字重建，期间一个 DOM 节点都不换。
     if (compositionActive(u.view)) {
       this.composing = true;
+      // 只冻结重建还不够：组词文本变长时，后面的间距标记也得跟着平移，
+      // 否则会落到别的字上。map 复用原标记，不会包住正在组词的拼音。
+      this.decorations = this.decorations.map(u.changes);
       return;
     }
     const ended = this.composing;

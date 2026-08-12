@@ -38,33 +38,31 @@ import { compositionActive } from "./compositionGuard";
 /** 语法树推进了。块级 decoration 的 StateField 应当在收到它时重算。 */
 export const parseAdvanced = StateEffect.define<null>();
 
+// 120ms × 50 ≈ 6 秒，比 compositionGuard 解除卡死的门槛长一截。
+const MAX_COMPOSITION_DEFERS = 50;
+
+function dispatchRefresh(view: EditorView, deferred = 0) {
+  if (!view.dom.isConnected) return;
+  // parseAdvanced 会让所有块级 StateField 重建 decoration。它和普通文档事务
+  // 一样不能穿过组词护栏，否则仍可能在 marked text 旁边插入 block widget。
+  if (compositionActive(view)) {
+    if (deferred < MAX_COMPOSITION_DEFERS) {
+      setTimeout(() => dispatchRefresh(view, deferred + 1), 120);
+    }
+    return;
+  }
+  view.dispatch({ effects: parseAdvanced.of(null) });
+}
+
 /**
  * 在几个时间点各刷一次，覆盖「解析还没开始」到「解析早就完成」之间的
  * 所有可能。刷新本身极轻（只是让一个 StateField 重算），多刷几次无所谓。
  */
 function scheduleRefresh(view: EditorView) {
-  // 组词期间要往后推的次数上限。120ms × 50 ≈ 6 秒，比
-  // `compositionGuard` 解除卡死的门槛长一截 —— 到那时旗一定已经落了。
-  // 有个上限是因为这是个会自己排下一次的循环，view 万一被扔掉就没人收尾。
-  const MAX_DEFERS = 50;
-  const fire = (deferred = 0) => {
-    if (!view.dom.isConnected) return;
-    // 组词期间不要惊动 decoration：那会把输入法正在编辑的 DOM 换掉（见
-    // livePreview 里 `composing` 那段）。
-    //
-    // **但不能就这么丢掉。** 丢了就再没人通知「解析又往前走了一截」，那一段
-    // 从此不会被渲染 —— 一边打中文一边看着公式和表格停在源码上，正是这么来的。
-    // 原来这里写着「组词结束后自然会再刷一次」，而那件事并不会自己发生。
-    if (compositionActive(view)) {
-      if (deferred < MAX_DEFERS) setTimeout(() => fire(deferred + 1), 120);
-      return;
-    }
-    view.dispatch({ effects: parseAdvanced.of(null) });
-  };
-  queueMicrotask(() => fire());
-  requestAnimationFrame(() => fire());
-  setTimeout(() => fire(), 60);
-  setTimeout(() => fire(), 300);
+  queueMicrotask(() => dispatchRefresh(view));
+  requestAnimationFrame(() => dispatchRefresh(view));
+  setTimeout(() => dispatchRefresh(view), 60);
+  setTimeout(() => dispatchRefresh(view), 300);
 }
 
 export const parseRefresh: Extension = ViewPlugin.fromClass(
@@ -93,10 +91,9 @@ export const parseRefresh: Extension = ViewPlugin.fromClass(
       if (next === this.tree) return;
       this.tree = next;
       // 不能在 update 里同步 dispatch —— CM6 明确禁止。放到微任务里。
-      queueMicrotask(() => {
-        if (!update.view.dom.isConnected) return;
-        update.view.dispatch({ effects: parseAdvanced.of(null) });
-      });
+      // 这里也必须走组词护栏；原来只有构造时的定时刷新会避让，语法树变化
+      // 触发的这一条捷径仍会在组词中重建所有块级 decoration。
+      queueMicrotask(() => dispatchRefresh(update.view));
     }
   },
 );

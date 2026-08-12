@@ -20,6 +20,7 @@ import {
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 
+import { transactionDuringComposition } from "./compositionGuard";
 import { parseAdvanced } from "./parseRefresh";
 
 class ParagraphSpaceWidget extends WidgetType {
@@ -95,6 +96,15 @@ function build(state: EditorState): DecorationSet {
 const paragraphSpacingField = StateField.define<DecorationSet>({
   create: build,
   update(decorations, transaction) {
+    // WebKit 的中文输入法会先把拼音作为 marked text 写进正文，再用
+    // deleteCompositionText 删掉它、提交候选字。若在这两步之间按临时拼音
+    // 重建 block widget，widget 紧贴 marked text 时会被读回成一个换行：
+    // 文档长度不变，行数却凭空 +1。整个组词窗口（包括 CM6 紧跟着发出的
+    // 普通 select 事务）只能映射已有 decoration；compositionend 后
+    // parseRefresh 会补一次完整重算。
+    if (transactionDuringComposition(transaction)) {
+      return decorations.map(transaction.changes);
+    }
     const parsed = transaction.effects.some((effect) => effect.is(parseAdvanced));
     if (!transaction.docChanged && !transaction.selection && !parsed) {
       return decorations.map(transaction.changes);

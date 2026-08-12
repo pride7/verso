@@ -672,7 +672,9 @@ GitHub Issues 之所以顶得住，靠的是三件事：一件事一个条目、
 - **项目中心**是仓库级入口，汇总所有 `type: project` 的笔记。它显示项目总数、
   仍在推进和已经结束的数量，并可按状态或关键词筛选；点项目卡片后进入该项目。
 - **项目总览**只回答单个项目「现在怎样」。打开项目笔记时默认进入这一层，正文
-  仍是普通 Markdown，可由右上角源码按钮进入。
+  仍是普通 Markdown，可由右上角源码按钮进入。总览里的搜索同时匹配记录标题、
+  分类、状态、摘要、完整正文和进展内容；它只过滤当前视图，不改文件，也不受每类
+  默认只显示三条的折叠限制。
 
 项目中心在左侧图标栏有常驻入口，即使当前没有打开笔记也能进入；默认快捷键为
 `Mod+Alt+J`，与单项目总览的 `Mod+Shift+J` 成对。新建项目会创建
@@ -1553,6 +1555,17 @@ CodeMirror 会在 KaTeX 上下各残留一个正文行盒。公式自己的垂�
 
 - 判据用 `view.compositionStarted` 而不是 `composing`：后者要等 CM 真的数到
   一次变更才为真，而输入法从 `compositionstart` 那一刻起就已经占着 DOM 了
+- 组词期间不能重建 decoration，但必须用本次 changes **映射旧装饰的位置**。
+  只冻结不映射时，标题里的拼音每变长一格，后文的列表圆点、公式和格式标记就
+  会向前错一格，表现为圆点跑到句尾、公式盖错正文；映射只平移原装饰，不创建
+  widget，也不会碰输入法正在维护的 marked text
+- 这条护栏也包括 StateField 里的 block widget 和语法树推进后派发的
+  `parseAdvanced`。WebKit 确认候选时会先用 `deleteCompositionText` 删除临时
+  拼音；若段间距 block widget 此时紧贴 marked text，它会把那个 DOM 边界读成
+  `\n`，表现为文档长度没变、行数却 +1。组词事务只能映射已有 block widget，
+  异步解析刷新则延后到 `compositionend` 之后。不能只认事务上的 compose 标签：
+  CM6 写入临时拼音后还会单独派发一笔普通 `select` 事务，所以组词状态必须进入
+  EditorState，让这笔选区事务也受同一条护栏约束
 - 组词**结束后那一拍必须补一次重建**，否则跳过的那些更新永远补不回来
 - `parseRefresh` 也要跟着停：它在解析推进时派发 effect，而组词过程中解析一直
   在推进
@@ -1563,6 +1576,11 @@ CodeMirror 会在 KaTeX 上下各残留一个正文行盒。公式自己的垂�
   PREVIEW compartment 外，源码模式下也不能漏掉
 - **英文键盘永远复现不了**（没有组词这一步），所以只能靠模拟 composition 事件
   来守（`tests/browser/editor/composition.test.ts`）
+- 候选词确认键也必须在正文编辑器入口拦住。WebKit 可能让确认键先到，也可能
+  先发 `compositionend` 再重放一个看似普通的 Enter / Space：前一种只能停止
+  传播、不能 `preventDefault`，否则候选词无法上屏；后一种必须取消默认行为，
+  否则同一发确认键会再次编辑正文。Space 既可能带普通的 `keyCode` 32，也可能
+  仍是 229，不能只靠其中一种判断
 
 ##### 这面旗必须留一条兜底（v0.7.48）
 

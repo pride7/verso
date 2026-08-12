@@ -41,6 +41,73 @@ function mount(doc: string) {
 const settle = (ms = 150) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("组词期间不动 decoration", () => {
+  it("compositionend 后重放的 Enter / Space 不会再次编辑正文", async () => {
+    const view = mount("标题");
+    view.focus();
+    view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) });
+
+    for (const [key, code] of [["Enter", 229], [" ", 32]] as const) {
+      view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+      view.contentDOM.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "啊" }));
+      const confirm = new KeyboardEvent("keydown", { key, code: key === " " ? "Space" : "Enter", bubbles: true, cancelable: true });
+      Object.defineProperty(confirm, "keyCode", { value: code });
+      const allowed = view.contentDOM.dispatchEvent(confirm);
+      expect(allowed, `${key === " " ? "Space" : "Enter"} 的第二次默认动作没有被取消`).toBe(false);
+      expect(view.state.doc.toString()).toBe("标题");
+      expect(view.state.doc.lines).toBe(1);
+    }
+  });
+
+  it("仍在组词时的确认键保留默认行为，让输入法完成上屏", () => {
+    const view = mount("标题");
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    const confirm = new KeyboardEvent("keydown", { key: " ", code: "Space", bubbles: true, cancelable: true, isComposing: true });
+    Object.defineProperty(confirm, "keyCode", { value: 32 });
+    expect(view.contentDOM.dispatchEvent(confirm)).toBe(true);
+  });
+
+  it("在标题里组词时，不重建同一篇里的折叠箭头和块公式", async () => {
+    const view = mount("## 标题\n\n- 第一项\n- 第二项\n\n$$\n\\alpha = 1\n$$\n");
+    await settle(300);
+    view.focus();
+    view.dispatch({ selection: EditorSelection.cursor(5) });
+    await settle();
+    const arrow = view.contentDOM.querySelector(".cm-fold-arrow");
+    const math = view.contentDOM.querySelector(".cm-math-block");
+    expect(arrow, "标题下面有正文，应当有折叠箭头").not.toBeNull();
+    expect(math, "块公式应当已渲染").not.toBeNull();
+
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    view.dispatch({
+      changes: { from: 5, insert: "f'e" },
+      selection: EditorSelection.cursor(8),
+      annotations: Transaction.userEvent.of("input.type.compose.start"),
+    });
+    await settle(250);
+
+    // 这正是截图里的结构：第一行标题正在选词，下面有多条渲染公式。WebKit
+    // 维护 marked text 时，只要同一个编辑器里的 decoration DOM 被换掉，候选
+    // 词就可能提交失败，最后把 f'e 留在文档里。
+    expect(view.contentDOM.querySelector(".cm-fold-arrow")).toBe(arrow);
+    expect(view.contentDOM.querySelector(".cm-math-block")).toBe(math);
+    expect(
+      [...view.contentDOM.querySelectorAll(".cm-bullet")].map((bullet) => bullet.closest(".cm-line")?.textContent),
+      "标题里的拼音变长时，下面列表的装饰必须跟着映射，不能跑到行尾",
+    ).toEqual(["• 第一项", "• 第二项"]);
+
+    view.contentDOM.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "反而" }),
+    );
+    view.dispatch({
+      changes: { from: 5, to: 8, insert: "反而" },
+      selection: EditorSelection.cursor(7),
+      annotations: Transaction.userEvent.of("input.type.compose"),
+    });
+    await settle(250);
+    expect(view.state.doc.toString()).toContain("## 标题反而");
+    expect(view.state.doc.toString()).not.toContain("f'e");
+  });
+
   it("普通正文里的拼音不加中西文间距，避免 WebKit 固化组词文本", async () => {
     const view = mount("中文");
     await settle(250);
@@ -77,6 +144,59 @@ describe("组词期间不动 decoration", () => {
     });
     await settle();
     expect(view.state.doc.toString()).toBe("中文啊啊啊");
+  });
+
+  it("空行里组词时不插入段间距块，避免 WebKit 把候选确认读成换行", async () => {
+    const view = mount("前文\n\n\n这是第一行\n这是第二行");
+    await settle(300);
+    view.focus();
+
+    const blank = view.state.doc.line(3);
+    view.dispatch({ selection: EditorSelection.cursor(blank.from) });
+    await settle();
+    expect(
+      view.contentDOM.querySelectorAll(".cm-paragraph-space"),
+      "原有两行正文之间应当只有一个段间距块",
+    ).toHaveLength(1);
+
+    view.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    view.dispatch({
+      changes: { from: blank.from, insert: "a" },
+      selection: EditorSelection.cursor(blank.from + 1),
+      annotations: Transaction.userEvent.of("input.type.compose.start"),
+    });
+    // 真机上 CM6 会在写入临时拼音后另发一笔普通 select 事务。它没有 compose
+    // 标签，但仍处于同一轮 composition；此前正是它绕过事务级护栏重建了 widget。
+    view.dispatch({
+      selection: EditorSelection.cursor(blank.from + 1),
+      annotations: Transaction.userEvent.of("select"),
+    });
+    await settle(250);
+
+    // 真机的事件序列已经证明：若这里在临时拼音和下一行之间新建 block widget，
+    // WebKit 随后的 deleteCompositionText 会把 widget 边界读成一个换行。表现为
+    // 文档长度不变、行数却 +1，候选词确认后下方凭空多出一行。
+    expect(
+      view.contentDOM.querySelectorAll(".cm-paragraph-space"),
+      "组词期间新增的段间距块会被 WebKit 读成换行",
+    ).toHaveLength(1);
+
+    view.contentDOM.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "啊" }),
+    );
+    view.dispatch({
+      changes: { from: blank.from, to: blank.from + 1, insert: "啊" },
+      selection: EditorSelection.cursor(blank.from + 1),
+      annotations: Transaction.userEvent.of("input.type.compose"),
+    });
+    await settle(350);
+
+    expect(view.state.doc.toString()).toBe("前文\n\n啊\n这是第一行\n这是第二行");
+    expect(view.state.doc.lines).toBe(5);
+    expect(
+      view.contentDOM.querySelectorAll(".cm-paragraph-space"),
+      "组词结束后段间距应恢复正常刷新",
+    ).toHaveLength(2);
   });
 
   it("在行内公式后面用输入法打字，公式不会被顶掉", async () => {

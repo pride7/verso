@@ -5,6 +5,8 @@ import {
   captureProjectEntry,
   ensureProjectStatusSchema,
   loadProjectOverview,
+  matchesProjectItem,
+  matchesProjectProgress,
   prepareItemMove,
   PROGRESS_SECTION,
   PROJECT_STATUSES,
@@ -205,6 +207,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [expandedItems, setExpandedItems] = useState(false);
   const [expandedProgress, setExpandedProgress] = useState(false);
+  const [query, setQuery] = useState("");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [customStatuses, setCustomStatuses] = useState<string[]>([]);
   const [sections, setSections] = useState(() => projectSections(project));
@@ -221,6 +224,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
   // 笔记读回来，中间那一拍不该把刚改好的列表闪回旧值。
   const declared = projectSections(project).join("\0");
   useEffect(() => { setSections(declared ? declared.split("\0") : []); }, [declared]);
+  useEffect(() => { setQuery(""); }, [project.path]);
 
   const reload = () => {
     void loadProjectOverview(api, project, notes).then(setOverview).catch((error) => onError((error as Error).message));
@@ -239,11 +243,20 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
    * 本来就不是推进态。三档统一之后这条不成立了：一条还在定的决策就是**正在
    * 定**，那正是要推进的事 —— 该由状态说了算，不该由它属于哪一类说了算。
    */
-  const active = useMemo(
-    () => overview?.items.filter((item) => !isSettledStatus(item.status)) ?? [],
-    [overview],
+  const searching = Boolean(query.trim());
+  const filteredItems = useMemo(
+    () => overview?.items.filter((item) => matchesProjectItem(item, query)) ?? [],
+    [overview, query],
   );
-  const visibleItems = expandedItems ? active : active.slice(0, 3);
+  const filteredProgress = useMemo(
+    () => overview?.progress.filter((entry) => matchesProjectProgress(entry, query)) ?? [],
+    [overview, query],
+  );
+  const active = useMemo(
+    () => filteredItems.filter((item) => !isSettledStatus(item.status)),
+    [filteredItems],
+  );
+  const visibleItems = searching || expandedItems ? active : active.slice(0, 3);
   // 分类不再影响状态：三档全局统一，自定义分类和内置四类走同一条
   const optionsFor = (kind: ProjectItem["kind"] | "project") =>
     projectStatusOptions(kind ?? "project", customStatuses);
@@ -343,8 +356,8 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
   const groups = sections.map((name) => ({
     name,
     kind: sectionKind(name),
-    items: overview?.items.filter((item) => item.section === name) ?? [],
-  }));
+    items: filteredItems.filter((item) => item.section === name),
+  })).filter(({ items }) => !searching || items.length > 0);
   const progressPath = `${project.path.replace(/\.md$/i, "")}/${PROGRESS_SECTION}.md`;
 
   // 分类表的唯一真源在项目笔记的 frontmatter 里，先乐观更新，写失败再退回去。
@@ -459,22 +472,36 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
             </div>
           </section>
 
+          <div className="project-dashboard-tools">
+            <div className="project-dashboard-search">
+              <Icon name="search" size={14} />
+              <input
+                value={query}
+                onChange={(event) => { if (managing) stopManaging(); setQuery(event.target.value); }}
+                placeholder="搜索记录与进展"
+                aria-label="搜索项目记录与进展"
+              />
+              {query && <button type="button" aria-label="清空搜索" title="清空搜索" onPointerDown={(event) => event.preventDefault()} onClick={() => setQuery("")}><Icon name="close" size={12} /></button>}
+            </div>
+            {searching && <span className="project-search-count" aria-live="polite">{filteredItems.length} 条记录 · {filteredProgress.length} 条进展</span>}
+          </div>
+
           <div className="project-columns">
             <section className="project-section">
               <div className="project-section-head"><h2>正在推进</h2><span>{active.length}</span></div>
               {visibleItems.length ? visibleItems.map((item) => (
                 <ProjectItemRow key={item.path} item={item} options={optionsFor(item.kind)} slot="active" renaming={renaming?.slot === "active" && renaming.path === item.path} {...rowProps} />
-              )) : <p className="project-empty">还没有进行中的记录。</p>}
-              {active.length > 3 && <button className="project-more" onClick={() => setExpandedItems((value) => !value)}>{expandedItems ? "收起" : `查看全部 ${active.length} 条`}</button>}
+              )) : <p className="project-empty">{searching ? "没有匹配的进行中记录。" : "还没有进行中的记录。"}</p>}
+              {!searching && active.length > 3 && <button className="project-more" onClick={() => setExpandedItems((value) => !value)}>{expandedItems ? "收起" : `查看全部 ${active.length} 条`}</button>}
             </section>
 
             <section className="project-section">
-              <div className="project-section-head"><h2>最近进展</h2><span>{overview.progress.length}</span>{overview.progress.length > 0 && <button className="project-section-link" onClick={() => onOpen(progressPath)}>打开日志</button>}</div>
-              {overview.progress.slice(0, expandedProgress ? undefined : 3).map((entry) => (
+              <div className="project-section-head"><h2>最近进展</h2><span>{filteredProgress.length}</span>{overview.progress.length > 0 && <button className="project-section-link" onClick={() => onOpen(progressPath)}>打开日志</button>}</div>
+              {filteredProgress.slice(0, searching || expandedProgress ? undefined : 3).map((entry) => (
                 <article className="project-progress" key={`${entry.at}-${entry.text}`}><time>{entry.at}</time><p>{entry.text}</p></article>
               ))}
-              {!overview.progress.length && <p className="project-empty">还没有进展记录。</p>}
-              {overview.progress.length > 3 && <button className="project-more" onClick={() => setExpandedProgress((value) => !value)}>{expandedProgress ? "收起" : `查看全部 ${overview.progress.length} 条`}</button>}
+              {!filteredProgress.length && <p className="project-empty">{searching ? "没有匹配的进展。" : "还没有进展记录。"}</p>}
+              {!searching && overview.progress.length > 3 && <button className="project-more" onClick={() => setExpandedProgress((value) => !value)}>{expandedProgress ? "收起" : `查看全部 ${overview.progress.length} 条`}</button>}
             </section>
           </div>
           <section className="project-records">
@@ -520,9 +547,9 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
                       </div>
                     </div>
                     : <>
-                      {items.slice(0, expanded ? undefined : 3).map((item) => <ProjectItemRow key={item.path} item={item} options={optionsFor(kind)} showKind={false} slot={name} renaming={renaming?.slot === name && renaming.path === item.path} {...rowProps} />)}
+                      {items.slice(0, searching || expanded ? undefined : 3).map((item) => <ProjectItemRow key={item.path} item={item} options={optionsFor(kind)} showKind={false} slot={name} renaming={renaming?.slot === name && renaming.path === item.path} {...rowProps} />)}
                       {!items.length && <p className="project-empty">还没有{name}记录。</p>}
-                      {items.length > 3 && <button className="project-more" onClick={() => setExpandedSections((current) => {
+                      {!searching && items.length > 3 && <button className="project-more" onClick={() => setExpandedSections((current) => {
                         const next = new Set(current);
                         if (expanded) next.delete(name); else next.add(name);
                         return next;
@@ -543,7 +570,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
                   : <button className="project-section-new" onClick={() => setAdding(true)}><Icon name="plus" size={12} />添加分类</button>}
               </section>}
             </div>
-            {!groups.length && !managing && <p className="project-empty">还没有分类。</p>}
+            {!groups.length && !managing && <p className="project-empty">{searching ? "项目内容中没有匹配记录。" : "还没有分类。"}</p>}
           </section>
         </div>
       ) : <div className="project-loading">正在整理项目…</div>}

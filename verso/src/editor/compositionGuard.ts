@@ -37,8 +37,8 @@
  * 写成纯函数是为了能在 Node 里把这些时序穷举着测：真机上这类问题要靠一个
  * 特定输入法在特定时刻漏一个事件才复现，而复现不了的 bug 只会一直在。
  */
-import type { Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { StateEffect, StateField, type Extension, type Transaction } from "@codemirror/state";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 
 /**
  * 举着组词的旗、又这么久没有任何 composition 事件，就当它卡住了。
@@ -86,20 +86,114 @@ export function compositionStale(probe: CompositionProbe): boolean {
 const lastCompositionEvent = new WeakMap<EditorView, number>();
 
 /**
+ * DOM composition 事件对应的编辑器状态。
+ *
+ * 不能只查事务的 `input.type.compose` 标签：WebKit 写入临时拼音之后，CM6 会
+ * 紧跟一笔普通 `select` 事务。那笔事务仍发生在组词窗口内，却没有 compose
+ * 标签；块级 StateField 若因此重建 widget，下一次 DOM read 就会读坏正文。
+ */
+const setCompositionState = StateEffect.define<boolean>();
+
+const compositionStateField = StateField.define<boolean>({
+  create: () => false,
+  update(active, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setCompositionState)) active = effect.value;
+    }
+    return active;
+  },
+});
+
+/** 这笔事务执行时，输入法是否仍占着 contentDOM。 */
+export function transactionDuringComposition(transaction: Transaction): boolean {
+  let active = transaction.startState.field(compositionStateField, false) ?? false;
+  for (const effect of transaction.effects) {
+    if (effect.is(setCompositionState)) active = effect.value;
+  }
+  return active || transaction.isUserEvent("input.type.compose");
+}
+
+/**
  * 把 composition 事件记下来。所有会改编辑器 DOM 的插件共用这一份账。
  *
  * 挂成 `domEventHandlers` 而不是某个插件的 `eventHandlers`：它不属于任何
  * 一个插件，谁先谁后也不该影响它。
  */
-export const compositionTracker: Extension = EditorView.domEventHandlers({
-  compositionstart(_event, view) {
-    lastCompositionEvent.set(view, Date.now());
-    return false;
-  },
-  compositionupdate(_event, view) {
-    lastCompositionEvent.set(view, Date.now());
-    return false;
-  },
+export const compositionTracker: Extension = [
+  compositionStateField,
+  EditorView.domEventHandlers({
+    compositionstart(_event, view) {
+      lastCompositionEvent.set(view, Date.now());
+      return false;
+    },
+    compositionupdate(_event, view) {
+      lastCompositionEvent.set(view, Date.now());
+      return false;
+    },
+  }),
+];
+
+/**
+ * 把输入法的确认键留给输入法，不让正文再执行一遍 Enter / Space。
+ *
+ * WebKit 的事件顺序有两种：确认键先到时，必须保留默认行为让输入法上屏；
+ * `compositionend` 先到时，紧跟着的 Enter / Space 已经是第二次编辑动作，
+ * 必须取消。后一种里 `isComposing` 已是 false，Space 的 keyCode 也是普通 32，
+ * 只查 229 会漏掉。
+ *
+ * 必须用原生 capture listener：capture 比 CodeMirror 挂在 contentDOM 上的
+ * 冒泡监听先到。仍在组词时只阻断传播、不 preventDefault；已经 end 的重复
+ * 确认键才连默认行为一起取消。
+ */
+export const compositionKeyGuard: Extension = ViewPlugin.fromClass(class {
+  private composing = false;
+  private endedAt = 0;
+
+  private readonly compositionstart = () => {
+    this.composing = true;
+    this.endedAt = 0;
+    this.view.dispatch({ effects: setCompositionState.of(true) });
+  };
+
+  private readonly compositionend = () => {
+    this.composing = false;
+    this.endedAt = Date.now();
+    this.view.dispatch({ effects: setCompositionState.of(false) });
+  };
+
+  private readonly keydown = (event: KeyboardEvent) => {
+    const recentEnd = this.endedAt > 0 && Date.now() - this.endedAt < 100;
+    const confirm = event.key === "Enter" || event.key === " " || event.key === "Spacebar" || event.code === "Space";
+
+    // compositionend 已经把候选词上屏：后面这发只是 WebKit 重放出来的普通键。
+    if (recentEnd && (confirm || event.keyCode === 229)) {
+      this.endedAt = 0;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    // 这发仍属于输入法。只挡编辑器监听器，默认行为必须留下来完成上屏。
+    if (this.composing || event.isComposing || event.keyCode === 229) {
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    // compositionend 后第一发并不是确认键，说明那轮已经正常结束。
+    if (recentEnd) this.endedAt = 0;
+  };
+
+  constructor(readonly view: EditorView) {
+    view.contentDOM.addEventListener("compositionstart", this.compositionstart, true);
+    view.contentDOM.addEventListener("compositionend", this.compositionend, true);
+    view.contentDOM.addEventListener("keydown", this.keydown, true);
+  }
+
+  destroy() {
+    this.view.contentDOM.removeEventListener("compositionstart", this.compositionstart, true);
+    this.view.contentDOM.removeEventListener("compositionend", this.compositionend, true);
+    this.view.contentDOM.removeEventListener("keydown", this.keydown, true);
+  }
 });
 
 /**

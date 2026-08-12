@@ -18,7 +18,7 @@ import type { NoteRef } from "../core/types";
 import { autoFence } from "./autoFence";
 import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
-import { compositionTracker } from "./compositionGuard";
+import { compositionKeyGuard, compositionTracker } from "./compositionGuard";
 import { headingFolding } from "./fold";
 import { insertMarkdownLineBreak } from "./lineBreak";
 import { listRenumber } from "./listRenumber";
@@ -160,6 +160,8 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // 输入法组词事件的统一账本。必须在 PREVIEW 外面：源码模式虽然摘掉
     // live preview，typography 仍然存在，同样不能在 WebKit 组词时改 DOM。
     compositionTracker,
+    // 候选词确认的 Enter 只准上屏，不能随后又被默认 keymap 插入一行。
+    compositionKeyGuard,
 
     // §4.3 中西文混排间距。**不进 PREVIEW** —— 它只改字距，不藏任何标记，
     // 源码模式下同样该有：那时读的仍然是中英混排的文字

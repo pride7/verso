@@ -18,6 +18,8 @@ export interface ProjectItem {
   kind: ProjectItemKind | null;
   status: string;
   summary: string;
+  /** 完整正文只用于项目总览搜索，不直接展示。 */
+  searchText: string;
   /** 置顶。写在这条记录自己的 frontmatter 里，跟着文件走。 */
   pinned: boolean;
   mtimeMs: number;
@@ -35,6 +37,34 @@ export interface ProjectOverview {
   blocker: string;
   items: ProjectItem[];
   progress: ProjectProgress[];
+}
+
+function searchTerms(query: string): string[] {
+  return query.normalize("NFKC").toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
+}
+
+function includesTerms(values: Array<string | null>, query: string): boolean {
+  const terms = searchTerms(query);
+  if (!terms.length) return true;
+  const haystack = values.filter(Boolean).join("\n").normalize("NFKC").toLocaleLowerCase();
+  return terms.every((term) => haystack.includes(term));
+}
+
+/** 项目总览的搜索口径：标题、分类、状态、摘要与完整正文。 */
+export function matchesProjectItem(item: ProjectItem, query: string): boolean {
+  return includesTerms([
+    item.title,
+    item.section,
+    item.kind,
+    item.status,
+    item.summary,
+    item.searchText,
+  ], query);
+}
+
+/** 进展日志与项目记录走同一套空格分词、大小写不敏感匹配。 */
+export function matchesProjectProgress(entry: ProjectProgress, query: string): boolean {
+  return includesTerms([entry.at, entry.text], query);
 }
 
 export interface ProjectApi {
@@ -475,6 +505,7 @@ export async function loadProjectOverview(
         kind: sectionKind(section),
         status: asText(note.frontmatter.status),
         summary: asText(note.frontmatter.summary) || firstContentLine(note.body),
+        searchText: note.body,
         pinned: isPinned(note.frontmatter.pinned),
         mtimeMs: note.mtimeMs,
       }];
