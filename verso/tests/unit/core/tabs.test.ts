@@ -58,17 +58,17 @@ describe("打开", () => {
     expect(firstInB).toEqual(st([
       "项目甲.md",
       "项目乙.md",
-      "项目乙/问题/第一条.md",
       "项目甲/实验/旧记录.md",
-    ], 2, 2));
+      "项目乙/问题/第一条.md",
+    ], 3, 2));
 
     const nextInA = openTab(firstInB, "项目甲/资料/新记录.md", "replace", "项目甲.md");
     expect(nextInA).toEqual(st([
       "项目甲.md",
       "项目乙.md",
-      "项目乙/问题/第一条.md",
       "项目甲/资料/新记录.md",
-    ], 3, 2));
+      "项目乙/问题/第一条.md",
+    ], 2, 2));
   });
 
   it("项目内当前内容页仍优先替换当前页", () => {

@@ -84,8 +84,11 @@ export function openTab(
         ? s.active
         : tabs.findIndex((candidate, index) => index >= s.pinnedCount && inProject(candidate));
       if (at < 0) {
-        at = Math.max(s.active + 1, s.pinnedCount);
-        tabs.splice(at, 0, path);
+        // 这是这个项目的第一个内容槽。它应当接在已有内容标签之后；若仍按
+        // “当前页右边”插入，从固定项目总览打开时会落到普通区最前面，反而
+        // 把先打开的项目内容推到后面，阅读顺序每开一个项目就倒转一次。
+        at = tabs.length;
+        tabs.push(path);
         return { ...s, tabs, active: at };
       }
     } else {

@@ -397,11 +397,11 @@ describe("固定", () => {
 
     await pickTab(1);
     await openProjectItem("乙记录");
-    expect(tabNames()).toEqual(["项目甲", "项目乙", "乙记录", "甲记录"]);
+    expect(tabNames()).toEqual(["项目甲", "项目乙", "甲记录", "乙记录"]);
 
     await pickTab(0);
     await openProjectItem("甲后续");
-    expect(tabNames()).toEqual(["项目甲", "项目乙", "乙记录", "甲后续"]);
+    expect(tabNames()).toEqual(["项目甲", "项目乙", "甲后续", "乙记录"]);
     expect(activeTab()).toBe("甲后续");
   });
 
