@@ -158,6 +158,18 @@ describe("网页内容转 Markdown", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(view.state.doc.toString()).toBe("a_b 与 $x_{i}$");
   });
+
+  it("没配成强调的星号保持原样", () => {
+    expect(htmlToMarkdown("<p>脚注 ** 与 2 * 3 * 4</p>")).toBe("脚注 ** 与 2 * 3 * 4");
+    expect(htmlToMarkdown("<p>字面量 **不是加粗**</p>")).toBe(String.raw`字面量 \*\*不是加粗\*\*`);
+    // 行首的 `*` 例外：不挡住的话，这一行会被重新读成无序列表项。
+    expect(htmlToMarkdown("<p>* 不是列表项</p>")).toBe(String.raw`\* 不是列表项`);
+
+    const view = mount();
+    const event = paste(view, "n ** 2", "<span>n ** 2</span>");
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("n ** 2");
+  });
 });
 
 describe("选区上粘贴网址", () => {

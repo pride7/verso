@@ -29,26 +29,24 @@ interface FormulaProtection {
 }
 
 /**
- * 下划线只有真的被 Markdown 解析成强调标记时才需要转义。`a_b`、
- * `foo_bar_baz`、`x_{i}` 里的下划线本来就是普通字符；一律补反斜杠不仅制造
- * 无意义的 diff，也会把从网页或 Verso 自己复制的变量名改坏。
+ * `_` 和 `*` 只有真的被 Markdown 解析成强调标记时才需要转义。`a_b`、`x_{i}`、
+ * `2 * 3`、单独一对没有配对的 `**` 里，它们本来就是普通字符；一律补反斜杠不仅
+ * 制造无意义的 diff，也会把从网页或 Verso 自己复制的内容改坏。
+ *
+ * 列表符号一起算进来：行首那个 `*` 不转义的话，下一次解析会把这一行读成无序
+ * 列表项，而它原来只是一行普通文字。
  */
-function escapeEmphasisUnderscores(value: string): string {
+function emphasisMarks(value: string): Set<number> {
   const marks = new Set<number>();
   markdownParser.parse(value).iterate({
     enter(node) {
-      if (node.name !== "EmphasisMark") return;
+      if (node.name !== "EmphasisMark" && node.name !== "ListMark") return;
       for (let at = node.from; at < node.to; at += 1) {
-        if (value[at] === "_") marks.add(at);
+        if (value[at] === "_" || value[at] === "*") marks.add(at);
       }
     },
   });
-  if (!marks.size) return value;
-  let escaped = "";
-  for (let at = 0; at < value.length; at += 1) {
-    escaped += marks.has(at) ? "\\_" : value[at];
-  }
-  return escaped;
+  return marks;
 }
 
 /** `[` / `]` 前这一道反斜杠是否是活跃的 LaTeX 定界符反斜杠。 */
@@ -63,12 +61,21 @@ function text(value: string, pre = false): string {
   const normalized = value
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ");
-  return escapeEmphasisUnderscores(normalized).replace(/[*[\]]/g, (mark, at, source) => {
-    // `\[...\]` 还要交给下一层转成 `$$...$$`。这里若先把方括号写成
-    // `\\[` / `\\]`，定界符反斜杠会被转义，公式转换就再也认不出来。
-    if ((mark === "[" || mark === "]") && hasActiveBackslash(source, at)) return mark;
-    return `\\${mark}`;
-  });
+  const marks = emphasisMarks(normalized);
+  let escaped = "";
+  for (let at = 0; at < normalized.length; at += 1) {
+    const char = normalized[at];
+    if (char === "_" || char === "*") {
+      escaped += marks.has(at) ? `\\${char}` : char;
+    } else if (char === "[" || char === "]") {
+      // `\[...\]` 还要交给下一层转成 `$$...$$`。这里若把方括号写成 `\\[` /
+      // `\\]`，定界符反斜杠会被转义，公式转换就再也认不出来。
+      escaped += hasActiveBackslash(normalized, at) ? char : `\\${char}`;
+    } else {
+      escaped += char;
+    }
+  }
+  return escaped;
 }
 
 /**
