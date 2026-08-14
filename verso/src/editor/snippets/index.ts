@@ -15,7 +15,8 @@ import { EditorView, keymap } from "@codemirror/view";
 import { mathContextAt } from "../mathContext";
 import { DEFAULT_SNIPPETS } from "../../core/snippets/defaults";
 import { expand, findTrigger, taboutTarget } from "../../core/snippets/match";
-import { activeTabstops, setTabstops, tabstopField } from "./tabstops";
+import { snippetHint } from "./hint";
+import { activeTabstops, expansionSpec, setTabstops, tabstopField } from "./tabstops";
 import { compileAll, type Snippet, type SnippetSpec } from "../../core/snippets/types";
 
 /** 往前看多少个字符找触发词。最长的触发词也就十来个字符，64 绰绰有余 */
@@ -69,9 +70,9 @@ export function expansionFor(snippets: Snippet[], tr: Transaction): TransactionS
   if (triggerStart > ins.at) {
     // 触发词整体落在这次插入的文本里（粘贴之类）
     const prefix = ins.text.slice(0, triggerStart - ins.at);
-    return buildSpec(ins.at, ins.at, prefix + text, tabstops, ins.at + prefix.length);
+    return expansionSpec(ins.at, ins.at, prefix + text, tabstops, ins.at + prefix.length);
   }
-  return buildSpec(triggerStart, ins.at, text, tabstops, triggerStart);
+  return expansionSpec(triggerStart, ins.at, text, tabstops, triggerStart);
 }
 
 /**
@@ -99,32 +100,7 @@ export function tabExpansion(snippets: Snippet[], state: State): TransactionSpec
 
   const { text, tabstops } = expand(match.snippet.replacement, match.groups, match.snippet.build);
   const from = from0 + match.start;
-  return buildSpec(from, sel.head, text, tabstops, from);
-}
-
-function buildSpec(
-  from: number,
-  to: number,
-  text: string,
-  tabstops: number[],
-  base: number,
-): TransactionSpec {
-  const stops = tabstops.map((t) => base + t);
-  // 没有跳转点时光标落在展开内容末尾
-  const caret = stops.length ? stops[0] : base + text.length;
-
-  return {
-    changes: { from, to, insert: text },
-    selection: { anchor: caret },
-    effects: setTabstops.of(
-      stops.length > 1
-        ? // 第一个跳转点就是当前光标位置，所以 Tab 该去的是后面那些
-          { positions: stops.slice(1), from: base, to: base + text.length }
-        : null,
-    ),
-    userEvent: "input.snippet",
-    scrollIntoView: true,
-  };
+  return expansionSpec(from, sel.head, text, tabstops, from);
 }
 
 /**
@@ -191,6 +167,9 @@ export function snippetEngine(options: SnippetOptions = {}): Extension {
 
   return [
     tabstopField,
+
+    // 排在自己的 keymap 之前：提示条开着时 Tab 属于提示条（§5.3）
+    snippetHint(snippets),
 
     /**
      * 用 `transactionFilter` 而不是 `updateListener`：CM6 明确不建议在

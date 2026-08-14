@@ -179,20 +179,44 @@ const sets: SnippetSpec[] = [
 ];
 
 const delimiters: SnippetSpec[] = [
-  { trigger: "()", replacement: "\\left( $0 \\right)$1", options: "mA", description: "自适应圆括号" },
-  { trigger: "[]", replacement: "\\left[ $0 \\right]$1", options: "mA", description: "自适应方括号" },
-  { trigger: "{}", replacement: "\\left\\{ $0 \\right\\}$1", options: "mA", description: "自适应花括号" },
+  // 普通括号就是普通括号。`\left(…\right)` 只有在括号里装着分式、求和这类
+  // 高结构时才有意义，那是少数情况 —— 默认套上去，`(x+1)` 这种最常见的写法
+  // 会变成两倍长的源码，读和改都变难，而且它并不是打字时想要的东西。
+  //
+  // 所以这三条一个字符都不改，只把光标放进括号里、再给一个跳出去的跳转点。
+  // 展开前后文本完全相同，因此也**不需要**再为「`_{}`、`\mathbf{}` 里的花
+  // 括号是分组不是定界符」开特例 —— 那条正则特例（v0.6.35）随之删掉。
+  { trigger: "()", replacement: "($0)$1", options: "mA", description: "圆括号 光标进括号" },
+  { trigger: "[]", replacement: "[$0]$1", options: "mA", description: "方括号 光标进括号" },
+  { trigger: "{}", replacement: "{$0}$1", options: "mA", description: "花括号 分组" },
+
+  // 真要自适应高度时显式要 —— `lr` 前缀沿用 LaTeX Suite 的写法。
+  // 带 `w`：`lr` 是两个字母，不能在 `alr(` 这种词中间触发。
   {
-    // 命令名（`\mathbf` `\frac`…）、`_`、`^`、`{`、`}` 后面的花括号是
-    // 参数或分组，不是可见的定界符 —— `h_\left\{`、`\mathbf\left\{` 都是
-    // 非法 LaTeX，KaTeX 当场报错；`\frac{a}\left\{` 同理（手打 \frac 时
-    // 第二个参数的 `{}` 前面是 `}`）。靠更长的触发词（默认优先级 = 长度）
-    // 抢在上面那条 `{}` 前面，展开成普通 `{}` 并把光标留在里面。
-    trigger: "(\\\\[A-Za-z]+|[_^{}])\\{\\}",
-    replacement: "[[0]]{$0}$1",
-    options: "mAr",
-    description: "命令与上下标后的花括号保持普通分组",
+    trigger: "lr(",
+    replacement: "\\left( $0 \\right)$1",
+    options: "mAw",
+    description: "自适应圆括号 left right",
   },
+  {
+    trigger: "lr[",
+    replacement: "\\left[ $0 \\right]$1",
+    options: "mAw",
+    description: "自适应方括号 left right",
+  },
+  {
+    trigger: "lr{",
+    replacement: "\\left\\{ $0 \\right\\}$1",
+    options: "mAw",
+    description: "自适应花括号 left right",
+  },
+  {
+    trigger: "lr|",
+    replacement: "\\left| $0 \\right|$1",
+    options: "mAw",
+    description: "自适应竖线 绝对值",
+  },
+
   { trigger: "abs", replacement: "\\left| $0 \\right|$1", options: "mAw", description: "绝对值 模" },
   { trigger: "norm", replacement: "\\left\\| $0 \\right\\|$1", options: "mAw", description: "范数" },
   { trigger: "ceil", replacement: "\\left\\lceil $0 \\right\\rceil$1", options: "mAw", description: "向上取整" },
@@ -202,9 +226,15 @@ const delimiters: SnippetSpec[] = [
 ];
 
 const functions: SnippetSpec[] = [
-  // 正则一次覆盖所有标准函数名，省掉几十条重复定义
+  // 正则一次覆盖所有标准函数名，省掉几十条重复定义。
+  //
+  // 名单里**故意没有 `sup` 和 `inf`**：默认优先级 = 触发词长度，而这条的
+  // trigger 是一百多个字符的正则，会无条件压过上面所有普通触发词。带上它们
+  // 的话，`inf` 永远出 `\inf` 而不是符号表里写的 `\infty`，`sup` 同理拿不到
+  // `\supset` —— 表里写一套、实际出另一套。这两个远比上确界、下确界常用。
+  // 真要 `\sup` `\inf` 就直接手打反斜杠，反斜杠后面词边界会挡住展开。
   {
-    trigger: "(?<![\\\\A-Za-z])(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|arcsin|arccos|arctan|log|ln|exp|det|dim|ker|deg|gcd|lcm|max|min|sup|inf|arg)",
+    trigger: "(?<![\\\\A-Za-z])(sin|cos|tan|cot|sec|csc|sinh|cosh|tanh|arcsin|arccos|arctan|log|ln|exp|det|dim|ker|deg|gcd|lcm|max|min|arg)",
     replacement: "\\[[0]]",
     options: "mAr",
     description: "标准函数名自动加反斜杠",

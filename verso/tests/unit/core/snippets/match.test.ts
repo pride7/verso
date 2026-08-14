@@ -68,23 +68,33 @@ describe("触发词匹配", () => {
   });
 
   /**
-   * `_`/`^` 后面的 `{}` 是分组，展开成 `\left\{ \right\}` 会得到
-   * `h_\left\{` 这种非法 LaTeX（KaTeX 当场报错）。真实用户报过这条。
+   * 括号不加 `\left`：`(x+1)` 变成 `\left( x+1 \right)` 是纯粹的噪音，
+   * 而且 `h_\left\{`、`\mathbf\left\{` 还是非法 LaTeX（KaTeX 当场报错）。
+   * 展开只把光标放进括号里，文本一个字符都不改。
    */
-  it("上下标后面的 {} 保持普通分组，不做自适应定界符", () => {
-    const sub = fire("h_{}")!;
-    expect(sub.line).toBe("h_{}");
-    expect(sub.tabstops).toEqual([2, 3]); // 光标落在花括号里
-    expect(fire("h^{}")!.line).toBe("h^{}");
-    // 不挨着上下标时仍然是自适应花括号
-    expect(fire("A {}")!.text).toBe("\\left\\{  \\right\\}");
+  it("括号保持原样，只把光标放进去", () => {
+    const paren = fire("()")!;
+    expect(paren.text).toBe("()");
+    expect(paren.tabstops).toEqual([1, 2]); // 光标在括号里，再一跳出去
+    expect(fire("[]")!.text).toBe("[]");
+    expect(fire("{}")!.text).toBe("{}");
   });
 
-  it("命令名后面的 {} 是参数，同样保持普通分组", () => {
+  it("上下标与命令后面的 {} 是分组，不会变成 \\left\\{", () => {
+    expect(fire("h_{}")!.line).toBe("h_{}");
+    expect(fire("h^{}")!.line).toBe("h^{}");
     expect(fire("\\mathbf{}")!.line).toBe("\\mathbf{}");
-    expect(fire("\\text{}")!.line).toBe("\\text{}");
     // 手打 \frac 时第二个参数的 {} 前面是 `}`
     expect(fire("\\frac{a}{}")!.line).toBe("\\frac{a}{}");
+    // 独立位置的花括号也一样是普通花括号
+    expect(fire("A {}")!.line).toBe("A {}");
+  });
+
+  it("自适应定界符要显式用 lr 前缀要", () => {
+    expect(fire("lr(")!.text).toBe("\\left(  \\right)");
+    expect(fire("lr[")!.text).toBe("\\left[  \\right]");
+    expect(fire("lr{")!.text).toBe("\\left\\{  \\right\\}");
+    expect(fire("lr|")!.text).toBe("\\left|  \\right|");
   });
 
   it("函数名自动加反斜杠", () => {
@@ -94,6 +104,16 @@ describe("触发词匹配", () => {
     expect(fire("\\sin")).toBeNull();
     // 变量名里的子串不误触
     expect(fire("cosine")).toBeNull();
+  });
+
+  /**
+   * 函数名那条是正则，默认优先级 = 触发词长度，一百多个字符会压过所有普通
+   * 触发词。名单里若混进 `inf`/`sup`，符号表里写的 `\infty`、`\supset`
+   * 就永远出不来 —— 表里一套、实际一套。
+   */
+  it("常用符号不被函数名正则抢走", () => {
+    expect(fire("inf")!.text).toBe("\\infty");
+    expect(fire("sup")!.text).toBe("\\supset");
   });
 });
 

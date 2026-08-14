@@ -5919,6 +5919,82 @@ textarea:focus-visible {
   margin: 0;
 }
 
+/* ---------- snippet 提示条（§5.3）---------- */
+
+/* 类名写两遍同上，压过 .cm-tooltip 的默认边框和白底 */
+.cm-tooltip.cm-snippet-hint.cm-snippet-hint {
+  background: var(--raised);
+  border: none;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  overflow: hidden;
+  /* 贴着刚打下的那几个字符，但别压住它 */
+  margin-top: 4px;
+  font-size: 0.86rem;
+}
+
+.cm-snippet-hint-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.cm-snippet-hint-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cm-snippet-hint-item.is-active {
+  background: var(--hover-bg);
+}
+
+/* 触发词固定宽度起头，几行的符号和说明才对得齐 */
+.cm-snippet-hint-trigger {
+  min-width: 4.5em;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+/* 已经打出来的那截加重：剩下还差几个字符要一眼看出来 */
+.cm-snippet-hint-trigger b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cm-snippet-hint-preview {
+  min-width: 1.6em;
+  color: var(--text);
+}
+
+.cm-snippet-hint-desc {
+  flex: 1;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 需要按 Tab 才展开的那几条（`pmat` 等）标出来 */
+.cm-snippet-hint-key {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: 0.78em;
+}
+
+.cm-snippet-hint-foot {
+  padding: 4px 12px 5px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78em;
+}
+
 /* ---------- 大纲：侧栏面板 + 右侧浮动目录 ---------- */
 
 /* 行距比文档树紧一档：一篇长文的标题数远多于文档树的节点数，

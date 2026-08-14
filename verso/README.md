@@ -48,6 +48,7 @@ pnpm exec vitest run          # Markdown 解析器、模糊匹配
 |---|---|
 | `Ctrl+P` | 快速跳转到笔记 |
 | `Ctrl+/` | 符号面板（中文可搜：「积分」「叉乘」「属于」） |
+| 公式里打前缀 | 列出「还差几个字符」的 snippet；`Tab` 展开、`↑↓` 换、`Esc` 收 |
 | `Ctrl+Shift+F` | 全文搜索 |
 | `[[` | 内部链接补全 |
 | `/`（行首） | 块插入菜单 |
@@ -92,7 +93,8 @@ pnpm exec vitest run          # Markdown 解析器、模糊匹配
 | snippet 引擎（Latex Suite 兼容格式） | §5.1 |
 | 数学模式检测（语法树 + 计数的混合方案） | §5.2 |
 | 跳转点、tabout、Tab 触发的非自动 snippet | §5.1 |
-| 135 条默认库、矩阵按尺寸生成 | §5.4、§5.3 |
+| 139 条默认库、矩阵按尺寸生成 | §5.4、§5.3 |
+| 打字时提示还差几个字符的 snippet | §5.3 |
 | 符号面板 `Ctrl+/`，中文可搜 | §5.3 |
 
 ⚠️ M2 的验收是**人来做的盲测**：抄一页教材公式，比在 Obsidian 里快。
@@ -143,8 +145,9 @@ src/
 │   └── snippets/           ← 项目的核心竞争力，改前先读 AGENTS.md
 │       ├── types.ts        Snippet 模型与选项标志
 │       ├── match.ts        触发词匹配、展开、tabout（纯函数）
-│       ├── defaults.ts     135 条默认库
-│       ├── tabstops.ts     跳转点状态
+│       ├── defaults.ts     139 条默认库
+│       ├── hint.ts         打字提示：候选挑选（纯函数）+ CM6 tooltip
+│       ├── tabstops.ts     跳转点状态、展开事务
 │       └── index.ts        CM6 接线（transactionFilter + Tab 键）
 ├── lib/fuzzy.ts      快速切换器的模糊匹配
 └── components/
