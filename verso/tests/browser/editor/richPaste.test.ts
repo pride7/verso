@@ -147,7 +147,10 @@ describe("网页内容转 Markdown", () => {
 
   it("变量名和公式下标里的下划线保持原样", () => {
     expect(htmlToMarkdown("<p>a_b foo_bar_baz x_{i}</p>")).toBe("a_b foo_bar_baz x_{i}");
-    expect(htmlToMarkdown("<p>字面量 _不是强调_</p>")).toBe(String.raw`字面量 \_不是强调\_`);
+    // 真有排版标记的那一份里，字面量下划线仍要挡住：那段文字是网页上**看见**
+    // 的样子，不是谁写的 Markdown 源码。
+    expect(htmlToMarkdown("<p><b>结论</b>：字面量 _不是强调_</p>"))
+      .toBe(String.raw`**结论**：字面量 \_不是强调\_`);
 
     const view = mount();
     const event = paste(
@@ -161,9 +164,13 @@ describe("网页内容转 Markdown", () => {
 
   it("没配成强调的星号保持原样", () => {
     expect(htmlToMarkdown("<p>脚注 ** 与 2 * 3 * 4</p>")).toBe("脚注 ** 与 2 * 3 * 4");
-    expect(htmlToMarkdown("<p>字面量 **不是加粗**</p>")).toBe(String.raw`字面量 \*\*不是加粗\*\*`);
+    expect(htmlToMarkdown("<p><b>结论</b>：字面量 **不是加粗**</p>"))
+      .toBe(String.raw`**结论**：字面量 \*\*不是加粗\*\*`);
     // 行首的 `*` 例外：不挡住的话，这一行会被重新读成无序列表项。
-    expect(htmlToMarkdown("<p>* 不是列表项</p>")).toBe(String.raw`\* 不是列表项`);
+    expect(htmlToMarkdown("<p><b>结论</b></p><p>* 不是列表项</p>"))
+      .toBe(String.raw`**结论**
+
+\* 不是列表项`);
 
     const view = mount();
     const event = paste(view, "n ** 2", "<span>n ** 2</span>");
@@ -195,6 +202,32 @@ describe("网页内容转 Markdown", () => {
     expect(view.state.doc.toString()).toBe("- 列表\n  **缩进的加粗**");
   });
 
+  // VS Code 的富文本复制：整段套一个带样式的 <div>，每行再一个 <div>，
+  // **空行是 <br>**（读它 bundle 里的 `_getHTMLToCopy` 得来的）。
+  const vscode = (...lines: string[]) =>
+    '<div style="color: #d4d4d4;background-color: #1f1f1f;font-family: Consolas;font-size: 14px;'
+      + 'line-height: 19px;white-space: pre;">'
+      + lines.map((line) => line === "" ? "<br>" : `<div><span style="color: #ce9178;">${line}</span></div>`).join("")
+      + "</div>";
+
+  it("VS Code 复制的一行 Markdown 源码原样进来", () => {
+    const view = mount();
+    const event = paste(view, "**加粗** 与 [论文](https://a.test)", vscode("**加粗** 与 [论文](https://a.test)"));
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("**加粗** 与 [论文](https://a.test)");
+  });
+
+  it("VS Code 复制的多段源码（空行是 <br>）也不加反斜杠", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      "**加粗**\n\n- 见 [论文](https://a.test)",
+      vscode("**加粗**", "", "- 见 [论文](https://a.test)"),
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("**加粗**\n\n- 见 [论文](https://a.test)");
+  });
+
   it("HTML 里有真的格式时仍走富文本转换", () => {
     const view = mount();
     const event = paste(
@@ -210,7 +243,9 @@ describe("网页内容转 Markdown", () => {
     const view = mount();
     const event = paste(view, "", "<div>**加粗**</div>");
     expect(event.defaultPrevented).toBe(true);
-    expect(view.state.doc.toString()).toBe(String.raw`\*\*加粗\*\*`);
+    // 没有 text/plain 可退，只能走 HTML 那条路；但这份 HTML 一个标记也产不出来，
+    // 所以照样不加反斜杠
+    expect(view.state.doc.toString()).toBe("**加粗**");
   });
 });
 

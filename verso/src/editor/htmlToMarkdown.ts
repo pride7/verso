@@ -21,20 +21,39 @@ const BLOCK = new Set([
 interface Context {
   pre?: boolean;
   formulas?: FormulaProtection;
+  /**
+   * 这份 HTML 一个 Markdown 标记也产不出来（只有 `<div>` / `<span>` / `<br>`
+   * 这类排版包装）。那正文就是用户自己写的 Markdown 源码，一个反斜杠都不加。
+   */
+  literal?: boolean;
 }
 
-/**
- * `render` 真正会翻译成 Markdown 语法的标签。`div` / `span` / `p` 不算。
- *
- * `<br>` 算：它表达的换行未必出现在同一份 `text/plain` 里（网页把一条块公式
- * 拆成三行就是这样），丢掉它等于丢结构。代码编辑器复制多行时用的是一行一个
- * `<div>`，不受影响。
- */
+/** `render` 真正会翻译成 Markdown 标记的标签。`div` / `span` / `p` / `br` 不算。 */
 const MARKUP = new Set([
-  "a", "b", "blockquote", "br", "code", "del", "em", "h1", "h2", "h3", "h4", "h5",
+  "a", "b", "blockquote", "code", "del", "em", "h1", "h2", "h3", "h4", "h5",
   "h6", "hr", "i", "img", "li", "ol", "pre", "s", "strike", "strong", "table", "td",
   "th", "tr", "ul",
 ]);
+
+/**
+ * 再算上 `<br>` 的那一版。
+ *
+ * `<br>` 不产出任何 Markdown 标记，但它表达的换行未必出现在同一份 `text/plain`
+ * 里（网页把一条块公式拆成三行就是这样），所以「这份 HTML 值不值得转换」要认
+ * 它，「正文里的字符要不要转义」不认它。
+ */
+const STRUCTURE = new Set([...MARKUP, "br"]);
+
+/** 这棵树里有没有出现这些标签。脚本、样式和不可见节点本来就会被丢掉，不算。 */
+function hasTags(root: Element, tags: Set<string>): boolean {
+  for (const child of [...root.childNodes]) {
+    if (!(child instanceof Element)) continue;
+    const tag = child.tagName.toLowerCase();
+    if (SKIP.has(tag) || child.getAttribute("aria-hidden") === "true") continue;
+    if (tags.has(tag) || hasTags(child, tags)) return true;
+  }
+  return false;
+}
 
 /**
  * 这份 HTML 是不是只是纯文本的一层包装。
@@ -47,16 +66,7 @@ const MARKUP = new Set([
 export function htmlIsPlainText(html: string): boolean {
   if (!html.trim()) return true;
   const doc = new DOMParser().parseFromString(html, "text/html");
-  const scan = (node: Node): boolean => {
-    for (const child of [...node.childNodes]) {
-      if (!(child instanceof Element)) continue;
-      const tag = child.tagName.toLowerCase();
-      if (SKIP.has(tag) || child.getAttribute("aria-hidden") === "true") continue;
-      if (MARKUP.has(tag) || !scan(child)) return false;
-    }
-    return true;
-  };
-  return scan(doc.body);
+  return !hasTags(doc.body, STRUCTURE);
 }
 
 interface FormulaProtection {
@@ -92,11 +102,15 @@ function hasActiveBackslash(value: string, at: number): boolean {
   return count % 2 === 1;
 }
 
-function text(value: string, pre = false): string {
+function text(value: string, pre = false, literal = false): string {
   if (pre) return value.replace(/\r\n?/g, "\n");
   const normalized = value
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ");
+  // \u8f6c\u4e49\u662f\u4e3a\u4e86\u4fdd\u62a4\u300c\u7f51\u9875\u4e0a\u770b\u89c1\u7684\u5b57\u9762\u91cf\u300d\u4e0d\u548c\u6211\u4eec\u81ea\u5df1\u751f\u6210\u7684\u6807\u8bb0\u649e\u8f66\u3002\u8fd9\u4efd
+  // HTML \u4e00\u4e2a\u6807\u8bb0\u90fd\u4e0d\u751f\u6210\u65f6\u5c31\u6ca1\u6709\u8981\u649e\u7684\u4e1c\u897f \u2014\u2014 \u90a3\u4e9b `**`\u3001`[` \u662f\u7528\u6237\u4ece
+  // \u7f16\u8f91\u5668\u91cc\u590d\u5236\u51fa\u6765\u7684 Markdown \u6e90\u7801\uff0c\u52a0\u53cd\u659c\u6760\u53ea\u4f1a\u628a\u5b83\u5199\u574f\u3002
+  if (literal) return normalized;
   const marks = emphasisMarks(normalized);
   let escaped = "";
   for (let at = 0; at < normalized.length; at += 1) {
@@ -200,11 +214,11 @@ function protectFormulas(root: Element): FormulaProtection {
 function textNode(node: Text, ctx: Context): string {
   const value = node.nodeValue ?? "";
   const ranges = ctx.formulas?.text.get(node) ?? [];
-  if (!ranges.length) return text(value, !!ctx.pre);
+  if (!ranges.length) return text(value, !!ctx.pre, !!ctx.literal);
   let result = "";
   let cursor = 0;
   for (const range of ranges) {
-    result += text(value.slice(cursor, range.from), !!ctx.pre);
+    result += text(value.slice(cursor, range.from), !!ctx.pre, !!ctx.literal);
     // 与原来的 HTML 空白语义一致，但公式源码中的 Markdown 特殊字符一律不碰。
     result += value.slice(range.from, range.to)
       .replace(/\r\n?/g, "\n")
@@ -212,7 +226,7 @@ function textNode(node: Text, ctx: Context): string {
       .replace(/\s+/g, " ");
     cursor = range.to;
   }
-  return result + text(value.slice(cursor), !!ctx.pre);
+  return result + text(value.slice(cursor), !!ctx.pre, !!ctx.literal);
 }
 
 function children(el: Element, ctx: Context = {}): string {
@@ -318,7 +332,10 @@ function render(node: Node, ctx: Context): string {
 export function htmlToMarkdown(html: string): string {
   if (!html.trim()) return "";
   const doc = new DOMParser().parseFromString(html, "text/html");
-  return children(doc.body, { formulas: protectFormulas(doc.body) })
+  return children(doc.body, {
+    formulas: protectFormulas(doc.body),
+    literal: !hasTags(doc.body, MARKUP),
+  })
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
