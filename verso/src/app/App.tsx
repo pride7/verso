@@ -121,6 +121,9 @@ import "../ui/styles.css";
 
 const AUTOSAVE_MS = 800; // §2.7 保存策略
 
+/** 没收起任何一节时共用这一个空集合，省得每次渲染都换一个新身份 */
+const EMPTY_COLLAPSE: ReadonlySet<string> = new Set();
+
 /** 侧栏默认宽度，和双击复位的目标值 */
 const DEFAULT_SIDEBAR_W = 252;
 
@@ -610,6 +613,23 @@ export default function App() {
   noteRef.current = note;
   dirtyRef.current = saveState === "dirty";
   noteListRef.current = noteList;
+
+  /**
+   * 大纲里收起了哪几节。按笔记分开记：换个标签页回来还是原样，两篇笔记里
+   * 同名的小节也不会互相牵连。状态留在这里而不是面板里 —— 侧栏一次只显示
+   * 一个视图，面板会随着切视图卸载，收起的结果不该跟着一起没。
+   */
+  const [outlineCollapsed, setOutlineCollapsed] = useState<Record<string, ReadonlySet<string>>>({});
+  const collapsedSections = (note && outlineCollapsed[note.path]) || EMPTY_COLLAPSE;
+  const toggleOutlineSection = useCallback((key: string) => {
+    const path = noteRef.current?.path;
+    if (!path) return;
+    setOutlineCollapsed((prev) => {
+      const next = new Set(prev[path] ?? []);
+      if (!next.delete(key)) next.add(key);
+      return { ...prev, [path]: next };
+    });
+  }, []);
 
   /**
    * 点侧栏图标。点当前那个 = 收起侧栏（VS Code 的行为），点别的 = 切过去。
@@ -3993,6 +4013,8 @@ export default function App() {
                   headings={headings}
                   activeIndex={activeHeadingIdx}
                   onPick={gotoHeading}
+                  collapsed={collapsedSections}
+                  onToggle={toggleOutlineSection}
                 />
               ) : (
                 <p className="side-empty">先打开一篇笔记。</p>

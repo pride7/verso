@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { activeHeading, outlineDepths, parseHeadings, stripInline } from "../../../src/core/outline";
+import {
+  activeHeading,
+  outlineDepths,
+  outlineRows,
+  parseHeadings,
+  stripInline,
+  visibleActive,
+} from "../../../src/core/outline";
 
 describe("parseHeadings", () => {
   it("认出六级 ATX 标题，行号从 1 起", () => {
@@ -138,5 +145,74 @@ describe("outlineDepths", () => {
   it("缩进最多三层", () => {
     const hs = parseHeadings(["# 一", "###### 六"].join("\n"));
     expect(outlineDepths(hs)).toEqual([0, 3]);
+  });
+});
+
+describe("outlineRows", () => {
+  const hs = parseHeadings([
+    "# 总论", "## 方法", "### 实验", "## 结论", "# 附录",
+  ].join("\n"));
+
+  it("接出父子关系与下辖条数", () => {
+    const rows = outlineRows(hs);
+    expect(rows.map((r) => r.parent)).toEqual([-1, 0, 1, 0, -1]);
+    expect(rows.map((r) => r.descendants)).toEqual([3, 1, 0, 0, 0]);
+    expect(rows.every((r) => !r.hidden)).toBe(true);
+  });
+
+  it("收起一节，下辖的所有层都藏起来", () => {
+    const rows = outlineRows(hs);
+    const shut = outlineRows(hs, new Set([rows[0].key]));
+    expect(shut.filter((r) => !r.hidden).map((r) => r.heading.text)).toEqual(["总论", "附录"]);
+
+    const inner = outlineRows(hs, new Set([rows[1].key]));
+    expect(inner.filter((r) => !r.hidden).map((r) => r.heading.text))
+      .toEqual(["总论", "方法", "结论", "附录"]);
+  });
+
+  it("缺一级也算下属：`#` 下面直接跟 `###`", () => {
+    const skipped = parseHeadings(["# 一", "### 三", "# 二"].join("\n"));
+    const rows = outlineRows(skipped);
+    expect(rows.map((r) => r.parent)).toEqual([-1, 0, -1]);
+    expect(outlineRows(skipped, new Set([rows[0].key])).map((r) => r.hidden))
+      .toEqual([false, true, false]);
+  });
+
+  it("键不含行号：在上面插入正文，收起的还是同一节", () => {
+    const moved = parseHeadings(["前言", "", ...[
+      "# 总论", "## 方法", "### 实验", "## 结论", "# 附录",
+    ]].join("\n"));
+    expect(outlineRows(moved).map((r) => r.key)).toEqual(outlineRows(hs).map((r) => r.key));
+  });
+
+  it("同一个父下的重名兄弟各收各的", () => {
+    const twins = parseHeadings(["# 一", "## 方法", "### A", "## 方法", "### B"].join("\n"));
+    const rows = outlineRows(twins);
+    expect(rows[1].key).not.toBe(rows[3].key);
+    expect(outlineRows(twins, new Set([rows[1].key])).map((r) => r.hidden))
+      .toEqual([false, false, true, false, false]);
+  });
+
+  it("不同父下的同名小节互不影响", () => {
+    const same = parseHeadings(["# 甲", "## 方法", "### A", "# 乙", "## 方法", "### B"].join("\n"));
+    const rows = outlineRows(same);
+    expect(rows[1].key).not.toBe(rows[4].key);
+  });
+});
+
+describe("visibleActive", () => {
+  const hs = parseHeadings(["# 总论", "## 方法", "### 实验"].join("\n"));
+
+  it("当前那节被收起时，点亮最近的可见祖先", () => {
+    const rows = outlineRows(hs, new Set([outlineRows(hs)[0].key]));
+    expect(visibleActive(rows, 2)).toBe(0);
+  });
+
+  it("没被收起就是它自己；越界与 -1 都返回 -1", () => {
+    const rows = outlineRows(hs);
+    expect(visibleActive(rows, 2)).toBe(2);
+    expect(visibleActive(rows, -1)).toBe(-1);
+    // 正文刚改过、当前位置还没重算的那一帧
+    expect(visibleActive(rows, 9)).toBe(-1);
   });
 });

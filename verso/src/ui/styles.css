@@ -6006,28 +6006,83 @@ textarea:focus-visible {
   margin-bottom: 1px;
 }
 
+/* 行本身是容器（折叠三角和跳转各是一个按钮，按钮不能相互嵌套），
+   底色、选中标记和缩进都记在它身上 */
 .outline-row {
   --outline-indent: 0px;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 6px;
   width: 100%;
   /* `max(...)` 而不是两行 min-height —— 原来那两行里后一行把令牌整个盖掉了，
      于是大纲在手机上一直是 27px 的行（点击目标审计扫出来的） */
   min-height: max(27px, var(--tap));
-  text-align: left;
   /* 每层只让 12px：等级圆点已经说明结构，缩进不必再吃掉一大片标题宽度 */
-  padding: 3px 7px 3px calc(7px + var(--outline-indent));
+  padding-left: calc(2px + var(--outline-indent));
   border-radius: var(--r-sm);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .outline-row:hover {
   background: var(--hover-bg);
 }
-.outline-row:focus-visible {
+
+/* 折叠三角。和文档树同一套画法，只是更窄 —— 大纲每层已经缩进 12px，
+   这一列再宽一点，深处的标题就只剩省略号了 */
+.outline-twisty {
+  width: var(--outline-twisty-w, 14px);
+  min-width: var(--outline-twisty-w, 14px);
+  height: max(16px, var(--tap));
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  padding: 0;
+  opacity: 0.75;
+  transition: opacity var(--t-fast);
+}
+/* 转图标不转按钮：`transform` 会把命中区一起转过来（见文档树那一段） */
+.outline-twisty svg {
+  transition: transform var(--t-fast);
+}
+.outline-twisty.is-open svg {
+  transform: rotate(90deg);
+}
+.outline-twisty.is-empty {
+  cursor: default;
+  opacity: 0;
+}
+.outline-row:hover .outline-twisty {
+  opacity: 1;
+}
+.outline-row:hover .outline-twisty.is-empty {
+  opacity: 0;
+}
+
+.outline-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: inherit;
+  text-align: left;
+  padding: 3px 7px 3px 3px;
+}
+.outline-jump:focus-visible,
+.outline-twisty:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
+  border-radius: var(--r-sm);
+}
+
+/* 收起时那一节里还有多少条标题。收起不能让结构凭空消失 */
+.outline-count {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
 }
 /* 选中态与文档树同款实心条 —— 侧栏里所有列表的选中必须长一个样 */
 .outline-row.is-active,
@@ -6041,6 +6096,7 @@ textarea:focus-visible {
 .outline-level {
   display: inline-grid;
   place-items: center;
+  flex: none;
   width: 16px;
   height: 16px;
   border: 1px solid var(--hairline);
@@ -6065,6 +6121,7 @@ textarea:focus-visible {
 
 .outline-text {
   display: block;
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6406,6 +6463,8 @@ textarea:focus-visible {
   .app.is-narrow {
     --tree-twisty-w: 22px;
     --tree-indent: 10px;
+    /* 大纲的三角同理：桌面上 14px 够点，手指点不到 */
+    --outline-twisty-w: 22px;
   }
 
   /* 标签在 390px 上按桌面的 168px 算，一屏只露得出两个。收到 132 之后

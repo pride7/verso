@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { renderInline } from "../editor/inline";
-import { activeHeading, outlineDepths, type Heading } from "../core/outline";
+import {
+  activeHeading,
+  outlineDepths,
+  outlineRows,
+  visibleActive,
+  type Heading,
+} from "../core/outline";
+import { Icon } from "./Icon";
 import type { EditorHandle } from "./Editor";
 
 /**
@@ -24,6 +31,12 @@ interface Props {
   /** 当前所在的那一条，-1 表示视线还在第一条标题之前 */
   activeIndex: number;
   onPick: (h: Heading) => void;
+}
+
+interface ViewProps extends Props {
+  /** 已收起的小节，键是 `OutlineRow.key` */
+  collapsed: ReadonlySet<string>;
+  onToggle: (key: string) => void;
 }
 
 /** 标题可以是空的（正在敲的 `## ` 就是），列表里得有东西占位 */
@@ -85,9 +98,15 @@ export function useActiveHeading(
   return active;
 }
 
-/** 侧栏里的大纲面板 */
-export function OutlineView({ headings, activeIndex, onPick }: Props) {
-  const depths = outlineDepths(headings);
+/**
+ * 侧栏里的大纲面板。
+ *
+ * 每一级标题都能收起，收起后它下辖的所有更深的标题一起藏起来 —— 长文里
+ * 「先看清全书骨架、再展开要去的那一节」比一次摊开一百条更有用。收起只影响
+ * 大纲这一栏，正文一个字都不动；正文自己的折叠是编辑器里的另一件事（§4.6）。
+ */
+export function OutlineView({ headings, activeIndex, onPick, collapsed, onToggle }: ViewProps) {
+  const rows = useMemo(() => outlineRows(headings, collapsed), [headings, collapsed]);
 
   if (headings.length === 0) {
     return (
@@ -99,24 +118,54 @@ export function OutlineView({ headings, activeIndex, onPick }: Props) {
     );
   }
 
+  // 当前所在的那一节被收起时点亮它最近的可见祖先：「我在哪」不能因为
+  // 收起就整个消失。
+  const active = visibleActive(rows, activeIndex);
+
   return (
     <ul className="side-list outline-list" aria-label="当前文档大纲">
-      {headings.map((h, i) => {
+      {rows.filter((row) => !row.hidden).map((row) => {
+        const h = row.heading;
         const text = h.text || EMPTY;
+        const shut = collapsed.has(row.key);
         return (
-          <li key={`${h.line}:${i}`}>
-            <button
-              className={`outline-row depth-${depths[i]}${i === activeIndex ? " is-active" : ""}`}
-              style={{ "--outline-indent": `${depths[i] * 12}px` } as CSSProperties}
-              onClick={() => onPick(h)}
-              title={`H${h.level} · ${text}`}
-              aria-label={`${h.level} 级标题：${text}`}
+          <li key={row.key}>
+            <div
+              className={`outline-row depth-${row.depth}${row.index === active ? " is-active" : ""}`}
+              style={{ "--outline-indent": `${row.depth * 12}px` } as CSSProperties}
             >
-              {/* 数字圆点比写完整的 H1/H2 少占一半宽度；title 与 aria-label
-                  仍明确说出它是标题等级，不会被误解成章节编号。 */}
-              <span className="outline-level" aria-hidden="true">{h.level}</span>
-              <OutlineLabel text={text} className={`outline-text lv-${depths[i]}`} />
-            </button>
+              {/* 折叠态靠 CSS 旋转，不换图标 —— 与文档树的三角同一套画法。
+                  没有下辖标题的那一条留一个空位占着，否则同层的文字会错开
+                  一格；那是块占位，不是按钮，别让它进 Tab 序列和点击审计。 */}
+              {row.descendants > 0 ? (
+                <button
+                  className={`outline-twisty${shut ? "" : " is-open"}`}
+                  onClick={() => onToggle(row.key)}
+                  aria-expanded={!shut}
+                  aria-label={shut ? `展开 ${text}` : `折叠 ${text}`}
+                  title={shut ? `展开（收起了 ${row.descendants} 条）` : "折叠"}
+                >
+                  <Icon name="chevron" size={11} />
+                </button>
+              ) : (
+                <span className="outline-twisty is-empty" aria-hidden="true" />
+              )}
+              <button
+                className="outline-jump"
+                onClick={() => onPick(h)}
+                title={`H${h.level} · ${text}`}
+                aria-label={`${h.level} 级标题：${text}`}
+              >
+                {/* 数字圆点比写完整的 H1/H2 少占一半宽度；title 与 aria-label
+                    仍明确说出它是标题等级，不会被误解成章节编号。 */}
+                <span className="outline-level" aria-hidden="true">{h.level}</span>
+                <OutlineLabel text={text} className={`outline-text lv-${row.depth}`} />
+                {/* 收起时说出「里面还有多少条」，否则那一段结构等于凭空消失 */}
+                {shut && (
+                  <span className="outline-count" aria-hidden="true">{row.descendants}</span>
+                )}
+              </button>
+            </div>
           </li>
         );
       })}

@@ -10,6 +10,7 @@
  *    `scrollParent` 找得对不对，只有真的能滚的元素才验得出来。
  * 3. 浮动目录的展开是纯 CSS 的 `:hover`，得有层叠和计算样式。
  */
+import { useState } from "react";
 import { userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,7 +19,7 @@ vi.mock("../../../src/host/api", () => ({
   api: { backlinks: vi.fn(async () => []) },
 }));
 
-import { activeHeading, parseHeadings } from "../../../src/core/outline";
+import { activeHeading, parseHeadings, type Heading } from "../../../src/core/outline";
 import { Editor, type EditorHandle } from "../../../src/ui/Editor";
 import { OutlineFloat, OutlineView } from "../../../src/ui/Outline";
 import "../../../src/ui/styles.css";
@@ -121,7 +122,29 @@ describe("大纲跳转与当前位置", () => {
 describe("侧栏大纲", () => {
   const headings = parseHeadings("# 总论\n\n## 方法\n\n### 实验\n\n## 结论");
 
-  function mountOutline(activeIndex = 1) {
+  /** 折叠状态由 App 持有，这里用一个最小的宿主复刻那条线 */
+  function Panel({ headings: hs, activeIndex, onPick }: {
+    headings: Heading[];
+    activeIndex: number;
+    onPick: (h: Heading) => void;
+  }) {
+    const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+    return (
+      <OutlineView
+        headings={hs}
+        activeIndex={activeIndex}
+        onPick={onPick}
+        collapsed={collapsed}
+        onToggle={(key) => setCollapsed((prev) => {
+          const next = new Set(prev);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        })}
+      />
+    );
+  }
+
+  function mountOutline(activeIndex = 1, hs = headings) {
     const host = document.createElement("div");
     host.style.width = "252px";
     document.body.appendChild(host);
@@ -129,11 +152,7 @@ describe("侧栏大纲", () => {
     const root = createRoot(host);
     roots.push(root);
     root.render(
-      <OutlineView
-        headings={headings}
-        activeIndex={activeIndex}
-        onPick={(h) => picked.push(h.line)}
-      />,
+      <Panel headings={hs} activeIndex={activeIndex} onPick={(h) => picked.push(h.line)} />,
     );
     return { host, picked };
   }
@@ -147,21 +166,55 @@ describe("侧栏大纲", () => {
     expect(levels[0].getBoundingClientRect().width).toBeLessThanOrEqual(18);
     expect(host.querySelector<HTMLElement>(".outline-row")!.getBoundingClientRect().height)
       .toBeLessThanOrEqual(30);
-    expect(host.querySelector<HTMLButtonElement>(".outline-row")!.title).toBe("H1 · 总论");
+    expect(host.querySelector<HTMLButtonElement>(".outline-jump")!.title).toBe("H1 · 总论");
   });
 
   it("保留层级缩进、当前位置与点击跳转", async () => {
     const { host, picked } = mountOutline(2);
     await settle();
 
-    const rows = [...host.querySelectorAll<HTMLButtonElement>(".outline-row")];
+    const rows = [...host.querySelectorAll<HTMLElement>(".outline-row")];
     expect(rows.map((row) => row.style.getPropertyValue("--outline-indent")))
       .toEqual(["0px", "12px", "24px", "12px"]);
     expect(rows.map((row) => Number.parseFloat(getComputedStyle(row).paddingLeft)))
-      .toEqual([7, 19, 31, 19]);
+      .toEqual([2, 14, 26, 14]);
     expect(host.querySelectorAll(".outline-row.is-active")).toHaveLength(1);
-    await userEvent.click(rows[3]);
+    await userEvent.click(host.querySelectorAll<HTMLElement>(".outline-jump")[3]);
     expect(picked).toEqual([headings[3].line]);
+  });
+
+  it("收起一节就藏起它下辖的所有标题，再点回来", async () => {
+    const { host, picked } = mountOutline(2);
+    await settle();
+
+    const twisties = [...host.querySelectorAll<HTMLElement>(".outline-twisty")];
+    // 「实验」和「结论」下面没有标题：留一个空位对齐，但它不是按钮
+    expect(twisties.map((t) => t.tagName)).toEqual(["BUTTON", "BUTTON", "SPAN", "SPAN"]);
+
+    await userEvent.click(twisties[1]); // 收起「## 方法」
+    await settle();
+    expect([...host.querySelectorAll(".outline-text")].map((t) => t.textContent))
+      .toEqual(["总论", "方法", "结论"]);
+    // 当前所在的是被藏起来的「实验」，高亮落到收起的那一节上
+    expect(host.querySelector(".outline-row.is-active .outline-text")!.textContent).toBe("方法");
+    expect(host.querySelector(".outline-count")!.textContent).toBe("1");
+
+    await userEvent.click(host.querySelectorAll<HTMLButtonElement>(".outline-twisty")[1]);
+    await settle();
+    expect(host.querySelectorAll(".outline-text")).toHaveLength(4);
+
+    // 收起只影响大纲这一栏，跳转照旧
+    await userEvent.click(host.querySelectorAll<HTMLElement>(".outline-jump")[2]);
+    expect(picked).toEqual([headings[2].line]);
+  });
+
+  it("收起一级标题连更深的层一起收走", async () => {
+    const { host } = mountOutline(0);
+    await settle();
+    await userEvent.click(host.querySelectorAll<HTMLButtonElement>(".outline-twisty")[0]);
+    await settle();
+    expect([...host.querySelectorAll(".outline-text")].map((t) => t.textContent)).toEqual(["总论"]);
+    expect(host.querySelector(".outline-count")!.textContent).toBe("3");
   });
 
   it("标题里的行内公式渲染成 KaTeX，错误公式也不会弄丢目录项", async () => {
@@ -171,11 +224,7 @@ describe("侧栏大纲", () => {
       "## $\\operatorname{TV}_k$",
       "## $\\Udots$",
     ].join("\n"));
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const root = createRoot(host);
-    roots.push(root);
-    root.render(<OutlineView headings={formulas} activeIndex={0} onPick={() => {}} />);
+    const { host } = mountOutline(0, formulas);
     await settle();
 
     const labels = host.querySelectorAll<HTMLElement>(".outline-text");
