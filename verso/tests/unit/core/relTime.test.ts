@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { relTime } from "../../../src/core/relTime";
+import { relDate, relTime } from "../../../src/core/relTime";
 
 const NOW = new Date(2026, 7, 2, 14, 30, 0); // 2026-08-02 14:30
 const ago = (seconds: number) => Math.floor(NOW.getTime() / 1000) - seconds;
@@ -38,5 +38,29 @@ describe("相对时间", () => {
 
   it("时钟被调过、时间戳在未来时不显示负数", () => {
     expect(relTime(ago(-500), NOW)).toBe("刚刚");
+  });
+});
+
+describe("只到天的相对日期", () => {
+  it("今天、昨天说人话", () => {
+    expect(relDate(ago(0), NOW)).toBe("今天");
+    expect(relDate(new Date(2026, 7, 2, 0, 5, 0).getTime() / 1000, NOW)).toBe("今天");
+    expect(relDate(new Date(2026, 7, 1, 23, 50, 0).getTime() / 1000, NOW)).toBe("昨天");
+  });
+
+  it("按日历天分界，不是按差了多少小时", () => {
+    // 只差 40 分钟，但已经跨了一天 —— 早上看昨晚建的那条，答案是「昨天」
+    const late = new Date(2026, 7, 1, 23, 50, 0).getTime() / 1000;
+    const morning = new Date(2026, 7, 2, 0, 30, 0);
+    expect(relDate(late, morning)).toBe("昨天");
+  });
+
+  it("更早的只写到日，跨年才写年份", () => {
+    expect(relDate(new Date(2026, 6, 12, 9, 5, 0).getTime() / 1000, NOW)).toBe("7月12日");
+    expect(relDate(new Date(2025, 11, 30, 9, 0, 0).getTime() / 1000, NOW)).toBe("2025年12月30日");
+  });
+
+  it("时钟在未来时不倒着说", () => {
+    expect(relDate(ago(-3600), NOW)).toBe("今天");
   });
 });

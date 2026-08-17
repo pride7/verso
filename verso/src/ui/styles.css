@@ -3784,6 +3784,17 @@ body.is-table-resizing * {
   background: var(--surface);
   color: var(--muted);
 }
+/* 记录的创建日期。清单正是按它排的，所以这一列也顺带解释了「为什么这条在
+   前面」。中性、等宽数字、右对齐 —— 它是给人扫的，不是给人读的 */
+.project-item-when {
+  flex: none;
+  min-width: 52px;
+  text-align: right;
+  color: var(--muted-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 /* 置顶的记号。中性色 —— 它说的是「这条排在前面」，不是「你可以点它」（§6.2） */
 .project-item-pin {
   flex: none;

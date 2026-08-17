@@ -11,6 +11,7 @@ import {
   projectSections,
   ensureProjectStatusSchema,
   prepareItemMove,
+  projectItemTime,
   projectStatusOptions,
   removeProjectStatus,
   sectionNameError,
@@ -18,6 +19,7 @@ import {
   setProjectSections,
   sortProjectItems,
   statusTone,
+  ulidTime,
   type ProjectApi,
   type ProjectItem,
 } from "../../../src/core/project";
@@ -378,5 +380,39 @@ describe("置顶与换分类", () => {
       "复现",
     );
     expect(props).toContainEqual(["项目/实验/甲.md", "type", "复现"]);
+  });
+});
+
+describe("记录的时间", () => {
+  const item = (id: string | null, mtimeMs: number): ProjectItem => ({
+    path: "项目/问题/甲.md", id, title: "甲", section: "问题", kind: "question",
+    status: "进行中", summary: "", searchText: "", pinned: false, mtimeMs,
+  });
+
+  it("ULID 前 10 位就是创建时刻", () => {
+    // 01K2… 这一段是 2025-08-06T00:00:00Z
+    const at = Date.UTC(2025, 7, 6);
+    const chars = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let encoded = "";
+    for (let value = at, i = 0; i < 10; i += 1, value = Math.floor(value / 32)) {
+      encoded = chars[value % 32] + encoded;
+    }
+    expect(ulidTime(`${encoded}ABCDEFGHJKMNPQ`)).toBe(at);
+  });
+
+  it("认不出来的 id 返回 null —— 不能编一个时间出来", () => {
+    expect(ulidTime(null)).toBeNull();
+    expect(ulidTime("短")).toBeNull();
+    // I / L / O / U 不在 Crockford 字母表里
+    expect(ulidTime("ILOUILOUIL")).toBeNull();
+    expect(ulidTime("0000000000")).toBeNull();
+  });
+
+  it("没有 ULID 时退回文件时间，并说清楚那不是创建时间", () => {
+    expect(projectItemTime(item(null, 1_700_000_000_000)))
+      .toEqual({ ms: 1_700_000_000_000, created: false });
+    const withId = projectItemTime(item("01J0000000ABCDEFGHJKMNPQRS", 1_700_000_000_000));
+    expect(withId.created).toBe(true);
+    expect(withId.ms).toBe(ulidTime("01J0000000ABCDEFGHJKMNPQRS"));
   });
 });

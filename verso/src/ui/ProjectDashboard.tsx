@@ -19,6 +19,7 @@ import {
   setProjectPinned,
   setProjectSections,
   sortProjectItems,
+  projectItemTime,
   statusTone,
   STATUS_TONE_LABEL,
   updateProjectSnapshot,
@@ -26,6 +27,7 @@ import {
   type ProjectItemKind,
   type ProjectOverview,
 } from "../core/project";
+import { relDate } from "../core/relTime";
 import type { NoteContent, NoteRef } from "../core/types";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
@@ -154,9 +156,38 @@ function StatusSelect({ value, options, onChange, onDelete, label }: { value: st
   </div>;
 }
 
+/** 悬停时给出精确到分的那一版 —— 列表里只写到天（见 `relDate`） */
+const fullTime = (ms: number) => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+/**
+ * 一条记录的时间。
+ *
+ * 显示的是**创建时间**，因为清单正是按它排的（`sortProjectItems`：按修改
+ * 时间排会让「刚把它标成已解决」的那条跳到最前面）。写成最后修改时间的话，
+ * 一列日期会和自己所在的顺序对不上，看着像坏了。最后修改仍在 `title` 里。
+ */
+function ItemTime({ item, now }: { item: ProjectItem; now: Date }) {
+  const { ms, created } = projectItemTime(item);
+  const hint = created
+    ? `创建于 ${fullTime(ms)}\n最后修改 ${fullTime(item.mtimeMs)}`
+    // 没有 ULID 的笔记（别的编辑器建的）只知道文件时间，就别说成「创建于」
+    : `最后修改 ${fullTime(ms)}`;
+  return (
+    <time className="project-item-when" dateTime={new Date(ms).toISOString()} title={hint}>
+      {relDate(Math.floor(ms / 1000), now)}
+    </time>
+  );
+}
+
 interface RowProps {
   item: ProjectItem;
   options: string[];
+  /** 相对日期的基准。整张总览共用一个，免得同一屏上出现两个「今天」的分界 */
+  now: Date;
   showKind?: boolean;
   /**
    * 这一行属于哪张清单。同一条记录会同时出现在「正在推进」和它自己的分类卡片里
@@ -173,7 +204,7 @@ interface RowProps {
   onDropStatus: (option: string) => void;
 }
 
-function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen, onMenu, onRename, onRenameCancel, onStatus, onDropStatus }: RowProps) {
+function ProjectItemRow({ item, options, now, showKind = true, slot, renaming, onOpen, onMenu, onRename, onRenameCancel, onStatus, onDropStatus }: RowProps) {
   const fallback = PROJECT_STATUSES[0];
   // 手指没有右键。菜单里那两条（开新标签、改名）在手机上只能靠长按（§1.2）
   const hold = useLongPress((at) => onMenu(item, slot, at));
@@ -192,6 +223,7 @@ function ProjectItemRow({ item, options, showKind = true, slot, renaming, onOpen
         <span className="project-item-icon"><Icon name="doc" size={14} /></span>
         <span className="project-item-copy"><strong>{item.title}</strong>{item.summary && <small>{item.summary}</small>}</span>
       </button>}
+    <ItemTime item={item} now={now} />
     {item.pinned && <span className="project-item-pin" title="已置顶" aria-label="已置顶"><Icon name="pin" size={12} /></span>}
     {showKind && <span className="project-kind">{item.section}</span>}
     <StatusSelect value={item.status || fallback} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} onDelete={onDropStatus} />
@@ -344,8 +376,15 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
     }
   };
 
-  /** 两处记录列表（「正在推进」和分类卡片）共用同一套行为 */
+  /**
+   * 两处记录列表（「正在推进」和分类卡片）共用同一套行为。
+   *
+   * `now` 每次渲染现取：整张总览共用同一个基准，同一屏上不会出现两条记录
+   * 对「今天」的分界不一致。
+   */
+  const now = new Date();
   const rowProps = {
+    now,
     onOpen,
     onMenu: (item: ProjectItem, slot: string, at: { x: number; y: number }) => setMenu({ item, slot, at }),
     onRename: submitRename,

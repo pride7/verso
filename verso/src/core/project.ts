@@ -438,6 +438,39 @@ function isPinned(value: unknown): boolean {
  * 「最重要」和「最近」也是两回事：每类只露三条（§2.10 的硬上限），不给一条
  * 手动置顶的路，最要紧的那条只要几天没动就沉到「查看全部」后面去了。
  */
+/** Crockford base32 —— ULID 用的那一版，去掉了 I / L / O / U */
+const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/**
+ * 从 ULID 里取出创建时刻（毫秒）。前 10 个字符就是时间戳，与排序同一个口径。
+ *
+ * 认不出来就返回 null，让调用方自己决定退路 —— 别的编辑器建的笔记没有 id，
+ * 硬凑一个时间出来比不显示更糟：那会是一句看着确凿、其实编的话。
+ */
+export function ulidTime(id: string | null): number | null {
+  if (!id || id.length < 10) return null;
+  let ms = 0;
+  for (const char of id.slice(0, 10).toUpperCase()) {
+    const digit = CROCKFORD.indexOf(char);
+    if (digit < 0) return null;
+    ms = ms * 32 + digit;
+  }
+  // 48 位时间戳的上限（公元 10889 年）之外的都不是真时间
+  return ms > 0 && ms <= 281474976710655 ? ms : null;
+}
+
+/**
+ * 这条记录该显示哪个时间。
+ *
+ * 优先创建时间（ULID），因为**列表就是按它排的**（见下）—— 显示最后修改
+ * 时间的话，一列日期会和它们自己的顺序对不上，看着像个 bug。没有 id 的
+ * 笔记退回文件的修改时间，`created` 为 false，UI 得照实说那是哪一个。
+ */
+export function projectItemTime(item: ProjectItem): { ms: number; created: boolean } {
+  const ms = ulidTime(item.id);
+  return ms === null ? { ms: item.mtimeMs, created: false } : { ms, created: true };
+}
+
 export function sortProjectItems(items: ProjectItem[]): ProjectItem[] {
   const settled = (item: ProjectItem) => Number(SETTLED.has(statusTone(item.status)));
   return items.sort((a, b) => {

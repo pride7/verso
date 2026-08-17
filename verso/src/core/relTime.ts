@@ -40,3 +40,22 @@ export function relTime(unixSeconds: number, now: Date): string {
   // 跨年了才写年份：同一年里写出来是多余的
   return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}年${md}`;
 }
+
+/**
+ * 只到天的那一版。项目总览的每条记录用。
+ *
+ * 那里的日期是列表里最右边的一小格，`relTime` 的「8月12日 14:30」在那个位置
+ * 太长，会把标题挤掉；而「一条问题是几点提的」也不是那一眼要看的东西。
+ * 精确到分的时刻仍在 `title` 里，鼠标停一下就有。
+ */
+export function relDate(unixSeconds: number, now: Date): string {
+  const d = new Date(unixSeconds * 1000);
+  const day = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  // 按**日历天**算而不是「差了多少小时」：23:50 建的那条，第二天早上 8 点
+  // 看该是「昨天」，而不是「8 小时前的今天」
+  const days = Math.round((day(now) - day(d)) / 86400000);
+  if (days === 0) return "今天";
+  if (days === 1) return "昨天";
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}年${md}`;
+}

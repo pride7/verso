@@ -2,6 +2,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
+import type { NoteContent } from "../../../src/core/types";
 import "../../../src/ui/styles.css";
 
 const project = {
@@ -11,7 +12,7 @@ const children = Array.from({ length: 5 }, (_, i) => ({
   path: `项目/实验/实验 ${i + 1}.md`, id: null, title: `实验 ${i + 1}`, frontmatter: { type: "experiment", status: "进行中", summary: `结果 ${i + 1}` }, frontmatterText: null, body: i === 4 ? "## 方法\n\n正文采用贝叶斯优化。" : "", mtimeMs: 10 - i,
 }));
 const progress = { path: "项目/进展.md", id: null, title: "进展", frontmatter: { type: "project-log" }, frontmatterText: null, body: "## 2026-08-06 10:00\n\n完成基线。", mtimeMs: 20 };
-const disk = new Map([...children, progress].map((value) => [value.path, value]));
+const disk = new Map<string, NoteContent>([...children, progress].map((value) => [value.path, value]));
 
 const INITIAL_STATUSES = ["自定义状态"];
 let statusOptions = [...INITIAL_STATUSES];
@@ -95,6 +96,57 @@ describe("单项目总览", () => {
     expect(search.value).toBe("");
     expect(document.querySelectorAll(".project-columns .project-section:first-child .project-item")).toHaveLength(3);
     expect(document.querySelectorAll(".project-record-group")).toHaveLength(4);
+  });
+
+  it("每条记录带一个日期，说的是创建时间", async () => {
+    const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    const ulid = (ms: number) => {
+      let head = "";
+      for (let value = ms, i = 0; i < 10; i += 1, value = Math.floor(value / 32)) {
+        head = CROCKFORD[value % 32] + head;
+      }
+      return `${head}ABCDEFGHJKMNPQRS`;
+    };
+    const day = 86_400_000;
+    const now = Date.now();
+    const old = new Date(now - 5 * day);
+    const dated: NoteContent[] = [
+      // 五天前提的问题，但今天刚碰过 —— 日期要说「哪天提的」，那才是清单的排序口径
+      { path: "项目/问题/旧问题.md", id: ulid(now - 5 * day), title: "旧问题", frontmatter: { type: "question", status: "进行中", summary: "" }, frontmatterText: null, body: "", mtimeMs: now },
+      { path: "项目/问题/今天的问题.md", id: ulid(now), title: "今天的问题", frontmatter: { type: "question", status: "进行中", summary: "" }, frontmatterText: null, body: "", mtimeMs: now },
+      // 别的编辑器建的：没有 ULID，只能退回文件时间
+      { path: "项目/问题/没有 id.md", id: null, title: "没有 id", frontmatter: { type: "question", status: "进行中", summary: "" }, frontmatterText: null, body: "", mtimeMs: now - day },
+    ];
+    dated.forEach((note) => disk.set(note.path, note));
+    try {
+      const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+      root.render(<ProjectDashboard project={project} notes={dated.map(({ path }) => ({ path, name: path }))} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
+      await vi.waitFor(() => expect(document.querySelector(".project-item-when")).not.toBeNull());
+
+      const group = [...document.querySelectorAll<HTMLElement>(".project-record-group")]
+        .find((card) => card.querySelector("h3")?.textContent === "问题")!;
+      const rows = [...group.querySelectorAll<HTMLElement>(".project-item")];
+      const when = (title: string) => rows
+        .find((row) => row.querySelector("strong")?.textContent === title)!
+        .querySelector<HTMLElement>(".project-item-when")!;
+
+      expect(when("今天的问题").textContent).toBe("今天");
+      // 创建于五天前、今天才改过：显示的是创建那天
+      expect(when("旧问题").textContent).toBe(`${old.getMonth() + 1}月${old.getDate()}日`);
+      expect(when("旧问题").title).toContain("创建于");
+      expect(when("旧问题").title).toContain("最后修改");
+      // 没有 ULID 的那条只知道文件时间，就不能说成「创建于」
+      expect(when("没有 id").textContent).toBe("昨天");
+      expect(when("没有 id").title.startsWith("最后修改")).toBe(true);
+
+      // 日期不许把标题挤没：它是定宽的一小格，标题仍占着剩下的地方
+      const box = when("今天的问题").getBoundingClientRect();
+      const copy = rows[0].querySelector<HTMLElement>(".project-item-copy")!.getBoundingClientRect();
+      expect(box.width).toBeLessThan(90);
+      expect(copy.width).toBeGreaterThan(box.width * 2);
+    } finally {
+      dated.forEach((note) => disk.delete(note.path));
+    }
   });
 
   it("记录入口默认就是进展，只要求填写内容", async () => {
