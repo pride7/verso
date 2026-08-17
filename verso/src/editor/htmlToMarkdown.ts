@@ -23,6 +23,42 @@ interface Context {
   formulas?: FormulaProtection;
 }
 
+/**
+ * `render` 真正会翻译成 Markdown 语法的标签。`div` / `span` / `p` 不算。
+ *
+ * `<br>` 算：它表达的换行未必出现在同一份 `text/plain` 里（网页把一条块公式
+ * 拆成三行就是这样），丢掉它等于丢结构。代码编辑器复制多行时用的是一行一个
+ * `<div>`，不受影响。
+ */
+const MARKUP = new Set([
+  "a", "b", "blockquote", "br", "code", "del", "em", "h1", "h2", "h3", "h4", "h5",
+  "h6", "hr", "i", "img", "li", "ol", "pre", "s", "strike", "strong", "table", "td",
+  "th", "tr", "ul",
+]);
+
+/**
+ * 这份 HTML 是不是只是纯文本的一层包装。
+ *
+ * 代码编辑器和带语法高亮的输入框（VS Code、各种网页编辑器）复制时都会附一份
+ * 只有 `<div>` / `<span>` 加颜色样式的 HTML。里面没有任何值得翻译的结构，却
+ * 足以让粘贴走 HTML 这条路 —— 于是用户手写的 `**加粗**` 被当成字面量转义成
+ * `\*\*加粗\*\*`，正好毁掉他想要的加粗。这种剪贴板里 `text/plain` 才是原文。
+ */
+export function htmlIsPlainText(html: string): boolean {
+  if (!html.trim()) return true;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const scan = (node: Node): boolean => {
+    for (const child of [...node.childNodes]) {
+      if (!(child instanceof Element)) continue;
+      const tag = child.tagName.toLowerCase();
+      if (SKIP.has(tag) || child.getAttribute("aria-hidden") === "true") continue;
+      if (MARKUP.has(tag) || !scan(child)) return false;
+    }
+    return true;
+  };
+  return scan(doc.body);
+}
+
 interface FormulaProtection {
   text: WeakMap<Text, TextRange[]>;
   inlineElements: WeakSet<Element>;

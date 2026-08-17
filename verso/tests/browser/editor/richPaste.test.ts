@@ -170,6 +170,48 @@ describe("网页内容转 Markdown", () => {
     expect(event.defaultPrevented).toBe(true);
     expect(view.state.doc.toString()).toBe("n ** 2");
   });
+
+  it("只带样式的 HTML 按纯文本粘贴，复制来的 Markdown 源码仍然生效", () => {
+    // 代码编辑器复制时附的那份高亮 HTML：只有颜色，没有结构。
+    const view = mount();
+    const event = paste(
+      view,
+      "**加粗** 与 _斜体_",
+      '<div style="color:#abb2bf"><span style="color:#c678dd">**加粗**</span>'
+        + " 与 <span>_斜体_</span></div>",
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("**加粗** 与 _斜体_");
+  });
+
+  it("一行一个 <div> 的多行源码保持换行与缩进", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      "- 列表\n  **缩进的加粗**",
+      "<div><span>- 列表</span></div><div><span>  **缩进的加粗**</span></div>",
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("- 列表\n  **缩进的加粗**");
+  });
+
+  it("HTML 里有真的格式时仍走富文本转换", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      "加粗 与 **字面量**",
+      "<p><strong>加粗</strong> 与 **字面量**</p>",
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(String.raw`**加粗** 与 \*\*字面量\*\*`);
+  });
+
+  it("剪贴板只有 HTML 时不受纯文本回退影响", () => {
+    const view = mount();
+    const event = paste(view, "", "<div>**加粗**</div>");
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(String.raw`\*\*加粗\*\*`);
+  });
 });
 
 describe("选区上粘贴网址", () => {
