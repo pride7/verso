@@ -888,3 +888,56 @@ describe("拖右边缘调宽度", () => {
     expect(width()).toBe(252);
   });
 });
+
+describe("大纲的全部折叠 / 全部展开", () => {
+  /** 三级结构：两个一级标题各带下属，末端两条没有下属 */
+  const DOC = ["# 上篇", "## 方法", "### 实验", "# 下篇", "## 结论"].join("\n\n");
+
+  // 正文得在 App 把它读进来之前就换好，读是异步的，挂完再还原会赶不上
+  const original = NOTE.body;
+  afterEach(() => { NOTE.body = original; });
+
+  async function mountOutline() {
+    localStorage.setItem("verso.sidebarView", "outline");
+    localStorage.setItem("verso.sidebarOpen", "1");
+    NOTE.body = DOC;
+    await mountApp();
+  }
+
+  const texts = () => [...document.querySelectorAll(".outline-text")].map((row) => row.textContent);
+  const foldAll = () => el<HTMLButtonElement>(".sidebar-head .side-act");
+
+  it("按钮和文档树在同一个位置，一下收全、再一下展开", async () => {
+    await mountOutline();
+    expect(texts()).toEqual(["上篇", "方法", "实验", "下篇", "结论"]);
+    expect(foldAll()!.getAttribute("aria-label")).toBe("全部折叠");
+
+    await fire(foldAll()!, "click");
+    expect(texts()).toEqual(["上篇", "下篇"]);
+    // 全收着了，按钮才改口说「全部展开」—— 它照实说下一下会发生什么
+    expect(foldAll()!.getAttribute("aria-label")).toBe("全部展开");
+
+    await fire(foldAll()!, "click");
+    expect(texts()).toEqual(["上篇", "方法", "实验", "下篇", "结论"]);
+    expect(foldAll()!.getAttribute("aria-label")).toBe("全部折叠");
+  });
+
+  it("手动展开其中一节，按钮就回到「全部折叠」", async () => {
+    await mountOutline();
+    await fire(foldAll()!, "click");
+    expect(foldAll()!.getAttribute("aria-label")).toBe("全部展开");
+
+    await fire(el<HTMLButtonElement>(".outline-twisty")!, "click");
+    expect(texts()).toEqual(["上篇", "方法", "下篇"]);
+    expect(foldAll()!.getAttribute("aria-label")).toBe("全部折叠");
+  });
+
+  it("一条能收的都没有时不摆这个按钮", async () => {
+    localStorage.setItem("verso.sidebarView", "outline");
+    localStorage.setItem("verso.sidebarOpen", "1");
+    await mountApp();
+    // 默认那篇只有一个 `# 论文`
+    expect(document.querySelectorAll(".outline-text")).toHaveLength(1);
+    expect(foldAll()).toBeNull();
+  });
+});

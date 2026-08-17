@@ -71,7 +71,7 @@ import { sendToTerminal } from "../core/termBus";
 import { normalizeIcon, pushRecentIcon } from "../core/emoji";
 import { useUpdate } from "../host/update";
 import { IconPicker } from "../ui/IconPicker";
-import { parseHeadings, type Heading } from "../core/outline";
+import { outlineRows, parseHeadings, type Heading } from "../core/outline";
 import {
   activePath,
   closeOthers,
@@ -630,6 +630,26 @@ export default function App() {
       return { ...prev, [path]: next };
     });
   }, []);
+
+  /**
+   * 「全部折叠 / 全部展开」。文档树那个按钮只记自己上一次按的是哪边（展开状态
+   * 散在每一行里，问不到），大纲的收起状态全在这里，所以这一个能**照实**说出
+   * 下一下会发生什么：还有没收起的就是「全部折叠」，全收着了才变「全部展开」。
+   */
+  const foldableSections = useMemo(
+    () => outlineRows(headings).filter((row) => row.descendants > 0).map((row) => row.key),
+    [headings],
+  );
+  const outlineAllShut = foldableSections.length > 0
+    && foldableSections.every((key) => collapsedSections.has(key));
+  const toggleOutlineAll = useCallback(() => {
+    const path = noteRef.current?.path;
+    if (!path) return;
+    setOutlineCollapsed((prev) => ({
+      ...prev,
+      [path]: outlineAllShut ? EMPTY_COLLAPSE : new Set(foldableSections),
+    }));
+  }, [foldableSections, outlineAllShut]);
 
   /**
    * 点侧栏图标。点当前那个 = 收起侧栏（VS Code 的行为），点别的 = 切过去。
@@ -3879,6 +3899,21 @@ export default function App() {
               换库是低频操作，不该占着头部的黄金位置，那正是之前挤成一团的原因 */}
           <header className="sidebar-head">
             <span className="side-title">{VIEW_TITLE[sidebarView]}</span>
+            {/* 大纲的「全部折叠 / 全部展开」。和文档树同一个位置、同一对图标 ——
+                两个面板里同样的动作不该长成两个样子。一条能收的都没有时不摆
+                出来：那一下点了什么也不会发生 */}
+            {sidebarView === "outline" && foldableSections.length > 0 && (
+              <div className="side-actions">
+                <button
+                  className="side-act"
+                  onClick={toggleOutlineAll}
+                  title={outlineAllShut ? "全部展开" : "全部折叠"}
+                  aria-label={outlineAllShut ? "全部展开" : "全部折叠"}
+                >
+                  <Icon name={outlineAllShut ? "expand" : "collapse"} size={15} />
+                </button>
+              </div>
+            )}
             {sidebarView === "tree" && (
               <div className="side-actions">
                 <div className="side-menu-wrap">
