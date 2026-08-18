@@ -228,6 +228,30 @@ describe("网页内容转 Markdown", () => {
     expect(view.state.doc.toString()).toBe("**加粗**\n\n- 见 [论文](https://a.test)");
   });
 
+  it("VS Code 复制的整篇源码保持原来的行距，挨着的行不被拆开", () => {
+    const source = "# 标题\n\n第一行\n第二行\n\n- 甲\n- 乙\n";
+    const view = mount();
+    const event = paste(
+      view,
+      source,
+      vscode("# 标题", "", "第一行", "第二行", "", "- 甲", "- 乙", ""),
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("纯文本里没有的换行仍然从 HTML 里取回来", () => {
+    // 网页把一条块公式拆成三行，`text/plain` 只有一行：这份换行只有 HTML 有。
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`\[c*d\]`,
+      String.raw`<div><span>\[</span><br><span>c*d</span><br><span>\]</span></div>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("$$\nc*d\n$$");
+  });
+
   it("HTML 里有真的格式时仍走富文本转换", () => {
     const view = mount();
     const event = paste(

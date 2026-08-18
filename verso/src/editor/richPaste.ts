@@ -2,7 +2,7 @@
 import type { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
-import { htmlIsPlainText, htmlToMarkdown } from "./htmlToMarkdown";
+import { htmlToMarkdown, plainTextIsSource } from "./htmlToMarkdown";
 import { pastedMathText, pointInCode } from "./mathDelimiters";
 
 function webUrl(value: string): string | null {
@@ -61,9 +61,9 @@ export function richTextPaste() {
 
       // 只有排版样式、没有任何结构的 HTML 不算富文本：那是编辑器复制源码时
       // 附带的一层包装，用户复制的就是 Markdown 本身。走 HTML 那条路只会把
-      // `**加粗**` 当字面量转义掉，所以这里退回纯文本。
+      // `**加粗**` 当字面量转义掉、把挨着的行拆成一段一段，所以这里退回纯文本。
       const html = event.clipboardData?.getData("text/html") ?? "";
-      const rich = !!html && !(plain.trim() && htmlIsPlainText(html));
+      const rich = !!html && !plainTextIsSource(html, plain);
       if (rich && !pointInCode(view.state, selection.from)) {
         const markdown = htmlToMarkdown(html);
         if (markdown) {

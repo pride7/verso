@@ -35,15 +35,6 @@ const MARKUP = new Set([
   "th", "tr", "ul",
 ]);
 
-/**
- * 再算上 `<br>` 的那一版。
- *
- * `<br>` 不产出任何 Markdown 标记，但它表达的换行未必出现在同一份 `text/plain`
- * 里（网页把一条块公式拆成三行就是这样），所以「这份 HTML 值不值得转换」要认
- * 它，「正文里的字符要不要转义」不认它。
- */
-const STRUCTURE = new Set([...MARKUP, "br"]);
-
 /** 这棵树里有没有出现这些标签。脚本、样式和不可见节点本来就会被丢掉，不算。 */
 function hasTags(root: Element, tags: Set<string>): boolean {
   for (const child of [...root.childNodes]) {
@@ -55,18 +46,39 @@ function hasTags(root: Element, tags: Set<string>): boolean {
   return false;
 }
 
+/** 去掉全部空白后的正文。判断两份剪贴板写的是不是同一段字时用。 */
+function bare(value: string): string {
+  return value.replace(/\s+/g, "");
+}
+
+/** 非空行的条数。HTML 比纯文本多出来的那些行，就是纯文本没有的结构。 */
+function contentLines(value: string): number {
+  return value.split("\n").filter((line) => line.trim()).length;
+}
+
 /**
- * 这份 HTML 是不是只是纯文本的一层包装。
+ * 这份剪贴板该按 `text/plain` 粘贴吗 —— HTML 只是纯文本的一层包装。
  *
  * 代码编辑器和带语法高亮的输入框（VS Code、各种网页编辑器）复制时都会附一份
  * 只有 `<div>` / `<span>` 加颜色样式的 HTML。里面没有任何值得翻译的结构，却
  * 足以让粘贴走 HTML 这条路 —— 于是用户手写的 `**加粗**` 被当成字面量转义成
- * `\*\*加粗\*\*`，正好毁掉他想要的加粗。这种剪贴板里 `text/plain` 才是原文。
+ * `\*\*加粗\*\*`，正好毁掉他想要的加粗；每行一个 `<div>` 又会按段落规则彼此
+ * 隔开一个空行，一份紧挨着写的源码贴进来行行之间都多一行。这种剪贴板里
+ * `text/plain` 才是原文。
+ *
+ * `<br>` 不能一概算结构：VS Code 用它表示源码里的空行，一带空行就会落回 HTML
+ * 这条路。但网页把一条块公式拆成三行时，那几个换行确实只有 HTML 里才有。所以
+ * 换行让两边自己比 —— HTML 产出的非空行不比纯文本多，纯文本就没丢东西。
  */
-export function htmlIsPlainText(html: string): boolean {
+export function plainTextIsSource(html: string, plain: string): boolean {
   if (!html.trim()) return true;
+  // 没有纯文本可退，再像包装也只能走 HTML 那条路。
+  if (!plain.trim()) return false;
   const doc = new DOMParser().parseFromString(html, "text/html");
-  return !hasTags(doc.body, STRUCTURE);
+  if (hasTags(doc.body, MARKUP)) return false;
+  const markdown = convert(doc.body);
+  // 同一段字才谈得上「谁的换行更全」；正文都对不上就以 HTML 为准。
+  return bare(markdown) === bare(plain) && contentLines(markdown) <= contentLines(plain);
 }
 
 interface FormulaProtection {
@@ -329,15 +341,18 @@ function render(node: Node, ctx: Context): string {
   return BLOCK.has(tag) ? `${body.trim()}\n\n` : body;
 }
 
-export function htmlToMarkdown(html: string): string {
-  if (!html.trim()) return "";
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  return children(doc.body, {
-    formulas: protectFormulas(doc.body),
-    literal: !hasTags(doc.body, MARKUP),
+function convert(body: HTMLElement): string {
+  return children(body, {
+    formulas: protectFormulas(body),
+    literal: !hasTags(body, MARKUP),
   })
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+export function htmlToMarkdown(html: string): string {
+  if (!html.trim()) return "";
+  return convert(new DOMParser().parseFromString(html, "text/html").body);
 }
