@@ -6,6 +6,7 @@
  * `tests/unit/editor/mermaidBlock.test.ts` 里已经钉死了。
  */
 import { EditorView } from "@codemirror/view";
+import { page } from "vitest/browser";
 import { afterEach, describe, expect, it } from "vitest";
 
 // 图和「编辑」按钮的样式在全局样式表里（CM6 的 theme 对象只管编辑器自己的
@@ -37,6 +38,9 @@ function mount(doc: string, anchor = 0) {
   views.push(view);
   return view;
 }
+
+/** 手机视口。和 mobile.test.tsx 用的是同一档尺寸 */
+const PHONE = { w: 390, h: 844 };
 
 const boxes = (v: EditorView) => v.dom.querySelectorAll(".cm-mermaid").length;
 const settle = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -116,6 +120,37 @@ describe("mermaid 图", () => {
     expect(head).toBeLessThan(doc.indexOf("```", doc.indexOf("graph TD")));
     // 光标进去了，于是这一块退回源码
     expect(boxes(v)).toBe(0);
+  });
+
+  /**
+   * 一张宽图不能把整篇正文顶宽 —— 那会让每一段文字都要横向拖着读，而不是
+   * 只有这一张图要拖。手机上尤其明显，所以顺便在手机视口下量。
+   */
+  it("宽图自己横向滚，不把正文撑宽", async () => {
+    const wide = `\`\`\`mermaid\ngraph LR\n${
+      Array.from({ length: 12 }, (_, i) => `  N${i}[节点${i}] --> N${i + 1}[节点${i + 1}]`).join("\n")
+    }\n\`\`\``;
+    document.documentElement.dataset.touch = "on";
+    await page.viewport(PHONE.w, PHONE.h);
+    try {
+      const v = mount(`开头\n\n${wide}\n`);
+      expect(await drawn(v)).toBeTruthy();
+      await settle(100);
+
+      // 正文不许跟着变宽。真正要守的是这一条：一张图把每一段文字都顶得
+      // 要横向拖着读，那是最难忍的一种坏
+      expect(v.contentDOM.scrollWidth).toBeLessThanOrEqual(v.contentDOM.clientWidth + 1);
+
+      // mermaid 的 SVG 自带 `max-width`，窄屏上是**等比缩小**而不是横向滚
+      // （所以上面那条永远成立）。代价是十几个节点的图在手机上会小得读不了，
+      // 该不该改成「保持原大小、自己横向滚」要在真机上看过再定 —— 这里先把
+      // 当前行为钉住，将来真改了，这条断言会提醒改的人：那是一次行为变更
+      const svg = v.dom.querySelector<SVGElement>(".cm-mermaid svg")!;
+      expect(svg.getBoundingClientRect().width).toBeLessThanOrEqual(PHONE.w);
+    } finally {
+      delete document.documentElement.dataset.touch;
+      await page.viewport(1440, 900);
+    }
   });
 
   /**
