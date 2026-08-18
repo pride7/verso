@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type { EditorState } from "@codemirror/state";
 
@@ -32,7 +41,7 @@ import { MoveTargetPicker } from "../ui/MoveTargetPicker";
 import { SettingsPanel, type Tab as SettingsTab } from "../ui/SettingsPanel";
 import { SymbolPanel } from "../ui/SymbolPanel";
 import { TagsView } from "../ui/TagsView";
-import { TerminalPanel, type TermDock } from "../ui/TerminalPanel";
+import type { TermDock } from "../ui/TerminalPanel";
 import { Tree } from "../ui/Tree";
 import { TabBar } from "../ui/TabBar";
 import { TemplatePicker } from "../ui/TemplatePicker";
@@ -119,6 +128,19 @@ import type {
 } from "../core/types";
 import "katex/dist/katex.min.css";
 import "../ui/styles.css";
+
+/**
+ * 终端**按需加载**。
+ *
+ * xterm 是启动包里最大的一块「多数时候用不到」的东西（约 336 KB 源码），
+ * 而它只在按 `Ctrl/⌘+\`` 打开终端时才用得上 —— 不开终端的人不该为它付
+ * 启动时间，安卓上尤其（那里压根不显示终端）。同 mermaid 的做法（§4.11）。
+ *
+ * 只有类型是静态导入的（`import type` 不产生运行时依赖）。
+ */
+const TerminalPanel = lazy(() =>
+  import("../ui/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
+);
 
 const AUTOSAVE_MS = 800; // §2.7 保存策略
 
@@ -4314,7 +4336,10 @@ export default function App() {
         <OutlineFloat headings={headings} activeIndex={activeHeadingIdx} onPick={gotoHeading} />
       )}
 
+      {/* fallback 是 null：那个 chunk 就在本地磁盘上，等的是一两帧，
+          而终端本来就要等 shell 起来 —— 塞一个「加载中」反而多闪一下 */}
       {termOpen && !mobile && (
+        <Suspense fallback={null}>
         <TerminalPanel
           key={vault.root}
           dock={termDockEffective}
@@ -4337,6 +4362,7 @@ export default function App() {
           dark={effectiveTheme === "dark"}
           theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}
         />
+        </Suspense>
       )}
 
       {/* §5.5 公式工具条。条件见上面 `mathBarOn` */}
