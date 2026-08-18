@@ -9,7 +9,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { renderMarkdown, renderViewTable, viewSources } from "../../../src/editor/exportHtml";
+import {
+  mermaidSources,
+  renderMarkdown,
+  renderViewTable,
+  viewSources,
+} from "../../../src/editor/exportHtml";
 import type { ViewResult } from "../../../src/core/types";
 
 describe("段落与标题", () => {
@@ -156,6 +161,22 @@ describe("代码块", () => {
       renderView: (src) => `<table data-src="${src.trim()}"></table>`,
     });
     expect(html).toContain('data-src="from: 论文"');
+  });
+
+  it("mermaid 块由调用方画好后塞进来", () => {
+    const html = renderMarkdown("```mermaid\ngraph TD\n  A --> B\n```\n", {
+      renderMermaid: () => "<svg data-mermaid></svg>",
+    });
+    expect(html).toContain("mermaid-figure");
+    expect(html).toContain("<svg data-mermaid></svg>");
+  });
+
+  it("没人画（或画不出来）就退回源码 —— 纸上至少看得出这里要画什么", () => {
+    const source = "```mermaid\ngraph TD\n  A --> B\n```\n";
+    for (const html of [renderMarkdown(source), renderMarkdown(source, { renderMermaid: () => null })]) {
+      expect(html).toContain("graph TD");
+      expect(html).toContain('class="language-mermaid"');
+    }
   });
 });
 
@@ -345,6 +366,18 @@ describe("找出 database 视图（给调用方先跑查询）", () => {
 
   it("空的视图块也要报出来，否则那一块会被当成查不到", () => {
     expect(viewSources("```verso-view\n```\n")).toEqual([""]);
+  });
+});
+
+describe("找出 mermaid 图（给调用方先画）", () => {
+  it("按出现顺序给出源码", () => {
+    const src = "前文\n\n```mermaid\ngraph TD\n```\n\n中间\n\n```Mermaid\npie\n```\n";
+    expect(mermaidSources(src)).toEqual(["graph TD", "pie"]);
+  });
+
+  it("别的语言的代码块和正文里提到的字都不算", () => {
+    expect(mermaidSources("```python\nmermaid\n```\n")).toEqual([]);
+    expect(mermaidSources("用 `mermaid` 画一张图。")).toEqual([]);
   });
 });
 

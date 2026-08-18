@@ -60,6 +60,13 @@ export const BUILTIN_SLASH: SlashItem[] = [
     detail: "按属性筛选笔记的表格",
     template: '```verso-view\nfrom: "$0"\nview: table\ncolumns: [title]\n```',
   },
+  // 带一行现成的流程图：一个空的 ```mermaid 块对着的是「我该写什么语法」，
+  // 而改一行现成的比从零写快得多
+  {
+    label: "Mermaid 图",
+    detail: "流程图、时序图…",
+    template: "```mermaid\ngraph TD\n  A[$0] --> B[结束]\n```",
+  },
   // 排在最后：这三条开的是浮层、或者要问 App 才知道插什么，
   // 和上面那些「插一段固定文本」不是一类动作
   { label: "插入模板", detail: "template", action: "template" },

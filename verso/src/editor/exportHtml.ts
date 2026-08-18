@@ -21,8 +21,10 @@
  * 协作者或 AI（§7.5），透传 `<script>` 等于「打开一篇笔记 = 执行一段陌生程序」——
  * 而导出的 HTML 会在应用自己的 webview 里打开，那里够得着 IPC。
  *
- * 例外只有三处，每处都受控：
+ * 例外只有四处，每处都受控：
  *   - KaTeX 的输出。`trust: false` 已经禁掉 `\href` `\htmlClass` 这类注入命令
+ *   - mermaid 的 SVG，由调用方通过 `renderMermaid` 传进来。那一段在
+ *     `securityLevel: "strict"` 下产出，mermaid 自己用 DOMPurify 洗过
  *   - `ALLOWED_TAGS` 里那几个**不带任何属性**的排版标签（`<br>` `<sub>` …）。
  *     没有属性就没有 `onerror`、没有 `href`，攻击面为零；带属性的一律当文本
  *   - `Entity`（`&nbsp;` `&#39;`）。实体在文本上下文里只解出一个字符，
@@ -36,6 +38,8 @@
  *   拽进来，而印在纸上的代码没有颜色本来也读得下去。等真需要再说
  * - **`verso-view` 视图不查询。** 它的内容是对整库的查询结果，不是这篇笔记
  *   自己的内容，这个纯函数拿不到索引 —— 由调用方通过 `renderView` 注入
+ * - **mermaid 图不在这里画。** 画一张图要动态 import 那个大依赖，还要一个
+ *   能测量文字宽高的 DOM，两样这里都没有 —— 由调用方通过 `renderMermaid` 注入
  */
 import type { SyntaxNode } from "@lezer/common";
 import { GFM, parser as baseParser } from "@lezer/markdown";
@@ -68,6 +72,14 @@ export interface ExportOptions {
   /** ` ```verso-view ` 代码块。不给就渲染成一句占位说明 */
   renderView?: (source: string) => string;
   /**
+   * ` ```mermaid ` 代码块 → 一段 `<svg>`。不给就把源码当普通代码块印出来。
+   *
+   * 和 `renderView` 同一个道理：mermaid 渲染要先动态 import 再跑一遍布局，
+   * 是异步的，而这个函数是同步的 —— 由调用方先把图画好再传进来
+   * （`mermaidSources` 负责说出要画哪几张）。
+   */
+  renderMermaid?: (source: string) => string | null;
+  /**
    * 标题降级。把子文档接在父文档后面一起导出时用：子文档的 `## ` 变 `### `，
    * 免得两篇的一级标题在同一份 PDF 里平起平坐。
    */
@@ -99,12 +111,32 @@ export function renderMarkdown(src: string, opts: ExportOptions = {}): string {
  * 或者出现在正文中被反引号括起来的一段说明里。
  */
 export function viewSources(src: string): string[] {
+  return fencedSources(src, (info) => info === "verso-view");
+}
+
+/**
+ * 正文里所有 ` ```mermaid ` 块的源码，按出现顺序。
+ *
+ * 同 `viewSources`：画图是异步的，而这里是同步渲染 —— 调用方先照这份清单
+ * 把图都画出来，再通过 `renderMermaid` 传回来。
+ */
+export function mermaidSources(src: string): string[] {
+  return fencedSources(src, (info) => info.toLowerCase() === "mermaid");
+}
+
+/**
+ * 围栏语言符合条件的代码块的正文。
+ *
+ * 走语法树而不是正则：`verso-view`、`mermaid` 这些字也可能出现在别的代码块
+ * 里，或者出现在正文中被反引号括起来的一段说明里。
+ */
+function fencedSources(src: string, match: (info: string) => boolean): string[] {
   const out: string[] = [];
   parser.parse(src).iterate({
     enter(node) {
       if (node.name !== "FencedCode") return;
       const info = node.node.getChild("CodeInfo");
-      if (!info || src.slice(info.from, info.to).trim() !== "verso-view") return;
+      if (!info || !match(src.slice(info.from, info.to).trim())) return;
       const body = node.node.getChild("CodeText");
       out.push(body ? src.slice(body.from, body.to) : "");
     },
@@ -374,6 +406,13 @@ function renderCode(ctx: Ctx, node: SyntaxNode): string {
       ctx.opts.renderView?.(code) ??
       `<div class="dbview-placeholder"><p>database 视图（未打印查询结果）</p></div>`
     );
+  }
+
+  if (lang.toLowerCase() === "mermaid") {
+    const svg = ctx.opts.renderMermaid?.(code);
+    // 画不出来（语法有误，或者调用方没备这张图）就退回源码：纸上留着源码，
+    // 至少还看得出这里本来要画什么
+    if (svg) return `<figure class="mermaid-figure">${svg}</figure>`;
   }
 
   const cls = lang ? ` class="language-${esc(lang.split(/\s+/)[0])}"` : "";

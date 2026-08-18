@@ -58,7 +58,8 @@ import { SharedSpaceDialog } from "../ui/SharedSpaceDialog";
 import { JoinVaultDialog, type JoinVaultInput } from "../ui/JoinVaultDialog";
 import { ShareNoteDialog, type ShareNoteInput } from "../ui/ShareNoteDialog";
 import { setSlashAction } from "../editor/completion";
-import { viewSources } from "../editor/exportHtml";
+import { mermaidSources, viewSources } from "../editor/exportHtml";
+import { renderMermaid } from "../editor/mermaid";
 import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
 import { hasTransferredFiles } from "../editor/paste";
@@ -864,7 +865,19 @@ export default function App() {
           }),
       );
 
-      setPrintSource({ title: content.title, parts, views, resolveImage: imageSrc });
+      // mermaid 图。纸上是黑字白底，所以一律按浅色画，不跟界面主题走 ——
+      // 深色主题下印出来会是一张几乎全黑的图
+      const mermaid = new Map<string, string>();
+      await Promise.all(
+        parts
+          .flatMap((p) => mermaidSources(p.body))
+          .map(async (src) => {
+            const result = await renderMermaid(src, false).catch(() => null);
+            if (result?.svg) mermaid.set(src, result.svg);
+          }),
+      );
+
+      setPrintSource({ title: content.title, parts, views, mermaid, resolveImage: imageSrc });
     },
     [note, tree, imageSrc],
   );

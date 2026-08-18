@@ -27,6 +27,8 @@ import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
 import { mathDelimiterPaste } from "./mathDelimiters";
 import { mathPreview } from "./mathPreview";
+import { mermaidBlockExtension } from "./mermaidBlock";
+import { mermaidPreview } from "./mermaidPreview";
 import { paragraphSpacing } from "./paragraphSpacing";
 import { imagePaste, type SaveAttachment } from "./paste";
 import { richTextPaste } from "./richPaste";
@@ -61,7 +63,18 @@ const snippetCompartment = new Compartment();
  */
 // mathPreview 也在这组里：源码模式的本意是「只看源码」，光标扫过每个
 // 公式都弹预览会变成干扰
-const PREVIEW: Extension = [livePreview, codeBlocks, viewBlocks, tables, paragraphSpacing, mathPreview];
+const PREVIEW: Extension = [
+  livePreview,
+  codeBlocks,
+  viewBlocks,
+  // 和 viewBlocks 一样是整块替换，位置也就一样：优先级高于代码块自身的高亮
+  mermaidBlockExtension,
+  tables,
+  paragraphSpacing,
+  mathPreview,
+  // 同 mathPreview：光标在图的源码里时，上方浮一张随输入重画的图
+  mermaidPreview,
+];
 
 /**
  * 预览装饰单独放一个 compartment，理由和 snippet 那个一样：

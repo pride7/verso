@@ -2767,6 +2767,102 @@ body.is-table-resizing * {
   font-size: 13px;
 }
 
+/* ---------- mermaid 图（§4.11） ---------- */
+
+.cm-mermaid {
+  position: relative;
+  margin: 0.9em 0;
+  /* 图自己居中，但左右还是正文的宽度 —— 一张小流程图不该顶到行首 */
+  text-align: center;
+  /* 宽图自己横向滚，不把整篇正文撑宽 */
+  overflow-x: auto;
+}
+.cm-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+/* 渲染中和出错时才是文字，那时左对齐读起来正常 */
+.cm-mermaid-body {
+  color: var(--muted);
+  font-size: 13px;
+}
+.cm-mermaid.is-error .cm-mermaid-body {
+  text-align: left;
+  /* 和代码块同一块底色（theme.ts 的 .cm-code）—— 出错时显示的正是源码 */
+  background: color-mix(in oklch, var(--muted) 9%, transparent);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+}
+.cm-mermaid-message {
+  margin: 0 0 6px;
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.cm-mermaid.is-error pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* 「编辑」按钮：整块是 atomic range，方向键进不去，这是仅有的两条路之一
+   （另一条是双击）。默认淡出，鼠标进到图上才显形 —— 一张图旁边常驻一个
+   按钮太吵 */
+.cm-mermaid-edit {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.cm-mermaid:hover .cm-mermaid-edit,
+.cm-mermaid-edit:focus-visible {
+  opacity: 1;
+}
+.cm-mermaid-edit:hover {
+  color: var(--text);
+}
+
+/* 光标在源码里时接在代码块下面的那张图。**不是浮层** —— 它占文档的位置，
+   所以永远不会盖住正在编辑的源码（理由见 mermaidPreview.ts）。
+   用 padding 不用 margin：块级 widget 也进高度图，而高度图测的是盒高 */
+.cm-mermaid-preview {
+  padding: 10px 0 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-x: auto;
+}
+.cm-mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+/* 这一版还没画出来（写到一半几乎必然不合法）：留着上一张，淡一点 */
+.cm-mermaid-preview.is-stale {
+  opacity: 0.45;
+}
+
+/* 导出与打印里的图（exportHtml 的 `renderMermaid`） */
+.mermaid-figure {
+  margin: 0.9em 0;
+  text-align: center;
+  break-inside: avoid;
+}
+.mermaid-figure svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ---------- database 视图（§2.6） ---------- */
 
 .cm-dbview {

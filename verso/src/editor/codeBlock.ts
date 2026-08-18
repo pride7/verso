@@ -31,6 +31,7 @@ import {
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 
+import { isMermaidFenceLine, mermaidRendered } from "./mermaidBlock";
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { CodeCopyWidget } from "./widgets";
 
@@ -54,6 +55,9 @@ function build(state: EditorState): DecorationSet {
       // ` ```verso-view ` 整块被 database 视图换掉了（viewBlock.ts），
       // 再叠一层底色会在视图周围留一圈灰边
       if (/^\s*```[ \t]*verso-view\b/.test(first.text)) return false;
+      // ` ```mermaid ` 同理，但它只在**渲染成图的时候**让位：光标进去露出
+      // 源码时它就是一个普通代码块，底色、行号、复制按钮都该照常有
+      if (isMermaidFenceLine(first.text) && mermaidRendered(state, node.from, node.to)) return false;
 
       const last = state.doc.lineAt(node.to);
       const open = !touched(state, node.from, node.to);

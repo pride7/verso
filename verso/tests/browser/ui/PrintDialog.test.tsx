@@ -40,6 +40,7 @@ const SOURCE: PrintSource = {
     { title: "特征值", body: "## 子文档里的二级标题\n\n子文档正文。", depth: 1 },
   ],
   views: new Map([["from: 论文", VIEW]]),
+  mermaid: new Map(),
   resolveImage: () => null,
 };
 

@@ -41,6 +41,13 @@ export interface PrintSource {
   /** `verso-view` 的 YAML 源码 → 查询结果。查不到的那些不在表里 */
   views: Map<string, ViewResult>;
   /**
+   * mermaid 源码 → 画好的 SVG。画不出来的那些不在表里，纸上退回源码。
+   *
+   * 和 `views` 一样是**预先备好**的：画图要异步跑一遍布局，而勾一下选项就
+   * 要重排预览，那里不能等。
+   */
+  mermaid: Map<string, string>;
+  /**
    * `![[图.png]]` → webview 能加载的地址。
    *
    * 放在素材里而不是当参数传：预览和真正打印是两次 `composePrintHtml` 调用，
@@ -90,6 +97,9 @@ export function composePrintHtml(source: PrintSource, opts: PrintOptions): strin
       }
     : undefined;
 
+  const renderMermaid = (src: string) =>
+    source.mermaid.get(src) ?? source.mermaid.get(src.trim()) ?? null;
+
   const parts = opts.children ? source.parts : source.parts.slice(0, 1);
 
   return parts
@@ -97,6 +107,7 @@ export function composePrintHtml(source: PrintSource, opts: PrintOptions): strin
       const body = renderMarkdown(part.body, {
         headingOffset: part.depth,
         renderView,
+        renderMermaid,
         resolveImage: source.resolveImage,
       });
       if (part.depth === 0) return body;
