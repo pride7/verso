@@ -8,6 +8,9 @@
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 
+// 图和「编辑」按钮的样式在全局样式表里（CM6 的 theme 对象只管编辑器自己的
+// 那部分）。不加载它，量到的就是一个没有样式的按钮
+import "../../../src/ui/styles.css";
 import { createExtensions } from "../../../src/editor/index";
 
 const views: EditorView[] = [];
@@ -113,6 +116,28 @@ describe("mermaid 图", () => {
     expect(head).toBeLessThan(doc.indexOf("```", doc.indexOf("graph TD")));
     // 光标进去了，于是这一块退回源码
     expect(boxes(v)).toBe(0);
+  });
+
+  /**
+   * 触摸屏上没有悬停。按钮做成 hover 才显形的话，手机上就只剩一个没人猜得到
+   * 的双击 —— 和 theme.ts 里代码块复制按钮那条注释是同一条规矩。
+   */
+  it("手机上「编辑」按钮看得见、也够得着", async () => {
+    document.documentElement.dataset.touch = "on";
+    try {
+      const v = mount(`开头\n\n${GRAPH}\n`);
+      await settle();
+
+      const button = v.dom.querySelector<HTMLElement>(".cm-mermaid-edit")!;
+      expect(button).toBeTruthy();
+      expect(Number(getComputedStyle(button).opacity), "悬停才出现 = 手机上没有").toBeGreaterThan(0);
+
+      const rect = button.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThanOrEqual(44);
+      expect(rect.height).toBeGreaterThanOrEqual(32);
+    } finally {
+      delete document.documentElement.dataset.touch;
+    }
   });
 
   it("光标在源码里时，代码块下面接一张随输入重画的预览", async () => {

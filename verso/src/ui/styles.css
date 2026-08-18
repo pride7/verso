@@ -2809,12 +2809,15 @@ body.is-table-resizing * {
 }
 
 /* 「编辑」按钮：整块是 atomic range，方向键进不去，这是仅有的两条路之一
-   （另一条是双击）。默认淡出，鼠标进到图上才显形 —— 一张图旁边常驻一个
-   按钮太吵 */
+   （另一条是双击）。**常显但很淡**，不做成悬停才出现 —— 触摸屏上没有悬停，
+   那样在手机上就只剩一个没人猜得到的双击（同 theme.ts 的代码块复制按钮）。
+   尺寸吃 --tap-sm：桌面是 0，令牌自动失效；真机上撑到能点得中 */
 .cm-mermaid-edit {
   position: absolute;
   top: 4px;
   right: 4px;
+  min-width: max(44px, var(--tap-sm));
+  min-height: max(22px, var(--tap-sm));
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
@@ -2822,7 +2825,7 @@ body.is-table-resizing * {
   color: var(--muted);
   font-size: 12px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.5;
   transition: opacity 0.12s ease;
 }
 .cm-mermaid:hover .cm-mermaid-edit,
