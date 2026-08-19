@@ -51,9 +51,12 @@ export function mathDelimiterPaste() {
 
       event.preventDefault();
       const selection = view.state.selection.main;
+      // 光标按 `Text` 算：CRLF 存进文档只剩一个 `\n`，按原串长度会越界。
+      // 理由见 richPaste.ts 的 `insert`
+      const inserted = view.state.toText(converted.text);
       view.dispatch({
-        changes: { from: selection.from, to: selection.to, insert: converted.text },
-        selection: { anchor: selection.from + converted.text.length },
+        changes: { from: selection.from, to: selection.to, insert: inserted },
+        selection: { anchor: selection.from + inserted.length },
         userEvent: "input.paste",
         scrollIntoView: true,
       });

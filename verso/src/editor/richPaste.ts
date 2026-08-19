@@ -35,11 +35,22 @@ export function textForPaste(state: EditorState, value: string): string {
   return pastedMathText(state, value).text;
 }
 
+/**
+ * 插入并把光标放到插入内容之后。
+ *
+ * **光标位置必须按 `Text` 算，不能按原字符串的 `length`。** CM6 收下字符串时
+ * 会按 `/\r\n?|\n/` 切行，`\r\n` 存进文档只剩一个 `\n` —— 而 Windows 上从
+ * VS Code、记事本、浏览器复制出来的正是 CRLF。按原串长度算出来的位置比文档
+ * 末尾**多出「有几个 `\r`」那么多**，CM 检查选区时直接抛
+ * `RangeError: Selection points outside of document`，整个事务连同插入一起
+ * 作废 —— 屏幕上的表现是「粘贴毫无反应，一个字都没进来」。
+ */
 function insert(view: EditorView, value: string, userEvent = "input.paste") {
   const selection = view.state.selection.main;
+  const text = view.state.toText(value);
   view.dispatch({
-    changes: { from: selection.from, to: selection.to, insert: value },
-    selection: { anchor: selection.from + value.length },
+    changes: { from: selection.from, to: selection.to, insert: text },
+    selection: { anchor: selection.from + text.length },
     userEvent,
     scrollIntoView: true,
   });

@@ -323,7 +323,9 @@ export function Editor({
         const view = viewRef.current;
         if (!view) return;
         const selection = view.state.selection.main;
-        const converted = textForPaste(view.state, text);
+        // 光标按 `Text` 算：`readText()` 在 Windows 上拿回来的是 CRLF，
+        // 存进文档只剩一个 `\n`，按原串长度算会越界。理由见 richPaste.ts
+        const converted = view.state.toText(textForPaste(view.state, text));
         view.dispatch({
           changes: { from: selection.from, to: selection.to, insert: converted },
           selection: { anchor: selection.from + converted.length },

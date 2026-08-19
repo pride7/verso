@@ -291,3 +291,54 @@ describe("选区上粘贴网址", () => {
     expect(view.state.doc.toString()).toBe("https://a.test https://b.test");
   });
 });
+
+/**
+ * Windows 的剪贴板行尾是 CRLF。
+ *
+ * **不能用 `DataTransfer` 造这种剪贴板** —— 浏览器往里 `setData` 的那一刻就把
+ * `\r\n` 规范成了 `\n`，测试会变成永远绿的假测试。真实的 `paste` 事件里
+ * `getData("text/plain")` 拿回来的确实带 `\r`，所以这里直接给事件挂一份桩。
+ */
+function pasteCrlf(view: EditorView, plain: string, html = "") {
+  const data = {
+    types: html ? ["text/plain", "text/html"] : ["text/plain"],
+    items: [] as unknown[],
+    files: [] as unknown[],
+    getData: (type: string) => (type === "text/plain" ? plain : type === "text/html" ? html : ""),
+  };
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: data });
+  view.contentDOM.dispatchEvent(event);
+  return event as ClipboardEvent;
+}
+
+describe("CRLF 的剪贴板", () => {
+  it("带公式定界符的 CRLF 文本照样贴得进来", () => {
+    const view = mount("开头\n");
+    view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) });
+    // `\(...\)` 让公式定界符那条 paste 处理接管；它按插入内容算光标，
+    // 从前按原串长度算，CRLF 一多就越界成 RangeError，整段粘贴静默失效
+    pasteCrlf(view, "第一行 \\(x+1\\)\r\n\r\n第二行\r\n");
+    expect(view.state.doc.toString()).toBe("开头\n第一行 $x+1$\n\n第二行\n");
+    expect(view.state.selection.main.anchor).toBe(view.state.doc.length);
+  });
+
+  it("CRLF 的富文本（VS Code 复制的源码）照样贴得进来", () => {
+    const view = mount("开头\n");
+    view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length) });
+    pasteCrlf(
+      view,
+      "甲\r\n乙\r\n",
+      "<p><strong>甲</strong></p><p>乙</p>",
+    );
+    expect(view.state.doc.toString()).toBe("开头\n**甲**\n\n乙");
+  });
+
+  it("选区上贴 CRLF 文本", () => {
+    const view = mount("替换我");
+    view.dispatch({ selection: EditorSelection.single(0, 3) });
+    pasteCrlf(view, "一\r\n二\r\n三");
+    expect(view.state.doc.toString()).toBe("一\n二\n三");
+    expect(view.state.selection.main.anchor).toBe(5);
+  });
+});
