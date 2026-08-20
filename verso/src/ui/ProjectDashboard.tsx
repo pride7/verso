@@ -58,6 +58,15 @@ const TITLE_HINT: Record<ProjectItemKind, string> = {
   resource: "ParallelBench 论文",
 };
 
+/**
+ * 「分类名 + 通名」拼出来的说明文字，比如「实验」+「记录」= 实验记录。
+ *
+ * **分类名自己就以这个通名收尾时不再拼一遍。** 分类是用户自己起名的，
+ * 叫「记录」「会议记录」「文档」都很自然，硬拼出来就是「还没有记录记录」
+ * 「新建文档文档」—— 一眼就像个 bug。
+ */
+const noun = (name: string, tail: string) => (name.endsWith(tail) ? name : `${name}${tail}`);
+
 const unique = (values: string[]) => [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
 function StatusSelect({ value, options, onChange, onDelete, label }: { value: string; options: string[]; onChange: (value: string, custom: boolean) => void; onDelete: (option: string) => void; label: string }) {
@@ -587,7 +596,7 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
                     </div>
                     : <>
                       {items.slice(0, searching || expanded ? undefined : 3).map((item) => <ProjectItemRow key={item.path} item={item} options={optionsFor(kind)} showKind={false} slot={name} renaming={renaming?.slot === name && renaming.path === item.path} {...rowProps} />)}
-                      {!items.length && <p className="project-empty">还没有{name}记录。</p>}
+                      {!items.length && <p className="project-empty">还没有{noun(name, "记录")}。</p>}
                       {!searching && items.length > 3 && <button className="project-more" onClick={() => setExpandedSections((current) => {
                         const next = new Set(current);
                         if (expanded) next.delete(name); else next.add(name);
@@ -663,13 +672,13 @@ function CaptureDialog({ projectPath, sections, onClose, onDone, onError }: { pr
   };
   return <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="project-dialog" onSubmit={(event) => void submit(event)}>
-      <header><div><h2>{section === null ? "记录一条进展" : `新建${section}文档`}</h2></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
+      <header><div><h2>{section === null ? "记录一条进展" : `新建${noun(section, "文档")}`}</h2></div><button type="button" className="modal-close" onClick={onClose} aria-label="关闭"><Icon name="close" /></button></header>
       <div className="project-dialog-body">
         <div className="project-kind-tabs">
           <button type="button" className={section === null ? "is-on" : ""} onClick={() => setSection(null)}>{PROGRESS_SECTION}</button>
           {sections.map((value) => <button type="button" className={section === value ? "is-on" : ""} key={value} onClick={() => setSection(value)}>{value}</button>)}
         </div>
-        {section !== null && <label>标题<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`例如：${kind ? TITLE_HINT[kind] : `一条${section}记录`}`} /></label>}
+        {section !== null && <label>标题<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={`例如：${kind ? TITLE_HINT[kind] : `一条${noun(section, "记录")}`}`} /></label>}
         <label>{section === null ? "刚刚发生了什么" : "一句摘要（可选）"}<textarea autoFocus={section === null} value={content} onChange={(event) => setContent(event.target.value)} rows={section === null ? 6 : 3} placeholder={section === null ? "写下刚发生的事" : "写一句摘要"} /></label>
         {kind && <label className="project-template-choice"><input type="checkbox" checked={useTemplate} onChange={(event) => setUseTemplate(event.target.checked)} /><span><strong>使用建议结构</strong><small>按类型插入可编辑的 Markdown 标题。</small></span></label>}
       </div>

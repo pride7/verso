@@ -445,6 +445,31 @@ describe("单项目总览", () => {
     expect(apiMock.propSet).toHaveBeenCalledWith("项目/复现/跑通 baseline.md", "type", "复现");
   });
 
+  /**
+   * 分类名是用户自己起的，可能本身就以「记录」「文档」收尾。
+   * 界面上那些「分类名 + 通名」的说明文字不能硬拼 —— 拼出来是「一条记录记录」。
+   */
+  it("分类叫「记录」时说明文字不重复一遍", async () => {
+    const custom = { ...project, frontmatter: { ...project.frontmatter, sections: ["记录", "文档"] } };
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    root.render(<ProjectDashboard project={custom} notes={[]} revision={0} onOpen={() => {}} onEdit={() => {}} onRename={() => {}} onMove={() => {}} onChanged={() => {}} onError={() => {}} />);
+    await tick();
+    expect([...document.querySelectorAll(".project-record-group .project-empty")].map((p) => p.textContent))
+      .toEqual(["还没有记录。", "还没有文档记录。"]);
+
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".project-btn.primary")!);
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-kind-tabs button")].find((b) => b.textContent === "记录")!);
+    await tick();
+    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("新建记录文档");
+    expect(document.querySelector<HTMLInputElement>(".project-dialog input")?.placeholder).toBe("例如：一条记录");
+
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".project-kind-tabs button")].find((b) => b.textContent === "文档")!);
+    await tick();
+    expect(document.querySelector(".project-dialog h2")?.textContent).toBe("新建文档");
+    expect(document.querySelector<HTMLInputElement>(".project-dialog input")?.placeholder).toBe("例如：一条文档记录");
+  });
+
   it("记录整行打开文档，不再显示重复的进入箭头", async () => {
     const onOpen = vi.fn();
     const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
