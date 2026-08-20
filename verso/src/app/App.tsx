@@ -979,6 +979,9 @@ export default function App() {
    * 邻居的内容，但那不是一次「打开」；重启恢复时标签是一次性摆好的。
    */
   const loadNote = useCallback(async (path: string) => {
+    // 这一次到底换没换页。git 恢复 / 撤销某一处也走 `loadNote`，但那是「同一
+    // 篇换了内容」，不该把用户正看着的导图踢掉（见 `restoreFile`）
+    const switched = noteRef.current?.path !== path;
     try {
       const content = await api.readNote(path);
       setDiffSelection(null);
@@ -994,7 +997,10 @@ export default function App() {
       setScratchpadOpen(scratch);
       const project = isProject(content);
       setProjectOpen(project);
-      if (project || scratch) setMindmapOpen(false);
+      // 导图不是任何一篇笔记的主视图，它是「当前这一篇的另一种看法」——
+      // 所以换页必须收起来。留着的话，点开的每一篇都直接是导图，而那个开关
+      // 在图标栏上（图里没有），看着就像整个软件卡在导图里出不去了。
+      if (switched || project || scratch) setMindmapOpen(false);
       savedMtime.current = content.mtimeMs;
       setSaveState("saved");
       setExternalChange(false);

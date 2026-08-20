@@ -63,18 +63,30 @@ vi.mock("../../../src/host/api", () => ({
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "论文.md" }),
     openVault: async () => VAULT,
-    tree: async () => [doc("论文", "论文.md")],
-    listNotes: async () => [{ path: "论文.md", name: "论文" }] as NoteRef[],
-    readNote: async () =>
-      ({
-        path: "论文.md",
-        id: null,
-        title: "论文",
-        frontmatter,
-        frontmatterText: null,
-        body,
-        mtimeMs: 0,
-      }) as NoteContent,
+    // 第二篇是给「换页」那条用的：一篇笔记的树上永远换不出页来
+    tree: async () => [doc("论文", "论文.md"), doc("附录", "附录.md")],
+    listNotes: async () =>
+      [{ path: "论文.md", name: "论文" }, { path: "附录.md", name: "附录" }] as NoteRef[],
+    readNote: async (path: string) =>
+      (path === "附录.md"
+        ? {
+            path: "附录.md",
+            id: null,
+            title: "附录",
+            frontmatter: {},
+            frontmatterText: null,
+            body: ["## 附录", "", "- 丙"].join("\n"),
+            mtimeMs: 0,
+          }
+        : {
+            path: "论文.md",
+            id: null,
+            title: "论文",
+            frontmatter,
+            frontmatterText: null,
+            body,
+            mtimeMs: 0,
+          }) as NoteContent,
     writeNote: (p: string, b: string) => writeNote(p, b),
     statNote: async () => 0,
     createNote: async () => ({ path: "x.md", id: null, title: "x" }),
@@ -761,6 +773,27 @@ describe("思维导图", () => {
       await settle(100);
     });
     expect(document.querySelector(".mindmap")).toBeNull();
+    expect(document.querySelector(".cm-content")).not.toBeNull();
+  });
+
+  /**
+   * 导图是**当前这一篇**的另一种看法，不是一种全局模式。
+   *
+   * 它曾经跟着人跑：开着导图去点文档树，下一篇也是导图，再下一篇还是 ——
+   * 而关它的开关在图标栏上、图里没有，于是看着就像整个软件卡在导图里了。
+   */
+  it("换到另一篇笔记就回到正文", async () => {
+    await open();
+    expect(document.querySelector(".mindmap"), "先得开着").not.toBeNull();
+
+    await act(async () => {
+      [...document.querySelectorAll<HTMLElement>(".tree-label")]
+        .find((l) => l.textContent?.includes("附录"))!
+        .click();
+      await settle(400);
+    });
+
+    expect(document.querySelector(".mindmap"), "换页后导图不该还在").toBeNull();
     expect(document.querySelector(".cm-content")).not.toBeNull();
   });
 
