@@ -9,7 +9,7 @@
 桌面与移动端共用 Tauri 2、Rust、React 和 CodeMirror 6。安装包约 10 MB，内存占用约为
 同类 Electron 应用的一半。
 
-当前版本：**v0.8.27**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
+当前版本：**v0.8.28**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
@@ -136,7 +136,7 @@ Verso 不绑定模型，也不提供“AI 续写”按钮；它提供的是一�
 
 | 项目 | 状态 |
 |---|---|
-| 当前版本 | v0.8.27 |
+| 当前版本 | v0.8.28 |
 | 桌面端 | Windows / macOS 已有安装包；CI 同时产出 Linux 的 deb、rpm 与 AppImage（v1 暂不声明 Linux 支持） |
 | 移动端 | Android 已完成并提供 APK；iOS 暂缓，需 Mac、Xcode 和真机 |
 | 自动更新 | 桌面端已接入 GitHub Releases |
