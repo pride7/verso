@@ -250,7 +250,8 @@ describe("粘贴文本里的公式", () => {
     await settle();
 
     expect(event.defaultPrevented).toBe(true);
-    expect(view.state.doc.toString()).toBe("前$x+1$ 与 $$y^2$$后");
+    // 行内公式留在原处，块公式摊成独占三行的样子（§编辑器扩展）。
+    expect(view.state.doc.toString()).toBe("前$x+1$ 与\n$$\ny^2\n$$\n后");
   });
 
   it("粘贴内容自己的行内代码不转换", async () => {

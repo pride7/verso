@@ -8,6 +8,8 @@ import type { Tree } from "@lezer/common";
 import {
   convertLatexMathDelimiters,
   latexMathDelimiterChanges,
+  layoutBlockMath,
+  lineAcceptsBlockMath,
   type TextRange,
 } from "../core/mathDelimiters";
 
@@ -38,7 +40,27 @@ export function pastedMathText(state: EditorState, text: string): { text: string
   if (pointInCode(state, selection.from)) return { text, count: 0 };
   const pastedTree = markdownLanguage.parser.parse(text);
   const converted = convertLatexMathDelimiters(text, codeRanges(pastedTree));
-  return { text: converted.text, count: converted.count };
+  return { text: withBlockMathLayout(state, converted.text), count: converted.count };
+}
+
+/**
+ * 块公式排成独占几行 —— **落点所在的那一行也要算进来**。光标停在一段话
+ * 中间时，粘贴内容开头的 `$$` 接在那段话后面就不在行首了；行尾同理。
+ *
+ * 光标本来就在列表项、引用或表格行里时整段不排：那些结构靠行首的标记维持，
+ * 从中间断一行，公式没排好，原来的结构也散了。
+ */
+function withBlockMathLayout(state: EditorState, text: string): string {
+  const selection = state.selection.main;
+  const head = state.doc.lineAt(selection.from);
+  const before = state.doc.sliceString(head.from, selection.from);
+  if (!lineAcceptsBlockMath(before)) return text;
+
+  const laid = layoutBlockMath(text, codeRanges(markdownLanguage.parser.parse(text)));
+  const after = state.doc.sliceString(selection.to, state.doc.lineAt(selection.to).to);
+  const open = laid.startsWith("$$\n") && before.trim() ? "\n" : "";
+  const close = laid.endsWith("\n$$") && after.trim() ? "\n" : "";
+  return `${open}${laid}${close}`;
 }
 
 export function mathDelimiterPaste() {
@@ -47,7 +69,8 @@ export function mathDelimiterPaste() {
       const text = event.clipboardData?.getData("text/plain") ?? "";
       if (!text) return false;
       const converted = pastedMathText(view.state, text);
-      if (!converted.count) return false;
+      // 定界符没换、块公式也不用重排时把粘贴还给默认实现，别白占一次事务。
+      if (converted.text === text) return false;
 
       event.preventDefault();
       const selection = view.state.selection.main;

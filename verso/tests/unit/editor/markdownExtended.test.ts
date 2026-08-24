@@ -40,6 +40,22 @@ describe("公式", () => {
 
   it("识别同一行闭合的块级公式", () => {
     expect(texts("$$E = mc^2$$", "BlockMath")).toEqual(["$$E = mc^2$$"]);
+    expect(texts("$$E = mc^2$$   ", "BlockMath")).toEqual(["$$E = mc^2$$"]);
+  });
+
+  /**
+   * 块解析器只能整行地前进：把这样一行按块收下，`cx.nextLine()` 会连后半句
+   * 一起跳过去，那半句再没有行内解析 —— 屏幕上就是公式渲染了、同一行剩下的
+   * `$s_3$` 和 `**粗**` 全是字面量。
+   */
+  it("块公式后面还有正文时，后半句照常按行内解析", () => {
+    const src = "$$ s_3=E(x). $$那 $s_3$ 是**粗**的。";
+    expect(texts(src, "BlockMath")).toEqual(["$$ s_3=E(x). $$"]);
+    expect(texts(src, "InlineMath")).toEqual(["$s_3$"]);
+    expect(texts(src, "StrongEmphasis")).toEqual(["**粗**"]);
+    // 公式在行首还是行中间，结果必须一样
+    expect(texts("前文 " + src, "InlineMath")).toEqual(["$s_3$"]);
+    expect(texts("前文 " + src, "StrongEmphasis")).toEqual(["**粗**"]);
   });
 
   it("紧跟正文的块公式会打断段落，不被独立等号误判成 Setext 标题", () => {

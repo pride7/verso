@@ -72,7 +72,7 @@ describe("网页内容转 Markdown", () => {
       String.raw`<p>\[x_{i}+a_b\]</p>`,
     );
     expect(event.defaultPrevented).toBe(true);
-    expect(view.state.doc.toString()).toBe("$$x_{i}+a_b$$");
+    expect(view.state.doc.toString()).toBe("$$\nx_{i}+a_b\n$$");
   });
 
   it("公式内部的 Markdown 字符与跨节点排版保持 LaTeX 原样", () => {
@@ -97,7 +97,7 @@ describe("网页内容转 Markdown", () => {
       String.raw`<p>先 <span>\(a_b\)</span>，再 <span>\[</span><br><span>c*d + \left[e\right]</span><br><span>\]</span></p>`,
     );
     expect(event.defaultPrevented).toBe(true);
-    expect(view.state.doc.toString()).toBe("先 $a_b$，再 $$\nc*d + \\left[e\\right]\n$$");
+    expect(view.state.doc.toString()).toBe("先 $a_b$，再\n$$\nc*d + \\left[e\\right]\n$$");
   });
 
   it("已经是 Markdown 定界符的公式也完整保留", () => {
@@ -109,9 +109,38 @@ describe("网页内容转 Markdown", () => {
       "<p>$a*b + _x_ + \\left[y\\right]$</p><p>$$c*d + [e]$$</p>",
     );
     expect(event.defaultPrevented).toBe(true);
-    expect(view.state.doc.toString()).toBe(source);
+    // 公式源码一字不动，只有块公式的两道 `$$` 各自摊到一行上。
+    expect(view.state.doc.toString())
+      .toBe("$a*b + _x_ + \\left[y\\right]$\n\n$$\nc*d + [e]\n$$");
     expect(htmlToMarkdown("<p>这本书 $5 起，精装 $20 封顶。</p>"))
       .toBe("这本书 $5 起，精装 $20 封顶。");
+  });
+
+  it("网页里和正文挤在一行的块公式，贴进来就是块的样子", () => {
+    const view = mount();
+    const event = paste(
+      view,
+      String.raw`\[ x^{(a)}_{17:32}, x^{(b)}_{17:32}. \]也就是说：`,
+      String.raw`<p><span>\[ x^{(a)}_{17:32}, x^{(b)}_{17:32}. \]</span>也就是说：</p>`,
+    );
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString())
+      .toBe("$$\nx^{(a)}_{17:32}, x^{(b)}_{17:32}.\n$$\n也就是说：");
+  });
+
+  it("落在一行中间时，块公式仍然自己从行首开始", () => {
+    const view = mount("前文");
+    view.dispatch({ selection: { anchor: 1 } });
+    const event = paste(view, String.raw`\[x^2\]`);
+    expect(event.defaultPrevented).toBe(true);
+    expect(view.state.doc.toString()).toBe("前\n$$\nx^2\n$$\n文");
+  });
+
+  it("光标在列表项里时不拆行 —— 拆一次列表就断了", () => {
+    const view = mount("- 一项 ");
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    paste(view, String.raw`\[x^2\]`);
+    expect(view.state.doc.toString()).toBe("- 一项 $$x^2$$");
   });
 
   it("包住整条公式的网页强调留在公式外，公式内部的强调标签不写进源码", () => {

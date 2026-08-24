@@ -159,8 +159,13 @@ const blockMath: BlockParser = {
     // 同一行闭合：`$$x^2$$`
     const sameLine = text.slice(2).indexOf("$$");
     if (sameLine >= 0) {
-      const to = from + 2 + sameLine + 2;
-      cx.addElement(cx.elt("BlockMath", from, to));
+      const end = 2 + sameLine + 2;
+      // **公式后面还有正文时不能按块收下这一行。** 块解析器只能整行整行地
+      // 前进，`cx.nextLine()` 会把后半句一起跳过去 —— 那半句再没有行内解析，
+      // `$s_3$` 和 `**粗**` 都只剩字面量摆在那里。交给段落那条路：行内解析器
+      // 同样会把 `$$…$$` 建成 BlockMath，后半句照常渲染。
+      if (/\S/.test(text.slice(end))) return false;
+      cx.addElement(cx.elt("BlockMath", from, from + end));
       cx.nextLine();
       return true;
     }

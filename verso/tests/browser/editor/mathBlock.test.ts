@@ -104,6 +104,24 @@ describe("块公式", () => {
     expect(block.textContent).toContain("abc");
   });
 
+  it("块公式后面还有正文时，同一行剩下的部分照常渲染", async () => {
+    // 从网页复制来的老笔记里就是这样一行：公式和后半句挤在一起。块解析器
+    // 若按块吃掉整行，后半句连语法节点都没有 —— `$s_3$`、`**粗**` 全是字面量。
+    const doc = String.raw`$$ s_3=E(x_{1:32}). $$那 $s_3$ 是**粗体**的。`;
+    const view = mount(doc);
+    view.dispatch({ selection: EditorSelection.single(doc.indexOf("是")) });
+    await settle();
+
+    const block = renderedBlocks(view)[0];
+    expect(block).toBeDefined();
+    expect(block.classList.contains("cm-math-error")).toBe(false);
+    expect(view.dom.querySelector(".cm-math-inline")).not.toBeNull();
+    // 屏幕上看得见的正文里不该再有定界符和星号
+    expect(view.contentDOM.textContent).not.toContain("$s_3$");
+    expect(view.contentDOM.textContent).not.toContain("**");
+    expect(view.contentDOM.textContent).toContain("粗体");
+  });
+
   it("引用块公式不会把引用标记交给 KaTeX", async () => {
     const doc = "> 正文\n> $$\n> a=1\n> $$";
     const view = mount(doc);
