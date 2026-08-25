@@ -61,6 +61,10 @@ const NOTES: NoteRef[] = [
 ];
 
 let saved: Record<string, unknown> = { tabOpen: "new" };
+/** 读某一篇要多久（毫秒）。用来把「换页的那个空档」拉宽到看得见 */
+let readDelays: Record<string, number> = {};
+/** 读这几篇会抛错 */
+const failRead = new Set<string>();
 let workspace = { tabs: [] as string[], active: 0, pinnedCount: 0 };
 const workspaceSet = vi.fn(async (ws: { tabs: string[]; active: number; pinnedCount: number }) => {
   workspace = ws;
@@ -74,8 +78,13 @@ vi.mock("../../../src/host/api", () => ({
     openVault: async () => VAULT,
     tree: async () => TREE,
     listNotes: async () => NOTES,
-    readNote: async (path: string) =>
-      ({
+    readNote: async (path: string) => {
+      // 换页要经过一个来回，而它既可能慢、也可能失败 —— 那两种情况下
+      // 屏幕上还是上一篇（见「标签栏和正文对不上」那一组）
+      if (failRead.has(path)) throw new Error(`读不了 ${path}`);
+      const wait = readDelays[path] ?? 0;
+      if (wait) await new Promise((r) => setTimeout(r, wait));
+      return {
         path,
         id: path,
         title: PROJECT_TITLES[path] ?? path,
@@ -89,7 +98,8 @@ vi.mock("../../../src/host/api", () => ({
         frontmatterText: "",
         body: BODIES[path] ?? "",
         mtimeMs: 0,
-      }) as NoteContent,
+      } as NoteContent;
+    },
     writeNote: async () => 0,
     statNote: async () => 0,
     createNote: async () => ({ path: "新.md", id: "x", title: "新" }),
@@ -140,6 +150,8 @@ beforeEach(() => {
   localStorage.clear();
   saved = { tabOpen: "new" };
   workspace = { tabs: [], active: 0, pinnedCount: 0 };
+  readDelays = {};
+  failRead.clear();
   workspaceSet.mockClear();
 });
 
@@ -308,6 +320,83 @@ describe("切回来的时候", () => {
       await settle();
     });
     expect(document.querySelector(".cm-content")?.textContent).not.toContain("改过的内容");
+  });
+});
+
+/**
+ * 标签栏是按下的那一刻就变的，正文却要等一个来回读回来。这一组验的是那段
+ * 空档：**标签栏指着一页、正文却是另一页，这件事一次都不许留在屏幕上。**
+ *
+ * 真发生过：连着切两个标签，先点的那一篇读得慢、后到，把已经显示好的当前页
+ * 顶掉了 —— 标签栏停在乙，正文（连同正开着的思维导图）是丙的。而那时候点乙
+ * 这个标签也回不来：`applyTabs` 看标签路径没变就直接返回，没人再去读一次。
+ */
+describe("标签栏和正文对不上", () => {
+  /** 按下某个标签，但**不等它读完** */
+  function pressTab(i: number) {
+    document
+      .querySelectorAll<HTMLElement>(".tab")
+      [i].dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+  }
+
+  const mindmapBtn = () =>
+    document.querySelector<HTMLElement>('.rail-btn[aria-label="思维导图"]')!;
+  const mapTitle = () => document.querySelector(".mm-title")?.textContent?.trim() ?? null;
+  const text = () => document.querySelector(".cm-content")?.textContent ?? "";
+
+  it("连着切两页时，先发的那一次后到也不许把当前页顶掉", async () => {
+    workspace = { tabs: ["甲.md", "乙.md", "丙.md"], active: 0, pinnedCount: 0 };
+    await mountApp();
+    // 丙读得慢、乙读得快：先点丙再点乙，丙的结果后到
+    readDelays = { "丙.md": 500 };
+    await act(async () => {
+      pressTab(2);
+      await settle(60);
+      pressTab(1);
+      await settle(900);
+    });
+
+    expect(activeTab()).toBe("乙");
+    expect(text(), "停在哪个标签，正文就该是哪一篇").toContain("乙的正文");
+  });
+
+  it("换页的那一刻就离开导图，它不会挂在下一页的标签底下", async () => {
+    workspace = { tabs: ["甲.md", "乙.md"], active: 0, pinnedCount: 0 };
+    await mountApp();
+    await click(mindmapBtn());
+    // 这个桩里普通笔记的标题就是路径本身（见 PROJECT_TITLES）
+    expect(mapTitle()).toBe("甲.md");
+
+    readDelays = { "乙.md": 400 };
+    // 只等一小会儿：这时候乙还没读回来，但标签栏已经是乙了
+    await act(async () => {
+      pressTab(1);
+      await settle(120);
+    });
+    expect(activeTab()).toBe("乙");
+    expect(document.querySelector(".mindmap"), "读盘期间不该还是甲的导图").toBeNull();
+
+    await act(async () => {
+      await settle(600);
+    });
+    expect(document.querySelector(".mindmap")).toBeNull();
+    expect(text()).toContain("乙的正文");
+  });
+
+  it("读不出来时不把上一篇留在屏幕上，再点一次那个标签会重读", async () => {
+    workspace = { tabs: ["甲.md", "乙.md"], active: 0, pinnedCount: 0 };
+    await mountApp();
+    expect(text()).toContain("甲的正文");
+
+    failRead.add("乙.md");
+    await pickTab(1);
+    expect(activeTab()).toBe("乙");
+    expect(document.querySelector(".cm-content"), "读不出来就不该还是甲").toBeNull();
+    expect(document.querySelector(".empty")).not.toBeNull();
+
+    failRead.clear();
+    await pickTab(1);
+    expect(text(), "同一个标签再点一次要能自己救回来").toContain("乙的正文");
   });
 });
 

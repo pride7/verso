@@ -629,6 +629,8 @@ export default function App() {
   const savedMtime = useRef<number>(0);
   const bodyRef = useRef(body);
   const noteRef = useRef(note);
+  /** 载入的流水号。只有最新的那一次可以改界面，见 `loadNote` */
+  const loadSeq = useRef(0);
   const dirtyRef = useRef(false);
   // `[[` 补全通过 getter 读它 —— 清单变化时不必重建编辑器
   const noteListRef = useRef<NoteRef[]>([]);
@@ -789,7 +791,8 @@ export default function App() {
       if (dirtyRef.current) await saveNow();
       savedMtime.current = await api.writeFrontmatter(n.path, yaml);
       const content = await api.readNote(n.path);
-      setNote(content);
+      // 写完再读的这一拍里可能已经换页了，那就不是这一页该显示的内容了
+      if (noteRef.current?.path === n.path) setNote(content);
       await refresh();
       setRevision((v) => v + 1);
     },
@@ -1041,8 +1044,18 @@ export default function App() {
     // 这一次到底换没换页。git 恢复 / 撤销某一处也走 `loadNote`，但那是「同一
     // 篇换了内容」，不该把用户正看着的导图踢掉（见 `restoreFile`）
     const switched = noteRef.current?.path !== path;
+    // **换页就立刻收起导图，不等读盘。** 标签栏是按下的那一刻就换的，读一篇
+    // 却要一个来回；这中间屏幕上会是上一篇的导图配着新一页的标签，读失败时
+    // 它还会一直留在那儿 —— 用户看到的就是「这一页显示的是另一篇的导图」
+    if (switched) setMindmapOpen(false);
+    // **只有最新的那一次载入可以改界面。** 连着换两页时，先发的那一次可能
+    // 后到（每篇读多久不一样），它一到就把已经显示好的当前页盖成上一篇，
+    // 而标签栏还指着当前页 —— 从此点哪个标签都回不来：`applyTabs` 会因为
+    // 「标签路径没变」直接返回，没人再去读一次
+    const seq = ++loadSeq.current;
     try {
       const content = await api.readNote(path);
+      if (seq !== loadSeq.current) return;
       setDiffSelection(null);
       diffReturnScroll.current = null;
       setNote(content);
@@ -1065,7 +1078,18 @@ export default function App() {
       setExternalChange(false);
       setError(null);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError((e as Error).message);
+      // 换页读失败时**不能把上一篇留在屏幕上**：标签栏已经指着新的一页了，
+      // 底下却是另一篇的正文，在那儿打的字会存进另一个文件。空状态加上面
+      // 那句错误至少是实话，再点一次这个标签就会重读（见 `applyTabs`）。
+      // 同一篇的重新载入（版本恢复、撤销某一处）失败则什么都不动 —— 那一
+      // 篇本来就在屏幕上，没有任何东西变了
+      if (switched) {
+        setNote(null);
+        setBody("");
+        setSaveState("saved");
+      }
     }
   }, []);
 
@@ -1114,6 +1138,9 @@ export default function App() {
       // 即使这篇恰好就在当前标签里，也必须先撤掉中心，才能露出单项目总览。
       setProjectCenterOpen(false);
       setProjectOpen(false);
+      // 换页就离开导图，而且是**现在**，不是读完盘之后：底下的落盘和读盘
+      // 各要一个来回，那段时间里屏幕上会是上一篇的导图配着新一页的标签
+      if (noteRef.current && noteRef.current.path !== path) setMindmapOpen(false);
       if (noteRef.current && dirtyRef.current) await saveNow();
       // 离开当前页之前记下滚动位置，切回来时还在原处
       const leaving = activePath(tabsRef.current);
@@ -1149,7 +1176,14 @@ export default function App() {
       tabsRef.current = next;
       setTabState(next);
 
-      if (before === after) return;
+      // 标签没换就不必重读 —— 但**只在屏幕上确实是这一篇的时候**。上一次
+      // 换页读失败（或被更新的一次换页顶掉）的话，标签栏指着 A、正文却是 B，
+      // 那时再点 A 这个标签是用户唯一的自救动作，不能被这一句挡回去
+      const loaded = noteRef.current?.path ?? null;
+      if (before === after && loaded === after) return;
+      // 标签栏这一刻就变了，导图不能再留着 —— 它是上一篇的视图。放在落盘
+      // 之前：`saveNow` 也要一个来回，那段时间同样是「另一篇的导图」
+      if (after !== loaded) setMindmapOpen(false);
       if (before) {
         if (dirtyRef.current) await saveNow();
         if (mainRef.current) scrollTops.current.set(before, mainRef.current.scrollTop);
@@ -1743,11 +1777,15 @@ export default function App() {
         try {
           if ((await api.statNote(cur.path)) !== savedMtime.current) {
             const content = await api.readNote(cur.path);
-            setNote(content);
-            setBody(content.body);
-            savedMtime.current = content.mtimeMs;
-            setSaveState("saved");
-            setExternalChange(false);
+            // 同步跑了几秒，这期间可能已经换页了 —— 那就不再是「当前这一篇」，
+            // 换上去等于把另一篇的内容摆到这一页底下（同 `loadNote`）
+            if (noteRef.current?.path === cur.path) {
+              setNote(content);
+              setBody(content.body);
+              savedMtime.current = content.mtimeMs;
+              setSaveState("saved");
+              setExternalChange(false);
+            }
           }
         } catch {
           // 这篇可能被同步删掉了 —— 树的刷新会把它收走，这里不报
@@ -1785,6 +1823,7 @@ export default function App() {
     if (!cur || dirtyRef.current) return;
     try {
       const content = await api.readNote(cur.path);
+      if (noteRef.current?.path !== cur.path) return;
       setNote(content);
       setBody(content.body);
       savedMtime.current = content.mtimeMs;
@@ -2859,11 +2898,16 @@ export default function App() {
     if (!n) return;
     try {
       const content = await api.readNote(n.path);
-      setNote(content);
-      setBody(content.body);
-      savedMtime.current = content.mtimeMs;
-      setSaveState("saved");
-      setExternalChange(false);
+      // 读盘的这一个来回里可能已经换过页了。这一条是「把**当前这一篇**重新
+      // 读一遍」，当前这一篇变了，它读回来的就是别人的内容（同 `loadNote`）。
+      // 文档树照旧刷新 —— 磁盘上确实变过
+      if (noteRef.current?.path === n.path) {
+        setNote(content);
+        setBody(content.body);
+        savedMtime.current = content.mtimeMs;
+        setSaveState("saved");
+        setExternalChange(false);
+      }
       await refresh();
     } catch (e) {
       setError((e as Error).message);
