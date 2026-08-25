@@ -1036,6 +1036,22 @@ fn attachment_write(state: State<'_, AppState>, name: String, data: String) -> R
     state.with_vault(|v| v.write_attachment(&name, &bytes))
 }
 
+/// 导出的图片落盘（§2.12）。`data` 是 base64，同 `attachment_write`。
+///
+/// **这是唯一一条往 vault 外面写文件的路。** 之所以不必过 `Vault::resolve`
+/// 的越界检查：路径来自系统保存对话框，用户刚刚亲手点过一次「保存到这里」——
+/// 那比任何白名单都更明确。反过来，要是硬把导出限死在 vault 里，最常见的
+/// 「存到桌面然后拖进聊天窗口」就做不成了。
+#[tauri::command]
+fn export_write(path: String, data: String) -> Result<()> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| Error::Vault(format!("图片数据不是合法的 base64: {e}")))?;
+    std::fs::write(&path, bytes)?;
+    Ok(())
+}
+
 /// 全库附件体检：引用存在性与 attachments/ 中未被任何文档引用的文件。
 #[tauri::command]
 fn attachment_audit(state: State<'_, AppState>) -> Result<vault::attach::AttachmentAudit> {
@@ -1763,6 +1779,7 @@ pub fn run() {
             note_read,
             note_write,
             attachment_write,
+            export_write,
             attachment_audit,
             attachment_delete_unused,
             frontmatter_write,

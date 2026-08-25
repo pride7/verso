@@ -125,7 +125,7 @@ export interface Settings {
    */
   railHidden: string[];
 
-  // —— 打印或导出 PDF。对话框里选过的下次沿用 ——
+  // —— 打印或导出。对话框里选过的下次沿用 ——
   /** 正文字号（pt）。纸上按 pt 而不是 px —— px 在纸上没有确定含义 */
   printFontSize: number;
   /** 左右页边距（mm）。上下由它推出来，见 `PRINT_MARGINS` */

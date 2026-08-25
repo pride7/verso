@@ -1,16 +1,18 @@
 /**
- * 「文件已被外部程序修改」那条提示。DESIGN.md §2.7
+ * 打印取的是**哪一份正文**（§2.12）。
  *
- * 它曾经**关不掉**：提示上「保留我的」按的就是保存，而保存自己会让文件
- * 监听器响一次 —— 原子写是「写临时文件 + rename」，一次 rename 在 Windows 上
- * 能产生不止一个事件，Rust 侧的自写登记（`watcher.rs` 的 `SelfWrites`）
- * 只抵得掉第一个。漏过来的那个又把提示招回来，点多少次都一样。
+ * 这条只能在 App 这一层验，而且必须有真的编辑器：`note` 是「打开那一刻从磁盘
+ * 读进来的那份」，之后每一次改动只进 `body` 状态，连保存都不回写它。曾经打印
+ * 直接拿 `note.body` 去排版，于是：
  *
- * 所以这里验的是「收到事件之后**比一次 mtime 再决定报不报**」。
- * 这条只能在 App 这一层验：它跨了监听、保存、mtime 三处。
+ * - 新建一篇写满再打印 → 一张只有标题的白纸
+ * - 打开一篇改半天再打印 → 印出来的是**改之前**的样子
+ *
+ * 两种都不报错，要等 PDF 发出去才看得见。
  */
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
+import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NoteContent, NoteRef, TreeNode, VaultInfo } from "../../../src/core/types";
@@ -23,21 +25,24 @@ const VAULT: VaultInfo = {
   renamedBranch: false,
 };
 
-const doc = (name: string, path: string): TreeNode => ({
+const doc = (name: string, path: string, children: TreeNode[] = []): TreeNode => ({
   name,
   path,
   kind: "document",
-  children: [],
-  childDir: null,
+  children,
+  childDir: children.length ? name : null,
   order: null,
   created: null,
   updated: null,
 });
 
-/** 磁盘上那份的 mtime。写入会推进它，「外部程序改了」也靠改它来模拟 */
-let diskMtime = 1000;
-/** 监听器推来的那个回调，测试里手动触发 */
-let fireChanged: ((paths: string[]) => void) | null = null;
+const TREE: TreeNode[] = [doc("甲", "甲.md", [doc("甲一", "甲/甲一.md")])];
+
+/** 磁盘上那份。测试里只有「打开时读到的」才走它 */
+const DISK: Record<string, string> = {
+  "甲.md": "打开时的旧正文。\n",
+  "甲/甲一.md": "子文档的正文。\n",
+};
 
 vi.mock("../../../src/host/dialog", () => ({ confirm: async () => true }));
 
@@ -47,24 +52,24 @@ vi.mock("../../../src/host/api", () => ({
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: "甲.md" }),
     openVault: async () => VAULT,
-    tree: async () => [doc("甲", "甲.md")],
-    listNotes: async () => [{ path: "甲.md", name: "甲" }] as NoteRef[],
-    readNote: async () =>
+    tree: async () => TREE,
+    listNotes: async () =>
+      [
+        { path: "甲.md", name: "甲" },
+        { path: "甲/甲一.md", name: "甲一" },
+      ] as NoteRef[],
+    readNote: async (path: string) =>
       ({
-        path: "甲.md",
+        path,
         id: null,
-        title: "甲",
+        title: path === "甲.md" ? "甲" : "甲一",
         frontmatter: {},
         frontmatterText: null,
-        body: "正文\n",
-        mtimeMs: diskMtime,
+        body: DISK[path] ?? "",
+        mtimeMs: 1000,
       }) as NoteContent,
-    // 真实的写入就是这个样子：落盘之后 mtime 变成一个新值，并把它交回前端
-    writeNote: async () => {
-      diskMtime += 1;
-      return diskMtime;
-    },
-    statNote: async () => diskMtime,
+    writeNote: async () => 1001,
+    statNote: async () => 1000,
     createNote: async () => ({ path: "x.md", id: null, title: "x" }),
     createUntitled: async () => ({ path: "x.md", id: null, title: "x" }),
     renameNote: async () => "",
@@ -81,7 +86,8 @@ vi.mock("../../../src/host/api", () => ({
     propDefSet: async () => {},
     reorder: async () => {},
     writeAttachment: async () => "",
-    writeFrontmatter: async () => diskMtime,
+    writeExport: async () => null,
+    writeFrontmatter: async () => 1000,
     gitStatus: async () => ({
       enabled: false,
       added: 0,
@@ -112,12 +118,7 @@ vi.mock("../../../src/host/api", () => ({
     ptyClose: async () => {},
   },
   onBackendNotice: async () => () => {},
-  onVaultChanged: async (cb: (paths: string[]) => void) => {
-    fireChanged = cb;
-    return () => {
-      fireChanged = null;
-    };
-  },
+  onVaultChanged: async () => () => {},
   onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
@@ -135,8 +136,6 @@ const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
   localStorage.clear();
-  diskMtime = 1000;
-  fireChanged = null;
 });
 
 afterEach(() => {
@@ -156,65 +155,60 @@ async function mount() {
   });
 }
 
-const banner = () => document.querySelector(".banner");
-
-/** 让监听器推一次「甲.md 变了」，并等前端把 mtime 问回来 */
-async function notifyChanged() {
+/** 像真的打字一样改正文 —— 走编辑器自己的那条 `onChange` */
+async function retype(text: string) {
+  const view = EditorView.findFromDOM(document.querySelector<HTMLElement>(".cm-editor")!)!;
   await act(async () => {
-    fireChanged?.(["甲.md"]);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
     await settle(200);
   });
 }
 
-describe("外部修改提示", () => {
-  it("磁盘上那份没变时不报 —— 我们自己写的那一次也会让监听器响", async () => {
+/** `Mod+Alt+P` —— 命令表里 `note.print` 的默认键位 */
+async function openPrintDialog() {
+  await act(async () => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { code: "KeyP", ctrlKey: true, altKey: true, bubbles: true }),
+    );
+    await settle(400);
+  });
+}
+
+const preview = () => document.querySelector(".print-preview")?.textContent ?? "";
+
+describe("打印取的是编辑器里此刻的正文", () => {
+  it("刚改完还没保存也照样印得出来", async () => {
     await mount();
-    expect(banner()).toBeNull();
-    await notifyChanged();
-    expect(banner(), "mtime 没变却报了外部修改").toBeNull();
+    await retype("改完之后的新正文。\n");
+    await openPrintDialog();
+
+    expect(document.querySelector(".print-dialog"), "打印对话框没打开").not.toBeNull();
+    expect(preview()).toContain("改完之后的新正文");
+    expect(preview(), "印的是打开那一刻的旧内容").not.toContain("打开时的旧正文");
   });
 
-  it("磁盘上那份真的变了才报", async () => {
+  it("正文清空之后重写，预览不是一张白纸", async () => {
     await mount();
-    diskMtime = 9999; // 别的程序改了这篇
-    await notifyChanged();
-    expect(banner()).not.toBeNull();
-    expect(banner()?.textContent).toContain("文件已被外部程序修改");
+    // 新建笔记后写满是最常见的一种：打开时正文是空的
+    await retype("");
+    await retype("## 一节\n\n新建之后写进去的内容。\n");
+    await openPrintDialog();
+
+    expect(preview()).toContain("新建之后写进去的内容");
   });
 
-  /**
-   * 这条是这个文件存在的理由。
-   *
-   * 「保留我的」= 保存，而保存必然让监听器再响一次。不比 mtime 的话
-   * 提示会立刻回来 —— 用户看到的是「这个提示点不掉」
-   */
-  it("按「保留我的」之后提示要真的消失，不能立刻回来", async () => {
+  it("子文档仍然从磁盘读 —— 只有打开着的那篇有「此刻」可言", async () => {
     await mount();
-    diskMtime = 9999;
-    await notifyChanged();
-    expect(banner()).not.toBeNull();
+    await retype("父文档改过的正文。\n");
+    await openPrintDialog();
 
-    const keep = [...document.querySelectorAll<HTMLButtonElement>(".banner button")].find((b) =>
-      b.textContent?.includes("保留我的"),
-    )!;
+    const children = [...document.querySelectorAll<HTMLInputElement>(".print-check input")][1];
+    expect(children.disabled, "甲.md 下面挂着甲一.md").toBe(false);
     await act(async () => {
-      keep.click();
+      children.click();
       await settle(200);
     });
-    expect(banner(), "保存之后提示应当消失").toBeNull();
-
-    // 保存自己触发的那一次监听
-    await notifyChanged();
-    expect(banner(), "自己的保存把提示又招回来了").toBeNull();
-  });
-
-  it("改的是别的笔记时不打扰当前这篇", async () => {
-    await mount();
-    diskMtime = 9999;
-    await act(async () => {
-      fireChanged?.(["乙.md"]);
-      await settle(200);
-    });
-    expect(banner()).toBeNull();
+    expect(preview()).toContain("父文档改过的正文");
+    expect(preview()).toContain("子文档的正文");
   });
 });

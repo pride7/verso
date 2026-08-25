@@ -19,7 +19,7 @@
  * 预览。所以 App 在打开这个对话框之前把**所有**可能用到的素材一次性备齐
  * （见 `PrintSource`），这里只做同步的取舍和拼装 —— 点一下勾选框不该等 IPC。
  */
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { renderMarkdown, renderViewTable } from "../editor/exportHtml";
 import type { ViewResult } from "../core/types";
@@ -127,15 +127,32 @@ function escapeText(s: string): string {
   );
 }
 
+/** 「复制到剪贴板」还是「另存为文件」。两条路前半段完全一样，只有出口不同 */
+export type ImageExport = "copy" | "save";
+
 interface Props {
   source: PrintSource;
   options: PrintOptions;
   onChange: (next: PrintOptions) => void;
   onPrint: () => void;
+  /**
+   * 导出长图。**返回的 Promise 决定按钮什么时候恢复** —— 渲染一张长图要几百
+   * 毫秒到几秒（要等字体、要把整份样式表内联），期间不给反馈就是「点了没反应」。
+   */
+  onExportImage: (mode: ImageExport) => Promise<void>;
   onClose: () => void;
 }
 
-export function PrintDialog({ source, options, onChange, onPrint, onClose }: Props) {
+export function PrintDialog({
+  source,
+  options,
+  onChange,
+  onPrint,
+  onExportImage,
+  onClose,
+}: Props) {
+  /** 正在渲染哪一路。null = 空闲。两个按钮共用一个状态：同时点两下没有意义 */
+  const [exporting, setExporting] = useState<ImageExport | null>(null);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -156,6 +173,16 @@ export function PrintDialog({ source, options, onChange, onPrint, onClose }: Pro
   const hasChildren = source.parts.length > 1;
   const hasViews = source.views.size > 0;
 
+  const exportImage = async (mode: ImageExport) => {
+    if (exporting) return;
+    setExporting(mode);
+    try {
+      await onExportImage(mode);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div
       className="overlay"
@@ -169,7 +196,7 @@ export function PrintDialog({ source, options, onChange, onPrint, onClose }: Pro
       >
         <header className="vault-manager-head">
           <div>
-            <h2 id="print-dialog-title">打印或导出 PDF</h2>
+            <h2 id="print-dialog-title">打印或导出</h2>
             <p>{source.title}</p>
           </div>
           <button className="modal-close" onClick={onClose} aria-label="关闭">
@@ -268,6 +295,30 @@ export function PrintDialog({ source, options, onChange, onPrint, onClose }: Pro
                   </span>
                 </span>
               </label>
+            </div>
+
+            <div className="print-option">
+              <label id="print-image-label">导出图片</label>
+              <div className="print-image-actions" role="group" aria-labelledby="print-image-label">
+                <button
+                  className="btn-quiet"
+                  disabled={exporting !== null}
+                  onClick={() => void exportImage("copy")}
+                >
+                  {exporting === "copy" ? "正在渲染…" : "复制到剪贴板"}
+                </button>
+                <button
+                  className="btn-quiet"
+                  disabled={exporting !== null}
+                  onClick={() => void exportImage("save")}
+                >
+                  {exporting === "save" ? "正在渲染…" : "保存为文件…"}
+                </button>
+              </div>
+              <span className="print-check-hint">
+                照上面的版式渲染成一张长图，不分页。复制出去的是 PNG，
+                保存时按文件名的扩展名决定 PNG 还是 JPG。
+              </span>
             </div>
           </div>
         </div>

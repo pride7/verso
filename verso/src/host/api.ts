@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 import type {
   Backlink,
@@ -53,6 +53,23 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 export async function pickVaultFolder(): Promise<string | null> {
   const picked = await open({ directory: true, multiple: false, title: "选择 vault 目录" });
   return typeof picked === "string" ? picked : null;
+}
+
+/**
+ * 「导出图片」的落点。取消返回 null。
+ *
+ * 扩展名就是格式的选择 —— 不在对话框里再摆一个 PNG / JPG 的旋钮：系统保存
+ * 面板本来就带着格式筛选，两处各问一遍只会互相矛盾。
+ */
+export async function pickImageSavePath(defaultName: string): Promise<string | null> {
+  return await save({
+    title: "导出图片",
+    defaultPath: `${defaultName}.png`,
+    filters: [
+      { name: "PNG 图片", extensions: ["png"] },
+      { name: "JPG 图片", extensions: ["jpg", "jpeg"] },
+    ],
+  });
 }
 
 /** 加入已有共享空间时选一个空目录；单独命名，避免对话框仍写着「打开」。 */
@@ -319,6 +336,16 @@ export const api = {
    * 立刻返回：面板是挂在窗口上的 sheet，返回不代表用户已经打完。
    */
   printWebview: () => call<null>("print_webview"),
+
+  /**
+   * 把导出的图片写到用户挑好的那个路径（`data` 是 base64，同 `writeAttachment`
+   * 的理由：IPC 传大字节数组极慢）。
+   *
+   * **不经过 vault** —— 落点由系统保存对话框决定，那本身就是一次明确授权，
+   * 再套一层「必须在 vault 里」只会让人没法存到桌面。
+   */
+  writeExport: (path: string, dataBase64: string) =>
+    call<null>("export_write", { path, data: dataBase64 }),
 
   // —— §2.1 每个 vault 的界面状态：标签页 ——
   /** 读不出来返回空。这份状态丢了只是少开几个页签，见 workspace.rs */

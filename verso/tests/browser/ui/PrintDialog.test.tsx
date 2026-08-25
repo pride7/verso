@@ -52,7 +52,11 @@ const OPTIONS: PrintOptions = {
   viewResults: true,
 };
 
-function mount(options: PrintOptions, handlers: Partial<{ onPrint: () => void; onClose: () => void }> = {}) {
+function mount(options: PrintOptions, handlers: Partial<{
+    onPrint: () => void;
+    onExportImage: (mode: "copy" | "save") => Promise<void>;
+    onClose: () => void;
+  }> = {}) {
   const host = document.createElement("div");
   host.id = "root";
   document.body.appendChild(host);
@@ -63,6 +67,7 @@ function mount(options: PrintOptions, handlers: Partial<{ onPrint: () => void; o
       options={options}
       onChange={() => {}}
       onPrint={handlers.onPrint ?? (() => {})}
+      onExportImage={handlers.onExportImage ?? (async () => {})}
       onClose={handlers.onClose ?? (() => {})}
     />,
   );
@@ -166,6 +171,7 @@ describe("操作", () => {
         options={OPTIONS}
         onChange={() => {}}
         onPrint={() => {}}
+        onExportImage={async () => {}}
         onClose={() => {}}
       />,
     );
@@ -185,6 +191,45 @@ describe("操作", () => {
     );
     btn?.click();
     expect(onPrint).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 渲染一张长图要几百毫秒到几秒（等字体、内联整份样式表）。这中间按钮必须
+   * 显得在忙 —— 否则用户会以为没点上，再点一次，于是同一张图渲染两遍。
+   */
+  it("导出图片期间两个按钮都锁住，完事再放开", async () => {
+    let release: (() => void) | null = null;
+    const onExportImage = vi.fn(
+      () => new Promise<void>((done) => (release = done)),
+    );
+    mount(OPTIONS, { onExportImage });
+    await vi.waitFor(() => expect(document.querySelector(".print-image-actions")).not.toBeNull());
+
+    const buttons = () => [
+      ...document.querySelectorAll<HTMLButtonElement>(".print-image-actions button"),
+    ];
+    expect(buttons().map((b) => b.textContent)).toEqual(["复制到剪贴板", "保存为文件…"]);
+
+    buttons()[0].click();
+    await vi.waitFor(() => expect(buttons()[0].textContent).toBe("正在渲染…"));
+    expect(buttons().every((b) => b.disabled), "另一个按钮也该锁住").toBe(true);
+
+    // 忙着的时候再点，不该多发一次
+    buttons()[1].click();
+    expect(onExportImage).toHaveBeenCalledTimes(1);
+    expect(onExportImage).toHaveBeenCalledWith("copy");
+
+    release!();
+    await vi.waitFor(() => expect(buttons()[0].disabled).toBe(false));
+    expect(buttons()[0].textContent).toBe("复制到剪贴板");
+  });
+
+  it("「保存为文件…」走的是另一条", async () => {
+    const onExportImage = vi.fn(async () => {});
+    mount(OPTIONS, { onExportImage });
+    await vi.waitFor(() => expect(document.querySelector(".print-image-actions")).not.toBeNull());
+    document.querySelectorAll<HTMLButtonElement>(".print-image-actions button")[1].click();
+    expect(onExportImage).toHaveBeenCalledWith("save");
   });
 
   it("Esc 关掉", async () => {

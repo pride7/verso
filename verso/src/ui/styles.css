@@ -11295,6 +11295,14 @@ body > .print-doc {
   display: block;
 }
 
+/* 导出长图时的那张纸（`ui/exportImage.ts` 屏外挂的那个）。
+   图片没有「页」，高度由内容决定；阴影是预览里用来衬出纸边的，画进图里
+   只会在四周留一圈脏边 */
+.print-page-image {
+  min-height: 0;
+  box-shadow: none;
+}
+
 .print-options {
   flex: 0 0 260px;
   padding: 18px 20px;
@@ -11361,6 +11369,27 @@ body > .print-doc {
   margin-top: 2px;
   color: var(--muted);
   font-size: 0.85em;
+}
+
+/* 「复制到剪贴板 / 保存为文件」。两个动作等宽并排，不做主次之分 ——
+   哪个更常用取决于要发到哪里，应用无从判断 */
+.print-image-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.print-image-actions button {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.print-image-actions button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .print-dialog-foot {

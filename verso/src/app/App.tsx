@@ -19,9 +19,10 @@ import {
   onBackendNotice,
   onVaultChanged,
   pickCloneFolder,
+  pickImageSavePath,
   pickVaultFolder,
 } from "../host/api";
-import { copyText, readText } from "../host/clipboard";
+import { copyImage, copyText, readText } from "../host/clipboard";
 import { confirm } from "../host/dialog";
 import { fitFloatingMenu } from "../ui/floatingMenu";
 import { initialKeyboard, stepKeyboard } from "../core/keyboard";
@@ -50,9 +51,11 @@ import { HistoryView, type DiffSelection } from "../ui/HistoryView";
 import { DiffView } from "../ui/DiffView";
 import { MathBar } from "../ui/MathBar";
 import { MindMap } from "../ui/MindMap";
+import { renderPrintImage } from "../ui/exportImage";
 import {
   composePrintHtml,
   PrintDialog,
+  type ImageExport,
   type PrintOptions,
   type PrintPart,
   type PrintSource,
@@ -71,7 +74,7 @@ import { mermaidSources, viewSources } from "../editor/exportHtml";
 import { renderMermaid } from "../editor/mermaid";
 import { applyCaret, BUILTIN_SLASH, parseSlashCustom } from "../core/slash";
 import type { TableOp } from "../editor/tableOps";
-import { hasTransferredFiles } from "../editor/paste";
+import { hasTransferredFiles, toBase64 } from "../editor/paste";
 import { expandTemplate, pickTemplates } from "../core/template";
 import { hideTemplateSubtree } from "../core/treeVisibility";
 import { journalInsert } from "../core/journal";
@@ -842,6 +845,22 @@ export default function App() {
   const [printSource, setPrintSource] = useState<PrintSource | null>(null);
 
   /**
+   * 打印要用的那一篇。**打开着的那篇以编辑器里此刻的内容为准。**
+   *
+   * `note` 是「打开那一刻从磁盘读进来的那份」：之后每一次改动只进 `body`
+   * 状态，连保存（`saveNow` 写的是 `bodyRef.current`）都不回写它。拿 `note.body`
+   * 去印，印出来的是**刚打开时的样子** —— 新建一篇写满再印，得到的是一张
+   * 只有标题的白纸，而这种失败要等 PDF 发出去才看得见。
+   *
+   * 顺带也把「还没保存的改动」一并印上：屏幕上有的字，纸上就该有。
+   */
+  const readForPrint = useCallback(async (path: string): Promise<NoteContent | null> => {
+    const cur = noteRef.current;
+    if (cur?.path === path) return { ...cur, body: bodyRef.current };
+    return api.readNote(path).catch(() => null);
+  }, []);
+
+  /**
    * 备料：读子文档、把 database 视图查一遍，然后开对话框。
    *
    * **一次性全备齐**，哪怕用户最后没勾「连子文档」。理由是对话框里改一个
@@ -855,8 +874,7 @@ export default function App() {
       const target = path ?? note?.path;
       if (!target) return;
 
-      const content =
-        target === note?.path ? note : await api.readNote(target).catch(() => null);
+      const content = await readForPrint(target);
       if (!content) {
         setNotice("无法读取此文档，无法打印");
         return;
@@ -868,7 +886,7 @@ export default function App() {
       const collect = async (nodes: TreeNode[], depth: number) => {
         for (const child of nodes) {
           if (child.kind !== "document") continue;
-          const sub = await api.readNote(child.path).catch(() => null);
+          const sub = await readForPrint(child.path);
           // 读不出来的那一篇跳过就是了 —— 不能让一篇坏文件挡住整次打印
           if (sub) parts.push({ title: sub.title, body: sub.body, depth });
           await collect(child.children, depth + 1);
@@ -901,7 +919,7 @@ export default function App() {
 
       setPrintSource({ title: content.title, parts, views, mermaid, resolveImage: imageSrc });
     },
-    [note, tree, imageSrc],
+    [note, tree, imageSrc, readForPrint],
   );
 
   /** 对话框里的选项就是设置里那几条 —— 选过的下次沿用 */
@@ -927,6 +945,47 @@ export default function App() {
     });
     setPrintSource(null);
   }, [printSource, printOptions]);
+
+  /**
+   * 对话框里的「导出图片」：按同一份版式渲染成一张长图（§2.12）。
+   *
+   * **对话框不关。** 复制完往往还要再存一份，或者换个字号再来一次 ——
+   * 导一次就把对话框收掉，等于每次都要重新走一遍菜单。打印那条是要交给系统
+   * 面板的，才必须让位。
+   */
+  const exportPrintImage = useCallback(
+    async (mode: ImageExport) => {
+      if (!printSource) return;
+      const input = {
+        title: printOptions.title ? printSource.title : null,
+        html: composePrintHtml(printSource, printOptions),
+        layout: printOptions,
+      };
+      try {
+        if (mode === "copy") {
+          // 剪贴板里的位图只有 PNG 这一种，见 `host/clipboard.ts`。
+          // **不 await 这个 Promise**：它要在按钮那一拍上原样交给剪贴板，
+          // 等图画完再写的话用户手势已经过期了（同上）
+          const render = renderPrintImage(input, "png");
+          const ok = await copyImage(render);
+          // 写不进去有两种可能：图根本没画出来，或者系统拒绝了。
+          // `await` 一下就能把前一种的真实原因抖出来
+          if (!ok) await render;
+          setNotice(ok ? "图片已复制到剪贴板" : "系统拒绝了剪贴板写入，请改用「保存为文件」");
+          return;
+        }
+        // 先问路径再渲染：用户取消了就不必白算一张几 MB 的图
+        const path = await pickImageSavePath(printSource.title);
+        if (!path) return;
+        const blob = await renderPrintImage(input, /\.jpe?g$/i.test(path) ? "jpeg" : "png");
+        await api.writeExport(path, await toBase64(blob));
+        setNotice(`图片已保存到 ${path}`);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [printSource, printOptions],
+  );
 
   /**
    * 内容已经排好版了，可以真的按下打印。
@@ -3224,7 +3283,7 @@ export default function App() {
       {
         id: "note.print",
         group: "笔记",
-        label: "打印或导出 PDF",
+        label: "打印或导出",
         // **不用 Mod+P**：那是快速跳转，一个每天按几十次的键，不能为了
         // 一个偶尔用一次的功能让出去。加 Alt 和「用模板新建」那一对同理
         defaultKeys: "Mod+Alt+P",
@@ -4706,6 +4765,7 @@ export default function App() {
             })
           }
           onPrint={startPrint}
+          onExportImage={exportPrintImage}
           onClose={() => setPrintSource(null)}
         />
       )}
@@ -4848,7 +4908,7 @@ export default function App() {
                 }}
               >
                 <Icon name="printer" size={14} />
-                打印或导出 PDF
+                打印或导出
               </button>
             </li>
           )}
