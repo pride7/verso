@@ -168,7 +168,20 @@ fn vault_clone(
     }
 
     let destination = PathBuf::from(path);
-    vault::sync::clone_remote(url, &destination, clone_token)?;
+    // 默认位置是 Verso 自己算出来的，多半还不存在；用户手选的那个一定存在。
+    // 补出缺的那几层即可 ——「不覆盖已有文件」仍然由 clone_remote 的空目录
+    // 检查把守，这里绝不碰已有目录里的东西。克隆没成的话把刚建的空壳收走，
+    // 免得重试时撞上一个「已存在」而被迫改名。
+    let created = !destination.exists();
+    if created {
+        std::fs::create_dir_all(&destination)?;
+    }
+    if let Err(error) = vault::sync::clone_remote(url, &destination, clone_token) {
+        if created {
+            let _ = std::fs::remove_dir(&destination);
+        }
+        return Err(error);
+    }
     let (v, info) = Vault::open_watched(destination, state.self_writes.clone())?;
     vault::git::identity_set(&v.root, name, email)?;
 
@@ -521,20 +534,87 @@ fn shared_space_label(collaborators: &[String]) -> String {
     }
 }
 
-fn shared_destination(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
-    let parent = root
-        .parent()
-        .ok_or_else(|| Error::Vault("当前仓库没有可用的父目录，无法建立共享目录".into()))?;
-    let base = parent.join("Verso Shared");
-    std::fs::create_dir_all(&base)?;
+/// 在 `dir` 这一层里挑一个不重名的 `Verso Shared/<名字>`。
+///
+/// **只算路径，不建目录。** 建库流程要靠「目录还不存在」占位，加入流程则由
+/// clone 自己创建 —— 两边都不该先留下一个可能永远用不上的空文件夹。
+fn shared_dir_in(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    // 这一层本来就可能已经是 `Verso Shared/`（受邀者加入第二个空间时就是
+    // 如此）。再套一层会得到 `Verso Shared/Verso Shared/`。
+    let base = if dir.file_name().is_some_and(|d| d == "Verso Shared") {
+        dir.to_path_buf()
+    } else {
+        dir.join("Verso Shared")
+    };
     let mut destination = base.join(name);
     let mut n = 2;
     while destination.exists() {
         destination = base.join(format!("{name}-{n}"));
         n += 1;
     }
+    destination
+}
+
+/// 共享空间在本机的落点：当前空间**同级**的 `Verso Shared/<名字>`。
+fn shared_destination_path(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
+    let parent = root
+        .parent()
+        .ok_or_else(|| Error::Vault("当前仓库没有可用的父目录，无法建立共享目录".into()))?;
+    Ok(shared_dir_in(parent, name))
+}
+
+fn shared_destination(root: &std::path::Path, name: &str) -> Result<std::path::PathBuf> {
+    let destination = shared_destination_path(root, name)?;
+    if let Some(base) = destination.parent() {
+        std::fs::create_dir_all(base)?;
+    }
     std::fs::create_dir(&destination)?;
     Ok(destination)
+}
+
+/// 放共享空间的那一层目录，按优先级挑。
+///
+/// **不能要求先有一个自己的仓库。** 受邀者常常是第一次装 Verso 的人：他被
+/// 拉进来读一份别人的东西，手上还没有任何笔记。要是「加入共享空间」非得先
+/// 有个人仓库才知道往哪放，就等于让信息最少的人先完成一件跟他的目的无关的
+/// 事 —— 而欢迎页上那个「加入共享空间」按钮本来就是给他准备的。
+///
+/// 所以一路往下退：当前空间同级 → 最近用过且还在的仓库同级 → 系统「文档」
+/// 目录 → 家目录。前两条让同一个人的共享内容聚在一处，后两条保证空手也能加入。
+fn shared_base_dir(app: &AppHandle, state: &AppState) -> Result<std::path::PathBuf> {
+    if let Ok(root) = state.with_vault(|v| Ok(v.root.clone())) {
+        if let Some(parent) = root.parent() {
+            return Ok(parent.to_path_buf());
+        }
+    }
+    if let Some(parent) = recent::list(app)
+        .into_iter()
+        .find(|item| item.available)
+        .and_then(|item| std::path::Path::new(&item.root).parent().map(|p| p.to_path_buf()))
+    {
+        return Ok(parent);
+    }
+    use tauri::Manager;
+    app.path()
+        .document_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|_| Error::Vault("找不到可以存放共享空间的位置，请在「高级」里自己选一个".into()))
+}
+
+/// 加入共享空间时的默认本地位置（§2.8）。
+///
+/// 受邀者不该为了读一篇笔记先回答「放哪个空文件夹」。规则和创建共享空间时
+/// 完全一样，因此同一个空间在建立方和加入方的机器上叫同一个名字 —— 两个人
+/// 对着说话时不会出现两套称呼。
+#[tauri::command]
+fn shared_clone_destination(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<String> {
+    let name = vault::github::validate_repo_name(&name)?;
+    let destination = shared_dir_in(&shared_base_dir(&app, &state)?, &name);
+    Ok(destination.to_string_lossy().to_string())
 }
 
 /// GitHub 默认流程：自动建私有仓库、选本地位置、迁移共享节点并邀请成员。
@@ -1756,6 +1836,7 @@ pub fn run() {
             note_share,
             note_share_preview,
             note_share_space_list,
+            shared_clone_destination,
             note_share_space_access,
             shared_space_member_invite,
             shared_space_member_remove,
@@ -1866,4 +1947,57 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn tmp() -> PathBuf {
+        let d = std::env::temp_dir().join(format!("verso-shared-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn shared_spaces_live_next_to_the_vault() {
+        let base = tmp();
+        assert_eq!(
+            shared_destination_path(&base.join("我的笔记"), "records").unwrap(),
+            base.join("Verso Shared").join("records"),
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// 受邀者加入第二个空间时，当前打开的本来就在 `Verso Shared/` 里 ——
+    /// 再套一层会得到 `Verso Shared/Verso Shared/`
+    #[test]
+    fn joining_from_inside_a_shared_space_does_not_nest_again() {
+        let base = tmp();
+        let inside = base.join("Verso Shared").join("第一个空间");
+        assert_eq!(
+            shared_destination_path(&inside, "records").unwrap(),
+            base.join("Verso Shared").join("records"),
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// 同名的空间可以来自两个不同的人，本地不能互相覆盖
+    #[test]
+    fn a_taken_name_gets_a_suffix() {
+        let base = tmp();
+        std::fs::create_dir_all(base.join("Verso Shared").join("records")).unwrap();
+        assert_eq!(
+            shared_dir_in(&base, "records"),
+            base.join("Verso Shared").join("records-2"),
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// 盘符根这类没有上一级的路径不该被当成「同级」的来源
+    #[test]
+    fn a_rootless_path_has_no_sibling_to_put_it_next_to() {
+        assert!(shared_destination_path(Path::new("/"), "records").is_err());
+    }
 }

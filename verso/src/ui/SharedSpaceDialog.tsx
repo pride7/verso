@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { buildInvite } from "../core/invite";
+import { copyText } from "../host/clipboard";
 
 import type {
   GitHubAccount,
@@ -45,6 +48,9 @@ export function SharedSpaceDialog({
   const [moving, setMoving] = useState<string | null>(null);
   const [privateRoot, setPrivateRoot] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [manual, setManual] = useState<string | null>(null);
+  const copiedTimer = useRef<number | null>(null);
 
   const entries = space.entries ?? [];
   const usablePrivate = useMemo(
@@ -79,6 +85,29 @@ export function SharedSpaceDialog({
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, [busy, memberBusy, moving, onClose]);
+
+  useEffect(() => () => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+  }, []);
+
+  // 这串地址在空间拥有者手上本来就是现成的。不把它交出去、让受邀者自己去
+  // GitHub 翻仓库列表，是把成本转嫁给了信息更少的那一方（§2.8）。
+  const copyInvite = async () => {
+    if (!space.remote) return;
+    const text = buildInvite({ url: space.remote, name: space.name });
+    // 剪贴板失败的样子正是「点了没反应」。这时把邀请原文摊出来让人自己选中，
+    // 而不是留下一句指向看不见的东西的提示。
+    if (!(await copyText(text))) {
+      setManual(text);
+      setError("复制没成功，请手动选中下面这段。");
+      return;
+    }
+    setManual(null);
+    setError(null);
+    setCopied(true);
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 2000);
+  };
 
   const invite = async () => {
     const value = username.trim();
@@ -176,6 +205,24 @@ export function SharedSpaceDialog({
 
           <section className="shared-space-section">
             <h3>成员</h3>
+
+            <div className="shared-invite-row">
+              <span>
+                <strong>邀请别人加入</strong>
+                <small>
+                  {space.remote
+                    ? "把复制到的这段发给对方，在 Verso 里点「加入共享空间」粘贴即可。"
+                    : "这个空间没有远端地址，生成不了邀请。"}
+                </small>
+              </span>
+              <button className="btn-quiet" onClick={() => void copyInvite()} disabled={!space.remote || busy}>
+                {copied ? "已复制" : "复制邀请"}
+              </button>
+            </div>
+            {manual && (
+              <textarea className="shared-invite-manual" readOnly rows={3} value={manual} aria-label="邀请原文" />
+            )}
+
             {loading ? (
               <p className="shared-space-empty">正在核对远端权限…</p>
             ) : access ? (

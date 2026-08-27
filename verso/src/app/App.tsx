@@ -3937,6 +3937,9 @@ export default function App() {
             githubAccount={githubAccount}
             identity={identity}
             onPickFolder={pickCloneFolder}
+            onDefaultPath={api.cloneDestination}
+            onGitHubDeviceBegin={beginGitHubDevice}
+            onGitHubDevicePoll={pollGitHubDevice}
             onJoin={(input) => void joinVault(input)}
             onClose={() => !joining && setJoinOpen(false)}
           />
@@ -4723,6 +4726,9 @@ export default function App() {
           githubAccount={githubAccount}
           identity={identity}
           onPickFolder={pickCloneFolder}
+          onDefaultPath={api.cloneDestination}
+          onGitHubDeviceBegin={beginGitHubDevice}
+          onGitHubDevicePoll={pollGitHubDevice}
           onJoin={(input) => void joinVault(input)}
           onClose={() => !joining && setJoinOpen(false)}
         />

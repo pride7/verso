@@ -2,6 +2,7 @@ import { userEvent } from "vitest/browser";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { parseInvite } from "../../../src/core/invite";
 import type { SharedSpaceAccess } from "../../../src/core/types";
 import { SharedSpaceDialog } from "../../../src/ui/SharedSpaceDialog";
 import "../../../src/ui/styles.css";
@@ -132,5 +133,43 @@ describe("共享空间管理", () => {
       "论文/方案.md",
       "D:/Notes/private-b",
     );
+  });
+});
+
+describe("邀请别人加入", () => {
+  it("一键复制出的邀请，加入那头认得回来", async () => {
+    const copied: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text: string) => {
+      copied.push(text);
+    });
+    const { host } = mountDialog();
+    await settle();
+
+    await userEvent.click(button(host, "复制邀请"));
+    await settle();
+
+    expect(copied).toHaveLength(1);
+    // 邀请方手上的地址必须真的交出去，而不是让对方自己去 GitHub 翻仓库列表
+    expect(parseInvite(copied[0])).toEqual({
+      url: "https://github.com/owner/shared.git",
+      name: "与 @person-1 的共享",
+    });
+    expect(host.textContent).toContain("已复制");
+  });
+
+  it("没有远端地址时不假装能邀请", async () => {
+    const { host } = mountDialog({
+      space: {
+        root: "D:/Notes/Verso Shared/group",
+        name: "旧空间",
+        members: [],
+        entries: [],
+        remote: null,
+      },
+    });
+    await settle();
+
+    expect(button(host, "复制邀请").disabled).toBe(true);
+    expect(host.textContent).toContain("生成不了邀请");
   });
 });

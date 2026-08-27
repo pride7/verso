@@ -1478,6 +1478,50 @@ button {
   font-size: 11.5px;
   line-height: 1.55;
 }
+/* 邀请是一段可以直接发出去的文本：地址在拥有者手上是现成的（§2.8） */
+.shared-invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.shared-invite-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.shared-invite-row strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.shared-invite-row small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.shared-invite-row .btn-quiet {
+  flex: none;
+}
+.shared-invite-manual {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 10px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+}
 .shared-space-remote {
   margin: -2px 0 8px;
   overflow: hidden;
@@ -1697,6 +1741,133 @@ button {
   background: color-mix(in oklch, var(--danger) 7%, transparent);
   font-size: 11.5px;
   line-height: 1.5;
+}
+
+/* 加入共享空间：粘贴框 + 一张给人核对的确认卡片（§2.8） */
+.join-invite-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+}
+.join-invite-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.join-invite-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.join-invite-actions .btn-quiet {
+  flex: none;
+  padding: 3px 8px;
+}
+.join-unparsed {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+/* 默认值可以省掉输入，不能省掉知情 —— 地址、位置、署名都摆在这里让人核对 */
+.join-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in oklch, var(--accent) 22%, var(--hairline));
+  border-radius: var(--r-sm);
+  background: color-mix(in oklch, var(--accent) 4%, var(--surface));
+}
+.join-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+.join-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.join-summary-row > span:first-child {
+  flex: none;
+  width: 34px;
+}
+.join-summary-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.join-summary-row code.is-missing {
+  color: var(--danger);
+}
+.join-summary-row .btn-quiet {
+  flex: none;
+  padding: 2px 7px;
+}
+.join-summary-notice {
+  margin: 0;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.join-summary > small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.join-connect {
+  flex-wrap: wrap;
+}
+
+/* 令牌、手选位置、改署名 —— 少数人偶尔要动的东西，不该占着主流程 */
+.join-advanced {
+  border-top: 1px solid var(--hairline);
+  padding-top: 12px;
+}
+.join-advanced > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11.5px;
+  list-style: none;
+  user-select: none;
+}
+.join-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.join-advanced > summary::before {
+  content: "▸ ";
+}
+.join-advanced[open] > summary::before {
+  content: "▾ ";
+}
+.join-advanced > summary:hover {
+  color: var(--text);
+}
+.join-advanced[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
   .join-actions {
   display: flex;

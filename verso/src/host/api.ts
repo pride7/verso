@@ -88,6 +88,8 @@ export const api = {
     name: string;
     email: string;
   }) => call<VaultInfo>("vault_clone", input),
+  /** 加入共享空间的默认落点：当前空间同级的 `Verso Shared/<仓库名>`。目录还不存在，克隆时才建。 */
+  cloneDestination: (name: string) => call<string>("shared_clone_destination", { name }),
   /** 只读预检：列出节点子树、附件和明确不会共享的关联笔记。 */
   shareNotePreview: (note: string) => call<SharePreview>("note_share_preview", { note }),
   /** 可复用的共享空间；把内容加入其中不会新建仓库。 */

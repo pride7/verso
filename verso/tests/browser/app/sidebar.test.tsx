@@ -77,6 +77,7 @@ const openVault = vi.fn(async (path: string) => {
 });
 const pickVaultFolder = vi.fn(async () => null as string | null);
 const pickCloneFolder = vi.fn(async () => JOINED_VAULT.root as string | null);
+const cloneDestination = vi.fn(async (_folder: string) => JOINED_VAULT.root);
 const cloneVault = vi.fn(async (_input: Record<string, string>) => {
   backendRoot = JOINED_VAULT.root;
   return JOINED_VAULT;
@@ -123,6 +124,7 @@ vi.mock("../../../src/host/api", () => ({
     reopenLastVault: async () => reopen,
     openVault: (path: string) => openVault(path),
     cloneVault: (input: Record<string, string>) => cloneVault(input),
+    cloneDestination: (name: string) => cloneDestination(name),
     shareNotePreview: async (note: string) => ({
       note,
       documents: [note, "论文/实验.md"],
@@ -211,6 +213,7 @@ beforeEach(() => {
   pickVaultFolder.mockClear();
   pickCloneFolder.mockClear();
   cloneVault.mockClear();
+  cloneDestination.mockClear();
   shareCurrentNote.mockClear();
   shareGitHub.mockClear();
   shareToSpace.mockClear();
@@ -380,7 +383,7 @@ describe("侧栏头部", () => {
     expect(el(".shared-space-dialog")).toBeNull();
   });
 
-  it("接受 GitHub 邀请后复用已连接账号，无需再粘贴令牌即可加入共享空间", async () => {
+  it("粘贴邀请就能加入：地址、位置与署名都自动填好，不必再挑文件夹", async () => {
     await mountApp();
     el<HTMLButtonElement>(".vault-name")!.click();
     await settle(30);
@@ -390,29 +393,30 @@ describe("侧栏头部", () => {
     join.click();
     await settle(60);
 
-    const inputs = [...document.querySelectorAll<HTMLInputElement>(".join-field input")];
-    const type = async (input: HTMLInputElement, value: string) => {
-      await act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-        setter.call(input, value);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        await settle(20);
-      });
-    };
-    await type(inputs[0], "https://github.com/team/shared.git");
+    const invite = document.querySelector<HTMLTextAreaElement>(".join-invite-input")!;
     await act(async () => {
-      [...document.querySelectorAll<HTMLButtonElement>(".join-path-row button")][0].click();
-      await settle(40);
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(
+        invite,
+        ["【Verso 共享空间邀请】组会记录", "https://github.com/team/shared.git"].join("\n"),
+      );
+      invite.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle(80);
     });
-    expect(document.querySelector(".join-vault")?.textContent).toContain("访问令牌（可选）");
-    expect(document.querySelector(".join-vault")?.textContent).toContain("将使用已连接的 @owner");
+
+    const dialog = document.querySelector(".join-vault")!;
+    expect(dialog.textContent).toContain("组会记录");
+    expect(dialog.textContent).toContain("将以已连接的 @owner");
+    expect(dialog.textContent).toContain(JOINED_VAULT.root);
+    expect(cloneDestination).toHaveBeenCalledWith("shared");
 
     await act(async () => {
       document.querySelector<HTMLFormElement>(".join-vault form")!.requestSubmit();
       await settle(500);
     });
 
-    expect(pickCloneFolder).toHaveBeenCalled();
+    // 位置和署名都是算出来的：受邀者一次文件夹选择器都不用点
+    expect(pickCloneFolder).not.toHaveBeenCalled();
     expect(cloneVault).toHaveBeenCalledWith({
       url: "https://github.com/team/shared.git",
       path: JOINED_VAULT.root,
