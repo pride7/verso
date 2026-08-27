@@ -11,16 +11,20 @@ import {
   projectSections,
   ensureProjectStatusSchema,
   prepareItemMove,
+  projectCard,
   projectItemTime,
   projectStatusOptions,
+  readProjectCardSort,
   removeProjectStatus,
   sectionNameError,
   setProjectPinned,
   setProjectSections,
+  sortProjectCards,
   sortProjectItems,
   statusTone,
   ulidTime,
   type ProjectApi,
+  type ProjectCard,
   type ProjectItem,
 } from "../../../src/core/project";
 import type { NoteContent, NoteMeta, PropSchema } from "../../../src/core/types";
@@ -414,5 +418,58 @@ describe("记录的时间", () => {
     const withId = projectItemTime(item("01J0000000ABCDEFGHJKMNPQRS", 1_700_000_000_000));
     expect(withId.created).toBe(true);
     expect(withId.ms).toBe(ulidTime("01J0000000ABCDEFGHJKMNPQRS"));
+  });
+});
+
+describe("项目中心的卡片", () => {
+  const card = (title: string, extra: Partial<ProjectCard> = {}): ProjectCard => ({
+    path: `${title}.md`, title, status: "进行中", summary: "", next: "", blocker: "",
+    updated: "", created: "", pinned: false, ...extra,
+  });
+
+  it("查询的一行整理成卡片：状态缺省进行中，pinned 认布尔落成的字符串", () => {
+    const row = projectCard({ path: "a.md", title: "a", props: { pinned: "true", updated: " 2026-08-01T00:00:00+08:00 " } });
+    expect(row).toMatchObject({ status: "进行中", pinned: true, updated: "2026-08-01T00:00:00+08:00", created: "" });
+    expect(projectCard({ path: "b.md", title: "b", props: { status: "已完成" } })).toMatchObject({ status: "已完成", pinned: false });
+  });
+
+  it("置顶永远在最前，其余按选定的方式排", () => {
+    const cards = [
+      card("旧的", { updated: "2026-08-01", created: "2026-07-01" }),
+      card("新的", { updated: "2026-08-09", created: "2026-08-02" }),
+      card("置顶的", { updated: "2026-08-03", created: "2026-07-20", pinned: true }),
+      card("最早建的", { updated: "2026-08-05", created: "2026-06-01" }),
+    ];
+    const order = (sort: Parameters<typeof sortProjectCards>[1]) => sortProjectCards(cards, sort).map((c) => c.title);
+    expect(order("updated")).toEqual(["置顶的", "新的", "最早建的", "旧的"]);
+    expect(order("created")).toEqual(["置顶的", "新的", "旧的", "最早建的"]);
+    expect(order("name")).toEqual(["置顶的", "旧的", "新的", "最早建的"]);
+    // 不改原数组：那是 state
+    expect(cards[0].title).toBe("旧的");
+  });
+
+  it("按状态：还在发生的在前，收场了的在后，同档再看最近修改", () => {
+    const cards = [
+      card("做完的", { status: "已完成", updated: "2026-08-09" }),
+      card("归档的", { status: "已归档", updated: "2026-08-08" }),
+      card("卡住的", { status: "等外部数据", updated: "2026-08-07" }),
+      card("在做的", { status: "进行中", updated: "2026-08-01" }),
+      card("刚动过的", { status: "复现中", updated: "2026-08-06" }),
+      card("没开始的", { status: "未开始", updated: "2026-08-05" }),
+    ];
+    expect(sortProjectCards(cards, "status").map((c) => c.title))
+      .toEqual(["刚动过的", "在做的", "卡住的", "没开始的", "做完的", "归档的"]);
+  });
+
+  it("缺时间的沉到底，而不是被当成 1970 年排最前", () => {
+    const cards = [card("没时间"), card("有时间", { updated: "2026-08-01", created: "2026-07-01" })];
+    expect(sortProjectCards(cards, "updated").map((c) => c.title)).toEqual(["有时间", "没时间"]);
+    expect(sortProjectCards(cards, "created").map((c) => c.title)).toEqual(["有时间", "没时间"]);
+  });
+
+  it("存起来的排序方式认不出就退回默认", () => {
+    expect(readProjectCardSort("name")).toBe("name");
+    expect(readProjectCardSort("bogus")).toBe("updated");
+    expect(readProjectCardSort(null)).toBe("updated");
   });
 });

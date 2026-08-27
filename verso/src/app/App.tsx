@@ -4304,10 +4304,15 @@ export default function App() {
         <ProjectCenter
           revision={revision}
           promotableNote={note && !isProject(note) ? note.title : null}
-          onOpen={(path) => void openPath(path)}
+          onOpen={(path, opts) => void openPath(path, opts)}
           onNew={() => void createProjectAndOpen()}
           onPromote={() => void toggleProject()}
           onClose={() => setProjectCenterOpen(false)}
+          onChanged={() => {
+            void refresh();
+            void reloadFromDisk();
+            setRevision((value) => value + 1);
+          }}
           onError={setError}
         />
       )}

@@ -1,4 +1,5 @@
-import type { NoteContent, NoteMeta, NoteRef, PropDef, PropSchema } from "./types";
+import { naturalCmp } from "./treeSort";
+import type { NoteContent, NoteMeta, NoteRef, PropDef, PropSchema, ViewRow } from "./types";
 
 export type ProjectKind = "progress" | "experiment" | "question" | "decision" | "resource";
 export type ProjectItemKind = Exclude<ProjectKind, "progress">;
@@ -663,4 +664,100 @@ export async function updateProjectSnapshot(
   for (const [key, value] of Object.entries(input) as [keyof typeof input, string][]) {
     await api.propSet(path, key, value.trim() || null);
   }
+}
+
+// ---------------------------------------------------------------- 项目中心（§2.10）
+
+/**
+ * 项目中心里的一张卡片。来源是 database 查询的一行（`ViewRow`），这里只做
+ * 「把一堆字符串属性整理成有名字的字段」这一步；卡片怎么排见 `sortProjectCards`。
+ */
+export interface ProjectCard {
+  path: string;
+  title: string;
+  status: string;
+  summary: string;
+  next: string;
+  blocker: string;
+  /**
+   * 索引给的时间（RFC 3339）。frontmatter 里没手写的就是文件自己的时间 ——
+   * §2.3 起 Verso 不往笔记里写这两项，但索引一直有。
+   */
+  updated: string;
+  created: string;
+  /** 和项目记录同一条规矩：写在这篇笔记自己的 frontmatter 里（`setProjectPinned`） */
+  pinned: boolean;
+}
+
+/** 项目中心那条查询要的列。排序在前端做，所以排序用得着的都得要上 */
+export const PROJECT_CARD_COLUMNS = ["status", "summary", "next", "blocker", "pinned", "created", "updated"] as const;
+
+export function projectCard(row: ViewRow): ProjectCard {
+  const prop = (key: string) => row.props[key]?.trim() ?? "";
+  return {
+    path: row.path,
+    title: row.title,
+    // 没写状态的项目按「进行中」算：一篇刚被设为项目的笔记正是这个状态
+    status: prop("status") || PROJECT_STATUSES[1],
+    summary: prop("summary"),
+    next: prop("next"),
+    blocker: prop("blocker"),
+    updated: prop("updated"),
+    created: prop("created"),
+    pinned: isPinned(row.props.pinned),
+  };
+}
+
+export type ProjectCardSort = "updated" | "created" | "name" | "status";
+
+/** 键的顺序就是菜单里的顺序 */
+export const PROJECT_CARD_SORT_LABELS: Record<ProjectCardSort, string> = {
+  updated: "最近修改",
+  created: "最近创建",
+  name: "名称 A→Z",
+  status: "按状态",
+};
+
+/** 存起来的排序方式读回来；认不出的（换过版本、手改过）退回默认 */
+export function readProjectCardSort(raw: unknown): ProjectCardSort {
+  return typeof raw === "string" && raw in PROJECT_CARD_SORT_LABELS ? (raw as ProjectCardSort) : "updated";
+}
+
+/** 「按状态」的先后：还在发生的在前，收场了的在后 —— 和四档语义色同一套（§6.2） */
+const TONE_ORDER: Record<StatusTone, number> = { active: 0, blocked: 1, todo: 2, done: 3, archived: 4 };
+
+/** 时间倒序。缺时间的沉到底，而不是被当成 1970 年排最前（同文档树） */
+function newestFirst(a: string, b: string): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return b.localeCompare(a);
+}
+
+/**
+ * 项目中心的排序。**置顶永远在最前**，其余按选定的方式；同分再按最近修改、
+ * 名字 —— 任何一种方式下顺序都得是确定的，两张卡片来回换位看着像坏了。
+ *
+ * 返回新数组，不改原数组（和 `sortTree` 一个理由：那是 state）。
+ */
+export function sortProjectCards(cards: ProjectCard[], sort: ProjectCardSort): ProjectCard[] {
+  const by = (a: ProjectCard, b: ProjectCard): number => {
+    switch (sort) {
+      case "name":
+        return naturalCmp(a.title, b.title);
+      case "created":
+        return newestFirst(a.created, b.created);
+      case "status":
+        return TONE_ORDER[statusTone(a.status)] - TONE_ORDER[statusTone(b.status)];
+      default:
+        return newestFirst(a.updated, b.updated);
+    }
+  };
+  return [...cards].sort(
+    (a, b) =>
+      Number(b.pinned) - Number(a.pinned) ||
+      by(a, b) ||
+      newestFirst(a.updated, b.updated) ||
+      naturalCmp(a.title, b.title),
+  );
 }

@@ -4745,6 +4745,42 @@ body.is-table-resizing * {
 .project-center-card-now .has-blocker {
   color: var(--danger, #a34a43);
 }
+/* 置顶只是一个小图钉，和总览里的记录行同一个记号；卡片本身不变色 */
+.project-center-card-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-center-card-pin {
+  display: grid;
+  place-items: center;
+  color: var(--muted-2);
+}
+/* 排序方式：靠右，样子跟状态筛选的胶囊一致；菜单复用侧栏那份 */
+.project-center-sort {
+  flex: none;
+  margin-left: auto;
+}
+.project-center-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.project-center-sort-btn:hover,
+.project-center-sort-btn.is-on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+.project-center-sort-chevron {
+  transform: rotate(90deg);
+  color: var(--muted-2);
+}
 .project-center-empty {
   min-height: 260px;
   display: flex;
@@ -4858,6 +4894,15 @@ body.is-table-resizing * {
   }
   .project-center-grid {
     grid-template-columns: 1fr;
+  }
+  /* 单列时工具条竖排，排序按钮靠左、菜单也从左边长出来 */
+  .project-center-sort {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+  .project-center-sort .side-menu {
+    right: auto;
+    left: 0;
   }
 }
 .review-pending {
