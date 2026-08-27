@@ -241,7 +241,13 @@ pub fn clone_remote(url: &str, destination: &Path, token: Option<String>) -> Res
         ));
     }
 
-    let destination = destination.canonicalize().unwrap_or_else(|_| destination.to_path_buf());
+    // 摘掉 `\\?\` 前缀的理由和 `git::ensure_repo` 那里一模一样：克隆的落点
+    // 是**临时目录**，而它就建在 `destination` 的同级 —— vault 放在盘符下面
+    // 一级时（`E:\Notes`），临时目录也在一级上，libgit2 同样会去创建 `E:`
+    // 那一级然后失败。
+    let destination = crate::winpath::for_external(
+        &destination.canonicalize().unwrap_or_else(|_| destination.to_path_buf()),
+    );
     let parent = destination
         .parent()
         .ok_or_else(|| Error::Vault("不能把磁盘根目录作为共享仓库位置".into()))?;

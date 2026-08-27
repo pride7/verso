@@ -96,6 +96,18 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
     #[cfg(target_os = "android")]
     relax_owner_check();
 
+    // **建仓库之前必须摘掉 `\\?\` 前缀。** libgit2 把 `\\?\E:\Notes` 里的
+    // `//?/E:` 当成 UNC 的「`//服务器/共享`」根，于是初始化时试着去创建
+    // `E:` 那一级，而 Windows 对「创建一个驱动器」返回的是拒绝访问 ——
+    // 结果是**盘符下面一级的目录永远建不成仓库**：`E:\Notes` 报
+    // `failed to make directory '//?/E:'`，而 `E:\a\b` 又完全正常。
+    //
+    // 这个 bug 藏得很深：仓库一旦存在就走 `Repository::open`（那条路不建
+    // 目录，verbatim 路径没问题），所以只有**第一次打开一个新目录**才会
+    // 撞上。libgit2 和 shell 属于同一类消费者，按 `winpath` 的规矩，跨过去
+    // 之前先说人话。
+    let root = &crate::winpath::for_external(root);
+
     let mut renamed_branch = false;
     let created_repo = match git2::Repository::open(root) {
         Ok(repo) => {
@@ -153,6 +165,32 @@ mod tests {
         let head = repo.find_reference("HEAD").unwrap();
         let target = head.symbolic_target().unwrap().to_string();
         target
+    }
+
+    /// 盘符下面**一级**的目录曾经永远建不成仓库。
+    ///
+    /// libgit2 把 `\\?\E:\Notes` 里的 `//?/E:` 读成 UNC 的「`//服务器/共享`」
+    /// 根，于是去创建 `E:` 那一级，Windows 返回拒绝访问；再深一级
+    /// （`E:\a\b`）却完全正常，所以这个坑藏了很久 —— 而「笔记就放在
+    /// `D:\笔记`」恰恰是最常见的摆法。作者是在 `E:\Notes` 上撞见的。
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_directly_under_a_drive_root_can_become_a_repo() {
+        // 不写死盘符：用临时目录所在的那个盘的根
+        let plain = crate::winpath::for_external(&std::env::temp_dir().canonicalize().unwrap());
+        let drive_root = plain.ancestors().last().unwrap().to_path_buf();
+        let dir = drive_root.join(format!("verso-drive-root-{}", ulid::Ulid::new()));
+        // 盘根不让建目录（权限收紧过的机器）就跳过，别把测试变成环境检测
+        if std::fs::create_dir(&dir).is_err() {
+            return;
+        }
+
+        // 传进去的正是 `Vault::open` 会传的那个 verbatim 路径
+        let result = ensure_repo(&dir.canonicalize().unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let r = result.expect("盘符下面一级的目录必须能建成仓库");
+        assert!(r.created_repo);
     }
 
     #[test]

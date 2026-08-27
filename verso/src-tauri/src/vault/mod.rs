@@ -83,7 +83,32 @@ impl Vault {
         Ok((v, info))
     }
 
+    /// 没有上一级的路径 —— 盘符根 `E:\`、网络共享根 `\\server\share`。
+    ///
+    /// **必须挡在 git 初始化之前。** libgit2 建仓库时会沿路把每一级父目录
+    /// 建出来；走到 `\\?\E:` 这一级，Windows 对「创建一个驱动器」返回的是
+    /// 拒绝访问而不是「已存在」，于是整个初始化失败，用户看到的是一句
+    /// `failed to make directory '//?/E:'` —— 从这句话完全看不出问题在于
+    /// 「不该把整个盘当仓库」。
+    fn is_filesystem_root(path: &Path) -> bool {
+        path.parent().is_none()
+    }
+
+    /// `E:` 这种只有盘符、不带分隔符的写法，指的是**该驱动器的当前目录**，
+    /// 不是它的根。照字面用下去 `canonicalize` 会把它解析到进程当前的工作
+    /// 目录上，于是仓库建在了一个用户从没指定过的地方 —— 而且看不出来。
+    /// 先补成 `E:\`，让它落到上面那条盘符根的规则里去。
+    fn with_drive_root(path: PathBuf) -> PathBuf {
+        let mut parts = path.components();
+        if matches!(parts.next(), Some(Component::Prefix(_))) && parts.next().is_none() {
+            // 「有根但没前缀」的 join 只替换掉相对部分，盘符会保留下来
+            return path.join(std::path::MAIN_SEPARATOR_STR);
+        }
+        path
+    }
+
     pub fn open(root: PathBuf) -> Result<(Self, VaultInfo)> {
+        let root = Self::with_drive_root(root);
         if !root.is_dir() {
             return Err(Error::Vault(format!("不是一个目录: {}", root.display())));
         }
@@ -98,6 +123,13 @@ impl Vault {
         // 里对每一次访问单独做，而这里的 root 要么来自目录选择器、要么是
         // 我们自己拼的，本来就不是不可信输入。
         let root = root.canonicalize().unwrap_or(root);
+        // 规范化之后再判：`E:\Notes\..` 这种写法要等它化简完才看得出是盘符根
+        if Self::is_filesystem_root(&root) {
+            return Err(Error::Vault(format!(
+                "{} 是驱动器或网络共享的根，不能整个当成仓库。请在里面选一个具体的文件夹。",
+                crate::winpath::for_external(&root).display()
+            )));
+        }
 
         let g = git::ensure_repo(&root)?;
         // 给 vault 里的 AI CLI 补一份约定说明（§7.7）。和 .gitignore 一样是
@@ -569,6 +601,66 @@ mod tests {
             Path::new("/vault").join("数学").join("线性代数.md")
         );
         assert_eq!(v.resolve("./a.md").unwrap(), Path::new("/vault").join("a.md"));
+    }
+
+    /// 把整个驱动器当仓库会在 libgit2 里炸成一句
+    ///  —— 作者真的这么点过一次。
+    #[test]
+    fn refuses_a_filesystem_root() {
+        assert!(Vault::is_filesystem_root(Path::new("/")));
+        assert!(!Vault::is_filesystem_root(Path::new("/home/me/notes")));
+
+        #[cfg(windows)]
+        {
+            assert!(Vault::is_filesystem_root(Path::new(r"E:\")));
+            assert!(Vault::is_filesystem_root(Path::new(r"\\?\E:\")));
+            assert!(Vault::is_filesystem_root(Path::new(r"\\server\share\")));
+            assert!(!Vault::is_filesystem_root(Path::new(r"E:\Notes")));
+            assert!(!Vault::is_filesystem_root(Path::new(r"\\?\E:\Notes")));
+
+            // 真的走一遍 open：报出来的必须是人话，不是 libgit2 的原文
+            // Vault 没有 Debug，`unwrap_err` 用不了
+            let error = Vault::open(PathBuf::from(r"E:\"))
+                .err()
+                .expect("盘符根必须被拒绝")
+                .to_string();
+            assert!(error.contains("驱动器"), "{error}");
+            assert!(!error.contains("make directory"), "{error}");
+        }
+    }
+
+    /// `E:` 不带分隔符指的是「该驱动器的当前目录」。照字面用下去，仓库会
+    /// 建在用户从没指定过的地方 —— 而且看不出来。
+    #[test]
+    fn a_bare_drive_means_that_drive_s_root() {
+        assert_eq!(
+            Vault::with_drive_root(PathBuf::from("/home/me")),
+            PathBuf::from("/home/me")
+        );
+
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                Vault::with_drive_root(PathBuf::from("E:")),
+                PathBuf::from(r"E:\")
+            );
+            // 已经带根的、以及普通路径都不该被动
+            assert_eq!(
+                Vault::with_drive_root(PathBuf::from(r"E:\")),
+                PathBuf::from(r"E:\")
+            );
+            assert_eq!(
+                Vault::with_drive_root(PathBuf::from(r"E:\Notes")),
+                PathBuf::from(r"E:\Notes")
+            );
+
+            // 于是它落进盘符根那条规则，而不是在当前工作目录里建出一个仓库
+            let error = Vault::open(PathBuf::from("E:"))
+                .err()
+                .expect("光一个盘符必须被拒绝")
+                .to_string();
+            assert!(error.contains("驱动器"), "{error}");
+        }
     }
 
     /// 报给前端的 root 必须是人话写法：Windows 上 canonicalize 给的是
