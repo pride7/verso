@@ -334,6 +334,15 @@ class TableWidget extends WidgetType {
       // 报成 false，只查它的话，选个词就跳去了下一格
       if (!editing || e.isComposing || e.keyCode === 229) return;
       const { row, col, el } = editing;
+      // **全选只选这一格。** 不拦的话，Chromium 的「全选」会沿着可编辑的祖先
+      // 一路向上（HighestEditableRoot）选中整个编辑器，焦点也跟着离开格子 ——
+      // 接着按 Backspace 删掉的不是格子里的字，而是编辑器光标原本停着的那个
+      // 位置上的一个字；用户看到的是「删不掉」，正文却少了一个字（§4.9）
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        placeCaret(el, "all");
+        return;
+      }
       const last = data.rows.length - 1;
       const cols = data.header.length;
       const nav = (r: number, c: number, caret: Caret = "all") => {
@@ -387,7 +396,36 @@ class TableWidget extends WidgetType {
       }
     };
 
-    const onCellBlur = () => finishEdit();
+    /**
+     * 「全选」有几条路不经过按键（触摸端的选择菜单、macOS 的编辑菜单、
+     * `execCommand`），拦不到 keydown，只能在它把焦点带走之后认出来：
+     * 选区已经不从格子里起头、却把整个格子包在里面 —— 正常的失焦（点到
+     * 别处、Tab 出去）从来不会长成这个形状，那时选区要么还在格子里，要么
+     * 已经收成一个点。
+     */
+    const selectAllEscaped = (el: HTMLElement): boolean => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+      const range = sel.getRangeAt(0);
+      return !el.contains(range.startContainer) && range.intersectsNode(el);
+    };
+
+    const onCellBlur = () => {
+      if (!editing) return;
+      const { el } = editing;
+      if (selectAllEscaped(el)) {
+        // 是全选：不写回。此刻浏览器正把焦点交给编辑器正文，在 blur 里把焦点
+        // 抢回来，那次移交就作废了（Blink / WebKit 同一条规矩：blur 处理器改了
+        // 焦点，原定的接手方不再接手）—— 编辑器拿不到焦点，也就不会把「整篇
+        // 都选中了」读进自己的状态。选区随后拉回这一格。
+        // 不能等一拍：blur 一返回，浏览器接着就把焦点给正文，编辑器拿到焦点
+        // 的当下就同步读走了选区，表格当场退回源码
+        el.focus();
+        placeCaret(el, "all");
+        return;
+      }
+      finishEdit();
+    };
 
     /**
      * 点到哪格编辑哪格。挂在 `<table>` 上做委托 —— 把手（`.cm-table-ui`）

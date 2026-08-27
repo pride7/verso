@@ -10,6 +10,7 @@
  */
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import { createExtensions } from "../../../src/editor/index";
 import { applySettings, DEFAULT_SETTINGS } from "../../../src/app/settings";
@@ -377,6 +378,48 @@ describe("单元格就地编辑", () => {
     press(below, "Escape");
     expect(editingCell(v)).toBeNull();
     expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+  });
+
+  // 格子是嵌在编辑器（也是 contenteditable）里的 contenteditable。Chromium 的
+  // 「全选」会沿可编辑祖先一路向上选中整个编辑器，焦点也跟着走 —— 接着按
+  // Backspace 删掉的不是格子里的字，而是编辑器光标原本停着的位置上的一个字。
+  // 用真实按键跑：这一条在 `cell.textContent = ...` 那种测法里永远绿
+  it("Ctrl+A 只选这一格；接着删掉的也只是这一格，正文一个字不少", async () => {
+    const v = mount(DOC);
+    await settle();
+    click(v.dom.querySelector(".cm-table td")!);
+    const cell = editingCell(v)!;
+    await userEvent.keyboard("{Control>}a{/Control}");
+    const sel = window.getSelection()!;
+    expect(document.activeElement).toBe(cell);
+    expect(cell.contains(sel.anchorNode)).toBe(true);
+    expect(cell.contains(sel.focusNode)).toBe(true);
+    expect(sel.toString()).toBe("1");
+    await userEvent.keyboard("{Backspace}");
+    expect(cell.textContent).toBe("");
+    cell.blur();
+    await settle();
+    const doc = v.state.doc.toString();
+    expect(doc).toContain("|     | 2   |");
+    expect(doc.startsWith("正文\n")).toBe(true);
+    expect(doc.endsWith("\n结尾")).toBe(true);
+  });
+
+  it("不经过按键的全选（触摸端的选择菜单）也留在这一格，表格不退回源码", async () => {
+    const v = mount(DOC);
+    await settle();
+    click(v.dom.querySelector(".cm-table td")!);
+    const cell = editingCell(v)!;
+    const before = v.state.selection.main;
+    document.execCommand("selectAll");
+    await settle();
+    expect(document.activeElement).toBe(cell);
+    expect(window.getSelection()?.toString()).toBe("1");
+    expect(editingCell(v)).toBe(cell);
+    expect(v.dom.querySelector(".cm-table table")).not.toBeNull();
+    // 编辑器自己的选区没被整篇选中
+    expect(v.state.selection.main.from).toBe(before.from);
+    expect(v.state.selection.main.to).toBe(before.to);
   });
 
   it("键盘把光标走进表格，整块照旧退回源码 —— 进源码那条路没有堵", async () => {
