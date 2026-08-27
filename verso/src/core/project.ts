@@ -23,6 +23,8 @@ export interface ProjectItem {
   searchText: string;
   /** 置顶。写在这条记录自己的 frontmatter 里，跟着文件走。 */
   pinned: boolean;
+  /** 置顶那一刻。置顶组按它排（先置顶的在前）；升级前置的顶没有这一项。 */
+  pinnedAt: string;
   mtimeMs: number;
 }
 
@@ -420,6 +422,23 @@ function isPinned(value: unknown): boolean {
 }
 
 /**
+ * 置顶组内部的顺序：**先置顶的在前**，像一条队列。
+ *
+ * 光有一个布尔是排不出队列的 —— 组内顺序会落回通用排序，而置顶这个动作本身
+ * 要改 frontmatter，把 `updated` 顶新；于是默认的「最近修改」把刚置顶的那个
+ * 甩到最前，正好是反的。所以 `setProjectPinned` 另记一个 `pinnedAt`。
+ *
+ * 没有 `pinnedAt` 的是**升级之前**置的顶。它们确实发生在所有新置顶之前，
+ * 所以排在最前；它们之间再由调用方原有的规则落定。
+ */
+function byPinTime(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  return a < b ? -1 : 1;
+}
+
+/**
  * 排序规则：**置顶 → 还没结束的 → 创建时间（新的在前）**。就地排序，
  * 两处清单共用这一份。
  *
@@ -477,6 +496,10 @@ export function sortProjectItems(items: ProjectItem[]): ProjectItem[] {
   return items.sort((a, b) => {
     const byPin = Number(b.pinned) - Number(a.pinned);
     if (byPin) return byPin;
+    if (a.pinned && b.pinned) {
+      const byTime = byPinTime(a.pinnedAt, b.pinnedAt);
+      if (byTime) return byTime;
+    }
     const byPhase = settled(a) - settled(b);
     if (byPhase) return byPhase;
     const ida = a.id ?? "";
@@ -498,6 +521,12 @@ export async function setProjectPinned(
 ): Promise<void> {
   await api.propDefSet("pinned", { type: "checkbox" });
   await api.propSet(path, "pinned", pinned ? "true" : null);
+  // 置顶那一刻单独记一笔，置顶组才排得成队列（见 `byPinTime`）。**不把
+  // `pinned` 本身改成时间**：它已经是 checkbox，属性面板上是个勾选框，
+  // 用户写过的 `where pinned = true` 也还得认。取消置顶时连这一行删掉，
+  // 不留一个会误导下一次的旧时间。
+  await api.propDefSet("pinnedAt", { type: "date" });
+  await api.propSet(path, "pinnedAt", pinned ? localStamp(new Date(), true) : null);
 }
 
 /**
@@ -541,6 +570,7 @@ export async function loadProjectOverview(
         summary: asText(note.frontmatter.summary) || firstContentLine(note.body),
         searchText: note.body,
         pinned: isPinned(note.frontmatter.pinned),
+        pinnedAt: asText(note.frontmatter.pinnedAt),
         mtimeMs: note.mtimeMs,
       }];
     });
@@ -601,9 +631,15 @@ export async function prepareItemMove(
   return target;
 }
 
-function localStamp(now = new Date()): string {
+/**
+ * 本地时间戳。`seconds` 用于置顶时刻 —— 连着钉三个项目很正常，只精确到
+ * 分钟的话它们会并列，队列顺序又落回通用排序。
+ */
+function localStamp(now = new Date(), seconds = false): string {
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}${seconds ? `:${pad(now.getSeconds())}` : ""}`;
+  return `${date} ${time}`;
 }
 
 /**
@@ -687,10 +723,12 @@ export interface ProjectCard {
   created: string;
   /** 和项目记录同一条规矩：写在这篇笔记自己的 frontmatter 里（`setProjectPinned`） */
   pinned: boolean;
+  /** 置顶那一刻。置顶组按它排（先置顶的在前）；升级前置的顶没有这一项。 */
+  pinnedAt: string;
 }
 
 /** 项目中心那条查询要的列。排序在前端做，所以排序用得着的都得要上 */
-export const PROJECT_CARD_COLUMNS = ["status", "summary", "next", "blocker", "pinned", "created", "updated"] as const;
+export const PROJECT_CARD_COLUMNS = ["status", "summary", "next", "blocker", "pinned", "pinnedAt", "created", "updated"] as const;
 
 export function projectCard(row: ViewRow): ProjectCard {
   const prop = (key: string) => row.props[key]?.trim() ?? "";
@@ -705,6 +743,7 @@ export function projectCard(row: ViewRow): ProjectCard {
     updated: prop("updated"),
     created: prop("created"),
     pinned: isPinned(row.props.pinned),
+    pinnedAt: prop("pinnedAt"),
   };
 }
 
@@ -756,6 +795,7 @@ export function sortProjectCards(cards: ProjectCard[], sort: ProjectCardSort): P
   return [...cards].sort(
     (a, b) =>
       Number(b.pinned) - Number(a.pinned) ||
+      (a.pinned && b.pinned ? byPinTime(a.pinnedAt, b.pinnedAt) : 0) ||
       by(a, b) ||
       newestFirst(a.updated, b.updated) ||
       naturalCmp(a.title, b.title),

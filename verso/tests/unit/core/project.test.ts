@@ -45,6 +45,7 @@ describe("项目记录", () => {
       summary: "初步结果",
       searchText: "第一段没有关键词。\n\n第二段采用贝叶斯优化。",
       pinned: false,
+      pinnedAt: "",
       mtimeMs: 1,
     };
     expect(matchesProjectItem(item, "贝叶斯")).toBe(true);
@@ -310,7 +311,7 @@ describe("置顶与换分类", () => {
   it("置顶压过一切，其次是「还没结束的」，最后才按创建时间", () => {
     const row = (title: string, extra: Partial<ProjectItem>): ProjectItem => ({
       path: `${title}.md`, id: null, title, section: "实验", kind: null,
-      status: "", summary: "", searchText: "", pinned: false, mtimeMs: 0, ...extra,
+      status: "", summary: "", searchText: "", pinned: false, pinnedAt: "", mtimeMs: 0, ...extra,
     });
     const rows = [
       row("已完成的", { status: "已完成", id: "01F" }),
@@ -323,10 +324,45 @@ describe("置顶与换分类", () => {
     ]);
   });
 
+  /**
+   * 置顶组是**队列**：先置顶的在前。
+   *
+   * 光有一个布尔排不出来 —— 置顶要改 frontmatter，`updated` 跟着变新，于是
+   * 通用排序把刚置顶的那条甩到最前，正好反了。
+   */
+  it("置顶组按置顶先后排，先钉的在前", () => {
+    const row = (title: string, pinnedAt: string, id: string): ProjectItem => ({
+      path: `${title}.md`, id, title, section: "实验", kind: null,
+      status: "进行中", summary: "", searchText: "", pinned: true, pinnedAt, mtimeMs: 0,
+    });
+    const rows = [
+      row("后钉的", "2026-08-27 10:05:00", "01C"),
+      row("先钉的", "2026-08-27 10:00:00", "01A"),
+      row("中间钉的", "2026-08-27 10:02:30", "01B"),
+    ];
+    expect(sortProjectItems([...rows]).map((r) => r.title)).toEqual([
+      "先钉的", "中间钉的", "后钉的",
+    ]);
+  });
+
+  it("升级前钉的没有 pinnedAt，排在所有新钉的前面", () => {
+    const row = (title: string, pinnedAt: string, id: string): ProjectItem => ({
+      path: `${title}.md`, id, title, section: "实验", kind: null,
+      status: "进行中", summary: "", searchText: "", pinned: true, pinnedAt, mtimeMs: 0,
+    });
+    const rows = [
+      row("升级后钉的", "2026-08-27 10:00:00", "01A"),
+      row("升级前钉的", "", "01B"),
+    ];
+    expect(sortProjectItems([...rows]).map((r) => r.title)).toEqual([
+      "升级前钉的", "升级后钉的",
+    ]);
+  });
+
   it("改状态不该让一条跳到最前面 —— 那正是按修改时间排的毛病", () => {
     const base = (title: string, id: string, status: string, mtimeMs: number): ProjectItem => ({
       path: `${title}.md`, id, title, section: "问题", kind: "question",
-      status, summary: "", searchText: "", pinned: false, mtimeMs,
+      status, summary: "", searchText: "", pinned: false, pinnedAt: "", mtimeMs,
     });
     // 「乙」刚被改过状态，所以它的 mtime 最新
     const rows = [
@@ -338,7 +374,7 @@ describe("置顶与换分类", () => {
     expect(sortProjectItems([...rows]).map((r) => r.title)).toEqual(["丙", "乙", "甲"]);
   });
 
-  it("置顶先把 pinned 声明成 checkbox，取消则整行删掉", async () => {
+  it("置顶先把 pinned 声明成 checkbox，另记 pinnedAt；取消则两行都删掉", async () => {
     const defs: [string, unknown][] = [];
     const props: [string, string, string | null][] = [];
     const api = {
@@ -347,10 +383,19 @@ describe("置顶与换分类", () => {
     };
     await setProjectPinned(api, "项目/实验/甲.md", true);
     await setProjectPinned(api, "项目/实验/甲.md", false);
-    expect(defs).toEqual([["pinned", { type: "checkbox" }], ["pinned", { type: "checkbox" }]]);
+    expect(defs).toEqual([
+      ["pinned", { type: "checkbox" }],
+      ["pinnedAt", { type: "date" }],
+      ["pinned", { type: "checkbox" }],
+      ["pinnedAt", { type: "date" }],
+    ]);
+    // `pinned` 仍是勾选框（属性面板和 `where pinned = true` 都还得认），
+    // 置顶时刻另记一笔；取消时**两行都删掉**，不留一个会误导下一次的旧时间
     expect(props).toEqual([
       ["项目/实验/甲.md", "pinned", "true"],
+      ["项目/实验/甲.md", "pinnedAt", expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)],
       ["项目/实验/甲.md", "pinned", null],
+      ["项目/实验/甲.md", "pinnedAt", null],
     ]);
   });
 
@@ -390,7 +435,7 @@ describe("置顶与换分类", () => {
 describe("记录的时间", () => {
   const item = (id: string | null, mtimeMs: number): ProjectItem => ({
     path: "项目/问题/甲.md", id, title: "甲", section: "问题", kind: "question",
-    status: "进行中", summary: "", searchText: "", pinned: false, mtimeMs,
+    status: "进行中", summary: "", searchText: "", pinned: false, pinnedAt: "", mtimeMs,
   });
 
   it("ULID 前 10 位就是创建时刻", () => {
@@ -424,7 +469,7 @@ describe("记录的时间", () => {
 describe("项目中心的卡片", () => {
   const card = (title: string, extra: Partial<ProjectCard> = {}): ProjectCard => ({
     path: `${title}.md`, title, status: "进行中", summary: "", next: "", blocker: "",
-    updated: "", created: "", pinned: false, ...extra,
+    updated: "", created: "", pinned: false, pinnedAt: "", ...extra,
   });
 
   it("查询的一行整理成卡片：状态缺省进行中，pinned 认布尔落成的字符串", () => {
@@ -446,6 +491,36 @@ describe("项目中心的卡片", () => {
     expect(order("name")).toEqual(["置顶的", "旧的", "新的", "最早建的"]);
     // 不改原数组：那是 state
     expect(cards[0].title).toBe("旧的");
+  });
+
+  /**
+   * 作者报的：「先置顶的该在前面，后置顶的在后面，类似队列，现在反了。」
+   *
+   * 反的原因是置顶只是个布尔：组内顺序落回默认的「最近修改」，而置顶这个
+   * 动作本身要写 frontmatter、把 `updated` 顶新 —— 于是刚钉的跳到最前。
+   * 下面每张卡的 `updated` 都**故意和置顶先后相反**，盯的就是这件事。
+   */
+  it("置顶组是队列：先钉的在前，且不受「最近修改」影响", () => {
+    const cards = [
+      card("后钉的", { pinned: true, pinnedAt: "2026-08-27 10:05:00", updated: "2026-08-27" }),
+      card("先钉的", { pinned: true, pinnedAt: "2026-08-27 10:00:00", updated: "2026-08-01" }),
+      card("没钉的", { updated: "2026-08-30" }),
+    ];
+    for (const sort of ["updated", "created", "name", "status"] as const) {
+      expect(sortProjectCards(cards, sort).map((c) => c.title)).toEqual(
+        ["先钉的", "后钉的", "没钉的"],
+      );
+    }
+  });
+
+  it("升级前钉的卡片没有 pinnedAt，排在所有新钉的前面", () => {
+    const cards = [
+      card("升级后钉的", { pinned: true, pinnedAt: "2026-08-27 10:00:00" }),
+      card("升级前钉的", { pinned: true }),
+    ];
+    expect(sortProjectCards(cards, "updated").map((c) => c.title)).toEqual(
+      ["升级前钉的", "升级后钉的"],
+    );
   });
 
   it("按状态：还在发生的在前，收场了的在后，同档再看最近修改", () => {
