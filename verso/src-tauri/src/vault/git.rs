@@ -106,10 +106,14 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
     // 目录，verbatim 路径没问题），所以只有**第一次打开一个新目录**才会
     // 撞上。libgit2 和 shell 属于同一类消费者，按 `winpath` 的规矩，跨过去
     // 之前先说人话。
-    let root = &crate::winpath::for_external(root);
+    // **只有交给 libgit2 的那一份摘前缀。** 自己的文件读写仍然用原来的
+    // verbatim 路径：`std::fs` 不会替你补回 `\\?\`，而它正是超长路径唯一的
+    // 出路。两者混用一份的话，根路径长到 MAX_PATH 以外的仓库会从「能打开」
+    // 退化成「打不开」—— 而下面那句 `?` 会把整个 `Vault::open` 一起带崩。
+    let short = crate::winpath::for_external(root);
 
     let mut renamed_branch = false;
-    let created_repo = match git2::Repository::open(root) {
+    let created_repo = match git2::Repository::open(&short) {
         Ok(repo) => {
             renamed_branch = migrate_empty_master(&repo);
             forbid_eol_rewrites(&repo);
@@ -118,7 +122,7 @@ pub fn ensure_repo(root: &Path) -> Result<GitInitResult> {
         Err(_) => {
             let mut opts = git2::RepositoryInitOptions::new();
             opts.initial_head(INITIAL_BRANCH);
-            let repo = git2::Repository::init_opts(root, &opts)?;
+            let repo = git2::Repository::init_opts(&short, &opts)?;
             forbid_eol_rewrites(&repo);
             true
         }

@@ -8,6 +8,7 @@ import {
   PROJECT_STATUSES,
   projectCard,
   readProjectCardSort,
+  pinnedPatch,
   setProjectPinned,
   sortProjectCards,
   statusTone,
@@ -144,14 +145,16 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
    */
   const togglePin = async (card: ProjectCard) => {
     const pinned = !card.pinned;
-    const flip = (value: boolean) => (current: ProjectCard[] | null) =>
-      current?.map((item) => (item.path === card.path ? { ...item, pinned: value } : item)) ?? current;
-    setProjects(flip(pinned));
+    // `pinnedAt` 要跟着一起改，否则刚点的这张先窜到置顶组最前（见 `pinnedPatch`）
+    const patch = (next: { pinned: boolean; pinnedAt: string }) => (current: ProjectCard[] | null) =>
+      current?.map((item) => (item.path === card.path ? { ...item, ...next } : item)) ?? current;
+    setProjects(patch(pinnedPatch(pinned)));
     try {
       await setProjectPinned(api, card.path, pinned);
       onChanged();
     } catch (error) {
-      setProjects(flip(card.pinned));
+      // 退回原样：连时间戳一起还原，不能只把布尔翻回去
+      setProjects(patch({ pinned: card.pinned, pinnedAt: card.pinnedAt }));
       onError((error as Error).message);
     }
   };

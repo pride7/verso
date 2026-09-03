@@ -16,6 +16,7 @@ import {
   isSettledStatus,
   sectionKind,
   sectionNameError,
+  pinnedPatch,
   setProjectPinned,
   setProjectSections,
   sortProjectItems,
@@ -352,9 +353,13 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
    */
   const togglePin = async (item: ProjectItem) => {
     const pinned = !item.pinned;
+    // `pinnedAt` 要跟着一起改：只翻布尔的话这一行按「上古置顶」排最前，
+    // 落盘重载后又掉回队尾，看着就是闪一下（见 `pinnedPatch`）
     setOverview((current) => current ? {
       ...current,
-      items: sortProjectItems(current.items.map((row) => row.path === item.path ? { ...row, pinned } : row)),
+      items: sortProjectItems(
+        current.items.map((row) => row.path === item.path ? { ...row, ...pinnedPatch(pinned) } : row),
+      ),
     } : current);
     try {
       await setProjectPinned(api, item.path, pinned);

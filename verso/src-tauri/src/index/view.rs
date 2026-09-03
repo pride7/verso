@@ -427,6 +427,23 @@ pub fn query(conn: &Connection, spec: &ViewSpec) -> Result<ViewResult> {
             }
         }
     }
+    // **日历不写 `date-field` 时也要取一列日期。** 前端那边没写就回落到
+    // `created`（`DatabaseView.tsx`，设置面板里那一项的字面意思就是
+    // 「不设（用创建时间）」），后端却因为 `date_field` 是 None 而不取它 ——
+    // 于是默认配置下整月空白，所有笔记堆进「没有创建时间」那一栏。
+    //
+    // 只对日历补，不能无条件补：`columns` 同时决定表格显示哪几列，
+    // 无条件加会让每张表都平白多出一列创建时间。
+    let has_date_field = spec
+        .date_field
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    if spec.view.as_deref() == Some("calendar")
+        && !has_date_field
+        && !columns.iter().any(|c| c == "created")
+    {
+        columns.push("created".into());
+    }
 
     let ids: Vec<String> = base.iter().map(|b| b.0.clone()).collect();
 

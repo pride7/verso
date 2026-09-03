@@ -4,7 +4,8 @@ import { Terminal } from "@xterm/xterm";
 import { useEffect, useRef, useState } from "react";
 
 import { api, onPtyData, onPtyExit } from "../host/api";
-import { keyLabel } from "../core/platform";
+import { copyText } from "../host/clipboard";
+import { isMac, keyLabel } from "../core/platform";
 import { attachTerminal, sanitizeForPaste } from "../core/termBus";
 import { Icon } from "./Icon";
 import "@xterm/xterm/css/xterm.css";
@@ -183,6 +184,29 @@ export function TerminalPanel({
      *
      * 所以先注册，PTY 还没就绪时把输入攒起来。
      */
+    /**
+     * **有选区时 `Ctrl+C` 是复制，没选区时才是中断**（§7.3：这个细节做错，
+     * 终端就废了）。
+     *
+     * xterm 自己不管这件事：它把 `ctrl+字母` 无条件映射成控制字符，而它的
+     * 选区不是 DOM 选区，浏览器的复制那条路也够不着。所以只能在这里拦。
+     *
+     * macOS 上复制键是 `⌘C`，`⌃C` 永远是中断 —— 那台机器上没有「有选区就
+     * 不中断」这回事，照着系统习惯来。
+     */
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      const copyChord = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      if (!copyChord || event.altKey || event.shiftKey) return true;
+      if (event.key.toLowerCase() !== "c") return true;
+      const selection = term.getSelection();
+      if (!selection) return true; // 没选区 → 交给 xterm，还是中断
+      void copyText(selection);
+      term.clearSelection();
+      event.preventDefault();
+      return false;
+    });
+
     const pending: string[] = [];
     term.onData((data) => {
       const id = idRef.current;

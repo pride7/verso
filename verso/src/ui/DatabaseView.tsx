@@ -292,8 +292,12 @@ export function DatabaseView({
       onChanged();
       load();
       // 行先出现，名字就地改（和文档树里新建一样）。**不跳走** —— 在表里
-      // 加一行的人正在整理这张表，把他弹进那篇笔记会打断这件事
-      setRenaming(meta.path);
+      // 加一行的人正在整理这张表，把他弹进那篇笔记会打断这件事。
+      //
+      // 三种窄视图走 App 的独立输入框，和右键改名同一条路（§2.6）：
+      // `renaming` 只有表格和列表消费，看板/画廊/日历里设了它等于没设 ——
+      // 冒出一张「未命名」卡片，光标哪儿都没落，只能再右键一次
+      startRename(meta.path);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -362,15 +366,22 @@ export function DatabaseView({
   };
 
   /**
-   * 表格和列表有足够横向空间，标题直接在原位置变成输入框；看板、画廊、
-   * 日历的标题盒太窄或嵌在日期格里，仍交给 App 的独立输入框处理。
+   * 进入改名态。表格和列表有足够横向空间，标题直接在原位置变成输入框；
+   * 看板、画廊、日历的标题盒太窄或嵌在日期格里，交给 App 的独立输入框（§2.6）。
+   *
+   * 新建和右键改名共用这一条 —— 分开写过一次，代价是新建那条只设了 `renaming`，
+   * 而那个状态只有表格和列表消费，另外三种视图里等于没有改名入口。
    */
+  const startRename = (path: string) => {
+    if (result.view === "table" || result.view === "list") setRenaming(path);
+    else onRename?.(path);
+  };
+
   const renameFromMenu = () => {
     if (!menu || !onRename) return;
     const path = menu.path;
     setMenu(null);
-    if (result.view === "table" || result.view === "list") setRenaming(path);
-    else onRename(path);
+    startRename(path);
   };
 
   /**

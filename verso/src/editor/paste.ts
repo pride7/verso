@@ -23,10 +23,27 @@ function stamp(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-function nameFor(file: File, prefix = "粘贴"): string {
-  if (file.name && file.name.includes(".")) return file.name;
-  if (file.name) return file.name;
+/**
+ * 剪贴板里的图片，浏览器会替它编一个名字，**那不是用户起的名字**。
+ * Chromium 系（Windows 的 WebView2、安卓 WebView）一律给 `image.png` ——
+ * 照收的结果就是满 vault 的 `image.png`，正是 §4.4 要避免的那件事。
+ *
+ * 只在粘贴那条路上认这个占位符。从文件管理器拖进来的文件名是用户自己的，
+ * 哪怕真叫 `image.png` 也该原样保留。
+ */
+const CLIPBOARD_PLACEHOLDER = /^image\.[a-z0-9]+$/i;
+
+/**
+ * 存进 vault 时叫什么。
+ *
+ * `fromClipboard` 为真时，占位符名字当作「没有名字」处理，改用时间戳。
+ */
+function nameFor(file: File, prefix: string, fromClipboard = false): string {
   const ext = file.type ? `.${extOf(file.type)}` : "";
+  const named = file.name && !(fromClipboard && CLIPBOARD_PLACEHOLDER.test(file.name));
+  // 有名字但没扩展名时补一个 —— 这一支以前写成了两条一样的 `return file.name`，
+  // 永远走不到
+  if (named) return file.name.includes(".") ? file.name : `${file.name}${ext}`;
   return `${prefix}-${stamp()}${ext}`;
 }
 
@@ -164,7 +181,7 @@ export function imagePaste(
 
       void (async () => {
         try {
-          const rel = await saveAttachment(nameFor(file), await toBase64(file));
+          const rel = await saveAttachment(nameFor(file, "粘贴", true), await toBase64(file));
           // 插在**当下**的光标处：落盘是异步的，这中间用户可能已经移动了光标，
           // 那就该插在他现在看的地方
           const at = view.state.selection.main;

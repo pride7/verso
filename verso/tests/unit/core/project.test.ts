@@ -7,6 +7,7 @@ import {
   matchesProjectItem,
   matchesProjectProgress,
   parseProgress,
+  pinnedPatch,
   projectDocumentTemplate,
   projectSections,
   ensureProjectStatusSchema,
@@ -59,6 +60,60 @@ describe("项目记录", () => {
       { at: "2026-08-06 09:30", text: "完成基线。" },
       { at: "2026-08-05 18:00", text: "开始。" },
     ]);
+  });
+
+  /**
+   * 写入端（`journalEntries` / `journalInsert`）允许任意级别的标题、日期后面
+   * 再跟一句话，`journalInsert` 还会照抄已有条目的层级。读取端以前只认正好
+   * 两个 `#` 且日期后面一个字都没有 —— 于是这些写法在总览里显示
+   * 「还没有进展记录」，而文件里明明写着。
+   */
+  it("认写入端写得出来的每一种进展标题", () => {
+    // 日期后面跟一句话：那句话是标题，归进正文的第一行
+    expect(parseProgress("## 2026-08-01 14:30 修好了索引\n\n细节。\n")).toEqual([
+      { at: "2026-08-01 14:30", text: "修好了索引\n细节。" },
+    ]);
+    // 三级标题（`journalInsert` 照抄已有层级）
+    expect(parseProgress("### 2026-08-01 跑通了 baseline\n\n正文。\n")).toEqual([
+      { at: "2026-08-01", text: "跑通了 baseline\n正文。" },
+    ]);
+    // 只有日期、没有时刻
+    expect(parseProgress("## 2026-08-01\n\n正文。\n")).toEqual([
+      { at: "2026-08-01", text: "正文。" },
+    ]);
+  });
+
+  it("代码块里的日期标题是内容，不是一条进展", () => {
+    const body = "## 2026-08-01\n\n```md\n## 2026-07-01\n别数我\n```\n";
+    expect(parseProgress(body)).toEqual([
+      { at: "2026-08-01", text: "```md\n## 2026-07-01\n别数我\n```" },
+    ]);
+  });
+
+  it("标题不以日期开头的普通小节不算进展", () => {
+    expect(parseProgress("## 背景\n\n随便写的。\n")).toEqual([]);
+  });
+
+  /**
+   * 界面上先改再落盘，那一步必须连 `pinnedAt` 一起给。只翻 `pinned` 的话，
+   * 空的 `pinnedAt` 按「升级之前置的顶」排最前 —— 刚点的那个先窜到置顶组
+   * 最前，重载后再掉回队尾，正好是这一整套要修的反向。
+   */
+  it("置顶的乐观更新带上时间戳，新置顶的排在已置顶的后面", () => {
+    const patch = pinnedPatch(true);
+    expect(patch.pinned).toBe(true);
+    expect(patch.pinnedAt).not.toBe("");
+
+    const rows = [
+      { path: "新.md", pinned: patch.pinned, pinnedAt: patch.pinnedAt },
+      { path: "早.md", pinned: true, pinnedAt: "2026-09-01 10:00:00" },
+    ];
+    const order = [...rows].sort((a, b) => (a.pinnedAt < b.pinnedAt ? -1 : a.pinnedAt > b.pinnedAt ? 1 : 0));
+    expect(order.map((r) => r.path)).toEqual(["早.md", "新.md"]);
+  });
+
+  it("取消置顶把时间戳一起清掉，不留一个会误导下一次的旧时间", () => {
+    expect(pinnedPatch(false)).toEqual({ pinned: false, pinnedAt: "" });
   });
 
   it("总览只收同名目录里的结构化记录，并按更新时间排列", async () => {

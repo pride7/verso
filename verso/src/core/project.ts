@@ -1,3 +1,4 @@
+import { journalEntries } from "./journal";
 import { naturalCmp } from "./treeSort";
 import type { NoteContent, NoteMeta, NoteRef, PropDef, PropSchema, ViewRow } from "./types";
 
@@ -405,12 +406,32 @@ export function projectDocumentTemplate(
   return `${templates[kind].trim()}\n`;
 }
 
+/** 时间戳那一段。后面还跟着的字是标题，归进正文 */
+const STAMP_HEAD = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?/;
+
+/**
+ * 读出「最近进展」。**判定条目用的是写入端那一份**（`journalEntries`）。
+ *
+ * 这里原来自己写了一条正则，要求正好两个 `#`、日期后面一个字都不能有。
+ * 而写入端（§2.10）允许任意级别的标题、日期后面再跟一句话，
+ * `journalInsert` 还会照抄已有条目的层级 —— 于是 `## 2026-08-01 14:30 修好了索引`
+ * 这种写法，编辑器照常折叠、快捷键照常插在最前面，总览却显示「还没有进展记录」。
+ *
+ * 复用而不是把正则抄一遍改宽：两份规则迟早会再分叉一次，而这一次的表现是
+ * 用户的记录凭空消失。顺带白拿了代码块跳过 —— 围栏里的 `## 2026-01-01`
+ * 是内容不是记录。
+ */
 export function parseProgress(body: string): ProjectProgress[] {
-  const matches = [...body.matchAll(/^##\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)\s*$\r?\n([\s\S]*?)(?=^##\s+\d{4}-\d{2}-\d{2}|\s*$)/gm)];
-  return matches.map((match) => ({
-    at: match[1],
-    text: match[2].trim(),
-  }));
+  const lines = body.split(/\r\n|\r|\n/);
+  const entries = journalEntries(body);
+  return entries.map((entry, i) => {
+    // `line` 是 1-based 的标题行号，所以它自己正好是正文的起点下标
+    const to = entries[i + 1] ? entries[i + 1].line - 1 : lines.length;
+    const head = STAMP_HEAD.exec(entry.stamp)?.[0] ?? entry.stamp;
+    const title = entry.stamp.slice(head.length).trim();
+    const rest = lines.slice(entry.line, to).join("\n").trim();
+    return { at: head, text: [title, rest].filter(Boolean).join("\n") };
+  });
 }
 
 /**
@@ -527,6 +548,18 @@ export async function setProjectPinned(
   // 不留一个会误导下一次的旧时间。
   await api.propDefSet("pinnedAt", { type: "date" });
   await api.propSet(path, "pinnedAt", pinned ? localStamp(new Date(), true) : null);
+}
+
+/**
+ * 点下置顶之后，那一行**在界面上**立刻应当变成什么样。
+ *
+ * 乐观更新必须连 `pinnedAt` 一起改。只翻 `pinned` 的话，那一行的
+ * `pinnedAt` 还是空的，而空值按 `byPinTime` 算「升级之前置的顶」要排最前 ——
+ * 于是刚点的那个先窜到置顶组**最前**，等落盘重载后再掉回队尾。正好是
+ * `pinnedAt` 这一整套要修的那个反向，只是现在只闪一下。
+ */
+export function pinnedPatch(pinned: boolean): { pinned: boolean; pinnedAt: string } {
+  return { pinned, pinnedAt: pinned ? localStamp(new Date(), true) : "" };
 }
 
 /**

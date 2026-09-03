@@ -220,6 +220,24 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
   const ordered = useMemo(() => [...view.nodes].sort((a, b) => a.y - b.y), [view]);
 
   /**
+   * 「移动到…」模式里，哪些节点**真的**放得进去。不在移动模式时是 null。
+   *
+   * `editMove` 会拒绝跨 Markdown 结构的移动（标题塞不进列表项里）和把父节点
+   * 塞进自己的后代。桌面拖拽在 `onDragOver` 里先试一次，不合法就不给放置
+   * 提示；走菜单的那条路以前没有这道预检，把**每个**节点都标成可选目标，
+   * 点上去却什么都不发生，模式条还留在屏幕上，看着像卡死。
+   */
+  const moveTargets = useMemo(() => {
+    if (moveSource === null) return null;
+    const ok = new Set<number>();
+    for (const n of view.nodes) {
+      if (n.node.line === moveSource) continue;
+      if (editMove(body, root, moveSource, n.node.line, "child")) ok.add(n.node.line);
+    }
+    return ok;
+  }, [body, moveSource, root, view]);
+
+  /**
    * 菜单开着的是哪个节点。**每次渲染重新查** —— 菜单开着的时候正文可能被外面
    * 改掉（AI 在终端里跑、同步拉下来），行号一变，攥着旧对象就会去改错的一行
    */
@@ -895,7 +913,11 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
             )}
             {moveSource !== null && (
               <>
-                <span>选择「{findNode(root, moveSource)?.text}」的新父级</span>
+                <span>
+                  {moveTargets && moveTargets.size === 0
+                    ? `「${findNode(root, moveSource)?.text}」没有能放进去的位置`
+                    : `选择「${findNode(root, moveSource)?.text}」的新父级`}
+                </span>
                 <button onClick={() => setMoveSource(null)}>取消</button>
               </>
             )}
@@ -942,7 +964,11 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                   activePath.has(n.line) ? "is-path" : "",
                   searchMatches.has(n.line) ? "is-search-match" : "",
                   normalizedQuery && !searchContext.has(n.line) ? "is-dimmed" : "",
-                  moveSource !== null && moveSource !== n.line ? "is-move-target" : "",
+                  moveTargets?.has(n.line) ? "is-move-target" : "",
+                  // 放不进去的节点在移动模式里压暗。以前每个节点都被标成
+                  // 可选目标，点上去却什么都不发生 —— 而那个样式只改鼠标指针，
+                  // 手机上等于没有任何提示（§4.7）
+                  moveTargets && !moveTargets.has(n.line) ? "is-dimmed" : "",
                   drop?.line === n.line ? `is-drop-${drop.position}` : "",
                   n.done ? "is-done" : "",
                 ]
@@ -1053,7 +1079,10 @@ export function MindMap({ storageKey, title, body, onEdit, onUndo, onRedo, onGot
                       }}
                       onClick={(e) => {
                         if (moveSource !== null) {
-                          if (moveSource !== n.line) moveNode(moveSource, n.line, "child");
+                          // 放不进去的节点已经压暗了，点它就当没点 ——
+                          // 桌面拖拽那条路也是这样（`onDragOver` 里先试一次
+                          // `editMove`，不合法就不给放置提示）
+                          if (moveTargets?.has(n.line)) moveNode(moveSource, n.line, "child");
                           return;
                         }
                         // Ctrl/⌘+点 = 回到正文那一行。和文档树里「在新标签打开」

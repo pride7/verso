@@ -19,19 +19,40 @@ interface Props {
  */
 export function Backlinks({ path, onOpen, revision }: Props) {
   const [links, setLinks] = useState<Backlink[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     let alive = true;
     api
       .backlinks(path)
-      .then((l) => alive && setLinks(l))
-      .catch(() => alive && setLinks([]));
+      .then((l) => {
+        if (!alive) return;
+        setLinks(l);
+        setError(null);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setLinks([]);
+        setError((e as Error).message);
+      });
     return () => {
       alive = false;
     };
   }, [path, revision]);
 
+  /**
+   * **查不出来和「没有反向链接」是两回事。** 这一块整个消失时，界面在说
+   * 「这篇没人引用」—— 而真相是查询失败了（索引没打开时就会这样）。
+   * 空结果照旧不占地方，出错则留一行说清楚。
+   */
+  if (error) {
+    return (
+      <section className="backlinks">
+        <p className="side-empty">反向链接读不出来：{error}</p>
+      </section>
+    );
+  }
   if (links.length === 0) return null;
 
   return (

@@ -26,31 +26,55 @@ export function useGitHubDeviceConnect(options: {
   const latest = useRef(options);
   latest.current = options;
 
-  const stop = useCallback(() => {
+  /**
+   * 这一轮授权的序号。**取消不能只清定时器** —— 已经发出去、还没回来的那次
+   * 请求管不住：`begin()` 是一整趟 GitHub 往返，在验证码出来之前关掉对话框，
+   * 它回来照样弹一个浏览器标签页，并在一个已经不存在的组件上开始轮询，
+   * 直到设备码过期（约 15 分钟）。
+   *
+   * 还有更怪的一种：取消后立刻重来，旧轮询回来时会把新的定时器顺手清掉再
+   * 装上自己的 —— 卡片上显示新验证码，实际等的是旧设备码，授权完永远等不到。
+   */
+  const generation = useRef(0);
+
+  /** 只清定时器，不作废这一轮。`schedule` 用它 */
+  const clearTimer = useCallback(() => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
   }, []);
 
+  const stop = useCallback(() => {
+    generation.current += 1;
+    clearTimer();
+  }, [clearTimer]);
+
   useEffect(() => stop, [stop]);
 
   const schedule = useCallback(
     (auth: GitHubDeviceAuthorization, delaySeconds: number) => {
-      stop();
-      timer.current = window.setTimeout(() => check(auth), Math.max(1, delaySeconds) * 1000);
+      clearTimer();
+      const mine = generation.current;
+      timer.current = window.setTimeout(() => {
+        if (generation.current !== mine) return;
+        check(auth);
+      }, Math.max(1, delaySeconds) * 1000);
     },
-    [stop],
+    [clearTimer],
   );
 
   function check(auth: GitHubDeviceAuthorization) {
     if (inFlight.current) return;
+    const mine = generation.current;
     inFlight.current = true;
     latest.current.onBusy(true);
     latest.current.onError(null);
     void latest.current
       .poll(auth.deviceCode)
       .then((result) => {
+        // 这一轮已经被取消（关了对话框、或者用户重新点了一次连接）
+        if (generation.current !== mine) return;
         if (result.account) {
           stop();
           setAuthorization(null);
@@ -67,6 +91,7 @@ export function useGitHubDeviceConnect(options: {
         }
       })
       .catch((error) => {
+        if (generation.current !== mine) return;
         // 过期、取消或网络错误都要离开验证码态；一直留着一张无法继续的卡片
         // 比报错更像是界面死掉了，也让用户不知道该重新开始。
         stop();
@@ -82,12 +107,16 @@ export function useGitHubDeviceConnect(options: {
 
   const start = useCallback(() => {
     stop();
+    const mine = generation.current;
     latest.current.onBusy(true);
     latest.current.onError(null);
     setMessage(null);
     void latest.current
       .begin()
       .then((auth) => {
+        // 这一趟往返期间对话框可能已经关了。**尤其不能再弹浏览器** ——
+        // 用户明明取消了，屏幕上却突然多出一个 GitHub 授权页
+        if (generation.current !== mine) return;
         setAuthorization(auth);
         openExternalPage(auth.verificationUri);
         // 自动检查之外也提供明确的手动入口：用户在网页确认后，不需要猜是继续
@@ -96,6 +125,7 @@ export function useGitHubDeviceConnect(options: {
         latest.current.onBusy(false);
       })
       .catch((error) => {
+        if (generation.current !== mine) return;
         latest.current.onError((error as Error).message);
         latest.current.onBusy(false);
       });

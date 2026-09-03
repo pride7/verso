@@ -25,8 +25,14 @@
 export type MermaidResult = { svg: string; error?: undefined } | { svg?: undefined; error: string };
 
 let mermaidModule: Promise<typeof import("mermaid").default> | null = null;
-/** 已经按哪个主题初始化过。主题变了要重新 initialize */
-let initializedDark: boolean | null = null;
+/**
+ * 已经按哪一套外观初始化过（深浅色 + 正文字体）。变了就要重新 initialize。
+ *
+ * **字体也要算进来。** 这里原来只记深浅色，于是改完正文字体之后
+ * `initialize` 根本不会再跑一次 —— 连新画的图都还是旧字体，要等切一次
+ * 深色才跟上；再切回浅色又命中旧缓存，同一张图两种字体（§4.11）。
+ */
+let initializedAs: string | null = null;
 
 /** 当前实际生效的是不是深色。两个入口都认，和 styles.css 一致 */
 export function mermaidIsDark(): boolean {
@@ -42,7 +48,13 @@ export function mermaidIsDark(): boolean {
  */
 export function onMermaidThemeChange(callback: () => void): () => void {
   const observer = new MutationObserver(callback);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  // `style` 也要盯着：正文字体是写在根元素的行内样式上的（`applySettings`），
+  // 而图里的字跟着正文走。只盯 `data-theme` 的话，改完字体图一直是旧字体，
+  // 要等切一次深浅色才跟上（§4.11）
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme", "style"],
+  });
 
   const media = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)") : null;
   // 明确选了深浅时系统主题与我们无关，但那时 `data-theme` 在，上面那条会先
@@ -61,17 +73,23 @@ function fontFamily(): string | undefined {
   return value || undefined;
 }
 
+/** 一次渲染的外观指纹：深浅色 + 正文字体。缓存键和 initialize 都按它走 */
+function looks(dark: boolean): string {
+  return `${dark ? "d" : "l"}:${fontFamily() ?? ""}`;
+}
+
 async function load(dark: boolean) {
   mermaidModule ??= import("mermaid").then((m) => m.default);
   const mermaid = await mermaidModule;
-  if (initializedDark !== dark) {
+  const want = looks(dark);
+  if (initializedAs !== want) {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme: dark ? "dark" : "default",
       fontFamily: fontFamily(),
     });
-    initializedDark = dark;
+    initializedAs = want;
   }
   return mermaid;
 }
@@ -81,7 +99,9 @@ async function load(dark: boolean) {
  *
  * 与公式预览那边（mathPreview.ts 有意不缓存）相反：这里缓存是必要的。滚动
  * 时同一张图会被反复建 widget，而一张 mermaid 图要跑一遍布局，不是毫秒级。
- * key 带主题 —— 同一份源码在深浅色下是两张不同的图。
+ * key 带**主题和字体** —— 同一份源码在深浅色下是两张不同的图，字体也一样：
+ * mermaid 把字体栈写进产出的 SVG 里。少了字体那一段的后果是改完正文字体，
+ * 图里的字永远不跟着变，重启才好（§4.11）。
  */
 const cache = new Map<string, MermaidResult>();
 const CACHE_LIMIT = 64;
@@ -96,14 +116,14 @@ let seq = 0;
  * 屏幕上就是明晃晃闪一下占位。
  */
 export function cachedMermaid(source: string, dark = mermaidIsDark()): MermaidResult | null {
-  return cache.get(`${dark ? "d" : "l"}:${source.trim()}`) ?? null;
+  return cache.get(`${looks(dark)}:${source.trim()}`) ?? null;
 }
 
 export async function renderMermaid(source: string, dark = mermaidIsDark()): Promise<MermaidResult> {
   const code = source.trim();
   if (!code) return { error: "空的图表" };
 
-  const key = `${dark ? "d" : "l"}:${code}`;
+  const key = `${looks(dark)}:${code}`;
   const hit = cache.get(key);
   if (hit) return hit;
 

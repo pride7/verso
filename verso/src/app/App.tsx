@@ -1324,6 +1324,10 @@ export default function App() {
         setDiffSelection(null);
         setExternalChange(false);
         setError(null);
+        // 大纲的折叠状态是按**笔记路径**记的，而路径是仓库内的相对路径 ——
+        // 两个仓库里都有 `笔记/进展.md` 时，新库那篇一打开就有一节是收起的，
+        // 而用户从没收过它。换库等于换了一套路径的含义，这里必须清空。
+        setOutlineCollapsed({});
         await refresh();
         // 标签、编辑器历史与滚动位置都是 per-vault，绝不能从上一个库带过来。
         await restoreTabs(fallback);
@@ -2238,8 +2242,15 @@ export default function App() {
           // 跨目录拖到边缘：先移过去，再排到那个位置。行已经高亮着「插到这里」，
           // 只因为来源目录不同就静悄悄什么都不做，是最难受的一种失败
           //
-          // 纯文件夹没有同名文档，当不了「父文档」，这一种只能放弃
-          if (parent && host?.kind !== "document") return;
+          // 纯文件夹没有同名文档，当不了「父文档」，这一种只能放弃。
+          //
+          // **但必须说一句**：那条「插到这里」的线是无条件显示的，用户是
+          // 看到提示才松的手，静悄悄什么都不做正是上面那句注释说的
+          // 「最难受的一种失败」。
+          if (parent && host?.kind !== "document") {
+            setNotice(`「${host?.name ?? parent}」还只是个文件夹，当不了父文档。先对它用「创建为文档」再拖进去。`);
+            return;
+          }
           moved = await api.moveNote(movedPath, host?.path ?? null);
           if (noteRef.current?.path === movedPath) await openPath(moved);
         }
@@ -2926,19 +2937,27 @@ export default function App() {
     }
   }, [refresh]);
 
-  const toggleProject = useCallback(async () => {
+  /**
+   * `Mod+Shift+J`「项目总览」与项目中心里的「设为项目」共用这一条。
+   *
+   * `promoteOnly` 是给后者的：那个按钮上写着**当前这篇**的名字（§2.10），
+   * 而下面「先往上找祖先项目」那一步是给快捷键的 —— 从实验/问题子文档一键
+   * 回到所属项目。两者混在一起时，在 `项目A/实验/某实验.md` 上点那个按钮会
+   * 跳到项目A的总览，`某实验` 一个字没改也没有任何提示。
+   */
+  const toggleProject = useCallback(async (promoteOnly = false) => {
     let current = noteRef.current;
     if (!current) return;
     setScratchpadOpen(false);
-    if (projectOpen && !projectCenterOpen) {
+    if (projectOpen && !projectCenterOpen && !promoteOnly) {
       setProjectOpen(false);
       return;
     }
-    if (projectOpen && projectCenterOpen && isProject(current)) {
+    if (projectOpen && projectCenterOpen && isProject(current) && !promoteOnly) {
       setProjectCenterOpen(false);
       return;
     }
-    if (!isProject(current)) {
+    if (!isProject(current) && !promoteOnly) {
       // 从实验/问题等子文档也能一键回到所属项目，不会误把子条目再建成项目。
       const parts = current.path.replace(/\.md$/i, "").split("/");
       const ancestorPaths = parts
@@ -4297,7 +4316,9 @@ export default function App() {
       {note && mindmapOpen && !diffSelection && !projectCenterOpen && (
         <MindMap
           key={note.path}
-          storageKey={note.path}
+          // 键里必须带仓库：宽度写在 localStorage 里，而那是整台机器共用的。
+          // 只用笔记路径的话，两个仓库里同路径同结构的节点会互相串宽度
+          storageKey={`${vault?.root ?? ""}::${note.path}`}
           title={note.title}
           body={body}
           touch={mobile}
@@ -4319,7 +4340,7 @@ export default function App() {
           promotableNote={note && !isProject(note) ? note.title : null}
           onOpen={(path, opts) => void openPath(path, opts)}
           onNew={() => void createProjectAndOpen()}
-          onPromote={() => void toggleProject()}
+          onPromote={() => void toggleProject(true)}
           onClose={() => setProjectCenterOpen(false)}
           onChanged={() => {
             void refresh();

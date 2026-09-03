@@ -84,3 +84,19 @@ export function compile(spec: SnippetSpec): Snippet {
 export function compileAll(specs: SnippetSpec[]): Snippet[] {
   return specs.map(compile);
 }
+
+/**
+ * 内置 + 用户配置，**同 trigger 时用户那份赢**（DESIGN.md §5.4）。
+ *
+ * 光把两份接起来是不够的，而且不够得很隐蔽：默认优先级取的是触发词长度
+ * （见上面 `compile`），所以同 trigger 必然同优先级，匹配时先遇到的赢 ——
+ * 内置排在前面，于是用户改了一条同名的，敲出来的还是旧的。
+ *
+ * 更迷惑的是符号面板和提示条各自按 trigger 去过重，显示的是用户那份：
+ * **看到的是自己的版本，敲出来的是内置的**。在这里合并，三条路才是同一份。
+ */
+export function mergeSnippets(builtin: SnippetSpec[], custom: SnippetSpec[]): SnippetSpec[] {
+  if (!custom.length) return builtin;
+  const overridden = new Set(custom.map((s) => s.trigger));
+  return [...builtin.filter((s) => !overridden.has(s.trigger)), ...custom];
+}

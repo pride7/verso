@@ -228,6 +228,34 @@ fn calendar_and_gallery_keys_are_fetched_even_when_not_listed() {
     );
 }
 
+/// 日历不写 `date-field` 时，前端回落到 `created`（设置面板里那一项就写着
+/// 「不设（用创建时间）」），所以后端必须把这一列一起取回来。
+///
+/// 漏了的表现是**整月空白、所有笔记堆进「没有创建时间」那一栏**，而查询本身
+/// 还成功着 —— 现有的日历测试都显式写了 `date-field`，正好绕开了默认那条路。
+#[test]
+fn calendar_without_date_field_still_fetches_created() {
+    let (_t, _v, idx) = setup(&[(
+        "论文.md",
+        "---\nid: 01DDDDDDDDDDDDDDDDDDDDDDDD\ntitle: 论文\ncreated: 2026-03-04\n---\n\n正文\n",
+    )]);
+
+    let spec: view::ViewSpec = serde_yaml::from_str("columns: [title]\nview: calendar\n").unwrap();
+    let r = view::query(idx.conn(), &spec).unwrap();
+
+    assert_eq!(r.rows.len(), 1);
+    assert!(
+        r.rows[0].props.contains_key("created"),
+        "日历默认按创建时间排，这一列必须取回来：{:?}",
+        r.rows[0].props
+    );
+
+    // 表格不该跟着多出这一列 —— `columns` 同时决定显示哪几列
+    let table: view::ViewSpec = serde_yaml::from_str("columns: [title]\nview: table\n").unwrap();
+    let t = view::query(idx.conn(), &table).unwrap();
+    assert_eq!(t.columns, vec!["title".to_string()]);
+}
+
 /// `*` 和 `**` 在路径来源里必须有不同含义。SQLite GLOB 原生的 `*` 会跨过
 /// `/`，如果不额外排除下一段路径，用户根本无法只看项目的一级文档。
 #[test]

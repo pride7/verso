@@ -116,7 +116,25 @@ fn activate(app: &AppHandle, state: &AppState, v: Vault) {
         let _ = handle.emit("vault:changed", watcher::VaultChanged { paths });
     });
 
-    *state.watcher.lock().unwrap() = w.ok();
+    // **监听起不来必须说出来。** 它一失败，`vault:changed` 就再也不会发，
+    // 于是外部修改（git pull、AI 在终端里改文件、另一台设备同步过来的）
+    // 全都察觉不到 —— 而窗口聚焦那条兜底路径盖不住终端那种场景（§2.7）。
+    // 接下来的自动保存会安静地把别人的改动盖掉。
+    //
+    // 以前这里是 `w.ok()`：`watcher.rs` 里两句写好的中文错误一个字都到不了
+    // 用户眼前，也不进日志。Linux 上 inotify 名额耗尽、网络盘、安卓共享存储
+    // 那层 FUSE（AGENTS.md 说它本来就不可靠）都会走到这里。
+    *state.watcher.lock().unwrap() = match w {
+        Ok(watcher) => Some(watcher),
+        Err(e) => {
+            eprintln!("[verso] 文件监听启动失败：{e}");
+            let _ = app.emit(
+                "index:error",
+                format!("文件监听没能启动，别处对文件的修改不会自动出现：{e}"),
+            );
+            None
+        }
+    };
     *state.vault.lock().unwrap() = Some(v);
 }
 
@@ -614,7 +632,13 @@ fn shared_clone_destination(
 ) -> Result<String> {
     let name = vault::github::validate_repo_name(&name)?;
     let destination = shared_dir_in(&shared_base_dir(&app, &state)?, &name);
-    Ok(destination.to_string_lossy().to_string())
+    // 跨到前端的路径一律先说人话（`winpath::for_external`）：开着 vault 时
+    // 这一段是从 `v.root` 拼出来的，而那是 canonicalize 的结果，带 `\\?\`。
+    // 漏了这一步的表现是同一张卡片同一行，开着 vault 显示 `\\?\D:\…`、
+    // 没开时显示干净的 `D:\…`（v0.6.31 修过同一类问题）
+    Ok(crate::winpath::for_external(&destination)
+        .to_string_lossy()
+        .to_string())
 }
 
 /// GitHub 默认流程：自动建私有仓库、选本地位置、迁移共享节点并邀请成员。

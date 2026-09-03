@@ -119,9 +119,9 @@ describe("图片", () => {
 
 describe("粘贴图片", () => {
   /** 造一个「剪贴板里有张图」的粘贴事件 */
-  function pasteImage(view: EditorView, bytes = [1, 2, 3]) {
+  function pasteImage(view: EditorView, bytes = [1, 2, 3], name = "") {
     const dt = new DataTransfer();
-    dt.items.add(new File([new Uint8Array(bytes)], "", { type: "image/png" }));
+    dt.items.add(new File([new Uint8Array(bytes)], name, { type: "image/png" }));
     view.contentDOM.dispatchEvent(
       new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }),
     );
@@ -158,6 +158,40 @@ describe("粘贴图片", () => {
     expect(saved[0].data.length).toBeGreaterThan(0);
     // 插在光标处，不是行尾也不是文末
     expect(view.state.doc.toString()).toBe("开![[attachments/粘贴-1.png]]头\n");
+  });
+
+  /**
+   * Chromium 系（Windows 的 WebView2、安卓 WebView）给剪贴板图片编的名字是
+   * `image.png`，那不是用户起的名字。照收的结果是满 vault 的 `image.png`，
+   * 谁也认不出哪张是哪张（§4.4）—— 上面那条测试造的是空名字的 File，
+   * 正好绕开了真机上的这条路。
+   */
+  it("剪贴板给的 `image.png` 是占位符，按时间起名", async () => {
+    const saved: string[] = [];
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      doc: "",
+      parent,
+      extensions: createExtensions({
+        onChange: () => {},
+        onSaveNow: () => {},
+        onFollowLink: () => {},
+        getNotes: () => [],
+        saveAttachment: async (name) => {
+          saved.push(name);
+          return `attachments/${name}`;
+        },
+      }),
+    });
+    views.push(view);
+
+    pasteImage(view, [1, 2, 3], "image.png");
+    await settle();
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).not.toBe("image.png");
+    expect(saved[0]).toMatch(/^粘贴-\d{8}-\d{6}\.png$/);
   });
 
   it("没接存图回调时不接管粘贴 —— 别把普通粘贴也吃掉", async () => {

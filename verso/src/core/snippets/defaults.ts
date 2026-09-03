@@ -123,7 +123,8 @@ const operators: SnippetSpec[] = [
 ];
 
 const relations: SnippetSpec[] = [
-  { trigger: "<=", replacement: "\\leq", options: "mA", description: "小于等于" },
+  // `<=>`（\iff）的前缀 —— 自动展开的话 `<=>` 永远轮不到（§5.4）
+  { trigger: "<=", replacement: "\\leq", options: "m", description: "小于等于" },
   { trigger: ">=", replacement: "\\geq", options: "mA", description: "大于等于" },
   { trigger: "!=", replacement: "\\neq", options: "mA", description: "不等于" },
   { trigger: "~~", replacement: "\\approx", options: "mA", description: "约等于 近似" },
@@ -136,9 +137,12 @@ const relations: SnippetSpec[] = [
   { trigger: "!>", replacement: "\\mapsto", options: "mA", description: "映射 mapsto" },
 
   // 这些是普通英文词，必须要求词边界，否则 "point" 里的 in 会被吃掉
-  { trigger: "in", replacement: "\\in", options: "mAw", description: "属于 集合" },
+  // `inv` / `int` / `inf` 的前缀。`inf` 尤其阴：自动展开会得到合法的
+  // `\inf`（下确界），用户只会以为自己记错了触发词（§5.4）
+  { trigger: "in", replacement: "\\in", options: "mw", description: "属于 集合" },
   { trigger: "nin", replacement: "\\notin", options: "mAw", description: "不属于" },
-  { trigger: "sub", replacement: "\\subset", options: "mAw", description: "子集 真子集" },
+  // `sube` 的前缀（§5.4）
+  { trigger: "sub", replacement: "\\subset", options: "mw", description: "子集 真子集" },
   { trigger: "sube", replacement: "\\subseteq", options: "mAw", description: "子集等于" },
   { trigger: "sup", replacement: "\\supset", options: "mAw", description: "超集 包含" },
   { trigger: "cup", replacement: "\\cup", options: "mAw", description: "并集" },
@@ -157,12 +161,14 @@ const relations: SnippetSpec[] = [
 
 const logic: SnippetSpec[] = [
   { trigger: "AA", replacement: "\\forall", options: "mA", description: "任意 全称量词" },
-  { trigger: "EE", replacement: "\\exists", options: "mA", description: "存在 存在量词" },
+  // `EE2`（\mathbb{E}）的前缀（§5.4）
+  { trigger: "EE", replacement: "\\exists", options: "m", description: "存在 存在量词" },
   { trigger: "notex", replacement: "\\nexists", options: "mAw", description: "不存在" },
   { trigger: "land", replacement: "\\land", options: "mAw", description: "逻辑与 合取" },
   { trigger: "lor", replacement: "\\lor", options: "mAw", description: "逻辑或 析取" },
   { trigger: "neg", replacement: "\\neg", options: "mAw", description: "逻辑非 否定" },
-  { trigger: "st", replacement: "\\text{ s.t. }", options: "mAw", description: "使得 subject to" },
+  // `star` 的前缀（§5.4）
+  { trigger: "st", replacement: "\\text{ s.t. }", options: "mw", description: "使得 subject to" },
 ];
 
 const sets: SnippetSpec[] = [

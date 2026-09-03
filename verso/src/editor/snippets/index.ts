@@ -17,7 +17,7 @@ import { DEFAULT_SNIPPETS } from "../../core/snippets/defaults";
 import { expand, findTrigger, taboutTarget } from "../../core/snippets/match";
 import { snippetHint } from "./hint";
 import { activeTabstops, expansionSpec, setTabstops, tabstopField } from "./tabstops";
-import { compileAll, type Snippet, type SnippetSpec } from "../../core/snippets/types";
+import { compileAll, mergeSnippets, type Snippet, type SnippetSpec } from "../../core/snippets/types";
 
 /** 往前看多少个字符找触发词。最长的触发词也就十来个字符，64 绰绰有余 */
 const LOOKBEHIND = 64;
@@ -157,9 +157,14 @@ function dispatchSpec(fn: (s: State) => TransactionSpec | null) {
   };
 }
 
-/** 供 App 侧读取「当前生效的 snippet 集合」—— 符号面板要用 */
+/**
+ * 供 App 侧读取「当前生效的 snippet 集合」—— 符号面板要用。
+ *
+ * 合并走 `mergeSnippets`：同 trigger 时用户那份要真的盖掉内置（§5.4），
+ * 光接在后面是不够的，理由见那个函数。
+ */
 export function buildSnippets(options: SnippetOptions = {}): Snippet[] {
-  return compileAll([...DEFAULT_SNIPPETS, ...(options.custom ?? [])]);
+  return compileAll(mergeSnippets(DEFAULT_SNIPPETS, options.custom ?? []));
 }
 
 export function snippetEngine(options: SnippetOptions = {}): Extension {

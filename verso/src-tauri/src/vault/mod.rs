@@ -603,6 +603,18 @@ mod tests {
         assert_eq!(v.resolve("./a.md").unwrap(), Path::new("/vault").join("a.md"));
     }
 
+    /// 这台机器上**真实存在**的一个盘符根（临时目录所在的那个盘）。
+    ///
+    /// 写死 `E:\` 的话，没有 E 盘的机器（CI 的 runner、别人的开发机）上
+    /// `open` 会先卡在「不是一个目录」，断言落空 —— 而失败信息看起来像是
+    /// 被测的函数错了。`git.rs` 那边取临时目录也是同一个理由。
+    #[cfg(windows)]
+    fn this_drive_root() -> PathBuf {
+        let temp = std::env::temp_dir();
+        // `ancestors()` 的最后一个就是根：`C:\Users\me\Temp` → `C:\`
+        temp.ancestors().last().unwrap_or(&temp).to_path_buf()
+    }
+
     /// 把整个驱动器当仓库会在 libgit2 里炸成一句
     ///  —— 作者真的这么点过一次。
     #[test]
@@ -618,9 +630,13 @@ mod tests {
             assert!(!Vault::is_filesystem_root(Path::new(r"E:\Notes")));
             assert!(!Vault::is_filesystem_root(Path::new(r"\\?\E:\Notes")));
 
-            // 真的走一遍 open：报出来的必须是人话，不是 libgit2 的原文
-            // Vault 没有 Debug，`unwrap_err` 用不了
-            let error = Vault::open(PathBuf::from(r"E:\"))
+            // 真的走一遍 open：报出来的必须是人话，不是 libgit2 的原文。
+            // Vault 没有 Debug，`unwrap_err` 用不了。
+            //
+            // **盘符不能写死。** 上面那些纯字符串断言不需要盘真的存在，但
+            // 走 `open` 这一步需要 —— 写死 `E:\` 的机器上它会先卡在
+            // 「不是一个目录」，断言落空，看起来像被测函数错了。
+            let error = Vault::open(this_drive_root())
                 .err()
                 .expect("盘符根必须被拒绝")
                 .to_string();
@@ -654,8 +670,11 @@ mod tests {
                 PathBuf::from(r"E:\Notes")
             );
 
-            // 于是它落进盘符根那条规则，而不是在当前工作目录里建出一个仓库
-            let error = Vault::open(PathBuf::from("E:"))
+            // 于是它落进盘符根那条规则，而不是在当前工作目录里建出一个仓库。
+            // 同上：真要走 `open`，盘符就得是这台机器上真有的那一个
+            let root = this_drive_root();
+            let bare = root.to_string_lossy().trim_end_matches('\\').to_string();
+            let error = Vault::open(PathBuf::from(bare))
                 .err()
                 .expect("光一个盘符必须被拒绝")
                 .to_string();

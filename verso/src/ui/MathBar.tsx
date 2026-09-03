@@ -39,8 +39,14 @@ const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE = 8;
 
 export function MathBar({ onInsert, onNext, onPrev }: Props) {
-  const [page, setPage] = useState(0);
   const [recent, setRecent] = useState<MathKey[]>(() => loadRecent());
+  /**
+   * 默认停在「最近」（§5.5：工具条第一格就该是最近用过的那几个，命中率最高）。
+   *
+   * 用过才有「最近」这一页，所以第一次用的人落在「结构」上 —— 那时候
+   * 停在一个空页只会让人以为工具条坏了。
+   */
+  const [page, setPage] = useState(() => (recent.length > 0 ? -1 : 0));
   /** 正在展开变体的那个键，以及它在屏幕上的横向位置 */
   const [variants, setVariants] = useState<{ key: MathKey; x: number } | null>(null);
   /** 分页菜单开着没有 */

@@ -65,6 +65,39 @@ https://github.com/lab/records.git`);
   });
 });
 
+/**
+ * 中文写作里地址后面直接跟标点再跟字是常态，中间不留空格。以前只削结尾的
+ * 标点，于是 `，你加一下` 整段留在地址里 —— 确认卡片上「来自」显示这一串，
+ * 目录名照它算出来还带中文，一路走到克隆才炸出一句 libgit2 的原文。
+ */
+describe("地址后面紧跟中文", () => {
+  const url = "https://github.com/lab/records.git";
+
+  it("逗号、句号、分号后面还有字也不吞", () => {
+    expect(parseInvite(`我建了个共享空间 ${url}，你加一下。`)?.url).toBe(url);
+    expect(parseInvite(`地址：${url}。记得先连 GitHub`)?.url).toBe(url);
+    expect(parseInvite(`${url}；另外记得填署名`)?.url).toBe(url);
+    expect(parseInvite(`${url}、然后点加入`)?.url).toBe(url);
+  });
+
+  it("原来就认得的写法不受影响", () => {
+    expect(parseInvite(`地址在这（${url}）。`)?.url).toBe(url);
+    expect(parseInvite(url)?.url).toBe(url);
+    expect(parseInvite(`${url} 就是它`)?.url).toBe(url);
+  });
+
+  it("URL 里合法的问号和逗号留着", () => {
+    const q = "https://example.com/a?b=1,2&c=3";
+    expect(parseInvite(q)?.url).toBe(q);
+  });
+
+  it("一段没有地址的闲聊不算邀请", () => {
+    // `09/03` 曾经被当成 owner/repo，摆出一张一本正经的确认卡片
+    expect(parseInvite("会议 09/03 讨论共享空间的事")).toBeNull();
+    expect(parseInvite("lab/records")?.url).toBe("https://github.com/lab/records.git");
+  });
+});
+
 describe("folderNameFromUrl", () => {
   it("本地目录就叫仓库名 —— 两边机器上是同一个称呼", () => {
     expect(folderNameFromUrl("https://github.com/lab/records.git")).toBe("records");
