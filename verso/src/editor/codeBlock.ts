@@ -34,10 +34,13 @@ import { Decoration, type DecorationSet, EditorView } from "@codemirror/view";
 import { isMermaidFenceLine, mermaidRendered } from "./mermaidBlock";
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { CodeCopyWidget } from "./widgets";
+import { editorFocused, focusChanged } from "./focus";
 
 const hide = Decoration.replace({});
 
 function touched(state: EditorState, from: number, to: number) {
+  // 焦点不在正文里 = 没有光标可言，一切渲染成最终形态（`editor/focus.ts`）
+  if (!editorFocused(state)) return false;
   for (const r of state.selection.ranges) {
     if (r.from <= to && r.to >= from) return true;
   }
@@ -158,7 +161,10 @@ const codeBlockField = StateField.define<DecorationSet>({
     // 选区变化也要重算 —— 光标进出代码块正是切换源码与渲染态的时机。
     // 解析推进由 parseRefresh 派发 effect 通知（详见 parseRefresh.ts）
     const parsed = tr.effects.some((e) => e.is(parseAdvanced));
-    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
+    // 焦点变了也要重算：没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方
+    const refocused = tr.effects.some((e) => e.is(focusChanged));
+    if (!tr.docChanged && !tr.selection && !parsed && !refocused) return deco.map(tr.changes);
     return build(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),

@@ -48,6 +48,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 
 import { renderInline } from "./inline";
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
+import { editorFocused, focusChanged } from "./focus";
 import {
   type Align,
   applyOp,
@@ -793,6 +794,8 @@ class TableWidget extends WidgetType {
 }
 
 function touched(state: EditorState, from: number, to: number) {
+  // 焦点不在正文里 = 没有光标可言，一切渲染成最终形态（`editor/focus.ts`）
+  if (!editorFocused(state)) return false;
   for (const r of state.selection.ranges) {
     if (r.from <= to && r.to >= from) return true;
   }
@@ -823,7 +826,10 @@ const tableField = StateField.define<DecorationSet>({
     // 和块级公式、database 视图一样：解析推进由 parseRefresh 派发 effect
     // 通知，不要在这里自己比较 syntaxTree（详见 parseRefresh.ts）
     const parsed = tr.effects.some((e) => e.is(parseAdvanced));
-    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
+    // 焦点变了也要重算：没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方
+    const refocused = tr.effects.some((e) => e.is(focusChanged));
+    if (!tr.docChanged && !tr.selection && !parsed && !refocused) return deco.map(tr.changes);
     return build(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),

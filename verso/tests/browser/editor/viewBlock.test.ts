@@ -33,6 +33,10 @@ function mount(doc: string, anchor = 0) {
       getNotes: () => [],
     }),
   });
+  // 「光标进去露源码」是编辑行为，前提是编辑器有焦点：没有焦点时
+  // 一切渲染成最终形态（`editor/focus.ts`）。真实使用里点一下正文
+  // 就有了，测试要自己补上
+  view.focus();
   views.push(view);
   return view;
 }

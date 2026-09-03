@@ -20,6 +20,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemir
 
 import { cachedMermaid, onMermaidThemeChange, renderMermaid } from "./mermaid";
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
+import { editorFocused, focusChanged, focusEditorNow } from "./focus";
 
 /** 围栏上的语言标注是不是 mermaid。`mermaid` 后面还跟别的参数时不算 */
 export function isMermaidInfo(info: string): boolean {
@@ -45,6 +46,8 @@ export function isMermaidFenceLine(text: string): boolean {
  * 两个位置恰恰最常落到。
  */
 function touched(state: EditorState, from: number, to: number) {
+  // 焦点不在正文里 = 没有光标可言，一切渲染成最终形态（`editor/focus.ts`）
+  if (!editorFocused(state)) return false;
   for (const r of state.selection.ranges) {
     if (r.empty ? r.from > from && r.from < to : r.from < to && r.to > from) return true;
   }
@@ -132,7 +135,12 @@ class MermaidWidget extends WidgetType {
     edit.title = "编辑图表源码";
     // 整块是 atomic range，方向键一步跨过去 —— 这个按钮和双击是**唯一**
     // 进得去的路（同 viewBlock.ts 的「看源码」）
-    const editSource = () => view.dispatch({ selection: { anchor: this.bodyFrom }, scrollIntoView: true });
+    const editSource = () => {
+      // 先聚焦再挪光标，理由同 `viewBlock.ts`：渲染态的块是 atomic range，
+      // 没聚焦就设光标会被弹出块外
+      focusEditorNow(view);
+      view.dispatch({ selection: { anchor: this.bodyFrom }, scrollIntoView: true });
+    };
     edit.addEventListener("click", editSource);
     el.appendChild(edit);
     el.addEventListener("dblclick", editSource);
@@ -215,7 +223,10 @@ const mermaidBlockField = StateField.define<DecorationSet>({
     // 解析推进由 parseRefresh 派发 effect 通知 —— 不要在这里自己比较
     // syntaxTree（详见 parseRefresh.ts）
     const parsed = tr.effects.some((e) => e.is(parseAdvanced));
-    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
+    // 焦点变了也要重算：没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方
+    const refocused = tr.effects.some((e) => e.is(focusChanged));
+    if (!tr.docChanged && !tr.selection && !parsed && !refocused) return deco.map(tr.changes);
     return build(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),

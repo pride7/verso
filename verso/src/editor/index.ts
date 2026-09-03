@@ -21,6 +21,7 @@ import { calculationAssistance } from "./calculation";
 import { codeBlocks } from "./codeBlock";
 import { completion } from "./completion";
 import { compositionKeyGuard, compositionTracker } from "./compositionGuard";
+import { focusState } from "./focus";
 import { headingFolding } from "./fold";
 import { insertMarkdownLineBreak } from "./lineBreak";
 import { externalHref, linkParts } from "./link";
@@ -214,6 +215,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
     // §4 标题折叠。**不放进 PREVIEW** —— 源码模式下折叠仍然有用，
     // 那时正是在长文里找东西的时候
     headingFolding,
+
+    // 「有没有光标可言」。**放在 PREVIEW 外面**：源码模式下它无害，而且
+    // 摘掉的话每次切模式都要重新认一次焦点（§4.2）
+    focusState,
 
     // live preview（含 §2.6 database 视图与 §2.4 表格）。整组可摘 —— 见 PREVIEW
     previewCompartment.of(cb.sourceMode ? [] : PREVIEW),

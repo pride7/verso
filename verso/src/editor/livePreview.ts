@@ -43,6 +43,7 @@ import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
 import { externalHref, linkParts } from "./link";
 import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
 import { mathSource } from "./mathSource";
+import { editorFocused, focusChanged } from "./focus";
 
 /** 只藏起标记符号（`**`、`==`、`#` 等），内容照常显示 */
 const hideMark = Decoration.replace({});
@@ -64,6 +65,8 @@ const styleMarks = {
  * 想编辑一个公式却发现光标一挪到边界它就变回渲染态，根本改不了。
  */
 function touched(state: EditorState, from: number, to: number) {
+  // 焦点不在正文里 = 没有光标可言，一切渲染成最终形态（`editor/focus.ts`）
+  if (!editorFocused(state)) return false;
   for (const r of state.selection.ranges) {
     if (r.from <= to && r.to >= from) return true;
   }
@@ -111,7 +114,10 @@ const blockMathField = StateField.define<DecorationSet>({
     // 解析推进由 parseRefresh 这个 ViewPlugin 检测后派发 effect 通知；
     // 不要在这里自己比较 syntaxTree（详见 parseRefresh.ts）。
     const parsed = tr.effects.some((e) => e.is(parseAdvanced));
-    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
+    // 焦点变了也要重算：没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方
+    const refocused = tr.effects.some((e) => e.is(focusChanged));
+    if (!tr.docChanged && !tr.selection && !parsed && !refocused) return deco.map(tr.changes);
     return computeBlockMath(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
@@ -463,7 +469,24 @@ class InlinePreviewPlugin implements PluginValue {
     const parsed = update.transactions.some((tr) =>
       tr.effects.some((e) => e.is(parseAdvanced)),
     );
-    if (ended || update.docChanged || update.viewportChanged || update.selectionSet || parsed) {
+    // **焦点变化也要重建。** 没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方。少了这一条，
+    // 标题的 `##`、粗体的星号这些**行内**标记不会跟着焦点走 —— 而恰恰是它们
+    // 最显眼：打开一篇以标题开头的笔记，第一行永远露着源码。
+    //
+    // 注意要认两个：`focusChanged` 是 CM6 的 DOM 焦点事件，而 effect 是我们
+    // 自己那一拍状态更新，装饰要在后者落地之后才算数
+    const refocused = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(focusChanged)),
+    );
+    if (
+      ended ||
+      update.docChanged ||
+      update.viewportChanged ||
+      update.selectionSet ||
+      parsed ||
+      refocused
+    ) {
       this.decorations = buildInlineDecorations(update.view);
     }
   }

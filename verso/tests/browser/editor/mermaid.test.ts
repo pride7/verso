@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // 那部分）。不加载它，量到的就是一个没有样式的按钮
 import "../../../src/ui/styles.css";
 import { createExtensions } from "../../../src/editor/index";
+import { focusEditorNow } from "../../../src/editor/focus";
 
 const views: EditorView[] = [];
 
@@ -26,7 +27,6 @@ function mount(doc: string, anchor = 0) {
   document.body.appendChild(parent);
   const view = new EditorView({
     doc,
-    selection: { anchor },
     parent,
     extensions: createExtensions({
       onChange: () => {},
@@ -35,6 +35,12 @@ function mount(doc: string, anchor = 0) {
       getNotes: () => [],
     }),
   });
+  // 「光标进去露源码」是编辑行为，前提是编辑器有焦点：没有焦点时一切渲染成
+  // 最终形态（`editor/focus.ts`）。**而且要先聚焦再挪光标** —— 渲染态的块是
+  // atomic range，没聚焦就把选区设进块里，CM6 会当场把它弹到块外。
+  // 真实使用里「点一下正文」这一下同时做了这两件事
+  focusEditorNow(view);
+  if (anchor) view.dispatch({ selection: { anchor } });
   views.push(view);
   return view;
 }

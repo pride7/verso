@@ -15,6 +15,7 @@ import {
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 
 import { parseAdvanced, parseRefresh } from "./parseRefresh";
+import { editorFocused, focusChanged, focusEditorNow } from "./focus";
 
 /** 由 App 注入：把一个 DOM 容器渲染成 React 的 DatabaseView */
 export interface ViewRenderer {
@@ -71,7 +72,13 @@ class ViewBlockWidget extends WidgetType {
         });
       },
       // 送到 YAML 那一段的开头之后一格：`touched` 要求严格在里面
-      () => view.dispatch({ selection: { anchor: this.from }, scrollIntoView: true }),
+      () => {
+        // **先聚焦，再挪光标。** 没有焦点时一切渲染成最终形态
+        // （`editor/focus.ts`），而渲染态的块是 atomic range —— 那时把光标
+        // 设进块里，CM6 会当场把它弹到块外，按钮点了等于没点
+        focusEditorNow(view);
+        view.dispatch({ selection: { anchor: this.from }, scrollIntoView: true });
+      },
     );
     return el;
   }
@@ -98,6 +105,8 @@ class ViewBlockWidget extends WidgetType {
  * 跨过去）—— 所以工具条上必须有一个「看源码」按钮，那是唯一进得去的路。
  */
 function touched(state: EditorState, from: number, to: number) {
+  // 焦点不在正文里 = 没有光标可言，一切渲染成最终形态（`editor/focus.ts`）
+  if (!editorFocused(state)) return false;
   for (const r of state.selection.ranges) {
     if (r.empty ? r.from > from && r.from < to : r.from < to && r.to > from) return true;
   }
@@ -138,7 +147,10 @@ const viewBlockField = StateField.define<DecorationSet>({
     // 不要在这里自己比较 syntaxTree，StateField 的更新顺序不保证语言字段
     // 已就绪，那时读到空树会让所有视图消失（详见 parseRefresh.ts）。
     const parsed = tr.effects.some((e) => e.is(parseAdvanced));
-    if (!tr.docChanged && !tr.selection && !parsed) return deco.map(tr.changes);
+    // 焦点变了也要重算：没有焦点时一切渲染成最终形态（`editor/focus.ts`），
+    // 那和「光标移开了」是同一件事，只是信号来自另一个地方
+    const refocused = tr.effects.some((e) => e.is(focusChanged));
+    if (!tr.docChanged && !tr.selection && !parsed && !refocused) return deco.map(tr.changes);
     return build(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
