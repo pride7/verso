@@ -7,6 +7,7 @@ import { ContextMenu } from "./ContextMenu";
 import { fitFloatingMenu } from "./floatingMenu";
 import { Icon } from "./Icon";
 import { RenameInput } from "./Tree";
+import { useVaultRevision } from "./vaultRevision";
 import {
   ColumnPicker,
   OptionPicker,
@@ -40,7 +41,6 @@ interface Props {
   onOpen: (path: string) => void;
   /** 属性被改写后通知外层重查 */
   onChanged: () => void;
-  revision: number;
   /** 画廊的封面要把 vault 相对路径解析成能给 `<img>` 的 URL */
   imageSrc?: (target: string) => string | null;
   /**
@@ -92,12 +92,16 @@ export function DatabaseView({
   source,
   onOpen,
   onChanged,
-  revision,
   onPatch,
   onEditSource,
   onRename,
   imageSrc,
 }: Props) {
+  /**
+   * 「内容变了」不能当 prop 收 —— 这个组件长在 CM6 widget 里，是另一棵
+   * React 树，prop 只在挂载那一刻是对的（§2.6）。
+   */
+  const revision = useVaultRevision();
   /** 改名、改日期这些要一句输入的地方走它，不用 `window.prompt` */
   const { ask, askUI } = useAsk();
   const [result, setResult] = useState<ViewResult | null>(null);

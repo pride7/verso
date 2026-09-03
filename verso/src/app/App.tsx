@@ -36,6 +36,7 @@ import { Editor, type EditorHandle } from "../ui/Editor";
 import { OutlineFloat, OutlineView, useActiveHeading } from "../ui/Outline";
 import { QuickSwitcher } from "../ui/QuickSwitcher";
 import { SearchView } from "../ui/SearchView";
+import { publishVaultRevision } from "../ui/vaultRevision";
 import { ConflictView } from "../ui/ConflictView";
 import { ReviewDialog } from "../ui/ReviewDialog";
 import { MoveTargetPicker } from "../ui/MoveTargetPicker";
@@ -491,6 +492,13 @@ export default function App() {
   /** vault 内容变化的版本号。反向链接等派生视图靠它重查 */
   const [revision, setRevision] = useState(0);
   /**
+   * 同一个信号再推给 widget 里那些够不到这里的 React 树（§2.6）。
+   *
+   * database 视图是 CM6 widget 内部单独 `createRoot` 挂的，prop 传不进去 ——
+   * 传得进去的只有挂载那一刻的值，之后永远不变。
+   */
+  useEffect(() => publishVaultRevision(revision), [revision]);
+  /**
    * 工作区最后一次活动。`git.dirty` 只记录数量，同一篇被连续改十次仍然是 1；
    * 自动记录的空闲计时必须看这份活动序号，不能只看文件数。
    */
@@ -702,6 +710,14 @@ export default function App() {
     [sidebarOpen, sidebarView],
   );
 
+  /**
+   * 重读文档树和笔记清单，**并且宣布「内容变了」**（§2.6）。
+   *
+   * 这个函数的含义就是「vault 的内容变了」，那正是所有派生视图（反向链接、
+   * 标签、搜索、database 视图）该重查的时刻，所以 `revision` 在这里加，不
+   * 由每个调用点自己记得加 —— 而漏加的恰恰是最常见的那几条路：改名、新建。
+   * 文件监听那条路对自己写的文件是有意抑制的（§2.7），指望不上它兜底。
+   */
   const refresh = useCallback(async () => {
     try {
       const [t, list] = await Promise.all([api.tree(), api.listNotes()]);
@@ -709,6 +725,9 @@ export default function App() {
       setNoteList(list);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      // 读失败也要加：树没读回来不代表磁盘上没变，派生视图各自去查各自的
+      setRevision((v) => v + 1);
     }
   }, []);
 
@@ -794,7 +813,6 @@ export default function App() {
       // 写完再读的这一拍里可能已经换页了，那就不是这一页该显示的内容了
       if (noteRef.current?.path === n.path) setNote(content);
       await refresh();
-      setRevision((v) => v + 1);
     },
     [saveNow, refresh],
   );
@@ -1595,7 +1613,6 @@ export default function App() {
       try {
         await api.gitRestoreFile(commit, path);
         await refresh();
-        setRevision((v) => v + 1);
         // 正在看的就是这一篇的话，把编辑器里那份也换掉
         if (noteRef.current?.path === path) await loadNote(path);
       } catch (e) {
@@ -1641,7 +1658,6 @@ export default function App() {
         await refresh();
         refreshGit();
         setGitActivity((v) => v + 1);
-        setRevision((v) => v + 1);
         setNotice("已撤销这一处；撤销前的现状已记进版本记录");
       } catch (e) {
         setError((e as Error).message);
@@ -1687,7 +1703,6 @@ export default function App() {
         await refresh();
         refreshGit();
         setGitActivity((v) => v + 1);
-        setRevision((v) => v + 1);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -1794,7 +1809,6 @@ export default function App() {
 
       refreshGit();
       await refresh();
-      setRevision((v) => v + 1);
     },
     [refreshGit, refresh],
   );
@@ -1818,7 +1832,6 @@ export default function App() {
   const refreshAfterReview = useCallback(async () => {
     refreshGit();
     await refresh();
-    setRevision((value) => value + 1);
     const cur = noteRef.current;
     if (!cur || dirtyRef.current) return;
     try {
@@ -2438,7 +2451,6 @@ export default function App() {
     void onVaultChanged((paths) => {
       void refresh();
       setGitActivity((v) => v + 1);
-      setRevision((v) => v + 1);
       const cur = noteRef.current;
       if (!cur || !paths.includes(cur.path)) return;
       // **必须比一次 mtime 再报**，不能见到事件就报。
@@ -2958,7 +2970,6 @@ export default function App() {
         await markAsProject(api, current);
         await reloadFromDisk();
         await refresh();
-        setRevision((value) => value + 1);
       } catch (cause) {
         setError((cause as Error).message);
         return;
@@ -3047,7 +3058,6 @@ export default function App() {
         // `reloadFromDisk` 自己会刷新文档树
         if (noteRef.current?.path === path) await reloadFromDisk();
         else await refresh();
-        setRevision((v) => v + 1);
       } catch (e) {
         setError((e as Error).message);
       }
@@ -4314,7 +4324,6 @@ export default function App() {
           onChanged={() => {
             void refresh();
             void reloadFromDisk();
-            setRevision((value) => value + 1);
           }}
           onError={setError}
         />

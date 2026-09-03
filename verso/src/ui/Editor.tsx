@@ -260,7 +260,6 @@ export function Editor({
             onOpen={(p) => cb.current.onNavigate(p)}
             onChanged={() => cb.current.onChanged()}
             onRename={(path, title) => cb.current.onRenameNote(path, title)}
-            revision={cb.current.revision}
             onPatch={patch}
             onEditSource={editSource}
             imageSrc={(t) => cb.current.imageSrc(t)}
@@ -528,6 +527,11 @@ ${insert}` },
 
   // 回调放 ref：它们每次渲染都是新函数，直接进 CM6 扩展会导致
   // 每次渲染都重建整个编辑器，光标和撤销历史全没了。
+  //
+  // **别往这里放数据**，只放函数。ref 里的值对 widget 里那棵 React 树来说
+  // 只在挂载那一刻读得到一次，之后再不更新 —— `revision` 曾经放在这里，
+  // 代价是改名/新建之后 database 视图不刷新（§2.6）。要推给那棵树的信号
+  // 走 `ui/vaultRevision.ts` 的订阅。
   const cb = useRef({
     onChange,
     onSaveNow,
@@ -540,7 +544,6 @@ ${insert}` },
     onSaveAttachment,
     onError,
     imageSrc,
-    revision,
     onStashState,
   });
   cb.current = {
@@ -555,7 +558,6 @@ ${insert}` },
     onSaveAttachment,
     onError,
     imageSrc,
-    revision,
     onStashState,
   };
 

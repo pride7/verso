@@ -72,6 +72,8 @@ vi.mock("../../../src/host/api", () => ({
 const { createExtensions } = await import("../../../src/editor");
 const { setViewRenderer } = await import("../../../src/editor/viewBlock");
 const { DatabaseView } = await import("../../../src/ui/DatabaseView");
+const { publishVaultRevision } = await import("../../../src/ui/vaultRevision");
+const { api } = await import("../../../src/host/api");
 await import("../../../src/ui/styles.css");
 
 const DOC = ["正文", "", "```verso-view", 'from: "论文/*"', "view: table", "```", ""].join("\n");
@@ -125,7 +127,6 @@ function mount(
           source={source}
           onOpen={(p) => opened.push(p)}
           onChanged={() => {}}
-          revision={0}
           onPatch={patch}
           onEditSource={editSource}
           onRename={onRename}
@@ -157,6 +158,63 @@ function mount(
 }
 
 const settle = (ms = 500) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 每次推一个没用过的号：那个计数器是模块级的，跨测试活着，
+ * 推一个重复值等于什么都没发生
+ */
+let rev = 0;
+const vaultChanged = () => publishVaultRevision(++rev);
+
+describe("vault 变了之后自己重查", () => {
+  /**
+   * 作者报的就是这个：改个名、或者新建一篇，视图纹丝不动，切到别的笔记
+   * 再切回来才是新的。那一下不是刷新是**重建** —— 视图是 widget 里的另一棵
+   * React 树，prop 只在挂载那一刻是对的（DESIGN.md §2.6）。
+   */
+  it("内容变了就重查，不必换一篇笔记再回来", async () => {
+    const view = mount();
+    await settle();
+    expect(view.dom.textContent).not.toContain("丙");
+
+    // 后端那边多了一行（别处新建的，或者改名改出来的）
+    viewMock = {
+      ...DEFAULT_VIEW,
+      rows: [...DEFAULT_VIEW.rows, { path: "论文/丙.md", title: "丙", props: { status: "在读" } }],
+    };
+    vaultChanged();
+    await settle();
+
+    expect(view.dom.textContent).toContain("丙");
+  });
+
+  it("改名之后表里就是新名字", async () => {
+    const view = mount();
+    await settle();
+    expect(view.dom.textContent).toContain("甲");
+
+    viewMock = {
+      ...DEFAULT_VIEW,
+      rows: [{ path: "论文/线性代数.md", title: "线性代数", props: { status: "在读" } }],
+    };
+    vaultChanged();
+    await settle();
+
+    expect(view.dom.textContent).toContain("线性代数");
+    expect(view.dom.textContent).not.toContain("甲");
+  });
+
+  // 一次通知重查一次。订阅写错很容易变成每次渲染都订一个新的，
+  // 那时候查询次数会随通知次数指数长，而界面上完全看不出来
+  it("一次通知只重查一次", async () => {
+    mount();
+    await settle();
+    const before = vi.mocked(api.viewQuery).mock.calls.length;
+    vaultChanged();
+    await settle();
+    expect(vi.mocked(api.viewQuery).mock.calls.length).toBe(before + 1);
+  });
+});
 
 describe("database 视图在编辑器里", () => {
   it("渲染成表格", async () => {

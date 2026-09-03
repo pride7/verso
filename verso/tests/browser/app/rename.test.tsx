@@ -44,6 +44,12 @@ const createUntitled = vi.fn(async () => {
 const renameNote = vi.fn(async (path: string, title: string) => {
   const next = `${title}.md`;
   tree = tree.map((n) => (n.path === path ? doc(title, next) : n));
+  // 改完名，下一次查询就该给出新名字。少了这一句，「视图会不会重查」
+  // 那条测试无论重不重查都是绿的
+  viewResult = {
+    ...viewResult,
+    rows: viewResult.rows.map((r) => (r.path === path ? { ...r, path: next, title } : r)),
+  };
   return next;
 });
 
@@ -301,5 +307,71 @@ describe("database 视图里改名", () => {
     await userEvent.fill(listInput!, "MoE 专家模型");
     await key(listInput!, "Enter");
     expect(renameNote).toHaveBeenCalledWith(child.path, "MoE 专家模型");
+  });
+
+  /**
+   * 作者报的那个：改完名视图不动，要切到别的笔记再切回来才是新的。
+   *
+   * 那一下不是刷新是**重建**（视图是 widget 里的另一棵 React 树）。真正的
+   * 原因有两个，这条把两个一起钉住：改名要发出「内容变了」这个信号
+   * （`refresh()` 现在自己发），而那棵树要收得到它（模块级订阅）。
+   * 见 DESIGN.md §2.6。
+   */
+  it("改完名字，视图当场就是新名字 —— 不必切走再切回来", async () => {
+    const child = doc("MoE", "分类总览/MoE.md");
+    tree = [{
+      ...doc("分类总览", "分类总览.md"),
+      childDir: "分类总览",
+      collapsed: true,
+      children: [child],
+    }];
+    workspace = { tabs: ["分类总览.md"], active: 0, pinnedCount: 0 };
+    bodies["分类总览.md"] = [
+      "# 分类总览",
+      "",
+      "```verso-view",
+      'from: "分类总览/**"',
+      "view: list",
+      "```",
+      "",
+    ].join("\n");
+    viewResult = {
+      columns: ["title"],
+      rows: [{ path: child.path, title: child.name, props: {} }],
+      view: "list",
+      groupBy: null,
+      properties: [],
+    };
+
+    await mountApp();
+    const title = () => document.querySelector<HTMLElement>(".dbv-list-title");
+    expect(title()!.textContent).toBe("MoE");
+
+    await act(async () => {
+      title()!.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 240,
+        clientY: 240,
+      }));
+      await settle(100);
+    });
+    const rename = [...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find(
+      (button) => button.textContent?.includes("重命名"),
+    );
+    await act(async () => {
+      rename!.click();
+      await settle(100);
+    });
+    const listInput = document.querySelector<HTMLInputElement>(".dbv-list .dbview-rename")!;
+    await userEvent.fill(listInput, "MoE 专家模型");
+    await key(listInput, "Enter");
+    // 改名是一趟后端往返，等它落地
+    await act(async () => {
+      await settle(500);
+    });
+
+    // 这一行没有换过笔记，编辑器和 widget 都还是原来那个
+    expect(title()!.textContent).toBe("MoE 专家模型");
   });
 });
