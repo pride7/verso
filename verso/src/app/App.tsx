@@ -640,6 +640,14 @@ export default function App() {
   /** 载入的流水号。只有最新的那一次可以改界面，见 `loadNote` */
   const loadSeq = useRef(0);
   const dirtyRef = useRef(false);
+  /**
+   * 正在飞的那一次写盘。**离开当前正文之前必须等它**（见 `flushCurrent`）。
+   *
+   * 光靠 `dirtyRef` 是不够的：`saveNow` 一开头就把状态设成 saving，于是写盘
+   * 那几十毫秒里 `dirtyRef` 是 false，所有 `if (dirtyRef.current) …` 的守门
+   * 在那个窗口里全部放行。
+   */
+  const savingRef = useRef<Promise<boolean> | null>(null);
   // `[[` 补全通过 getter 读它 —— 清单变化时不必重建编辑器
   const noteListRef = useRef<NoteRef[]>([]);
   // 设置放 ref：失焦那个监听器只装一次，闭包里读 state 会永远拿到初值
@@ -773,24 +781,76 @@ export default function App() {
   }, [tree]);
 
 
-  /** 立即落盘。切笔记、失焦、Ctrl+S 都走这里。 */
-  const saveNow = useCallback(async () => {
+  /**
+   * 立即落盘。切笔记、失焦、Ctrl+S 都走这里。
+   *
+   * ## 写完之后不能无条件说「已保存」
+   *
+   * 写盘要一个来回（fsync + 重建索引，Windows 上几十到上百毫秒，同步盘更久）。
+   * 那段时间里用户还在打字。原来这里 `await` 一回来就把 dirty 清掉、状态设成
+   * 「已保存」，于是**飞行期间敲的那几个字被盖上了「已保存」的章**：屏幕上是
+   * 新的、磁盘上是旧的、自动保存的计时器还被那次状态变化清掉了。此后直接关窗
+   * 或换页，那几个字永久消失，而全程没有任何提示。
+   *
+   * 所以落地时要比一次：**写出去的正文还是现在这一份吗、还在同一篇上吗**。
+   * 不是就保持 dirty，让计时器接着跑。
+   */
+  const saveNow = useCallback(async (): Promise<boolean> => {
+    // 上一次还在飞就先等它 —— 两次写同一篇并发，后落地的那次会带着旧内容
+    // 把状态覆盖回去
+    const flying = savingRef.current;
+    if (flying) await flying;
+
     const n = noteRef.current;
     if (!n) return true;
+    const body = bodyRef.current;
+
+    const run = (async () => {
+      try {
+        setSaveState("saving");
+        const mtime = await api.writeNote(n.path, body);
+        // 这一趟里已经换了一篇：这次写入只代表当时那一篇，别拿它动现在的状态
+        if (noteRef.current?.path !== n.path) return true;
+        savedMtime.current = mtime;
+        if (bodyRef.current !== body) {
+          // 飞行期间又敲了字。磁盘上那份已经旧了，状态必须留在 dirty
+          setSaveState("dirty");
+          return true;
+        }
+        dirtyRef.current = false;
+        setSaveState("saved");
+        setExternalChange(false);
+        setGitActivity((v) => v + 1);
+        return true;
+      } catch (e) {
+        setSaveState("error");
+        setError((e as Error).message);
+        return false;
+      }
+    })();
+
+    savingRef.current = run;
     try {
-      setSaveState("saving");
-      savedMtime.current = await api.writeNote(n.path, bodyRef.current);
-      dirtyRef.current = false;
-      setSaveState("saved");
-      setExternalChange(false);
-      setGitActivity((v) => v + 1);
-      return true;
-    } catch (e) {
-      setSaveState("error");
-      setError((e as Error).message);
-      return false;
+      return await run;
+    } finally {
+      if (savingRef.current === run) savingRef.current = null;
     }
   }, []);
+
+  /**
+   * **离开或改动当前这篇之前**都要走这一条：先等在飞的那次写盘落地，
+   * 再把还没落盘的落掉。失败返回 false —— 调用方必须尊重它。
+   *
+   * 换页、关页、改名、移动、删除、换库、关窗以前各写各的
+   * `if (dirtyRef.current) await saveNow()`，有的还不看返回值。写盘失败
+   * （杀软或同步盘瞬时锁住文件）时照样切走，未保存的正文就只剩编辑器缓存里
+   * 那一份，而切回来时它会因为内容对不上被丢弃。
+   */
+  const flushCurrent = useCallback(async (): Promise<boolean> => {
+    if (savingRef.current) await savingRef.current;
+    if (!dirtyRef.current) return true;
+    return await saveNow();
+  }, [saveNow]);
 
   /**
    * 源码模式里手改的 frontmatter 落盘。
@@ -807,7 +867,7 @@ export default function App() {
     async (yaml: string) => {
       const n = noteRef.current;
       if (!n) return;
-      if (dirtyRef.current) await saveNow();
+      if (!(await flushCurrent())) return;
       savedMtime.current = await api.writeFrontmatter(n.path, yaml);
       const content = await api.readNote(n.path);
       // 写完再读的这一拍里可能已经换页了，那就不是这一页该显示的内容了
@@ -826,7 +886,7 @@ export default function App() {
   );
 
   const openAttachmentAudit = useCallback(async () => {
-    if (dirtyRef.current && !(await saveNow())) return;
+    if (!(await flushCurrent())) return;
     setAttachmentAuditOpen(true);
   }, [saveNow]);
 
@@ -1114,7 +1174,7 @@ export default function App() {
   /** 打开差异之前先落盘，否则“当前改动”会漏掉最后 800ms 里打的字。 */
   const openDiff = useCallback(
     async (selection: DiffSelection) => {
-      if (dirtyRef.current) await saveNow();
+      if (!(await flushCurrent())) return;
       if (!diffSelection && mainRef.current) diffReturnScroll.current = mainRef.current.scrollTop;
       setMindmapOpen(false);
       setDiffSelection(selection);
@@ -1159,7 +1219,9 @@ export default function App() {
       // 换页就离开导图，而且是**现在**，不是读完盘之后：底下的落盘和读盘
       // 各要一个来回，那段时间里屏幕上会是上一篇的导图配着新一页的标签
       if (noteRef.current && noteRef.current.path !== path) setMindmapOpen(false);
-      if (noteRef.current && dirtyRef.current) await saveNow();
+      // 写盘失败就别切走：切了的话未保存的正文只剩编辑器缓存那一份，
+      // 而切回来时它会因为内容和磁盘对不上被丢弃
+      if (noteRef.current && !(await flushCurrent())) return;
       // 离开当前页之前记下滚动位置，切回来时还在原处
       const leaving = activePath(tabsRef.current);
       if (leaving && mainRef.current) scrollTops.current.set(leaving, mainRef.current.scrollTop);
@@ -1203,7 +1265,7 @@ export default function App() {
       // 之前：`saveNow` 也要一个来回，那段时间同样是「另一篇的导图」
       if (after !== loaded) setMindmapOpen(false);
       if (before) {
-        if (dirtyRef.current) await saveNow();
+        if (!(await flushCurrent())) return;
         if (mainRef.current) scrollTops.current.set(before, mainRef.current.scrollTop);
       }
       if (after) {
@@ -1401,6 +1463,12 @@ export default function App() {
       const name = title.trim();
       const old = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
       if (!name || name === old) return;
+      // **改的是当前这篇就先落盘。** 不落的话有两种坏法，都很难看懂：改名
+      // 链条跑完后 `loadNote(新路径)` 读回的是改名前那份内容，刚敲的字凭空
+      // 退回去；而如果自动保存的计时器正好在链条中间到，它会照着
+      // `noteRef.current.path`（**旧路径**）去写 —— 那个文件已经被搬走了，
+      // 于是凭空多出一个只有正文、没有 frontmatter 的同名幽灵文件。
+      if (noteRef.current?.path === path && !(await flushCurrent())) return;
       try {
         const newPath = await api.renameNote(path, name);
         await refresh();
@@ -1582,7 +1650,7 @@ export default function App() {
       try {
         // 外部 AI 改了文件、编辑器自己却是干净的情况下绝不能先保存：那会拿
         // 内存里的旧正文盖掉 AI 的修改。只有最后 800ms 的键入还没落盘才冲盘。
-        if (dirtyRef.current && !(await saveNow())) return false;
+        if (!(await flushCurrent())) return false;
         await api.gitCommit(message);
         // 反馈就是状态栏那个点自己变成「已记录」—— 再弹一个提示条是噪音，
         // 而这件事本来就该悄悄发生
@@ -1642,7 +1710,7 @@ export default function App() {
       try {
         // 编辑器里还没落盘的字必须先写下去 —— 后端是拿磁盘上那一份算 diff 的，
         // 内存里的那几个字不在里面，撤销完会被自动保存原样写回来
-        if (dirtyRef.current) await saveNow();
+        if (!(await flushCurrent())) return;
 
         if (!revertedInSession.current) {
           if (git?.enabled) {
@@ -1821,7 +1889,7 @@ export default function App() {
     if (syncing) return;
     setSyncing(true);
     try {
-      if (dirtyRef.current && !(await saveNow())) return;
+      if (!(await flushCurrent())) return;
       // 重新来过的一次同步，上一轮攒的定稿不再作数
       finalized.current.clear();
       await handleSyncOutcome(await api.vaultSync());
@@ -1868,7 +1936,7 @@ export default function App() {
     if (!title) return;
     setReviewBusy(true);
     try {
-      if (dirtyRef.current && !(await saveNow())) return;
+      if (!(await flushCurrent())) return;
       await api.reviewSuggestionSubmit(title);
       await refreshAfterReview();
       setNotice("修改建议已提交；当前内容已回到正式版本");
@@ -2189,6 +2257,18 @@ export default function App() {
         return;
       }
       try {
+        // **删之前先把未保存的改动扔掉。**
+        //
+        // 删的正是当前这篇、而它又是脏的时候，后面 `applyTabs` 换页那一步会
+        // 照例先落盘 —— 写到一个刚被删掉的路径上，于是那篇笔记**自己长回来**
+        // 了（只剩正文，frontmatter 没了）。而这次写还会被自写登记抵掉，
+        // 不触发监听，`refresh` 又跑在它前面，所以幽灵要到下一次刷新才现身。
+        // `discardWorkingFile` 那条路早就这么压过一次，这里漏了。
+        if (noteRef.current?.path === node.path || withChildren) {
+          if (savingRef.current) await savingRef.current;
+          dirtyRef.current = false;
+          setSaveState("saved");
+        }
         await api.deleteNote(node.path, withChildren);
         await refresh();
         // 删掉的那些页要从标签栏消失（连同子树）。当前页正好被删时，
@@ -2206,6 +2286,9 @@ export default function App() {
 
   const moveNode = useCallback(
     async (path: string, newParentDoc: string | null) => {
+      // 同 `submitRename`：搬走之前先落盘，否则要么刚敲的字被读回来的旧内容
+      // 顶掉，要么自动保存照着旧路径写出一个幽灵文件
+      if (noteRef.current?.path === path && !(await flushCurrent())) return;
       try {
         const newPath = await api.moveNote(path, newParentDoc);
         await refresh();
@@ -2251,6 +2334,8 @@ export default function App() {
             setNotice(`「${host?.name ?? parent}」还只是个文件夹，当不了父文档。先对它用「创建为文档」再拖进去。`);
             return;
           }
+          // 跨目录拖动同样要先落盘（同 `moveNode`）
+          if (noteRef.current?.path === movedPath && !(await flushCurrent())) return;
           moved = await api.moveNote(movedPath, host?.path ?? null);
           if (noteRef.current?.path === movedPath) await openPath(moved);
         }
@@ -2386,9 +2471,14 @@ export default function App() {
   // 自动保存：停止输入 AUTOSAVE_MS 后落盘
   useEffect(() => {
     if (saveState !== "dirty") return;
+    // **文件被外部改过时，自动保存必须让开。** 横幅上「保留我的 / 加载外部」
+    // 是要用户选的（§2.7），而计时器最多 800ms 就到 —— 用户根本来不及点，
+    // 一次自动保存就把 AI 或另一台设备写进来的东西整篇盖掉了。
+    // 显式的保存（Ctrl+S、横幅上那个「保留我的」）不受这一条约束。
+    if (externalChange) return;
     const t = setTimeout(saveNow, AUTOSAVE_MS);
     return () => clearTimeout(t);
-  }, [body, saveState, saveNow]);
+  }, [body, externalChange, saveState, saveNow]);
 
   // §7.4 —— 窗口重新获得焦点时比对 mtime，看文件有没有被外部程序改过。
   // 有了终端跑 AI 之后这是日常主路径：没有这个检查，用完 AI 回到编辑器
@@ -2476,7 +2566,15 @@ export default function App() {
       void api
         .statNote(cur.path)
         .then((m) => {
-          if (m !== savedMtime.current) setExternalChange(true);
+          if (m === savedMtime.current) return;
+          // **没有未保存改动就直接重载**（§2.7 明写的那一半，以前没做）。
+          // 只弹一条横幅的话，屏幕上仍是旧正文，用户多半没注意那行细字，
+          // 接着打字 —— 下一次保存就把外面写进来的整篇盖掉了。
+          if (!dirtyRef.current && !savingRef.current) {
+            void reloadFromDiskRef.current?.();
+            return;
+          }
+          setExternalChange(true);
         })
         .catch(() => {
           /* 文件可能已被删除，留给下一次操作报错 —— 和聚焦那条路一致 */
@@ -2511,8 +2609,10 @@ export default function App() {
     // commitNow 已包含必要的冲盘。先 save 再 commit 会因为 React state 尚未
     // 重渲染而重复写一次，关窗时尤其没必要。
     if (settingsRef.current.autoCommit && settingsRef.current.autoCommitOnClose) await commitNow();
-    else if (dirtyRef.current) await saveNow();
-  }, [saveNow, commitNow]);
+    // 关窗这条路必须**等在飞的那次写盘落地**：`dirtyRef` 在写盘期间是 false，
+    // 光看它会让「最后敲的几个字正在写」这一刻直接放行
+    else await flushCurrent();
+  }, [flushCurrent, commitNow]);
 
   /**
    * 快速切库不能绕过关窗时的安全网：正文先落盘，配置要求时再记一个版本，
@@ -2522,7 +2622,7 @@ export default function App() {
     if (!vault) return true;
     const ready = settingsRef.current.autoCommitOnClose
       ? await commitNow()
-      : !dirtyRef.current || (await saveNow());
+      : await flushCurrent();
     if (!ready) return false;
     try {
       await api.workspaceSet(tabsRef.current);
@@ -2679,7 +2779,7 @@ export default function App() {
       try {
         // 清单必须对应用户此刻看到的正文；最后 800ms 还没自动保存时，直接
         // 从磁盘预检会漏掉刚插入的附件链接。
-        if (node.path === noteRef.current?.path && dirtyRef.current && !(await saveNow())) return;
+        if (node.path === noteRef.current?.path && !(await flushCurrent())) return;
         const [preview, spaces] = await Promise.all([
           api.shareNotePreview(node.path),
           api.shareSpaces().catch(() => []),
@@ -2925,17 +3025,35 @@ export default function App() {
       // 读一遍」，当前这一篇变了，它读回来的就是别人的内容（同 `loadNote`）。
       // 文档树照旧刷新 —— 磁盘上确实变过
       if (noteRef.current?.path === n.path) {
-        setNote(content);
-        setBody(content.body);
-        savedMtime.current = content.mtimeMs;
-        setSaveState("saved");
-        setExternalChange(false);
+        // **有未保存改动时不许覆盖正文。**
+        //
+        // 这个函数被属性写入复用（属性条、database 视图的格子、图标、置顶、
+        // 项目总览改状态）：`prop_set` 在 Rust 侧读的是**磁盘上**那份旧正文，
+        // 写回 `新属性 + 旧正文`，这里再把旧正文读回来当真相 —— 正在打的那段
+        // 话当场消失，光标跳回开头，而唯一的后路是用户并不知道该按的撤销。
+        //
+        // 属性照收（它确实变新了），正文留在内存里，下一次保存会把它写下去。
+        const dirty = dirtyRef.current || !!savingRef.current;
+        setNote(dirty ? { ...content, body: bodyRef.current } : content);
+        if (!dirty) {
+          setBody(content.body);
+          savedMtime.current = content.mtimeMs;
+          setSaveState("saved");
+          setExternalChange(false);
+        }
       }
       await refresh();
     } catch (e) {
       setError((e as Error).message);
     }
   }, [refresh]);
+
+  /**
+   * 文件监听那个 effect 只装一次，够不到后面才定义的 `reloadFromDisk`。
+   * 放 ref 里，别为了它把整个监听器绑到依赖上反复重装。
+   */
+  const reloadFromDiskRef = useRef(reloadFromDisk);
+  reloadFromDiskRef.current = reloadFromDisk;
 
   /**
    * `Mod+Shift+J`「项目总览」与项目中心里的「设为项目」共用这一条。
@@ -2984,7 +3102,7 @@ export default function App() {
         { title: "启用项目总览", okLabel: "设为项目", cancelLabel: "取消", kind: "info" },
       );
       if (!ok) return;
-      if (dirtyRef.current && !(await saveNow())) return;
+      if (!(await flushCurrent())) return;
       try {
         await markAsProject(api, current);
         await reloadFromDisk();

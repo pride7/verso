@@ -49,6 +49,7 @@ import type { ViewResult } from "../core/types";
 
 import { calloutKind } from "./callout";
 import { looksLikeImage, parseWidth } from "./image";
+import { normalizeHref } from "./link";
 import { markdownExtended } from "./markdownExtended";
 
 /** 和 `editor/index.ts` 里给 CM6 的是同一份配置 —— 两处漂了就是屏幕和纸不一致 */
@@ -171,7 +172,19 @@ function text(ctx: Ctx, from: number, to: number): string {
  * 走 else 分支照常放行。
  */
 function safeHref(raw: string): string | null {
-  const href = raw.trim();
+  // **先按浏览器的规矩归一化，再判协议，而且放行的是归一化之后那一份。**
+  //
+  // 只 `trim()` 是不够的，而且漏得很致命：这里的兜底是「没认出协议就当相对
+  // 路径**原样放行**」，于是 `java<TAB>script:…` 在正则眼里没有协议（冒号
+  // 前面那段不是合法 scheme），被当成相对路径放行；而浏览器解析 href 时会把
+  // tab 剥掉，还原成 `javascript:` 并执行。导出的 HTML 是在应用自己的
+  // webview 里预览的（`PrintView`/`PrintDialog` 用 `dangerouslySetInnerHTML`），
+  // 那里有 IPC 权限，`tauri.conf.json` 的 CSP 又是 null —— 打开一篇分享来的
+  // 笔记点一下「打印」，预览里那个看着正常的链接就是一次代码执行。
+  //
+  // 判据和 `link.ts` 的 `externalHref` 共用同一个归一化，别再分两份漂移：
+  // 编辑器里点击那条路当初是靠「兜底默认拒绝」侥幸挡住的，这里兜底是放行。
+  const href = normalizeHref(raw);
   if (!href) return null;
   const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(href);
   if (!scheme) return href;

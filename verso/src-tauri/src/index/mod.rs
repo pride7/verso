@@ -59,6 +59,11 @@ pub struct IndexStats {
     pub links: usize,
     pub tags: usize,
     pub elapsed_ms: u64,
+    /// 建索引时写不进去、被跳过的那几篇（`路径（原因）`）。
+    ///
+    /// 最常见的是两篇笔记 `id` 撞车。整库因为一篇而建不起来是最坏的结果，
+    /// 所以跳过它继续建 —— 但必须说出跳过了谁，否则那篇会一直搜不到。
+    pub skipped: Vec<String>,
 }
 
 /// 一篇笔记在索引里的完整快照，写库时一次性传进去
@@ -106,17 +111,31 @@ impl Index {
             "DELETE FROM props; DELETE FROM tags; DELETE FROM links;
              DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM fts_map;",
         )?;
+        // **一篇写不进去不能把整库拖垮。**
+        //
+        // 两篇笔记 `id` 撞车（在资源管理器里复制一篇带 `id:` 的旧笔记就够了）时，
+        // `notes` 按 id 替换得逞，而 `fts_map.note_id` 上的 UNIQUE 会抛 ——
+        // 以前那个 `?` 直接把整个事务回滚掉，索引置空，于是搜索、反向链接、
+        // database 视图、树的时间排序**全部失效**，而界面上只有一句看不懂的报错，
+        // 没人猜得到要去找那篇重复的笔记。
+        //
+        // 现在跳过写不进去的那一篇，剩下的照常建。跳过的报到界面上
+        // （`index:error`，由调用方转成提示条）。
+        let mut skipped: Vec<String> = Vec::new();
         for (i, rec) in records.iter().enumerate() {
-            write_record(&tx, rec, i as i64 + 1)?;
+            if let Err(e) = write_record(&tx, rec, i as i64 + 1) {
+                skipped.push(format!("{}（{e}）", rec.path));
+            }
         }
         resolve_links(&tx)?;
         tx.commit()?;
 
         Ok(IndexStats {
-            notes: records.len(),
+            notes: records.len() - skipped.len(),
             links: records.iter().map(|r| r.parsed.links.len()).sum(),
             tags: records.iter().map(|r| r.parsed.tags.len()).sum(),
             elapsed_ms: started.elapsed().as_millis() as u64,
+            skipped,
         })
     }
 
@@ -124,7 +143,7 @@ impl Index {
     pub fn update_note(&mut self, vault: &Vault, rel: &str) -> Result<()> {
         // AGENTS.md / CLAUDE.md 是仓库基础设施而非笔记。全量重建靠文档树过滤，
         // 增量路径也必须在这里兜住，并清掉旧版本可能留下的索引行。
-        if tree::is_hidden_root_doc(rel) {
+        if tree::is_hidden_root_doc(rel) || tree::is_in_hidden_dir(rel) {
             return self.remove_note(rel);
         }
         let abs = vault.resolve(rel)?;

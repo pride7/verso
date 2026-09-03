@@ -351,4 +351,6 @@ export interface IndexStats {
   links: number;
   tags: number;
   elapsedMs: number;
+  /** 没能进索引、被跳过的那几篇（`路径（原因）`）。老后端没有这个字段 */
+  skipped?: string[];
 }

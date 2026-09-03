@@ -102,6 +102,19 @@ impl VaultFs for DesktopFs {
             Ok(()) => Ok(()),
             Err(e) => {
                 let _ = fs::remove_file(&tmp); // 别把临时文件留在 vault 里
+                // **写失败就把自写登记撤掉。**
+                //
+                // 登记是在开头打的，而这条路上目标文件根本没被碰过 —— 不会有
+                // 它的事件来消费那个登记，于是它一直留在集合里。**下一次真的
+                // 有外部程序改这个文件时，那个事件会被当成「自己写的」丢掉**：
+                // 不发 `vault:changed`、不比 mtime、不弹横幅，接着我们的自动
+                // 保存就把对方的改动整篇盖掉了。
+                //
+                // 触发不算罕见：Windows 上杀软或同步盘短暂占着文件，rename 就
+                // 会撞 sharing violation。
+                if let Some(sw) = &self.self_writes {
+                    sw.unmark(path);
+                }
                 Err(e.into())
             }
         }

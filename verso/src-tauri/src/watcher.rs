@@ -41,6 +41,14 @@ impl SelfWrites {
         }
     }
 
+    /// 撤销登记。**写失败时必须调**：那条路上目标文件根本没被碰过，
+    /// 不会有事件来消费这个登记，它留着就会去吞掉下一次**真正的**外部修改。
+    pub fn unmark(&self, path: &Path) {
+        if let Ok(mut s) = self.0.lock() {
+            s.remove(path);
+        }
+    }
+
     /// 是不是我们自己刚写的。是的话顺手移除登记。
     fn take(&self, path: &Path) -> bool {
         self.0.lock().map(|mut s| s.remove(path)).unwrap_or(false)
@@ -66,8 +74,24 @@ fn interesting(root: &Path, path: &Path) -> Option<String> {
     if s.starts_with(".verso/") || s.starts_with(".git/") || s.contains("/.git/") {
         return None;
     }
-    if !s.ends_with(".md") {
+    // 点目录一律不管（`.obsidian/`、`.verso-reviews/`…），和全量重建的排除表一致。
+    // 少了这一条，同步写进来的评审文件之类会以笔记的身份混进索引
+    if s.split('/').any(|part| part.starts_with('.')) {
         return None;
+    }
+    if !s.ends_with(".md") {
+        // **目录也要放行。**
+        //
+        // 系统对「改一个目录的名字」只报**目录本身**一条事件，不会逐个报里面
+        // 的文件。只认 `.md` 的话，终端里 `mv 数学 Math` 之后索引里还是
+        // `数学/线代.md` —— 搜索结果点开报「文件不存在」，文档树也不动，
+        // 而这正是 §2.7 那条「树和索引会悄悄和磁盘脱节」。
+        //
+        // 分不出「目录事件」和「别的文件」时宁可放行：多一次刷新只是浪费
+        // 一点时间，漏一次是数据对不上。带扩展名的普通文件仍然挡掉。
+        if Path::new(&s).extension().is_some() {
+            return None;
+        }
     }
     Some(s)
 }
@@ -157,6 +181,34 @@ mod tests {
         assert_eq!(rel(".git/HEAD"), None);
         assert_eq!(rel("attachments/fig.png"), None);
         assert_eq!(rel("README.txt"), None);
+        // 点目录整条都不管，和全量重建的排除表一致 —— 同步写进来的评审文件
+        // 不该以笔记的身份混进索引
+        assert_eq!(rel(".verso-reviews/甲.md"), None);
+        assert_eq!(rel(".obsidian/workspace.json"), None);
+    }
+
+    /// 改一个目录的名字，系统只报**目录自己**一条事件，不逐个报里面的文件。
+    /// 只认 `.md` 的话这条事件被过滤掉，索引和树就和磁盘悄悄脱节了。
+    #[test]
+    fn directory_events_are_not_filtered_out() {
+        let root = Path::new("/vault");
+        let rel = |p: &str| interesting(root, &root.join(p));
+
+        assert_eq!(rel("数学").as_deref(), Some("数学"));
+        assert_eq!(rel("数学/线性代数").as_deref(), Some("数学/线性代数"));
+        // 带扩展名的普通文件仍然挡着
+        assert_eq!(rel("笔记.txt"), None);
+        assert_eq!(rel("图.png"), None);
+    }
+
+    #[test]
+    fn failed_write_unmarks_itself() {
+        let s = SelfWrites::default();
+        let p = Path::new("/vault/a.md");
+        s.mark(p);
+        s.unmark(p);
+        // 撤销之后，下一次**真正的**外部修改必须还认得出来
+        assert!(!s.take(p), "写失败留下的登记会去吞掉下一次外部修改");
     }
 
     #[test]

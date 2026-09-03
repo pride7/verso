@@ -9,6 +9,18 @@ use crate::error::{Error, Result};
 
 use super::Vault;
 
+/// 两条路径是不是**只差大小写**（也就是在 Windows / macOS 上指同一个东西）。
+///
+/// 「目标已存在」的检查要靠它放行 `a.md` → `A.md` 这种改名：大小写不敏感的
+/// 文件系统上 `exists(A.md)` 为真，而那说的正是被改的这一篇自己。
+///
+/// 用 `eq_ignore_ascii_case` 而不是 `to_lowercase`：这里要判的是「文件系统会
+/// 不会把它们当成同一个」，而 Windows 的大小写折叠只对 ASCII 稳定 —— 对中文
+/// 之类的字符它本来就是逐字节相同才算同一个，ASCII 比较正好等价。
+fn same_path_ignoring_case(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
 /// 文档 `a/b/X.md` 的子文档目录是 `a/b/X`
 pub fn child_dir_of(doc_rel: &str) -> Result<String> {
     doc_rel
@@ -76,7 +88,11 @@ impl Vault {
             let new_abs = self.resolve(&new_rel)?;
             // 同名文档（`Y.md`）也要挡：文件夹改名成 `Y` 等于把自己的内容
             // 悄悄挂到文档 Y 名下，这种合并该由用户拖拽表达，不该由改名触发
-            if self.fs.exists(&new_abs) || self.fs.exists(&self.resolve(&format!("{new_rel}.md"))?) {
+            // 同下面文档那条：只改大小写时目标就是它自己
+            if !same_path_ignoring_case(rel, &new_rel)
+                && (self.fs.exists(&new_abs)
+                    || self.fs.exists(&self.resolve(&format!("{new_rel}.md"))?))
+            {
                 return Err(Error::Vault(format!("已存在同名文档或文件夹: {new_rel}")));
             }
             self.fs.rename(&self.resolve(rel)?, &new_abs)?;
@@ -89,7 +105,14 @@ impl Vault {
 
         let old_abs = self.resolve(rel)?;
         let new_abs = self.resolve(&new_rel)?;
-        if self.fs.exists(&new_abs) {
+        // **只改大小写时，「已存在」指的就是它自己。**
+        //
+        // Windows 和 macOS 的文件系统大小写不敏感：`a.md` 改成 `A.md` 时
+        // `exists(A.md)` 为真，指的却是同一个文件 —— 于是这个再正常不过的
+        // 改名被一句「已存在同名文档」挡住，而用户看不出哪里冲突了。
+        // 真的撞名（改成另一篇的名字）时两条路径不会只差大小写，照旧拦住。
+        let different_target = !same_path_ignoring_case(rel, &new_rel);
+        if different_target && self.fs.exists(&new_abs) {
             return Err(Error::Vault(format!("已存在同名文档: {new_rel}")));
         }
 

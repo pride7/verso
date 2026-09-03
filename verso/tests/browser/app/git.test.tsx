@@ -652,9 +652,14 @@ describe("侧栏里的动态", () => {
     await mount();
     await openPanel();
     const before = document.querySelectorAll(".tab").length;
+    // 两次点击分开 act：打开对比之前要先把未保存的正文冲掉（`flushCurrent`），
+    // 那是一次异步往返，和关闭按钮挤在同一个 act 里就取不到它
     await act(async () => {
       document.querySelector<HTMLElement>(".hist-working .hist-file")!.click();
       await settle(200);
+    });
+    expect(document.querySelector(".diff-view"), "对比没打开").not.toBeNull();
+    await act(async () => {
       document.querySelector<HTMLElement>(".diff-close")!.click();
       await settle(200);
     });

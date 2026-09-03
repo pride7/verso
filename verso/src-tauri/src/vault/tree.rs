@@ -176,6 +176,19 @@ pub(crate) fn is_hidden_root_doc(rel: &str) -> bool {
     HIDDEN_ROOT_DOCS.contains(&rel)
 }
 
+/// 这条相对路径落在**不进文档树的目录**里吗（`attachments/`、`node_modules/`、
+/// 任何点目录…）。
+///
+/// 全量重建靠 `walk` 压根不进这些目录，**增量那条路必须自己判**：以前它只挡了
+/// `.verso/` 和 `.git/`，于是在终端里 `npm install` 之后，`node_modules` 里那些
+/// `.md` 会以笔记的身份出现在搜索结果和 database 视图里，直到下一次全量重建
+/// 才消失 —— 而那时又没人解释它们为什么消失了。
+pub(crate) fn is_in_hidden_dir(rel: &str) -> bool {
+    let mut parts: Vec<&str> = rel.split('/').collect();
+    parts.pop(); // 最后一段是文件名，目录判断不看它
+    parts.iter().any(|part| is_hidden_dir(part))
+}
+
 fn join_rel(rel: &str, name: &str) -> String {
     if rel.is_empty() {
         name.to_string()

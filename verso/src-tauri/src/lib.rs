@@ -92,8 +92,20 @@ fn activate(app: &AppHandle, state: &AppState, v: Vault) {
         }
     }
 
-    match index::Index::open(&root).and_then(|mut i| i.rebuild(&v).map(|_| i)) {
-        Ok(i) => *state.index.lock().unwrap() = Some(i),
+    match index::Index::open(&root).and_then(|mut i| i.rebuild(&v).map(|stats| (i, stats))) {
+        Ok((i, stats)) => {
+            // 跳过的那几篇必须说出来，否则它们会一直搜不到、也不出现在视图里，
+            // 而没有任何地方解释为什么（最常见的是两篇笔记 `id` 撞车）
+            if !stats.skipped.is_empty() {
+                let list = stats.skipped.join("、");
+                eprintln!("[verso] 这几篇没能进索引：{list}");
+                let _ = app.emit(
+                    "index:error",
+                    format!("这几篇没能进索引，搜索和视图里不会有它们：{list}"),
+                );
+            }
+            *state.index.lock().unwrap() = Some(i);
+        }
         Err(e) => {
             let _ = app.emit("index:error", e.to_string());
             *state.index.lock().unwrap() = None;

@@ -65,7 +65,13 @@ export function useGitHubDeviceConnect(options: {
   );
 
   function check(auth: GitHubDeviceAuthorization) {
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      // 上一次请求还没回来 —— 多半是被取消的那一轮还挂在网络上。它回来之后
+      // 会因为 generation 对不上而**什么都不安排**，所以这里不能直接丢掉
+      // 这一拍，否则卡片上显示着新验证码、背后却没有任何人在轮询。过一秒再来
+      schedule(auth, 1);
+      return;
+    }
     const mine = generation.current;
     inFlight.current = true;
     latest.current.onBusy(true);

@@ -224,17 +224,31 @@ impl Vault {
     pub fn write_note(&self, rel: &str, body: &str) -> Result<i64> {
         let abs = self.resolve(rel)?;
 
-        let mut fm: Mapping = if self.fs.exists(&abs) {
-            let raw = self.fs.read_to_string(&abs)?;
-            note::parse_frontmatter(&raw).0
+        let raw = if self.fs.exists(&abs) {
+            self.fs.read_to_string(&abs)?
         } else {
-            Mapping::new()
+            String::new()
         };
-        // 只维护文件里**已经有**的字段，不补任何东西 —— 一篇没写过
-        // frontmatter 的笔记，保存一百次也还是纯正文（§2.3）
-        note::touch_updated(&mut fm);
 
-        let out = note::serialize_note(&fm, body)?;
+        // **YAML 写坏了的那一段要原样留着，只换正文。**
+        //
+        // 以前这里无条件走 `parse_frontmatter`，而它对解析失败返回的是空映射 ——
+        // 拿空映射序列化等于把整块 frontmatter 从文件里删掉。`tags: [a, b`
+        // 少一个括号就够触发，而且全程静默：在正文里敲一个字，800ms 之后
+        // 那几行属性就没了。
+        //
+        // 不报错、不阻止保存：正文是用户此刻正在写的东西，不能因为文件头上
+        // 有个括号没闭合就让他存不下来。属性原文照抄回去，他自己什么时候改都行。
+        let out = match note::unparsed_frontmatter(&raw) {
+            Some(text) => format!("---\n{text}---\n{body}"),
+            None => {
+                let mut fm: Mapping = note::parse_frontmatter(&raw).0;
+                // 只维护文件里**已经有**的字段，不补任何东西 —— 一篇没写过
+                // frontmatter 的笔记，保存一百次也还是纯正文（§2.3）
+                note::touch_updated(&mut fm);
+                note::serialize_note(&fm, body)?
+            }
+        };
         self.fs.write_atomic(&abs, &out)?;
         Ok(self.fs.metadata(&abs)?.mtime_ms)
     }
@@ -580,6 +594,31 @@ mod tests {
             root: root.to_path_buf(),
             fs: Arc::new(DesktopFs::new()),
         }
+    }
+
+    /// **正文保存不能把解析不了的 frontmatter 删掉。**
+    ///
+    /// `parse_frontmatter` 对解析失败返回空映射（读的路径上没问题：YAML 写坏了
+    /// 也得能打开看正文），而空映射序列化出来就是纯正文 —— 于是在正文里敲一个
+    /// 字、800ms 之后，那几行属性静悄悄没了。
+    #[test]
+    fn write_note_keeps_unparsable_frontmatter() {
+        let dir = std::env::temp_dir().join(format!("verso-fm-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let v = vault_at(&dir);
+
+        // `tags:` 少一个方括号
+        let broken = "---\ntitle: 甲\ntags: [a, b\n---\n原来的正文\n";
+        std::fs::write(dir.join("甲.md"), broken).unwrap();
+
+        v.write_note("甲.md", "改过的正文\n").unwrap();
+
+        let after = std::fs::read_to_string(dir.join("甲.md")).unwrap();
+        assert!(after.contains("tags: [a, b"), "属性被吞掉了：{after}");
+        assert!(after.contains("title: 甲"), "属性被吞掉了：{after}");
+        assert!(after.contains("改过的正文"), "正文没写进去：{after}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

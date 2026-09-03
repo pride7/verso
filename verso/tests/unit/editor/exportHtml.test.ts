@@ -301,6 +301,46 @@ describe("安全边界（§7.5）", () => {
     expect(renderMarkdown("a < b 且 c > d")).toContain("&lt;");
     expect(renderMarkdown('他说"好"')).toContain("&quot;");
   });
+
+  /**
+   * 协议白名单必须按**浏览器的规矩**归一化之后再判。
+   *
+   * 浏览器解析 href 时会把 tab / 换行 / 回车从任何位置剥掉、再削掉两头的控制
+   * 字符，于是 `java<TAB>script:` 在正则眼里「没有协议」（被当成相对路径原样
+   * 放行），到了浏览器手里却还原成 `javascript:`。而导出的 HTML 是在应用自己
+   * 的 webview 里预览的（`PrintView` / `PrintDialog` 走 `dangerouslySetInnerHTML`），
+   * 那里有 IPC 权限，CSP 还是 null —— 打开一篇分享来的笔记点「打印」，预览里
+   * 那个看着正常的链接点下去就是一次代码执行。
+   */
+  it("URL 里夹控制字符绕不过协议白名单", () => {
+    const payloads = [
+      "[点我](<java\tscript:alert(1)>)",
+      "[点我](<java\nscript:alert(1)>)",
+      "[点我](<java\rscript:alert(1)>)",
+      "[点我](<javascript:alert(1)>)",
+      "[点我](< javascript:alert(1)>)",
+      "[点我](<JaVa\tScRiPt:alert(1)>)",
+    ];
+    for (const md of payloads) {
+      const html = renderMarkdown(md);
+      expect(html, md).not.toMatch(/href="[^"]*script:/i);
+      expect(html, md).toContain("点我");
+    }
+  });
+
+  it("图片地址同样不放行夹了控制字符的协议", () => {
+    const html = renderMarkdown("![x](<java\tscript:alert(1)>)");
+    expect(html).not.toMatch(/src="[^"]*script:/i);
+  });
+
+  /** 归一化不能把正常链接和带空格的相对路径弄坏 */
+  it("正常地址和相对路径不受影响", () => {
+    expect(renderMarkdown("[a](https://example.com/x?y=1)")).toContain(
+      'href="https://example.com/x?y=1"',
+    );
+    expect(renderMarkdown("[a](<./我的 笔记.md>)")).toContain('href="./我的 笔记.md"');
+    expect(renderMarkdown("[a](#锚点)")).toContain('href="#锚点"');
+  });
 });
 
 describe("不吞内容", () => {

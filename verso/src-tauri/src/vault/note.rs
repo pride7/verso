@@ -36,6 +36,25 @@ pub fn split_frontmatter(raw: &str) -> (Option<&str>, &str) {
     (None, s)
 }
 
+/// 文件里那段 frontmatter **解析不出键值映射**时，把它的原文交出来。
+///
+/// `parse_frontmatter` 对这种情况返回空映射，读的路径上这是对的 —— YAML 写坏了
+/// 也得让人能打开这篇笔记看正文。**但写的路径不能照它办**：拿一个空映射去
+/// `serialize_note`，等于把那一整段从文件里删掉。
+///
+/// 触发它不需要多罕见：`tags: [a, b` 少一个括号就够了。而删除是静默的 ——
+/// 在正文里敲一个字，800ms 之后 frontmatter 就没了，屏幕上没有任何提示。
+///
+/// 空的 frontmatter（`---\n---`，YAML 里是 null）不算「坏」，那一段本来就没有
+/// 内容可丢。
+pub fn unparsed_frontmatter(raw: &str) -> Option<&str> {
+    let fm = split_frontmatter(raw).0?;
+    match serde_yaml::from_str::<Value>(fm) {
+        Ok(Value::Mapping(_)) | Ok(Value::Null) => None,
+        _ => Some(fm),
+    }
+}
+
 pub fn parse_frontmatter(raw: &str) -> (Mapping, String) {
     let (fm, body) = split_frontmatter(raw);
     let map = fm
@@ -184,6 +203,21 @@ updated: 2020-01-01T00:00:00+08:00
             Some("2020-01-01T00:00:00+08:00"),
             "已经有的要刷新"
         );
+    }
+
+    /// YAML 写坏了的那一段必须认得出来 —— 保存时要原样留着它，
+    /// 而不是拿一个空映射去序列化（那等于把整块从文件里删掉）。
+    #[test]
+    fn broken_frontmatter_is_recognised() {
+        // 少一个方括号。在正文里敲一个字就会触发保存，属性不该因此消失
+        assert!(unparsed_frontmatter("---\ntags: [a, b\n---\n正文\n").is_some());
+        // 不是键值映射（正文以水平线开头时会走到这里）
+        assert!(unparsed_frontmatter("---\n一段文字\n---\n正文\n").is_some());
+
+        // 正常的、空的、压根没有 frontmatter 的，都不算「坏」
+        assert!(unparsed_frontmatter("---\ntitle: 甲\n---\n正文\n").is_none());
+        assert!(unparsed_frontmatter("---\n---\n正文\n").is_none());
+        assert!(unparsed_frontmatter("就是一篇纯正文\n").is_none());
     }
 
     /// 空 frontmatter 序列化出来必须是**纯正文**，一道 `---` 都不留 ——

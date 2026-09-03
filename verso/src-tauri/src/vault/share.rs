@@ -191,7 +191,24 @@ fn normalize_target(note: &str, target: &str, wiki: bool) -> Option<String> {
             Component::RootDir | Component::Prefix(_) => return None,
         }
     }
-    (!out.as_os_str().is_empty()).then(|| out.to_string_lossy().replace('\\', "/"))
+    let rel = out.to_string_lossy().replace('\\', "/");
+    if rel.is_empty() {
+        return None;
+    }
+    // **裸文件名指的是 `attachments/` 里那一份**，和编辑器渲染时的规矩一致
+    // （`attach.rs` 的同名函数、前端的 `core/vaultPath.ts`）。
+    //
+    // 少了这一条，从 Obsidian 迁过来那种写法 —— `![[图.png]]` —— 在编辑器里
+    // 显示得好好的，分享出去却收集不到那个文件：协作者那边图是缺的，而这边
+    // 完全看不出哪里漏了。
+    if !rel.contains('/')
+        && Path::new(&rel)
+            .extension()
+            .is_some_and(|e| !e.eq_ignore_ascii_case("md"))
+    {
+        return Some(format!("{}/{rel}", super::attach::DIR));
+    }
+    Some(rel)
 }
 
 /// 抽出 Obsidian wikilink 和 Markdown 链接。这里只负责找目标；是否存在、是
@@ -902,6 +919,18 @@ mod tests {
             Some("attachments/a.png")
         );
         assert!(normalize_target("提案.md", "../../secret.txt", false).is_none());
+        // 裸文件名 = `attachments/` 里那一份（同 `attach.rs` 与编辑器的渲染）。
+        // 少了这条，`![[图.png]]` 这种从 Obsidian 迁来的写法在编辑器里好好的，
+        // 分享出去协作者那边图却是缺的
+        assert_eq!(
+            normalize_target("项目/提案.md", "图.png", true).as_deref(),
+            Some("attachments/图.png")
+        );
+        // 同名的笔记仍然是笔记，不该被塞进附件目录
+        assert_eq!(
+            normalize_target("提案.md", "别的笔记.md", true).as_deref(),
+            Some("别的笔记.md")
+        );
         assert!(normalize_target("提案.md", "https://example.com/a.png", false).is_none());
     }
 

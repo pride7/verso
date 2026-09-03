@@ -138,8 +138,16 @@ class MermaidWidget extends WidgetType {
     el.addEventListener("dblclick", editSource);
 
     let alive = true;
+    /** 上一次灌进去的是哪份结果。缓存命中时是同一个对象，不必再灌一遍 */
+    let painted: { svg?: string; error?: string } | null = null;
     const paint = (result: { svg?: string; error?: string }) => {
       if (!alive) return;
+      // 主题回调现在也盯着根元素的行内 `style`（字体写在那里，§4.11），而
+      // 设置面板里**每一个滑块的每一格**都会改那几个变量。命中缓存拿到的是
+      // 同一个结果对象，把一模一样的 SVG 重新 innerHTML 一遍纯属浪费 ——
+      // 一篇五六张图的笔记上拖主题色滑块会明显发滞
+      if (result === painted) return;
+      painted = result;
       el.classList.toggle("is-error", !!result.error);
       if (result.svg) {
         // innerHTML 的受控例外，同 KaTeX：mermaid 在 `securityLevel: "strict"`

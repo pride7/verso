@@ -36,6 +36,8 @@ const doc = (name: string, path: string): TreeNode => ({
 
 /** 磁盘上那份的 mtime。写入会推进它，「外部程序改了」也靠改它来模拟 */
 let diskMtime = 1000;
+/** 每一次真的落盘写进去的正文。判断「有没有偷偷保存」用它 */
+const written: string[] = [];
 /** 监听器推来的那个回调，测试里手动触发 */
 let fireChanged: ((paths: string[]) => void) | null = null;
 
@@ -60,7 +62,8 @@ vi.mock("../../../src/host/api", () => ({
         mtimeMs: diskMtime,
       }) as NoteContent,
     // 真实的写入就是这个样子：落盘之后 mtime 变成一个新值，并把它交回前端
-    writeNote: async () => {
+    writeNote: async (_path: string, body: string) => {
+      written.push(body);
       diskMtime += 1;
       return diskMtime;
     },
@@ -136,6 +139,7 @@ const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 beforeEach(() => {
   localStorage.clear();
   diskMtime = 1000;
+  written.length = 0;
   fireChanged = null;
 });
 
@@ -158,6 +162,16 @@ async function mount() {
 
 const banner = () => document.querySelector(".banner");
 
+/** 往正文里敲一句，把缓冲区弄脏 —— 横幅只在有未保存改动时才该出现 */
+async function type(text: string) {
+  await act(async () => {
+    const content = document.querySelector<HTMLElement>(".cm-content")!;
+    content.focus();
+    document.execCommand("insertText", false, text);
+    await settle(120);
+  });
+}
+
 /** 让监听器推一次「甲.md 变了」，并等前端把 mtime 问回来 */
 async function notifyChanged() {
   await act(async () => {
@@ -174,12 +188,46 @@ describe("外部修改提示", () => {
     expect(banner(), "mtime 没变却报了外部修改").toBeNull();
   });
 
-  it("磁盘上那份真的变了才报", async () => {
+  /**
+   * §2.7 的另一半：**没有未保存改动就直接重载**，不打扰。
+   *
+   * 以前这里一律弹横幅，而屏幕上仍是旧正文 —— 用户多半没注意那行细字，
+   * 接着打字，下一次保存就把外面写进来的整篇盖掉了。
+   */
+  it("没有未保存改动时静默重载，不弹横幅", async () => {
     await mount();
     diskMtime = 9999; // 别的程序改了这篇
     await notifyChanged();
+    expect(banner(), "干净的缓冲区不该拿横幅打扰人").toBeNull();
+  });
+
+  it("有未保存改动时才报，让用户自己选", async () => {
+    await mount();
+    await type("新写的");
+    diskMtime = 9999; // 别的程序也改了这篇
+    await notifyChanged();
     expect(banner()).not.toBeNull();
     expect(banner()?.textContent).toContain("文件已被外部程序修改");
+  });
+
+  /**
+   * 横幅上「保留我的 / 加载外部」是要用户选的，而自动保存最多 800ms 就到。
+   * 不让开的话用户根本来不及点，一次自动保存就把外面写进来的东西整篇盖掉。
+   */
+  it("横幅挂着的时候，自动保存不许把外面那份盖掉", async () => {
+    await mount();
+    await type("新写的");
+    diskMtime = 9999;
+    await notifyChanged();
+    expect(banner()).not.toBeNull();
+
+    const before = written.length;
+    // 自动保存的窗口是 800ms，等得比它久
+    await act(async () => {
+      await settle(1400);
+    });
+    expect(written.length, "横幅还挂着，自动保存却已经写下去了").toBe(before);
+    expect(banner(), "没人选之前横幅要一直在").not.toBeNull();
   });
 
   /**
@@ -190,6 +238,7 @@ describe("外部修改提示", () => {
    */
   it("按「保留我的」之后提示要真的消失，不能立刻回来", async () => {
     await mount();
+    await type("新写的");
     diskMtime = 9999;
     await notifyChanged();
     expect(banner()).not.toBeNull();

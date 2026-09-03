@@ -52,9 +52,23 @@ export function linkParts(node: SyntaxNode): LinkParts | null {
  * 打不开的一律**保持源码**（见 §4.2）：藏起标记却点不动，用户会以为链接
  * 坏了，而不是以为这个功能没做。
  */
+/**
+ * 判协议之前必须先按浏览器的规矩归一化，**而且要用归一化之后那一份**。
+ *
+ * 浏览器解析 `href` 时会把 tab / 换行 / 回车**从任何位置**剥掉，再削掉两头的
+ * 控制字符和空格。所以 `java<TAB>script:` 在正则眼里没有协议（冒号前面那段
+ * 不是合法 scheme），到了浏览器手里却还原成 `javascript:` —— 白名单等于没有。
+ *
+ * 内部的普通空格不能删：浏览器不删它（会转义成 %20），而 `./我的 笔记.md`
+ * 这种相对路径里的空格是内容。
+ */
+export function normalizeHref(raw: string): string {
+  return raw.replace(/[\t\n\r]/g, "").replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
+}
+
 export function externalHref(raw: string): string | null {
   // `[文字](<带空格的 地址>)` 这种写法地址两头带尖括号，不是地址的一部分
-  const url = raw.trim().replace(/^<|>$/g, "").trim();
+  const url = normalizeHref(normalizeHref(raw).replace(/^<|>$/g, ""));
   if (!url) return null;
   if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url)) {
     // `<a@b.com>` 按 GFM 的原意是邮箱，别的没有协议的（相对路径）不认
