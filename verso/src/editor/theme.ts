@@ -109,6 +109,10 @@ export const versoTheme = EditorView.theme({
   // ---- 内部链接 ----
   ".cm-wikilink": { color: "var(--accent)", cursor: "pointer" },
   ".cm-wikilink:hover": { textDecoration: "underline" },
+  // 外部链接和内部链接长一个样。§6.2 只给「链接」这一类留了强调色，
+  // 再按内外分两种颜色就等于把重音摊薄成配色
+  ".cm-link": { color: "var(--accent)", cursor: "pointer" },
+  ".cm-link:hover": { textDecoration: "underline" },
   ".cm-embed": { color: "var(--accent)", opacity: 0.85 },
   ".cm-embed-placeholder": {
     fontFamily: "var(--font-mono)",

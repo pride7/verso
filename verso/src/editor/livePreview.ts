@@ -40,6 +40,7 @@ import { parseAdvanced, parseRefresh } from "./parseRefresh";
 import { calloutKind } from "./callout";
 import { compositionActive } from "./compositionGuard";
 import { ImageWidget, imageSrc, looksLikeImage, parseWidth } from "./image";
+import { externalHref, linkParts } from "./link";
 import { BulletWidget, CalloutWidget, HrWidget, MathWidget, TaskWidget } from "./widgets";
 import { mathSource } from "./mathSource";
 
@@ -48,6 +49,7 @@ const hideMark = Decoration.replace({});
 
 const styleMarks = {
   wikiLink: Decoration.mark({ class: "cm-wikilink" }),
+  link: Decoration.mark({ class: "cm-link" }),
   embed: Decoration.mark({ class: "cm-embed" }),
   hashtag: Decoration.mark({ class: "cm-hashtag" }),
   highlight: Decoration.mark({ class: "cm-highlight" }),
@@ -181,6 +183,34 @@ function buildInlineDecorations(view: EditorView): DecorationSet {
           case "WikiLinkTarget": {
             if (node.node.parent?.getChild("WikiLinkAlias")) marks.push(hideMark.range(from, to));
             return false;
+          }
+
+          // ---- 标准 Markdown 链接 ----
+          //
+          // `[文字](地址)` 藏掉 `[` 和 `](地址)`，`<地址>` 藏掉尖括号，
+          // 只留显示文字。判据和点击处理共用 `link.ts` —— 渲染成链接却
+          // 点不动比不渲染更糟（§4.2）。
+          //
+          // 裸地址（正文里直接写的 `https://…`）**有意不进这里**：它显示的
+          // 就是它自己，没有源码与渲染的差别；做成可点则会吃掉光标定位，
+          // 正在打的那条网址再也没法用鼠标点进去改。
+          case "Link":
+          case "Autolink": {
+            if (touched(state, from, to)) return false;
+            const parts = linkParts(node.node);
+            if (!parts) return false;
+            const href = parts.url
+              ? externalHref(state.doc.sliceString(parts.url.from, parts.url.to))
+              : null;
+            // 打不开的（引用式链接、相对路径、`javascript:`）保持源码
+            if (!href) return false;
+            // `[](地址)` 没有显示文字，藏完屏幕上什么都不剩
+            if (parts.labelFrom >= parts.labelTo) return false;
+            if (from < parts.labelFrom) marks.push(hideMark.range(from, parts.labelFrom));
+            if (parts.labelTo < to) marks.push(hideMark.range(parts.labelTo, to));
+            marks.push(styleMarks.link.range(parts.labelFrom, parts.labelTo));
+            // 继续进子节点：链接文字里的 `**粗体**` 也该照常渲染
+            return;
           }
 
           case "Hashtag":

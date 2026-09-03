@@ -14,6 +14,7 @@ import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
 
 import type { NoteRef } from "../core/types";
+import { describeOpenError, openExternal } from "../host/external";
 
 import { autoFence } from "./autoFence";
 import { calculationAssistance } from "./calculation";
@@ -22,6 +23,7 @@ import { completion } from "./completion";
 import { compositionKeyGuard, compositionTracker } from "./compositionGuard";
 import { headingFolding } from "./fold";
 import { insertMarkdownLineBreak } from "./lineBreak";
+import { externalHref, linkParts } from "./link";
 import { listRenumber } from "./listRenumber";
 import { livePreview } from "./livePreview";
 import { markdownExtended } from "./markdownExtended";
@@ -114,17 +116,25 @@ export interface EditorCallbacks {
   sourceMode?: boolean;
   /** 粘贴图片或拖入文件时存进 vault，返回相对路径。不给就不接管文件传入 */
   saveAttachment?: SaveAttachment;
-  /** 存附件失败时报给用户 —— 粘贴没反应是最难自查的一类问题 */
+  /** 存附件、开外链这类操作失败时报给用户 —— 点了没反应是最难自查的一类问题 */
   onError?: (msg: string) => void;
 }
 
-/** 点击内部链接时跳转。放在 CM6 层是因为要拿到点击位置对应的语法节点。 */
-function linkClickHandler(onFollowLink: (target: string) => void) {
+/**
+ * 点击链接。放在 CM6 层是因为要拿到点击位置对应的语法节点。
+ *
+ * 内部 `[[链接]]` 走 `onFollowLink`，外部 `[文字](https://…)` 交给系统浏览器。
+ * 能不能点开由 `link.ts` 说了算，和 live preview 藏标记用的是同一个判据。
+ */
+function linkClickHandler(cb: EditorCallbacks) {
   return EditorView.domEventHandlers({
     mousedown(event, view) {
+      // 只认左键。右键要留给正文的右键菜单（§4.10）—— 这一条原来没判，
+      // 右键点在 `[[链接]]` 上会既跳转又弹菜单
+      if (event.button !== 0) return false;
       if (!(event.target instanceof HTMLElement)) return false;
-      // 只处理被标成 wikilink 的区域
-      if (!event.target.closest(".cm-wikilink")) return false;
+      // 只处理被标成链接的区域
+      if (!event.target.closest(".cm-wikilink, .cm-link")) return false;
       const pos = view.posAtDOM(event.target);
       let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(pos, 1);
       for (; node; node = node.parent) {
@@ -132,9 +142,23 @@ function linkClickHandler(onFollowLink: (target: string) => void) {
           const target = node.getChild("WikiLinkTarget");
           if (target) {
             event.preventDefault();
-            onFollowLink(view.state.doc.sliceString(target.from, target.to));
+            cb.onFollowLink(view.state.doc.sliceString(target.from, target.to));
             return true;
           }
+        }
+        if (node.name === "Link" || node.name === "Autolink") {
+          const parts = linkParts(node);
+          const href = parts?.url
+            ? externalHref(view.state.doc.sliceString(parts.url.from, parts.url.to))
+            : null;
+          // 打不开的地址这里也不拦，让点击照常落成光标定位 ——
+          // 那种链接 live preview 本来就没藏源码
+          if (!href) return false;
+          event.preventDefault();
+          void openExternal(href).catch((e) =>
+            cb.onError?.(`打不开链接：${describeOpenError(e)}`),
+          );
+          return true;
         }
       }
       return false;
@@ -193,7 +217,7 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     // live preview（含 §2.6 database 视图与 §2.4 表格）。整组可摘 —— 见 PREVIEW
     previewCompartment.of(cb.sourceMode ? [] : PREVIEW),
-    linkClickHandler(cb.onFollowLink),
+    linkClickHandler(cb),
 
     // §4.3 粘贴图片。用 getter 取回调 —— 和 getNotes 同理，App 那边每次
     // 渲染都是新函数，直接闭包进来会让编辑器跟着重建
