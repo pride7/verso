@@ -477,8 +477,26 @@ export default function App() {
     path: string;
     at: { x: number; y: number } | null;
   }>(null);
-  /** 正在树里就地改名的那个路径。新建文档之后立刻进这个状态 */
-  const [renaming, setRenaming] = useState<string | null>(null);
+  /**
+   * 谁正在就地改名，那个输入框又长在哪儿。新建文档之后立刻进这个状态。
+   *
+   * `panel` 是侧栏里的那个（文档树、模板面板的行上），`title` 是正文上方
+   * 的标题（§4.12）。**两处不能同时开着** —— 同一篇笔记两个输入框一起抢
+   * 焦点，先失焦的那个会按「确定」提交，人看到的是改名框一闪就没了。
+   */
+  const [renaming, setRenaming] = useState<{ path: string; at: "panel" | "title" } | null>(null);
+  /**
+   * 正文上方那行标题此刻在不在屏幕上。
+   *
+   * 导图、项目总览、项目中心、差异视图都占着正文区（项目笔记打开时的主视图
+   * **就是**项目总览，新建一个项目就会这样）。这时候把改名框放在标题上等于
+   * 放在一个看不见的地方 —— 按下去什么都不发生是最难查的一种坏。
+   */
+  const titleOnScreen = !mindmapOpen && !projectOpen && !projectCenterOpen && !diffSelection;
+  /** 改名框实际长在哪儿：想长在标题上、而标题被盖住时，退回侧栏里的树 */
+  const renameAt = renaming && (renaming.at === "title" && titleOnScreen ? "title" : "panel");
+  /** 侧栏里那一个：树和模板面板都读它 */
+  const renamingInPanel = renameAt === "panel" ? renaming!.path : null;
   const [settingsOpen, setSettingsOpen] = useState(false);
   /** 设置打开时停在哪一页。状态栏那个「有新版本」要能直接跳到「更新」 */
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
@@ -1431,7 +1449,7 @@ export default function App() {
         const meta = await api.createUntitled(parentDoc);
         await refresh();
         await openPath(meta.path, opts);
-        setRenaming(meta.path);
+        setRenaming({ path: meta.path, at: "title" });
       } catch (e) {
         setError((e as Error).message);
       }
@@ -1447,7 +1465,7 @@ export default function App() {
       await api.propSet(meta.path, "status", "进行中");
       await refresh();
       await openPath(meta.path);
-      setRenaming(meta.path);
+      setRenaming({ path: meta.path, at: "title" });
     } catch (cause) {
       setError((cause as Error).message);
     }
@@ -1500,7 +1518,7 @@ export default function App() {
       const meta = await api.createTemplate(dir);
       await refresh();
       await openPath(meta.path);
-      setRenaming(meta.path);
+      setRenaming({ path: meta.path, at: "title" });
     } catch (e) {
       setError((e as Error).message);
     }
@@ -1560,7 +1578,7 @@ export default function App() {
         if (tpl.frontmatterText) await api.writeFrontmatter(meta.path, tpl.frontmatterText);
         await refresh();
         await openPath(meta.path);
-        setRenaming(meta.path);
+        setRenaming({ path: meta.path, at: "title" });
       } catch (e) {
         setError((e as Error).message);
       }
@@ -2152,14 +2170,26 @@ export default function App() {
   /**
    * 右键菜单和 F2 都只是**进入**改名态，真正的改名在 `submitRename`。
    *
-   * 就地改名那个输入框长在文档树的行上 —— 侧栏收着、或者切到了搜索/标签/
-   * 历史，它就没有地方出现：按 F2 什么都不发生，而人正看着这篇笔记。
-   * 那时改成弹一句问（§「要一句输入时用 `useAsk()`」）。
+   * **输入框长在哪儿，按人是从哪儿发起的算：**
+   *
+   * - 树里点的右键菜单 → 长在他点的那一行上。
+   * - F2 → 改的一定是当前打开的这篇（命令表里那个 `node` 就是它），于是
+   *   长在正文上方的标题上（§4.12）：眼睛正看着那儿，侧栏收着、切到了
+   *   搜索/标签/历史也照样在。
+   *
+   * 标题此刻不在屏幕上时（导图、项目总览、差异视图盖着正文）退回树里；
+   * 连树都不在（侧栏收着、切到了搜索/标签/历史，手机上的长按菜单也能
+   * 这样）才弹一句问（§「要一句输入时用 `useAsk()`」）—— 没有地方能长出
+   * 输入框时，按下去什么都不发生是最难查的一种坏。
    */
   const renameNode = useCallback(
-    (node: TreeNode) => {
+    (node: TreeNode, from: "tree" | "command" = "tree") => {
+      if (from === "command" && titleOnScreen && node.path === noteRef.current?.path) {
+        setRenaming({ path: node.path, at: "title" });
+        return;
+      }
       if (sidebarOpen && sidebarView === "tree") {
-        setRenaming(node.path);
+        setRenaming({ path: node.path, at: "panel" });
         return;
       }
       void ask({
@@ -2169,7 +2199,7 @@ export default function App() {
         hint: "文件名会跟着改；它底下的子文档也跟着走。",
       }).then((name) => name && void submitRename(node.path, name));
     },
-    [ask, sidebarOpen, sidebarView, submitRename],
+    [ask, sidebarOpen, sidebarView, submitRename, titleOnScreen],
   );
 
   /**
@@ -3170,7 +3200,7 @@ export default function App() {
       await api.writeNote(meta.path, markdown);
       await refresh();
       await openPath(meta.path);
-      setRenaming(meta.path);
+      setRenaming({ path: meta.path, at: "title" });
       setNotice("已整理为收集箱的子文档，原卡片仍在收集箱里");
     } catch (cause) {
       setError((cause as Error).message);
@@ -3488,7 +3518,7 @@ export default function App() {
         // 文件管理器里重命名都是 F2
         defaultKeys: "F2",
         enabled: !!node,
-        run: () => node && void renameNode(node),
+        run: () => node && void renameNode(node, "command"),
       },
       {
         id: "note.reload",
@@ -4095,15 +4125,17 @@ export default function App() {
     );
   }
 
+  /**
+   * 面包屑只写**祖先**，不含这篇自己 —— 它就在下面那行标题上（§4.12）。
+   * 两处都写的话同一个名字会连着出现两次，根目录下的笔记尤其明显：一行
+   * 小灰字，紧跟着一模一样的一行大字。每一级都对应一篇同名文档，可以点。
+   */
   const breadcrumb = note
     ? note.path
         .replace(/\.md$/, "")
         .split("/")
-        .map((name, i, arr) => ({
-          name,
-          // 每一级都对应一篇同名文档，最后一级是当前笔记（不可点）
-          path: i === arr.length - 1 ? null : `${arr.slice(0, i + 1).join("/")}.md`,
-        }))
+        .slice(0, -1)
+        .map((name, i, arr) => ({ name, path: `${arr.slice(0, i + 1).join("/")}.md` }))
     : [];
 
   const VIEW_TITLE: Record<SidebarView, string> = {
@@ -4292,7 +4324,7 @@ export default function App() {
                 onMenu={(node, x, y) => setMenu({ node, x, y })}
                 onMove={moveNode}
                 onReorder={reorder}
-                renamingPath={renaming}
+                renamingPath={renamingInPanel}
                 onRenameSubmit={(p, v) => void submitRename(p, v)}
                 onRenameCancel={() => setRenaming(null)}
                 foldAll={foldAll ?? undefined}
@@ -4312,12 +4344,12 @@ export default function App() {
                 onCreate={(t) => void createFromTemplate(t.path, null)}
                 onOpen={(p) => void openPath(p)}
                 onNew={() => void createTemplate()}
-                onRename={setRenaming}
+                onRename={(path) => setRenaming({ path, at: "panel" })}
                 onDelete={(t) => {
                   const node = tree.flatMap(flatten).find((candidate) => candidate.path === t.path);
                   if (node) void deleteNode(node);
                 }}
-                renamingPath={renaming}
+                renamingPath={renamingInPanel}
                 onRenameSubmit={(path, title) => void submitRename(path, title)}
                 onRenameCancel={() => setRenaming(null)}
               />
@@ -4525,6 +4557,10 @@ export default function App() {
             onFollowLink={followLink}
             getNotes={() => noteListRef.current}
             breadcrumb={breadcrumb}
+            titleEditing={renameAt === "title" && renaming!.path === note.path}
+            onTitleEdit={() => setRenaming({ path: note.path, at: "title" })}
+            onTitleRename={(name) => void submitRename(note.path, name)}
+            onTitleCancel={() => setRenaming(null)}
             onPickIcon={(at) => setIconFor({ path: note.path, at })}
             // 手机上不接：那儿的长按已经被系统的文字选择占着，再叠一层
             // 自己的菜单两边都会变得不可靠。手指要这些动作走命令面板（§4.10）

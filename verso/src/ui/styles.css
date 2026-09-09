@@ -2548,7 +2548,7 @@ body.is-table-resizing * {
 /* 顶部要留够白。正文贴着窗口边缘是"网页感"最强的一处 ——
    桌面应用的内容区总有一段呼吸空间 */
 .breadcrumb {
-  padding: 34px 2px 12px;
+  padding: 34px 2px 7px;
   font-size: 11.5px;
   font-weight: 500;
   color: var(--muted);
@@ -2567,6 +2567,66 @@ body.is-table-resizing * {
 .breadcrumb-link:hover {
   color: var(--accent);
   background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+/* 文档标题（§4.12）。这一页的题目，也是改名的入口。
+
+   字号按 `--body-font-size` 算而不是写死：正文字号是设置里可调的，标题
+   得跟着一起动，否则调大正文之后标题反而显得小。1.95 倍让它明显压过正文
+   里的一级标题（那是 1.7em）—— 页面题目和文内标题是两层东西，一眼要分得开。
+
+   左右的负外边距抵消内边距：**标题的字要和正文、面包屑起在同一条竖线上**。
+   悬停底色和改名时那层底因此比文字宽出一点，包着字而不是从字开始。
+
+   `overflow-wrap` 是必须的：文件名是用户起的，可以是一长串没有空格的字母。 */
+.doc-title {
+  margin: 0 -4px 10px;
+  padding: 2px 4px;
+  /* 跟正文同一套字（`--font-body`，不是界面字）—— 它是这篇文档的一部分，
+     不是围着文档的那圈外壳。中日韩字面尤其看得出来 */
+  font-family: var(--font-body);
+  font-size: calc(var(--body-font-size) * 1.95);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+/* 「未命名」是后端起的占位名，不是人取的题目。灰着写，它同时也是
+   「这里还等着你命名」的唯一提示 */
+.doc-title.is-untitled {
+  color: color-mix(in oklch, var(--text) 38%, transparent);
+}
+/* 可点才给悬停反馈。淡到几乎看不见 —— 标题不是按钮，它只是「点得动」 */
+.doc-title.editable {
+  cursor: text;
+  border-radius: var(--r-sm);
+}
+.doc-title.editable:hover {
+  background: color-mix(in oklch, var(--text) 5%, transparent);
+}
+/* 输入框要和上面那行标题**严丝合缝地重合**：字号、字重、行高、内边距
+   一致，点下去才不会有一下跳动。
+
+   **底和框都不画。** 光标在闪、名字整条被选中（`::selection` 本来就是强调色），
+   这两件事已经把「现在在改」说清楚了；再铺一层底，就成了强调色的底叠着强调色
+   的选区，一整条深浅两层绿横在页面最上面 —— 而标题本该是这一页最安静的一行。
+   原地编辑的东西不该突然长出一个框来。 */
+.doc-title-input {
+  display: block;
+  /* 加回左边被负外边距吃掉的那 4px，右边沿才和正文那一栏齐 */
+  width: calc(100% + 4px);
+  margin: 0 -4px 10px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: calc(var(--body-font-size) * 1.95);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  outline: none;
 }
 
 /* CodeMirror 的宿主。字号、行高、留白由 editor/theme.ts 里的

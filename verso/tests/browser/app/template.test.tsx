@@ -289,7 +289,8 @@ describe("用模板新建", () => {
     await runCommand("用模板新建文档");
     await pick("日记");
 
-    expect(document.querySelector(".tree-rename")).not.toBeNull();
+    // 改名框长在正文上方的标题上，和普通新建同一条路（§4.12）
+    expect(document.querySelector(".doc-title-input")).not.toBeNull();
   });
 });
 
@@ -500,7 +501,7 @@ describe("侧栏里的模板面板", () => {
     });
 
     expect(createTemplate).toHaveBeenCalledWith("templates");
-    expect(document.querySelector<HTMLInputElement>(".tpl-rename")?.value).toBe("未命名模板");
+    expect(document.querySelector<HTMLInputElement>(".doc-title-input")?.value).toBe("未命名模板");
     expect(document.querySelector(".cm-content")?.textContent).toBe("");
   });
 

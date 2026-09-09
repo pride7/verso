@@ -284,7 +284,12 @@ export function RenameInput({
   name: string;
   /** database 视图里也用它（§2.6 加一行），那边有自己的一套格子样式 */
   className?: string;
-  onSubmit: (v: string) => void;
+  /**
+   * `by` 说的是**人怎么结束的这次改名**：回车是「定了，接着干下一件事」，
+   * 失焦是「我已经走开了」。树里两者没有区别，正文标题那条要靠它决定
+   * 要不要把焦点送进正文（§4.12）—— 点到别处去的人显然不想被拽回来。
+   */
+  onSubmit: (v: string, by: "enter" | "blur") => void;
   onCancel: () => void;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
@@ -296,11 +301,11 @@ export function RenameInput({
     ref.current?.select();
   }, []);
 
-  const finish = (ok: boolean) => {
+  const finish = (by: "enter" | "blur" | "escape") => {
     if (done.current) return;
     done.current = true;
-    if (ok) onSubmit(ref.current?.value ?? "");
-    else onCancel();
+    if (by === "escape") onCancel();
+    else onSubmit(ref.current?.value ?? "", by);
   };
 
   return (
@@ -312,10 +317,10 @@ export function RenameInput({
       onKeyDown={(e) => {
         // 别让方向键、回车冒泡到树和全局快捷键上去
         e.stopPropagation();
-        if (e.key === "Enter") finish(true);
-        else if (e.key === "Escape") finish(false);
+        if (e.key === "Enter") finish("enter");
+        else if (e.key === "Escape") finish("escape");
       }}
-      onBlur={() => finish(true)}
+      onBlur={() => finish("blur")}
       // 点输入框不该顺手把这一行打开
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}

@@ -30,6 +30,7 @@ import { parseSlashCustom } from "../core/slash";
 import { normalizeIcon } from "../core/emoji";
 import { DatabaseView } from "./DatabaseView";
 import { Icon } from "./Icon";
+import { RenameInput } from "./Tree";
 import type { NoteContent, NoteRef } from "../core/types";
 import { Backlinks } from "./Backlinks";
 import { FrontmatterSource } from "./FrontmatterSource";
@@ -146,7 +147,21 @@ interface Props {
   onFollowLink: (target: string) => void;
   /** `[[` 补全的候选来源。用 getter 保证清单变化时不必重建编辑器 */
   getNotes: () => NoteRef[];
-  breadcrumb: { name: string; path: string | null }[];
+  /**
+   * 祖先路径，**不含这篇自己** —— 它就在下面那行标题上写着，面包屑再写
+   * 一遍就成了同一个名字连着出现两次（根目录下的笔记尤其明显）。
+   */
+  breadcrumb: { name: string; path: string }[];
+  /**
+   * 标题是不是正处在改名态。真正的改名走上层那条统一事务（§2.1），这里
+   * 只决定输入框长在哪儿 —— 树里那个和这里的不能同时开着。
+   */
+  titleEditing?: boolean;
+  /** 点了标题，请求进改名态。不给这个回调时标题就是一行不可点的字 */
+  onTitleEdit?: () => void;
+  /** 改完了。空名字、没改名由上层判定（`submitRename`） */
+  onTitleRename?: (name: string) => void;
+  onTitleCancel?: () => void;
   /**
    * 点面包屑最前面那个图标（§2.3 的 frontmatter `icon`）。给屏幕坐标，
    * 由 App 在那里弹出选择器。
@@ -211,6 +226,10 @@ export function Editor({
   onFollowLink,
   getNotes,
   breadcrumb,
+  titleEditing = false,
+  onTitleEdit,
+  onTitleRename,
+  onTitleCancel,
   onPickIcon,
   onContextMenu,
   onNavigate,
@@ -699,6 +718,18 @@ ${insert}` },
       ? null
       : normalizeIcon(String(note.frontmatter.icon));
 
+  /**
+   * 标题写的是**文件名本身**，不是 frontmatter 里的 `title`。
+   *
+   * 和属性条上「点键名就是重命名，显示的必须是真名」（§2.6）同一条理由：
+   * 点下去改的是文件名，那屏幕上就得先让人看见文件名。两者不一致的笔记
+   * 极少（Verso 从不主动写 `title`），而一旦不一致，显示别名会让改名这个
+   * 动作变成一件说不清改了什么的事。
+   */
+  const name = note.path.slice(note.path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  /** 「未命名」是后端建文档时的占位名（`create_untitled`），不是人取的 */
+  const untitled = /^未命名(?: \d+)?$/.test(name);
+
   return (
     <div className="editor" ref={editorRoot}>
       <nav className="breadcrumb">
@@ -722,16 +753,41 @@ ${insert}` },
         {breadcrumb.map((seg, i) => (
           <span key={i}>
             {i > 0 && <span className="breadcrumb-sep">/</span>}
-            {seg.path ? (
-              <button className="breadcrumb-link" onClick={() => onNavigate(seg.path!)}>
-                {seg.name}
-              </button>
-            ) : (
-              <span>{seg.name}</span>
-            )}
+            <button className="breadcrumb-link" onClick={() => onNavigate(seg.path)}>
+              {seg.name}
+            </button>
           </span>
         ))}
       </nav>
+
+      {/* 文档标题（§4.12）。打开一篇笔记时它就是这一页的题目，点一下就地改名 ——
+          文件名是这篇笔记的真名，而此前唯一的改名入口在文档树里：侧栏一收起、
+          或者在手机上，人正看着这篇笔记却没有任何地方能改它的名字。 */}
+      {titleEditing ? (
+        <RenameInput
+          name={name}
+          className="doc-title-input"
+          onSubmit={(value, by) => {
+            onTitleRename?.(value);
+            // **回车 = 名字定了，接着写。** 改动了名字的话编辑器会跟着新路径
+            // 重挂一次、自己拿回焦点（见挂载那一段）；没改动则什么都不会发生，
+            // 所以这里补一次，让两条路的手感一样
+            if (by === "enter") viewRef.current?.focus();
+          }}
+          onCancel={() => {
+            onTitleCancel?.();
+            viewRef.current?.focus();
+          }}
+        />
+      ) : (
+        <h1
+          className={`doc-title${onTitleEdit ? " editable" : ""}${untitled ? " is-untitled" : ""}`}
+          onClick={onTitleEdit}
+          title={onTitleEdit ? "点一下改名" : undefined}
+        >
+          {name}
+        </h1>
+      )}
 
       {/* 属性条是 frontmatter 的渲染结果，和正文里的表格公式是一回事：
           源码模式下正文都退回源码了，它也得跟着退 */}
