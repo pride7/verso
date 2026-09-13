@@ -134,14 +134,27 @@ afterEach(() => {
 
 const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 树出现之前要过好几轮异步（读设置 → 重开 vault → 拉树 → 渲染），固定睡
+ * 400ms 是在赌机器当时够闲。整套 browser 测试并行跑起来时这个赌局会输，
+ * 失败信息是「树里没有 X，实际有：」后面空空如也 —— 看不出和本测试有什么
+ * 关系，而且**改动别处的文件大小就可能让它换个结果**（vitest 按文件大小
+ * 排并发顺序）。等到树真的出现为止，别赌。
+ */
 async function mountApp() {
   const host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
   await act(async () => {
     root!.render(<App />);
-    await settle(400);
+    await settle(120);
   });
+  for (let i = 0; i < 50 && labels().length === 0; i++) {
+    await act(async () => {
+      await settle(100);
+    });
+  }
+  expect(labels().length, "等了 5 秒，树还是空的").toBeGreaterThan(0);
 }
 
 /** 按可见文字找树里的一行 */
