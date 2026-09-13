@@ -35,6 +35,17 @@ function press(marked: string, shift = false) {
   return spec ? state.update(spec).state.doc.toString() : null;
 }
 
+/** 同上，但把光标的落点用 `|` 标回文档里 */
+function caret(marked: string, shift = false) {
+  const state = stateOf(marked);
+  const spec = (shift ? shiftTabIndentSpec : tabIndentSpec)(state);
+  if (!spec) return null;
+  const next = state.update(spec).state;
+  const at = next.selection.main.head;
+  const doc = next.doc.toString();
+  return doc.slice(0, at) + "|" + doc.slice(at);
+}
+
 describe("正文与代码块", () => {
   it("正文里补空格到下一个制表位", () => {
     expect(press("|甲乙")).toBe("  甲乙");
@@ -82,6 +93,32 @@ describe("列表项", () => {
 
   it("光标在行中间照样是嵌套，不是插空格", () => {
     expect(press("- 甲\n- 乙|丙")).toBe("- 甲\n  - 乙丙");
+  });
+});
+
+/**
+ * 光标不跟着走的话，屏幕上就是「按了 Tab 什么都没发生」：字确实缩进了，
+ * 可光标还钉在原地，得用鼠标点一下才回到该在的位置。
+ *
+ * CM6 默认把「插在光标处」的文本映射到光标**右边**（assoc = -1），
+ * 所以这几处必须自己指定落点。
+ */
+describe("光标跟着走", () => {
+  it("正文里落在补出来的空格后面", () => {
+    expect(caret("|甲乙")).toBe("  |甲乙");
+    expect(caret("甲|乙")).toBe("甲 |乙");
+  });
+
+  it("行首按 Tab 缩进整行，光标跟着那一行走", () => {
+    expect(caret("- 甲\n|- 乙")).toBe("- 甲\n  |- 乙");
+  });
+
+  it("列表项嵌进去之后，光标仍在原来那个字旁边", () => {
+    expect(caret("- 甲\n- 乙|")).toBe("- 甲\n  - 乙|");
+  });
+
+  it("Shift-Tab 退出来也一样", () => {
+    expect(caret("- 甲\n  - 乙|", true)).toBe("- 甲\n- 乙|");
   });
 });
 

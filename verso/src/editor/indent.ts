@@ -115,6 +115,18 @@ function reindent(state: EditorState, from: Line, to: Line, delta: number): Chan
   }));
 }
 
+/**
+ * 缩进那几处改动都插在**行首**，而行首很可能正是光标所在。CM6 默认把光标
+ * 留在「插进来的文本左边」（`assoc = -1`），于是屏幕上是：字缩进了，光标
+ * 纹丝不动，非得用鼠标点一下才回到该在的地方。所以这里统一按 `assoc = 1`
+ * 映射 —— 光标跟着它原来那段文字走。CM 自己的 `indentMore` 也是这么做的。
+ */
+function shifted(state: EditorState, changes: ChangeSpec[]): TransactionSpec | null {
+  if (!changes.length) return null;
+  const set = state.changes(changes);
+  return { changes: set, selection: state.selection.map(set, 1), userEvent: "input.indent" };
+}
+
 function indentSpec(state: EditorState, dir: 1 | -1): TransactionSpec | null {
   const sel = state.selection.main;
   const head = state.doc.lineAt(sel.from);
@@ -122,8 +134,7 @@ function indentSpec(state: EditorState, dir: 1 | -1): TransactionSpec | null {
   // 有选区就整段移。单行选区也一样 —— 选中一段再按 Tab 是「把这几行推进去」，
   // 不是「用制表符把它替换掉」
   if (!sel.empty) {
-    const changes = reindent(state, head, state.doc.lineAt(sel.to), dir * UNIT);
-    return changes.length ? { changes, userEvent: "input.indent" } : null;
+    return shifted(state, reindent(state, head, state.doc.lineAt(sel.to), dir * UNIT));
   }
 
   const item = listItemAt(state, head);
@@ -131,19 +142,18 @@ function indentSpec(state: EditorState, dir: 1 | -1): TransactionSpec | null {
     const delta = dir > 0 ? nestDelta(state, item) : liftDelta(state, item);
     if (!delta) return null;
     const [first, last] = itemLines(state, item);
-    const changes = reindent(state, first, last, delta);
-    return changes.length ? { changes, userEvent: "input.indent" } : null;
+    return shifted(state, reindent(state, first, last, delta));
   }
 
-  if (dir < 0) {
-    const changes = reindent(state, head, head, -UNIT);
-    return changes.length ? { changes, userEvent: "input.indent" } : null;
-  }
+  if (dir < 0) return shifted(state, reindent(state, head, head, -UNIT));
 
-  // 补到下一个制表位，而不是一律插 UNIT 个空格：第 3 列按 Tab 该落在第 4 列
+  // 补到下一个制表位，而不是一律插 UNIT 个空格：第 3 列按 Tab 该落在第 4 列。
+  // 落点写死在空格后面 —— 同上，默认映射会把光标留在它们前面
   const col = countColumn(head.text, state.tabSize, sel.from - head.from);
+  const insert = " ".repeat(UNIT - (col % UNIT));
   return {
-    changes: { from: sel.from, insert: " ".repeat(UNIT - (col % UNIT)) },
+    changes: { from: sel.from, insert },
+    selection: { anchor: sel.from + insert.length },
     userEvent: "input.indent",
   };
 }

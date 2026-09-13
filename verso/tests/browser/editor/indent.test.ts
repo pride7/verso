@@ -56,11 +56,14 @@ function pressTab(view: EditorView, shift = false) {
 }
 
 describe("Tab 落在缩进上", () => {
-  it("代码块里缩进，键不外漏", async () => {
+  it("代码块里缩进，键不外漏，光标跟着走", async () => {
     const view = mount("```\nif (a) {\nb();\n```", 13);
     await settle();
     expect(pressTab(view)).toBe(true);
     expect(view.state.doc.toString()).toBe("```\nif (a) {\n  b();\n```");
+    // 光标必须落在补出来的空格后面。留在前面的话屏幕上看着就是「按了没反应」，
+    // 得用鼠标点一下它才动
+    expect(view.state.selection.main.head).toBe(15);
   });
 
   it("列表项连同子树嵌进上一项，Shift-Tab 退回来", async () => {
