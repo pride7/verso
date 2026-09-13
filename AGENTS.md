@@ -193,6 +193,7 @@
 | ↳ 焦点不在正文里时不显示编辑痕迹：打开笔记不再露出第一行的 `##`（§4.2） | `v0.8.41` ✅ |
 | ↳ 正文上方的标题：打开一篇笔记就能改它的名字（§4.12） | `v0.8.42` ✅ |
 | ↳ 修：Tab 没人接，按下去焦点跑出编辑器；补上缩进这一段（§5.1） | `v0.8.43` ✅ |
+| ↳ 修：`master` 空仓库在配过 `init.defaultBranch = main` 的机器上迁不到 `main`（§2.8） | `v0.8.44` ✅ |
 | M6b 移动端（iOS） | 暂缓（原计划 `v0.9.0`，需 Mac + Xcode + 设备） |
 | M7 发布 | 暂缓（原计划 `v0.10.0`，按需评估） |
 
@@ -928,7 +929,7 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 1. 在 StateField 的 `update` 里比较 `syntaxTree(tr.state) !== syntaxTree(tr.startState)`
 2. 在 `build()` 里用 `ensureSyntaxTree` 强制解析整篇
 
-## 改 git 相关代码时必须知道的三件事
+## 改 git 相关代码时必须知道的四件事
 
 `src-tauri/src/vault/git.rs` + `src/ui/HistoryView.tsx` + App 里那段
 自动提交。DESIGN.md §2.8。
@@ -939,7 +940,13 @@ StateField 的更新顺序不保证语言字段已就绪，读到空树就等于
 2. **revwalk 必须 `Sort::TOPOLOGICAL | Sort::TIME`。** git 的提交时间只精确到秒，
    而自动提交完全可能在同一秒里连着来两个 —— 只按时间排的话，历史列表的顺序
    是随机的。拓扑序保证「后一个提交一定排在它的父提交前面」。
-3. **前端调后端不存在的命令时，`invoke` 是同步抛的**，不是返回 rejected
+3. **`repo.is_empty()` 判的不是「没有提交」。** libgit2 那个函数的语义是
+   「HEAD 未出生**且正指着 `init.defaultBranch`**」—— 初始化时它不读这项 git
+   配置，判空时却读。开发机上全局配了 `init.defaultBranch = main`（很常见）
+   的话，停在 `master` 的空仓库会被它报成「非空」。`master` → `main` 的迁移
+   就是这么整个失效的，而**测试是否发现得了取决于跑它那台机器的全局配置**。
+   要「没有提交」就自己判：HEAD 未出生 + `references()` 为空。
+4. **前端调后端不存在的命令时，`invoke` 是同步抛的**，不是返回 rejected
    Promise。所以 `try { await api.gitStatus() } catch {}` 挡不住它，`.catch()`
    也挂不上去 —— 整个渲染函数直接崩。老测试里的 mock api 不会有新命令，
    于是加一个后端命令能把五个不相干的测试打挂。包住整个调用点，别只包 await。

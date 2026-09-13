@@ -29,8 +29,17 @@ pub struct GitInitResult {
 /// 只在**完全空**的仓库上做：没有提交、没有远端。那种状态下分支名纯粹是
 /// 个名字，改它不会破坏任何东西。一旦有了提交或远端就绝不碰 —— 悄悄给
 /// 用户改分支名可能打断他们和远端的对应关系，也可能人家就是想用 master。
+///
+/// **「空」自己判，不要用 `repo.is_empty()`。** libgit2 那个函数的语义不是
+/// 「没有提交」，而是「HEAD 未出生**且正指着 `init.defaultBranch`**」。于是
+/// 用户全局配过 `init.defaultBranch = main` 时，停在 master 的空仓库会被它
+/// 报成「非空」，这条迁移整个失效 —— 偏偏那台机器正是最该迁的那种。
 fn migrate_empty_master(repo: &git2::Repository) -> bool {
-    if !repo.is_empty().unwrap_or(false) {
+    // 没有提交 = HEAD 未出生 + 一条引用都没有（分支、标签都算）
+    if !matches!(repo.head(), Err(e) if e.code() == git2::ErrorCode::UnbornBranch) {
+        return false;
+    }
+    if repo.references().map(|mut r| r.next().is_some()).unwrap_or(true) {
         return false;
     }
     if repo.remotes().map(|r| r.len() > 0).unwrap_or(true) {
@@ -242,6 +251,27 @@ mod tests {
         opts.initial_head("master");
         git2::Repository::init_opts(&t.0, &opts).unwrap();
         assert_eq!(head_branch(&t.0), "refs/heads/master");
+
+        let r = ensure_repo(&t.0).unwrap();
+
+        assert!(r.renamed_branch);
+        assert_eq!(head_branch(&t.0), "refs/heads/main");
+    }
+
+    /// 同上，但机器配过 `init.defaultBranch = main`。
+    ///
+    /// 这条曾经是真会挂的：`repo.is_empty()` 判的是「HEAD 未出生**且指着
+    /// init.defaultBranch**」，配成 main 之后停在 master 的空仓库被它报成
+    /// 「非空」，迁移直接跳过。写进仓库自己的 config 而不是靠开发机的全局
+    /// 配置 —— 环境不同就换一个结论的测试等于没有测试。
+    #[test]
+    fn migrates_even_when_default_branch_is_main() {
+        let t = tmp_dir();
+        let mut opts = git2::RepositoryInitOptions::new();
+        opts.initial_head("master");
+        let repo = git2::Repository::init_opts(&t.0, &opts).unwrap();
+        repo.config().unwrap().set_str("init.defaultBranch", "main").unwrap();
+        drop(repo);
 
         let r = ensure_repo(&t.0).unwrap();
 
