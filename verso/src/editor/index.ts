@@ -23,6 +23,7 @@ import { completion } from "./completion";
 import { compositionKeyGuard, compositionTracker } from "./compositionGuard";
 import { focusState } from "./focus";
 import { headingFolding } from "./fold";
+import { tabIndent } from "./indent";
 import { insertMarkdownLineBreak } from "./lineBreak";
 import { externalHref, linkParts } from "./link";
 import { listRenumber } from "./listRenumber";
@@ -252,6 +253,10 @@ export function createExtensions(cb: EditorCallbacks): Extension[] {
 
     // `[[` 内部链接与 `/` 块插入菜单（§4.3）
     completion(cb.getNotes),
+
+    // §5.1 第 4 条：上面几位都不要这个键时，Tab 归缩进。必须排在这里 ——
+    // 前面每一个都比它更该拿到 Tab，而再往后就没人接了，键会漏给浏览器
+    tabIndent,
 
     keymap.of([
       {
