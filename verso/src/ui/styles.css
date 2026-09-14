@@ -140,6 +140,24 @@
   color-scheme: light dark;
 }
 
+/* 等宽字体里一律不要连字。
+
+   `--font-mono` 里排在最前面的 JetBrains Mono 和 Cascadia Code 都带编程连字：
+   `<=` 被画成一个长得就是 `≤` 的字形，`!=` 画成 `≠`、`->` 画成 `→`。在代码
+   编辑器里那是卖点，在这里是**谎报字符** —— `≤` `≠` `→` 恰恰都是这个软件的
+   用户会亲手打进笔记的字，屏幕上分不出文件里写的到底是哪一个。凡是用等宽
+   字体的地方，显示的都是要照原样读、照原样抄的字面文本。
+
+   这条兜住界面里的 `code` / `kbd` / `pre`；编辑器内部（代码块、行内代码、
+   公式源码）在 `editor/theme.ts` 里单独关 —— 那边的高亮样式生成的是随机
+   类名，这里够不着。 */
+code,
+kbd,
+samp,
+pre {
+  font-variant-ligatures: none;
+}
+
 /* 深色主题。
 
    ## 为什么值和转接分开写
@@ -7164,6 +7182,9 @@ textarea:focus-visible {
   border-left: 2px solid var(--border);
   background: color-mix(in oklch, var(--muted) 7%, transparent);
   font-family: var(--font-mono);
+  /* 这是 frontmatter 的**原文**，和代码块同一条规矩：等宽字体的编程连字会把
+     `<=` 画成 `≤`，屏幕上就再也分不出文件里到底写的是哪一个（见 theme.ts） */
+  font-variant-ligatures: none;
   font-size: calc(var(--body-font-size) * 0.85);
   line-height: 1.6;
   color: var(--muted);

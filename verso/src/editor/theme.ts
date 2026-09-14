@@ -385,6 +385,7 @@ export const versoTheme = EditorView.theme({
   // 单元格里的行内代码。和正文里那套药丸保持一致
   ".cm-inline-code": {
     fontFamily: "var(--font-mono)",
+    fontVariantLigatures: "none",
     fontSize: "0.9em",
     background: "color-mix(in oklch, var(--muted) 10%, transparent)",
     borderRadius: "var(--r-xs)",
@@ -445,10 +446,18 @@ export const versoTheme = EditorView.theme({
   },
 
   // ---- 围栏代码块 ----
+  //
+  // **连字必须关掉。** JetBrains Mono 和 Cascadia Code 都带编程连字：`<=` 被
+  // 画成一个长得就是 `≤` 的字形，`!=` 画成 `≠`、`->` 画成 `→`。在别处那是
+  // 个卖点，在这里是谎报字符 —— 这个软件里 `≤` 本来就是用户会亲手打的字，
+  // 屏幕上分不出「文件里写的是 `<=`」还是「文件里写的是 `≤`」，而代码块的
+  // 全部意义就是按字面显示（typography.ts 跳过代码和公式是同一条理由）。
+  // 这是继承属性，块里的每个高亮 token 都跟着。
   ".cm-code": {
     padding: "0 14px",
     background: "color-mix(in oklch, var(--muted) 9%, transparent)",
     fontFamily: "var(--font-mono)",
+    fontVariantLigatures: "none",
     fontSize: "0.88em",
   },
   ".cm-code.is-open": {
@@ -680,14 +689,22 @@ export const versoHighlight = HighlightStyle.define([
   {
     tag: t.monospace,
     fontFamily: "var(--font-mono)",
+    // 同 `.cm-code`：行内代码里的 `<=` 也不能被画成 `≤`
+    fontVariantLigatures: "none",
     fontSize: "0.9em",
     backgroundColor: "color-mix(in oklch, var(--muted) 10%, transparent)",
     borderRadius: "var(--r-xs)",
     padding: "1px 4px",
   },
 
-  // 公式源码（光标进入时露出的那份）用等宽字体，好数括号
-  { tag: versoTags.math, fontFamily: "var(--font-mono)", fontSize: "0.92em" },
+  // 公式源码（光标进入时露出的那份）用等宽字体，好数括号。同样不要连字：
+  // 正在改的那行 LaTeX 必须一个字符对一个字符
+  {
+    tag: versoTags.math,
+    fontFamily: "var(--font-mono)",
+    fontVariantLigatures: "none",
+    fontSize: "0.92em",
+  },
   { tag: versoTags.mathMarker, color: "var(--muted)", opacity: 0.6 },
   { tag: versoTags.wikiLinkMarker, color: "var(--muted)", opacity: 0.6 },
 

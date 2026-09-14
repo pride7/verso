@@ -245,4 +245,22 @@ describe("代码块复制按钮", () => {
     expect(btn.right).toBeLessThanOrEqual(content.right + 0.5);
     expect(btn.left).toBeGreaterThanOrEqual(content.left - 0.5);
   });
+
+  /**
+   * JetBrains Mono / Cascadia Code 的编程连字会把 `<=` 画成一个就是 `≤` 的
+   * 字形。笔记里 `≤` 是用户会亲手打的字，画成一样就再也分不出文件里写的是
+   * 哪一个 —— 代码块必须按字面显示。
+   *
+   * 只能在真浏览器里验：算的是 CSS 层叠之后的计算值，而 `.cm-code` 的样式
+   * 是 `EditorView.theme` 在运行时注入的。
+   */
+  it("代码块不画连字", async () => {
+    const v = mount("```\na <= b\n```");
+    await settle();
+    const line = v.contentDOM.querySelector<HTMLElement>(".cm-code")!;
+    expect(getComputedStyle(line).fontVariantLigatures).toBe("none");
+    // 块里的高亮 token 靠继承拿到，别被某条更具体的规则改回去
+    const token = line.querySelector<HTMLElement>("span") ?? line;
+    expect(getComputedStyle(token).fontVariantLigatures).toBe("none");
+  });
 });
