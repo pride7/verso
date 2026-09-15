@@ -1810,3 +1810,72 @@ describe("表头和下面的单元格对齐", () => {
     expect(Math.abs(headIcon.left - rowIcon.left)).toBeLessThan(1.5);
   });
 });
+
+/**
+ * 作者报的：「看板只能一行显示，多了之后就显示不出来。」
+ *
+ * 症结不在看板自己 —— 它一直写着 `overflow-x: auto`。是 CodeMirror 的
+ * `.cm-content` 按**最大内容宽度**排版（`.cm-scroller` 是 flex 容器，
+ * 内容盒能被撑开），于是一排列把整个正文撑到比窗口还宽：看板本身永远
+ * 「装得下」，滚动条跑到了整个编辑器身上，横在页面最底下 —— 用户看到的
+ * 就是最后一列被窗口边缘切掉，而且不知道该滚哪里。
+ *
+ * 这一组钉的是「谁该滚」：看板自己滚，编辑器不动。
+ */
+describe("看板列多了之后（§2.6）", () => {
+  /** 八列 × 200px 远超 1440 的视口 */
+  const MANY = ["未读", "在读", "已读", "归档", "搁置", "重读", "待译", "精读"];
+
+  function wideBoard() {
+    viewMock = {
+      columns: ["title", "status"],
+      rows: MANY.map((s, i) => ({
+        path: `论文/${i}.md`,
+        title: `笔记${i}`,
+        props: { status: s },
+      })),
+      view: "board",
+      groupBy: "status",
+      properties: [{ key: "status", type: "string" }],
+    };
+    schemaMock = { status: { type: "select", options: MANY } };
+    return mount('from: "论文/*"\nview: board\ngroup-by: status');
+  }
+
+  it("装不下的列归看板自己滚，不是把正文撑宽", async () => {
+    const view = wideBoard();
+    await settle();
+
+    const board = view.dom.querySelector<HTMLElement>(".dbview-board")!;
+    // 真滚得动：列比可视区宽，而且是在这个盒子里
+    expect(board.scrollWidth, "列没有溢出 = 这条测试没测到东西").toBeGreaterThan(
+      board.clientWidth + 100,
+    );
+
+    const scroller = view.dom.querySelector<HTMLElement>(".cm-scroller")!;
+    expect(scroller.scrollWidth, "正文被撑宽了，滚动条跑到编辑器身上").toBeLessThanOrEqual(
+      scroller.clientWidth + 1,
+    );
+    // 看板右边不越出正文栏 —— 越出去的那部分正是用户够不着的那几列
+    expect(board.getBoundingClientRect().right).toBeLessThanOrEqual(
+      scroller.getBoundingClientRect().right + 1,
+    );
+  });
+
+  it("滚到头就能看见最后一列 —— 这才是「显示不出来」的那几列", async () => {
+    const view = wideBoard();
+    await settle();
+
+    const board = view.dom.querySelector<HTMLElement>(".dbview-board")!;
+    board.scrollLeft = board.scrollWidth;
+    await settle(60);
+
+    // 拿编辑器视口比，不是拿看板自己比：撑宽正文的那种坏法里，看板的盒子
+    // 跟着变宽，最后一列在**它自己**看来一直是「在里面的」，只是人在窗口外
+    const cols = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")];
+    const last = cols[cols.length - 1].getBoundingClientRect();
+    const port = view.dom.querySelector<HTMLElement>(".cm-scroller")!.getBoundingClientRect();
+    expect(last.right, "最后一列还在窗口外").toBeLessThanOrEqual(port.right + 1);
+    expect(last.left).toBeGreaterThanOrEqual(port.left - 1);
+  });
+});
