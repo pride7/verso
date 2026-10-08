@@ -28,6 +28,8 @@ interface Props {
   onClose: () => void;
   /** 置顶写的是项目笔记的 frontmatter，上层要跟着刷新文档树和打开中的那一篇 */
   onChanged: () => void;
+  /** 删除复用文档树的确认与标签清理流程（同项目总览里的记录行）；测试可不提供 */
+  onDelete?: (path: string) => void;
   onError: (message: string) => void;
 }
 
@@ -63,7 +65,7 @@ function saveSort(sort: ProjectCardSort) {
 
 /**
  * 一张项目卡片。整张是打开项目的按钮；右键（手机上长按）弹菜单 ——
- * 置顶、开新标签。和总览里的记录行同一套入口（§2.10）。
+ * 开新标签、置顶、删除。和总览里的记录行同一套入口（§2.10）。
  */
 function Card({
   card,
@@ -103,7 +105,7 @@ function Card({
   );
 }
 
-export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromote, onClose, onChanged, onError }: Props) {
+export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromote, onClose, onChanged, onDelete, onError }: Props) {
   const [projects, setProjects] = useState<ProjectCard[] | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部");
@@ -243,6 +245,7 @@ export function ProjectCenter({ revision, promotableNote, onOpen, onNew, onPromo
       groups={[
         [{ label: "在新标签页打开", icon: "doc", run: () => onOpen(menu.card.path, { newTab: true }) }],
         [{ label: menu.card.pinned ? "取消置顶" : "置顶", icon: "pin", run: () => void togglePin(menu.card) }],
+        onDelete ? [{ label: "删除项目", icon: "trash", danger: true, run: () => onDelete(menu.card.path) }] : [],
       ]}
       onClose={() => setMenu(null)}
     />}

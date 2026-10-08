@@ -2314,6 +2314,15 @@ export default function App() {
     [refresh, applyTabs, forgetTab],
   );
 
+  /** 手里只有路径的入口（模板面板、项目中心、项目总览）走同一条删除流程 */
+  const deleteByPath = useCallback(
+    (path: string) => {
+      const node = tree.flatMap(flatten).find((candidate) => candidate.path === path);
+      if (node) void deleteNode(node);
+    },
+    [tree, deleteNode],
+  );
+
   const moveNode = useCallback(
     async (path: string, newParentDoc: string | null) => {
       // 同 `submitRename`：搬走之前先落盘，否则要么刚敲的字被读回来的旧内容
@@ -4345,10 +4354,7 @@ export default function App() {
                 onOpen={(p) => void openPath(p)}
                 onNew={() => void createTemplate()}
                 onRename={(path) => setRenaming({ path, at: "panel" })}
-                onDelete={(t) => {
-                  const node = tree.flatMap(flatten).find((candidate) => candidate.path === t.path);
-                  if (node) void deleteNode(node);
-                }}
+                onDelete={(t) => deleteByPath(t.path)}
                 renamingPath={renamingInPanel}
                 onRenameSubmit={(path, title) => void submitRename(path, title)}
                 onRenameCancel={() => setRenaming(null)}
@@ -4496,6 +4502,7 @@ export default function App() {
             void refresh();
             void reloadFromDisk();
           }}
+          onDelete={deleteByPath}
           onError={setError}
         />
       )}
@@ -4510,10 +4517,7 @@ export default function App() {
           onEdit={() => setProjectOpen(false)}
           onRename={(path, title) => void submitRename(path, title)}
           onMove={(path, target) => void moveNode(path, target)}
-          onDelete={(path) => {
-            const node = tree.flatMap(flatten).find((candidate) => candidate.path === path);
-            if (node) void deleteNode(node);
-          }}
+          onDelete={deleteByPath}
           onChanged={() => {
             void refresh();
             void reloadFromDisk();

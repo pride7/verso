@@ -98,6 +98,19 @@ describe("项目中心", () => {
     expect([...document.querySelectorAll(".ctx button")].map((button) => button.textContent)).toContain("取消置顶");
   });
 
+  it("右键（手机上长按）卡片可以删除项目，交给上层走文档树那条确认流程", async () => {
+    const onDelete = vi.fn();
+    mount({ onDelete });
+    await tick();
+    const beta = [...document.querySelectorAll<HTMLElement>(".project-center-card")].find((card) => card.textContent?.includes("Beta"))!;
+    beta.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    await tick();
+    await userEvent.click([...document.querySelectorAll<HTMLButtonElement>(".ctx button")].find((button) => button.textContent === "删除项目")!);
+    expect(onDelete).toHaveBeenCalledWith("Beta.md");
+    // 点完菜单就收起，不留在原地
+    expect(document.querySelector(".ctx")).toBeNull();
+  });
+
   it("排序方式可以自己选，并记住上次的选择；置顶永远在最前", async () => {
     mount();
     await tick();
