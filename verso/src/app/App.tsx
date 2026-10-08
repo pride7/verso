@@ -2266,8 +2266,6 @@ export default function App() {
   const deleteNode = useCallback(
     async (node: TreeNode) => {
       const n = node.children.length;
-      // 有子文档时，这一问同时决定「删不删」和「子文档跟不跟着走」，两个按钮
-      // 都是「删」—— 所以把结果写在按钮上，别让人对着「确定/取消」猜
       let withChildren = false;
       if (node.kind === "folder") {
         // 纯文件夹就是那个目录本身，没有「只删文档留子文档」可言 ——
@@ -2278,13 +2276,18 @@ export default function App() {
             : `删除文件夹「${node.name}」？`;
         if (!(await confirm(msg))) return;
         withChildren = true;
-      } else if (n > 0) {
-        withChildren = await confirm(`「${node.name}」有 ${n} 个子文档。`, {
-          okLabel: "连同子文档一起删除",
-          cancelLabel: "只删本文档，留下子文档",
-        });
-      } else if (!(await confirm(`删除「${node.name}」？`))) {
-        return;
+      } else {
+        // 第一问只管「删不删」，任何时候都能退出。以前有子文档时只有一问，两个
+        // 按钮都是删，关掉弹窗也算「只删本文档」—— 点错了菜单就没有回头路
+        if (!(await confirm(`删除「${node.name}」？`))) return;
+        // 第二问只管子文档跟不跟着走，两个按钮都是删，所以把结果写在按钮上。
+        // 关掉弹窗落到不连带的那一边：要删的已经答过了，子文档留着总能再删
+        if (n > 0) {
+          withChildren = await confirm(`「${node.name}」下面还有 ${n} 个子文档，要一起删除吗？`, {
+            okLabel: "连同子文档一起删除",
+            cancelLabel: "只删本文档，留下子文档",
+          });
+        }
       }
       try {
         // **删之前先把未保存的改动扔掉。**

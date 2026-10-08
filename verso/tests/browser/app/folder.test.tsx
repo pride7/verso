@@ -45,6 +45,9 @@ const TREE: TreeNode[] = [
   doc("甲", "甲.md"),
 ];
 
+/** 默认是上面那棵；个别用例要换一棵树时改它，`beforeEach` 里换回来 */
+let tree = TREE;
+
 const confirmMock = vi.fn(async (_message: string) => true);
 vi.mock("../../../src/host/dialog", () => ({ confirm: (m: string) => confirmMock(m) }));
 
@@ -68,7 +71,7 @@ vi.mock("../../../src/host/api", () => ({
     openDefaultVault: async () => VAULT,
     reopenLastVault: async () => ({ vault: VAULT, lastNote: null }),
     openVault: async () => VAULT,
-    tree: async () => TREE,
+    tree: async () => tree,
     listNotes: async () =>
       [
         { path: "数学/代数.md", name: "代数" },
@@ -132,6 +135,7 @@ let root: Root | null = null;
 const settle = (ms = 300) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  tree = TREE;
   localStorage.clear();
   confirmMock.mockReset();
   confirmMock.mockResolvedValue(true);
@@ -258,6 +262,52 @@ describe("纯文件夹的树上操作", () => {
     await mountApp();
     const item = await menuItem(rowFor("甲"), "创建为文档");
     expect(item).toBeFalsy();
+  });
+});
+
+/**
+ * 有子文档的文档：先问删不删，再问子文档跟不跟着走。
+ *
+ * 以前只有第二问，两个按钮都是删、关掉弹窗也算「只删本文档」—— 项目中心、
+ * 项目总览、模板面板都走这一条，点错了菜单就没有回头路。
+ */
+describe("删除有子文档的文档", () => {
+  beforeEach(() => {
+    tree = [
+      { ...doc("乙", "乙.md"), childDir: "乙", children: [doc("丙", "乙/丙.md")] },
+      doc("甲", "甲.md"),
+    ];
+  });
+
+  it("第一问取消就什么都不删，也不再问第二句", async () => {
+    await mountApp();
+    confirmMock.mockResolvedValueOnce(false);
+    await click((await menuItem(rowFor("乙"), "删除"))!);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock).toHaveBeenCalledWith("删除「乙」？");
+    expect(deleteNote).not.toHaveBeenCalled();
+  });
+
+  it("两问都点确定：连同子文档一起删", async () => {
+    await mountApp();
+    await click((await menuItem(rowFor("乙"), "删除"))!);
+    expect(confirmMock).toHaveBeenCalledTimes(2);
+    expect(confirmMock.mock.calls[1][0]).toContain("1 个子文档");
+    expect(deleteNote).toHaveBeenCalledWith("乙.md", true);
+  });
+
+  it("第二问取消（含直接关掉弹窗）：只删本文档，子文档留下", async () => {
+    await mountApp();
+    confirmMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await click((await menuItem(rowFor("乙"), "删除"))!);
+    expect(deleteNote).toHaveBeenCalledWith("乙.md", false);
+  });
+
+  it("没有子文档的只问一句", async () => {
+    await mountApp();
+    await click((await menuItem(rowFor("甲"), "删除"))!);
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(deleteNote).toHaveBeenCalledWith("甲.md", false);
   });
 });
 
