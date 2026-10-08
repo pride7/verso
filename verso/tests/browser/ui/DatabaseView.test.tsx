@@ -1814,22 +1814,22 @@ describe("表头和下面的单元格对齐", () => {
 /**
  * 作者报的：「看板只能一行显示，多了之后就显示不出来。」
  *
- * 症结不在看板自己 —— 它一直写着 `overflow-x: auto`。是 CodeMirror 的
- * `.cm-content` 按**最大内容宽度**排版（`.cm-scroller` 是 flex 容器，
- * 内容盒能被撑开），于是一排列把整个正文撑到比窗口还宽：看板本身永远
- * 「装得下」，滚动条跑到了整个编辑器身上，横在页面最底下 —— 用户看到的
- * 就是最后一列被窗口边缘切掉，而且不知道该滚哪里。
+ * 第一步（v0.8.47）修的是「谁该滚」：CodeMirror 的 `.cm-content` 按**最大
+ * 内容宽度**排版（`.cm-scroller` 是 flex 容器，内容盒能被撑开），一排列把
+ * 整个正文撑到比窗口还宽，滚动条跑到了整个编辑器身上、横在页面最底下。
+ * 那一条现在还得守着（`.cm-dbview` 的 `contain: inline-size`）。
  *
- * 这一组钉的是「谁该滚」：看板自己滚，编辑器不动。
+ * 第二步（v0.8.50）：看板干脆不横向滚，一行摆不下就换行。正文是竖着滚的，
+ * 横向滚动没几个人会去滚，藏在右边的列等于不存在（§2.6）。
  */
 describe("看板列多了之后（§2.6）", () => {
-  /** 八列 × 200px 远超 1440 的视口 */
+  /** 八列 × 200px 远超正文栏的宽度 */
   const MANY = ["未读", "在读", "已读", "归档", "搁置", "重读", "待译", "精读"];
 
-  function wideBoard() {
+  function board(statuses: string[]) {
     viewMock = {
       columns: ["title", "status"],
-      rows: MANY.map((s, i) => ({
+      rows: statuses.map((s, i) => ({
         path: `论文/${i}.md`,
         title: `笔记${i}`,
         props: { status: s },
@@ -1838,44 +1838,62 @@ describe("看板列多了之后（§2.6）", () => {
       groupBy: "status",
       properties: [{ key: "status", type: "string" }],
     };
-    schemaMock = { status: { type: "select", options: MANY } };
-    return mount('from: "论文/*"\nview: board\ngroup-by: status');
+    schemaMock = { status: { type: "select", options: statuses } };
+    const view = mount(['from: "论文/*"', "view: board", "group-by: status"].join("\n"));
+    // 照真实的正文栏宽（`--content-width`）量。测试里编辑器直接挂在 body 上，
+    // 有 1440 那么宽，三四列怎么摆都摆得下，量不出换行
+    view.dom.parentElement!.style.width = "42rem";
+    return view;
   }
 
-  it("装不下的列归看板自己滚，不是把正文撑宽", async () => {
-    const view = wideBoard();
+  const columns = (view: EditorView) =>
+    [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")].map((c) => c.getBoundingClientRect());
+  const rowsOf = (boxes: DOMRect[]) => new Set(boxes.map((b) => Math.round(b.top))).size;
+
+  it("一行摆不下就换行：每一列都在正文栏里，看板和正文都不横向滚", async () => {
+    const view = board(MANY);
     await settle();
 
-    const board = view.dom.querySelector<HTMLElement>(".dbview-board")!;
-    // 真滚得动：列比可视区宽，而且是在这个盒子里
-    expect(board.scrollWidth, "列没有溢出 = 这条测试没测到东西").toBeGreaterThan(
-      board.clientWidth + 100,
-    );
+    const boxes = columns(view);
+    expect(boxes).toHaveLength(MANY.length);
+    expect(rowsOf(boxes), "只有一行 = 正文栏够宽，这条测试没测到东西").toBeGreaterThan(1);
 
+    const el = view.dom.querySelector<HTMLElement>(".dbview-board")!;
+    expect(el.scrollWidth, "看板还在横向滚").toBeLessThanOrEqual(el.clientWidth + 1);
     const scroller = view.dom.querySelector<HTMLElement>(".cm-scroller")!;
     expect(scroller.scrollWidth, "正文被撑宽了，滚动条跑到编辑器身上").toBeLessThanOrEqual(
       scroller.clientWidth + 1,
     );
-    // 看板右边不越出正文栏 —— 越出去的那部分正是用户够不着的那几列
-    expect(board.getBoundingClientRect().right).toBeLessThanOrEqual(
-      scroller.getBoundingClientRect().right + 1,
-    );
+    // 拿编辑器视口比，不是拿看板自己比：撑宽正文的那种坏法里，看板的盒子
+    // 跟着变宽，每一列在**它自己**看来都是「在里面的」，只是人在窗口外
+    const port = scroller.getBoundingClientRect();
+    for (const box of boxes) {
+      expect(box.right, "有一列落在窗口外").toBeLessThanOrEqual(port.right + 1);
+      expect(box.left).toBeGreaterThanOrEqual(port.left - 1);
+    }
   });
 
-  it("滚到头就能看见最后一列 —— 这才是「显示不出来」的那几列", async () => {
-    const view = wideBoard();
+  it("换到下一行的列和上一行对在同一套格子上：等宽、左边齐", async () => {
+    const view = board(MANY);
     await settle();
 
-    const board = view.dom.querySelector<HTMLElement>(".dbview-board")!;
-    board.scrollLeft = board.scrollWidth;
-    await settle(60);
+    const boxes = columns(view);
+    const widths = boxes.map((b) => b.width);
+    expect(Math.max(...widths) - Math.min(...widths), "列宽不一致").toBeLessThan(1.5);
+    const second = boxes.find((b) => Math.round(b.top) > Math.round(boxes[0].top))!;
+    expect(Math.abs(second.left - boxes[0].left), "第二行没从第一格开始").toBeLessThan(1.5);
+  });
 
-    // 拿编辑器视口比，不是拿看板自己比：撑宽正文的那种坏法里，看板的盒子
-    // 跟着变宽，最后一列在**它自己**看来一直是「在里面的」，只是人在窗口外
-    const cols = [...view.dom.querySelectorAll<HTMLElement>(".dbview-col")];
-    const last = cols[cols.length - 1].getBoundingClientRect();
-    const port = view.dom.querySelector<HTMLElement>(".cm-scroller")!.getBoundingClientRect();
-    expect(last.right, "最后一列还在窗口外").toBeLessThanOrEqual(port.right + 1);
-    expect(last.left).toBeGreaterThanOrEqual(port.left - 1);
+  it("摆得下的看板照旧是一行", async () => {
+    const view = board(["未读", "在读", "已读"]);
+    await settle();
+    expect(rowsOf(columns(view))).toBe(1);
+  });
+
+  it("只有两列时不被拉成两块半屏宽的板子", async () => {
+    const view = board(["未读", "已读"]);
+    await settle();
+    const el = view.dom.querySelector<HTMLElement>(".dbview-board")!;
+    expect(columns(view)[0].width, "列被拉宽到占满整行").toBeLessThan(el.clientWidth / 2 - 20);
   });
 });

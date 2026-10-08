@@ -3233,17 +3233,7 @@ body.is-table-resizing * {
   color: var(--muted);
 }
 
-/* 看板 */
-.dbview-board {
-  display: flex;
-  gap: 10px;
-  padding: 10px;
-  overflow-x: auto;
-}
-.dbview-col {
-  min-width: 170px;
-  flex: none;
-}
+/* 看板（布局在下面「看板（§2.6）」那一节） */
 .dbview-col-head {
   font-size: 11.5px;
   color: var(--muted);
@@ -8420,17 +8410,29 @@ textarea:focus-visible {
 
 /* ---------- 看板（§2.6） ---------- */
 
+/* 一行摆不下就换行，不横向滚（v0.8.50）。
+   看板嵌在正文里，正文是竖着滚的；横向滚要按住 Shift 拨滚轮，或者找到
+   最底下那条滚动条 —— 藏在右边的那几列等于不存在。而看板最常见的用法是
+   按「分类」分列，那些列没有先后，换行什么都不损失，类别只会越积越多。
+   摆得下的（三四列的状态看板）照旧是一行。
+
+   `auto-fill` 不是 `auto-fit`：只有两列时不把它们拉成两块半屏宽的板子，
+   列宽在所有看板之间保持一致；换到第二行的列和第一行对齐在同一套格子上。
+   `1fr` 把剩下的那点宽度分给每一列，行的右边缘才是齐的。
+
+   下限 180 不是 200：默认正文栏（42rem 减去两边留白）里刚好摆三列，每列
+   落在 195 上下，和换行之前的定宽差不多。写 200 的话只摆得下两列，每列被
+   拉到快 300，一屏看到的分类少了三分之一。 */
 .dbview-board {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  align-items: start;
   gap: 10px;
-  padding-bottom: 4px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
+  padding: 10px 10px 4px;
 }
 .dbview-col {
-  flex: none;
-  width: 200px;
+  /* 宽度归网格那一格管；不写的话长标题会把这一格连同整列撑开 */
+  min-width: 0;
   padding: 6px;
   border-radius: var(--r-md);
   background: color-mix(in oklch, var(--muted) 6%, transparent);
@@ -8499,6 +8501,9 @@ textarea:focus-visible {
 .dbview-card-title {
   display: block;
   width: 100%;
+  /* 列宽随网格变，一串没有断点的长词（URL、长英文名）不能把卡片撑出格子 */
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-align: left;
   font-size: 13px;
   font-weight: 500;

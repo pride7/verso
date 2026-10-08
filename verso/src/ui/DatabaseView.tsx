@@ -693,7 +693,9 @@ export function DatabaseView({
     };
 
     return (
-      <div className="dbview">
+      // 必须占满正文栏：外框默认按内容收缩（`.dbview` 是 max-content，给表格
+      // 用的），而换行网格按内容量只量得出一格 —— 整个看板会塌成一列一行
+      <div className="dbview is-full">
         <div className="dbview-bar">
           <span className="dbview-kind">
             <Icon name="table" size={14} />
@@ -801,8 +803,8 @@ export function DatabaseView({
                     </button>
                   </div>
                   {cardMenu(panel) === r.path && (
-                    // fixed + 打开那一刻算坐标：看板外面是横向滚动容器，
-                    // 挂在里面的浮层会被两个轴一起裁掉（见列头菜单那段注释）
+                    // fixed + 打开那一刻算坐标：看板整个挂在编辑器的滚动容器
+                    // 里，贴着边开的浮层会被裁掉（见列头菜单那段注释）
                     <ul className="dbview-menu" ref={menuRef} onMouseDown={(e) => e.stopPropagation()}>
                       <li className="dbview-menu-label">移到</li>
                       {[...groups.keys()].map((target) => (
