@@ -68,6 +68,7 @@ import { ProjectCenter } from "../ui/ProjectCenter";
 import { ProjectDashboard } from "../ui/ProjectDashboard";
 import { VaultManager, VaultSwitcher, VaultWelcome } from "../ui/VaultSwitcher";
 import { SharedSpaceDialog } from "../ui/SharedSpaceDialog";
+import { SpaceZones, ZONE_PRIVATE, ZONE_SHARED } from "../ui/SpaceZones";
 import { JoinVaultDialog, type JoinVaultInput } from "../ui/JoinVaultDialog";
 import { ShareNoteDialog, type ShareNoteInput } from "../ui/ShareNoteDialog";
 import { setSlashAction } from "../editor/completion";
@@ -101,6 +102,7 @@ import {
   type TabState,
 } from "../core/tabs";
 import { attachmentPath } from "../core/vaultPath";
+import { peekRoots, sidebarZones, type ZoneSpace } from "../core/spaces";
 import { reorderSiblings, sortTree, SORT_LABELS, type TreeSort } from "../core/treeSort";
 import { bindingOf, eventSpec, hint } from "../core/keymap";
 import { isMac, keyLabel } from "../core/platform";
@@ -218,6 +220,44 @@ export default function App() {
   /** 非 null 时锁住所有仓库入口，避免两次打开并发替换后端的当前 vault。 */
   const [switchingVault, setSwitchingVault] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
+  const treeRef = useRef(tree);
+  treeRef.current = tree;
+  /**
+   * `tree` 是**哪个仓库**的（§2.8）。
+   *
+   * 换库时 `vault` 先变、树要等读回来才变，中间那一小段 `tree` 还是上一个仓库
+   * 的。单棵树时这无所谓 —— 整个侧栏一起换；两区并排之后，照 `vault` 去认的话
+   * 上一个仓库的内容会先出现在新空间的名字底下。
+   */
+  const [treeRoot, setTreeRoot] = useState<string | null>(null);
+  const treeRootRef = useRef(treeRoot);
+  treeRootRef.current = treeRoot;
+  /**
+   * 两区里**不是**活动仓库的那些空间的树，只读（§2.8）。键是仓库根路径。
+   *
+   * 两个来源：平时由 `api.peekSpaceTree` 读回来；离开一个仓库的那一刻把它
+   * 手上那棵树原样留一份在这里，侧栏上那一侧才不会先空掉再长回来。
+   */
+  const [spaceTrees, setSpaceTrees] = useState<Record<string, TreeNode[]>>({});
+  /** 加一就把预览重读一遍。别的空间没有文件监听盯着，只能挑时机主动去看 */
+  const [peekTick, setPeekTick] = useState(0);
+  /** 侧栏里收起了哪些区 / 空间。跨会话保留，和侧栏宽度一个道理 */
+  const [zoneCollapsed, setZoneCollapsed] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("verso.zoneCollapsed") ?? "{}") ?? {};
+    } catch {
+      return {};
+    }
+  });
+  /** 在另一个空间里点下去、还没切过去的那一篇：先把那一行标成选中，别让人干等 */
+  const [pendingOpen, setPendingOpen] = useState<{ root: string; path: string } | null>(null);
+  /** 另一个空间里某一行的右键菜单。那棵树只读，能做的只有「打开」 */
+  const [spaceMenu, setSpaceMenu] = useState<{
+    space: ZoneSpace;
+    node: TreeNode;
+    x: number;
+    y: number;
+  } | null>(null);
   const [noteList, setNoteList] = useState<NoteRef[]>([]);
   const [note, setNote] = useState<NoteContent | null>(null);
   const [body, setBody] = useState("");
@@ -744,13 +784,15 @@ export default function App() {
    * 由每个调用点自己记得加 —— 而漏加的恰恰是最常见的那几条路：改名、新建。
    * 文件监听那条路对自己写的文件是有意抑制的（§2.7），指望不上它兜底。
    */
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<boolean> => {
     try {
       const [t, list] = await Promise.all([api.tree(), api.listNotes()]);
       setTree(t);
       setNoteList(list);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       // 读失败也要加：树没读回来不代表磁盘上没变，派生视图各自去查各自的
       setRevision((v) => v + 1);
@@ -783,6 +825,83 @@ export default function App() {
     () => sortTree(visibleTree, settings.treeSort),
     [visibleTree, settings.treeSort],
   );
+
+  /**
+   * 文档侧栏的「共享 / 私人」两区（§2.8）。null = 不分区，照旧一棵树。
+   *
+   * 手机上不分：那边还没有加入和发起共享的入口，仓库清单也来自容器目录而
+   * 不是「打开过的」，预览命令认的那份记录对不上。
+   */
+  const zones = useMemo(
+    () => (mobile ? null : sidebarZones(recentVaults, vault?.root ?? null)),
+    [mobile, recentVaults, vault?.root],
+  );
+
+  // 不在活动的那几个空间，树要另外读。清单每次重读（换库、加入、共享、移回
+  // 私人之后都会）这里跟着重读一遍 —— 这些正是别的空间里内容会变的时刻；
+  // 平时它们不是活动仓库，没有人在改。剩下一种是在 Verso 外面改的（手动
+  // git pull、别的编辑器），那由窗口重新聚焦时的 `peekTick` 兜住
+  useEffect(() => {
+    const roots = peekRoots(zones);
+    if (roots.length === 0) return;
+    let stale = false;
+    void Promise.all(
+      roots.map(async (root) => {
+        try {
+          return [root, await api.peekSpaceTree(root)] as const;
+        } catch {
+          // 读不到就留着手上那份（或者空着）。一棵预览树不值得弹错误
+          return null;
+        }
+      }),
+    ).then((results) => {
+      if (stale) return;
+      setSpaceTrees((prev) => {
+        const next = { ...prev };
+        for (const hit of results) if (hit) next[hit[0]] = hit[1];
+        return next;
+      });
+    });
+    return () => {
+      stale = true;
+    };
+  }, [zones, peekTick]);
+
+  /** 预览树和活动的那棵走同一套隐藏与排序，否则点进去的一瞬间行会换位置 */
+  const sortedSpaceTrees = useMemo(() => {
+    const out: Record<string, TreeNode[]> = {};
+    for (const [root, nodes] of Object.entries(spaceTrees)) {
+      out[root] = sortTree(hideTemplateSubtree(nodes, settings.templateDir), settings.treeSort);
+    }
+    return out;
+  }, [spaceTrees, settings.templateDir, settings.treeSort]);
+
+  const toggleZone = useCallback((key: string) => {
+    setZoneCollapsed((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = true;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("verso.zoneCollapsed", JSON.stringify(zoneCollapsed));
+  }, [zoneCollapsed]);
+
+  // 改名框要长在树上、而那个区正收着时，那一行连同输入框都没画出来 —— 按下去
+  // 什么都不发生（见上面 `renameAt`：标题被盖住时改名会退回侧栏）。
+  // 和 Tree 里「被改名的在自己子树里就展开」是同一件事，高一层
+  useEffect(() => {
+    if (!renamingInPanel || !zones || !vault) return;
+    const keys = zones.private?.current ? [ZONE_PRIVATE] : [ZONE_SHARED, vault.root];
+    setZoneCollapsed((prev) => {
+      if (!keys.some((key) => prev[key])) return prev;
+      const next = { ...prev };
+      for (const key of keys) delete next[key];
+      return next;
+    });
+  }, [renamingInPanel, zones, vault]);
 
   /**
    * 路径 → 文档图标。标签栏和快速切换器都按路径查，摊平成一张表最省事。
@@ -1321,9 +1440,15 @@ export default function App() {
    *
    * `fallback` 是 `recent.json` 里记的「上次那篇」—— 给从旧版本升上来的人用：
    * 那时还没有 workspace.json，只有一篇笔记的记录。
+   *
+   * `open` 是**这次进来就是为了看的那一篇**（§2.8）：从侧栏点了另一个空间里的
+   * 一篇、刚把一篇共享出去或移回私人。那边上次的标签照常摆回来，再把这一篇
+   * 按平时「点树上一行」的规则放进去 —— 和标签一起一次摆好，不先闪一下上次
+   * 停着的那一页。它和 `fallback` 不是一回事：那边只要留着标签，`fallback`
+   * 就不起作用，而「我点的是这一篇」不该因为那边开着别的就落空。
    */
   const restoreTabs = useCallback(
-    async (fallback?: string | null) => {
+    async (fallback?: string | null, open?: { note: string; newTab?: boolean }) => {
       let ws = EMPTY_TABS;
       try {
         ws = await api.workspaceGet();
@@ -1331,6 +1456,13 @@ export default function App() {
         /* 读不到就当没开过标签，见 workspace.rs */
       }
       if (ws.tabs.length === 0 && fallback) ws = { tabs: [fallback], active: 0, pinnedCount: 0 };
+      if (open) {
+        const mode = (open.newTab ?? settings.tabOpen === "new") ? "new" : "replace";
+        ws = openTab(ws, open.note, mode);
+        // 「标签一变就落盘」那条 effect 在换库期间是关着的（见 activatingVault），
+        // 这一次改动得自己存；否则不再动标签就关掉软件的话，下次回来没有这一篇
+        void Promise.resolve(api.workspaceSet(ws)).catch(() => {});
+      }
 
       editorStates.current.clear();
       scrollTops.current.clear();
@@ -1344,7 +1476,7 @@ export default function App() {
         setBody("");
       }
     },
-    [loadNote],
+    [loadNote, settings.tabOpen],
   );
 
   /**
@@ -1395,9 +1527,21 @@ export default function App() {
 
   /** 后端已经换好 vault 后，把所有前端的 per-vault 状态一起接过去。 */
   const activateVault = useCallback(
-    async (info: VaultInfo, fallback?: string | null) => {
+    async (
+      info: VaultInfo,
+      fallback?: string | null,
+      open?: { note: string; newTab?: boolean },
+    ) => {
       activatingVault.current = true;
       try {
+        // 离开的那个仓库在侧栏上还要接着显示（§2.8 的两区）。把手上这棵树原样
+        // 留一份当它的只读预览，和下面的 `setVault` 在同一次渲染里生效 ——
+        // 等切过去再去读的话，那一侧会先空掉再长回来，行的展开状态也跟着丢
+        const leaving = treeRootRef.current;
+        if (leaving && leaving !== info.root) {
+          const snapshot = treeRef.current;
+          setSpaceTrees((prev) => ({ ...prev, [leaving]: snapshot }));
+        }
         setVault(info);
         setNote(null);
         setBody("");
@@ -1408,9 +1552,12 @@ export default function App() {
         // 两个仓库里都有 `笔记/进展.md` 时，新库那篇一打开就有一节是收起的，
         // 而用户从没收过它。换库等于换了一套路径的含义，这里必须清空。
         setOutlineCollapsed({});
-        await refresh();
+        // 没读回来就清空：留着的是上一个仓库的树，不能让它顶着新仓库的名字
+        if (!(await refresh())) setTree([]);
+        // 树读回来了，这一侧才算活的；在那之前它照只读预览画
+        setTreeRoot(info.root);
         // 标签、编辑器历史与滚动位置都是 per-vault，绝不能从上一个库带过来。
-        await restoreTabs(fallback);
+        await restoreTabs(fallback, open);
         await refreshRecentVaults();
       } finally {
         activatingVault.current = false;
@@ -2527,6 +2674,8 @@ export default function App() {
   // 一保存就把它的修改全覆盖了。
   useEffect(() => {
     const onFocus = async () => {
+      // 侧栏上别的空间的预览也趁这时重读（§2.8）：它们不是活动仓库，没有监听
+      setPeekTick((v) => v + 1);
       const n = noteRef.current;
       if (!n) return;
       try {
@@ -2676,7 +2825,7 @@ export default function App() {
   }, [vault, commitNow, saveNow]);
 
   const switchToVault = useCallback(
-    async (path: string) => {
+    async (path: string, open?: { note: string; newTab?: boolean }) => {
       if (switchingVault || path === vault?.root) {
         if (path === vault?.root) setVaultManagerOpen(false);
         return;
@@ -2689,7 +2838,7 @@ export default function App() {
           return;
         }
         const info = await api.openVault(path);
-        await activateVault(info, null);
+        await activateVault(info, null, open);
         setVaultManagerOpen(false);
       } catch (e) {
         const message = (e as Error).message;
@@ -2701,6 +2850,24 @@ export default function App() {
       }
     },
     [switchingVault, vault?.root, prepareVaultSwitch, activateVault, refreshRecentVaults],
+  );
+
+  /**
+   * 在侧栏里点了**另一个空间**的一篇（§2.8）。
+   *
+   * 对用户来说这就是「打开这一篇」，换仓库是我们自己的事：先把点的那一行
+   * 标成选中，落盘、换库、摆标签都在后面发生。切不过去时（当前这篇存不下、
+   * 那个目录没了）留在原处，`switchToVault` 自己会报出原因。
+   */
+  const openInSpace = useCallback(
+    (space: ZoneSpace, path: string, opts?: { newTab?: boolean }) => {
+      if (switchingVault) return;
+      setPendingOpen({ root: space.root, path });
+      void switchToVault(space.root, { note: path, newTab: opts?.newTab }).finally(() =>
+        setPendingOpen(null),
+      );
+    },
+    [switchingVault, switchToVault],
   );
 
   const openVault = useCallback(async () => {
@@ -2877,7 +3044,9 @@ export default function App() {
               name: input.name,
               email: input.email,
             });
-        await activateVault(result.vault, result.note);
+        // 那个空间里上次留着别的标签时，也要落在刚共享的这一篇上 —— 另开一页，
+        // 不顶掉任何一页：这一步不是用户在那棵树上点出来的
+        await activateVault(result.vault, result.note, { note: result.note, newTab: true });
         setSharePreview(null);
         setNotice(result.notice ?? "已移到共享空间");
       } catch (error) {
@@ -2913,7 +3082,7 @@ export default function App() {
           throw new Error("当前空间未能完成保存，已取消迁移。");
         }
         const result = await api.unshareNote(spaceRoot, path, privateRoot);
-        await activateVault(result.vault, result.note);
+        await activateVault(result.vault, result.note, { note: result.note, newTab: true });
         setManagedSpace(null);
         setNotice(result.notice ?? "已移回私人空间");
       } finally {
@@ -4327,21 +4496,71 @@ export default function App() {
             )}
             {vault.renamedBranch && <p className="hint">空仓库的分支已从 master 改为 main</p>}
 
-            {sidebarView === "tree" && (
-              <Tree
-                nodes={sortedTree}
-                activePath={note?.path ?? null}
-                onOpen={(n, o) => openPath(n.path, o)}
-                onAddChild={(n) => void createAndOpen(n.path)}
-                onMenu={(node, x, y) => setMenu({ node, x, y })}
-                onMove={moveNode}
-                onReorder={reorder}
-                renamingPath={renamingInPanel}
-                onRenameSubmit={(p, v) => void submitRename(p, v)}
-                onRenameCancel={() => setRenaming(null)}
-                foldAll={foldAll ?? undefined}
-              />
-            )}
+            {sidebarView === "tree" &&
+              (zones ? (
+                <SpaceZones
+                  zones={zones}
+                  collapsed={zoneCollapsed}
+                  onToggle={toggleZone}
+                  onManage={(root) => void manageSharedSpace(root)}
+                  opening={pendingOpen?.root ?? null}
+                  renderTree={(space) => {
+                    // 活的只有一棵：后端此刻开着的那个仓库，而且它的树已经读回来了
+                    const live = space.root === vault.root && treeRoot === vault.root;
+                    const nodes = live ? sortedTree : sortedSpaceTrees[space.root];
+                    if (!nodes) return null;
+                    if (nodes.length === 0) return <p className="space-empty">这里还没有内容</p>;
+                    return (
+                      // 活的和只读的是**同一个** Tree（同一个 key、同一个位置）：
+                      // 点进去之后它原地变成可改的，展开到哪儿还在哪儿
+                      <Tree
+                        key={space.root}
+                        nodes={nodes}
+                        readOnly={!live}
+                        activePath={
+                          live
+                            ? (note?.path ?? null)
+                            : pendingOpen?.root === space.root
+                              ? pendingOpen.path
+                              : null
+                        }
+                        onOpen={(n, o) => {
+                          // 正在切去另一个空间的那一小段，这棵树底下的仓库马上要换，
+                          // 这时再开一篇会读到另一个仓库里去
+                          if (switchingVault) return;
+                          if (live) void openPath(n.path, o);
+                          else openInSpace(space, n.path, o);
+                        }}
+                        onAddChild={(n) => live && void createAndOpen(n.path)}
+                        onMenu={(node, x, y) => {
+                          if (live) setMenu({ node, x, y });
+                          else if (node.kind === "document") setSpaceMenu({ space, node, x, y });
+                        }}
+                        onMove={(path, parent) => live && moveNode(path, parent)}
+                        onReorder={(moved, target, place) => live && reorder(moved, target, place)}
+                        renamingPath={live ? renamingInPanel : null}
+                        onRenameSubmit={(p, v) => void submitRename(p, v)}
+                        onRenameCancel={() => setRenaming(null)}
+                        foldAll={foldAll ?? undefined}
+                      />
+                    );
+                  }}
+                />
+              ) : (
+                <Tree
+                  nodes={sortedTree}
+                  activePath={note?.path ?? null}
+                  onOpen={(n, o) => openPath(n.path, o)}
+                  onAddChild={(n) => void createAndOpen(n.path)}
+                  onMenu={(node, x, y) => setMenu({ node, x, y })}
+                  onMove={moveNode}
+                  onReorder={reorder}
+                  renamingPath={renamingInPanel}
+                  onRenameSubmit={(p, v) => void submitRename(p, v)}
+                  onRenameCancel={() => setRenaming(null)}
+                  foldAll={foldAll ?? undefined}
+                />
+              ))}
             {sidebarView === "search" && <SearchView onPick={openPath} revision={revision} />}
             {sidebarView === "tags" && (
               <TagsView onPick={openPath} activePath={note?.path ?? null} revision={revision} />
@@ -5040,6 +5259,29 @@ export default function App() {
           at={editorMenu}
           groups={editorMenuGroups}
           onClose={() => setEditorMenu(null)}
+        />
+      )}
+
+      {/* 另一个空间里的一行（§2.8）。那棵树是只读预览，改名、移动、删除都要等
+          点进去之后才有 —— 这里只给「打开」，免得右键下去什么都不出来 */}
+      {spaceMenu && (
+        <ContextMenu
+          at={spaceMenu}
+          groups={[
+            [
+              {
+                label: "打开",
+                icon: "doc",
+                run: () => openInSpace(spaceMenu.space, spaceMenu.node.path),
+              },
+              {
+                label: "在新标签页打开",
+                icon: "doc",
+                run: () => openInSpace(spaceMenu.space, spaceMenu.node.path, { newTab: true }),
+              },
+            ],
+          ]}
+          onClose={() => setSpaceMenu(null)}
         />
       )}
 

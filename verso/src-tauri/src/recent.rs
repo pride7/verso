@@ -146,6 +146,18 @@ pub fn list(app: &AppHandle) -> Vec<RecentVault> {
         .collect()
 }
 
+/// 这个目录是不是记录在案、而且还在。
+///
+/// 不切换就读另一个空间的命令（§2.8 的侧栏预览）靠它把关：路径来自前端，
+/// 只认用户自己打开过的那几个目录，不能变成「给个路径就能列目录」的口子。
+pub fn knows(app: &AppHandle, vault_root: &str) -> bool {
+    let wanted = plain(vault_root);
+    load(app)
+        .vaults
+        .iter()
+        .any(|root| same_root(root, &wanted) && Path::new(root).is_dir())
+}
+
 /// 只忘掉应用配置里的入口，绝不碰那个目录本身。当前项也允许清掉：欢迎页上
 /// 上次目录已经失效时，用户必须能把它从列表移除。
 pub fn forget(app: &AppHandle, vault_root: &str) {

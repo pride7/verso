@@ -1068,6 +1068,58 @@ fn tree_list(state: State<'_, AppState>) -> Result<Vec<TreeNode>> {
     Ok(tree)
 }
 
+/// 不切换、只读地看一眼**另一个**空间的文档树（§2.8）。
+///
+/// 侧栏把「共享 / 私人」两区同时摆出来，而后端同一时刻只有一个活动仓库 ——
+/// 不在活动的那一侧靠这条命令画出来，点到其中一篇时才真的切过去。
+///
+/// 三条边界：
+/// - **只认记录在案的目录**（`recent::knows`）。路径是前端给的
+/// - **不走 `Vault::open`**：那条路会初始化 git、补 `.gitignore` 和 AI 说明，
+///   全是写操作。看一眼不该在别的仓库里留下任何东西，共享空间里尤其不行 ——
+///   多出来的文件会被同步给所有成员
+/// - 索引只读打开、不重建。图标和排序键可能比磁盘旧一点，切过去那一刻就会
+///   被真正的 `tree_list` 换掉
+#[tauri::command]
+fn space_tree_peek(app: AppHandle, root: String) -> Result<Vec<TreeNode>> {
+    if !recent::knows(&app, &root) {
+        return Err(Error::Vault("这个空间不在已记录的列表里".into()));
+    }
+    peek_tree(std::path::Path::new(&root))
+}
+
+fn peek_tree(root: &std::path::Path) -> Result<Vec<TreeNode>> {
+    // 和 `Vault::open` 一样尽量规范化（长路径要靠 verbatim 写法），失败就用原样
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let fs = vault::fs::DesktopFs::new();
+    let mut tree = vault::tree::scan(&fs, &root, "")?;
+
+    if let Some(index) = index::Index::open_readonly(&root) {
+        if let Ok(keys) = index.sort_keys() {
+            let map: Times = keys
+                .into_iter()
+                .map(|(path, created, updated)| (path, (created, updated)))
+                .collect();
+            fill_times(&mut tree, &map);
+        }
+        if let Ok(icons) = index.icons() {
+            let mut map: std::collections::HashMap<String, String> =
+                std::collections::HashMap::new();
+            for (path, icon) in icons {
+                map.entry(path).or_insert(icon);
+            }
+            fill_icons(&mut tree, &map);
+        }
+        if let Ok(paths) = index.collapsed() {
+            let set: std::collections::HashSet<String> = paths.into_iter().collect();
+            fill_collapsed(&mut tree, &set);
+        }
+    }
+    fill_order(&mut tree, &order::load(&fs, &root));
+
+    Ok(tree)
+}
+
 type Times = std::collections::HashMap<String, (Option<String>, Option<String>)>;
 
 fn fill_times(nodes: &mut [TreeNode], map: &Times) {
@@ -1893,6 +1945,7 @@ pub fn run() {
             platform_is_mobile,
             update_latest_release,
             tree_list,
+            space_tree_peek,
             note_read,
             note_write,
             attachment_write,
@@ -2035,5 +2088,59 @@ mod tests {
     #[test]
     fn a_rootless_path_has_no_sibling_to_put_it_next_to() {
         assert!(shared_destination_path(Path::new("/"), "records").is_err());
+    }
+
+    /// 侧栏预览另一个空间（§2.8）：**看一眼不能留下任何东西**。打开仓库那条路
+    /// 会建 `.git`、补 `.gitignore` 和 AI 说明；预览走到那里的话，共享空间里
+    /// 多出来的文件会被同步给所有成员
+    #[test]
+    fn peeking_at_a_space_lists_its_tree_and_writes_nothing() {
+        let root = tmp();
+        std::fs::write(root.join("论文.md"), "# 论文\n").unwrap();
+        std::fs::create_dir_all(root.join("论文")).unwrap();
+        std::fs::write(root.join("论文").join("实验.md"), "# 实验\n").unwrap();
+        std::fs::write(
+            root.join(order::ORDER_FILE),
+            r#"{"": ["项目.md", "论文.md"]}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("项目.md"), "# 项目\n").unwrap();
+        let before: std::collections::BTreeSet<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+
+        let tree = peek_tree(&root).unwrap();
+
+        let paper = tree.iter().find(|node| node.path == "论文.md").unwrap();
+        assert_eq!(paper.children[0].path, "论文/实验.md", "同名目录照样并成子文档");
+        let project = tree.iter().find(|node| node.path == "项目.md").unwrap();
+        assert!(project.order < paper.order, "手动顺序来自仓库根那个文件，不靠索引");
+        assert!(tree.iter().all(|node| node.icon.is_none()), "没有索引时只是少了装饰");
+
+        let after: std::collections::BTreeSet<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(after, before, "预览不该建出 .git / .verso / .gitignore / AGENTS.md");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 那个空间以前打开过时，图标从它现成的索引里读 —— 只读，不重建
+    #[test]
+    fn peeking_reuses_the_existing_index_for_icons() {
+        let root = tmp();
+        std::fs::write(root.join("论文.md"), "---\nicon: 📄\n---\n# 论文\n").unwrap();
+        {
+            let (vault, _) = Vault::open(root.clone()).unwrap();
+            let mut index = index::Index::open(&root).unwrap();
+            index.rebuild(&vault).unwrap();
+        }
+
+        let tree = peek_tree(&root).unwrap();
+
+        let paper = tree.iter().find(|node| node.path == "论文.md").unwrap();
+        assert_eq!(paper.icon.as_deref(), Some("📄"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

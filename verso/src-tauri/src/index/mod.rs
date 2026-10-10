@@ -91,6 +91,21 @@ impl Index {
         Ok(Index { conn })
     }
 
+    /// 只读地打开一个**现成的**索引，不建目录、不建表、不迁移（§2.8）。
+    ///
+    /// 给「看一眼另一个空间的文档树」用：那个空间此刻不是活动仓库，任何写入
+    /// 都不该发生在它身上。索引不存在或打不开就返回 None —— 它只负责补图标
+    /// 和排序键，少了树照样能显示。
+    pub fn open_readonly(vault_root: &Path) -> Option<Self> {
+        let db = vault_root.join(".verso").join("index.db");
+        if !db.is_file() {
+            return None;
+        }
+        Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()
+            .map(|conn| Index { conn })
+    }
+
     #[cfg(test)]
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;

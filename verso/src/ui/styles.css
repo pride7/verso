@@ -2498,6 +2498,113 @@ body.is-table-resizing * {
   color: var(--accent);
 }
 
+/* ---------- 「共享 / 私人」两区（§2.8） ---------- */
+
+/* 区标题：一行很轻的小字，和底部切换菜单里那两个分组标题同一个样子 ——
+   它们说的是同一件事。箭头平时收着，悬停或收起时才出现：两个标题常驻在
+   侧栏最显眼的位置，再各带一个图标就比下面的内容还吵了 */
+.zone-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: max(26px, var(--tap));
+  padding: 4px 14px 3px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.035em;
+  text-align: left;
+}
+.zone-head:hover {
+  color: var(--text);
+}
+.zone-chevron {
+  opacity: 0;
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+.zone-chevron.is-open {
+  transform: rotate(90deg);
+}
+.zone-head:hover .zone-chevron,
+.zone-head[aria-expanded="false"] .zone-chevron,
+:root[data-touch="on"] .zone-chevron {
+  opacity: 0.75;
+}
+.space-zone + .space-zone {
+  margin-top: 6px;
+}
+
+/* 一个共享空间那一行。尺寸跟 `.tree-row` 走，它和底下的文档是同一列 */
+.space-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: var(--tap);
+  padding: 0 6px 0 8px;
+  margin: 0 7px 2px;
+  border-radius: var(--r-sm);
+  transition: background var(--t-fast);
+}
+.space-row:hover {
+  background: var(--hover-bg);
+}
+.space-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: stretch;
+  min-height: var(--tap);
+  padding: 5.5px 2px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.space-label > svg {
+  flex: none;
+  width: 17px;
+  color: var(--muted);
+}
+.space-manage {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(22px, var(--tap-sm));
+  min-height: max(22px, var(--tap-sm));
+  padding: 0;
+  color: var(--muted);
+  opacity: 0;
+}
+.space-row:hover .space-manage,
+.space-manage:focus-visible,
+:root[data-touch="on"] .space-manage {
+  opacity: 1;
+}
+.space-manage:hover {
+  color: var(--accent);
+}
+/* 空间里的文档比空间那一行缩进一层 */
+.space-tree .tree-row {
+  padding-left: calc((var(--depth, 0) + 1) * var(--tree-indent, 14px) + 8px);
+}
+.space-empty {
+  margin: 0;
+  padding: 3px 14px 6px calc(var(--tree-indent, 14px) + 34px);
+  font-size: 12px;
+  color: var(--muted);
+}
+/* 正在切过去。落盘、换库、重建索引加起来不是一瞬间，光标得说一声 */
+.space.is-opening,
+.space-zone.is-opening {
+  cursor: progress;
+}
+
 /* ---------- 编辑区 ---------- */
 
 /* .main 保持**块级**容器，不要用 flex —— 编辑区靠经典的

@@ -150,6 +150,11 @@ export const api = {
   reopenLastVault: () =>
     call<{ vault: VaultInfo; lastNote: string | null } | null>("vault_reopen_last"),
   tree: () => call<TreeNode[]>("tree_list"),
+  /**
+   * 不切换、只读地看一眼**另一个**空间的文档树（§2.8）。侧栏把「共享 / 私人」
+   * 两区同时摆出来靠它；只认已记录的空间，不会在那个目录里写任何东西。
+   */
+  peekSpaceTree: (root: string) => call<TreeNode[]>("space_tree_peek", { root }),
   readNote: (path: string) => call<NoteContent>("note_read", { path }),
   /** 返回写入后的 mtime */
   writeNote: (path: string, body: string) => call<number>("note_write", { path, body }),

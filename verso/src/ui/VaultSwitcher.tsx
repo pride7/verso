@@ -52,7 +52,11 @@ export function VaultSwitcher({
   const [newName, setNewName] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const duplicates = useMemo(() => duplicateNames(vaults), [vaults]);
-  const currentShared = vaults.find((item) => item.root === current?.root)?.shared ?? false;
+  const currentEntry = vaults.find((item) => item.root === current?.root);
+  const currentShared = currentEntry?.shared ?? false;
+  // 共享空间有自己起的名字，目录名往往是 `verso-space-01hf…` 这种没人认得的。
+  // 菜单里、侧栏的共享区里叫的都是空间名，这里再显示目录名就成了两个东西
+  const currentName = currentEntry?.name ?? current?.name;
 
   // 就地输入，不用 `window.prompt`：安卓 WebView 上它可能根本不弹
   // （M6 清单里那一条），而那时「新建仓库」就是个按下去没反应的按钮
@@ -202,7 +206,7 @@ export function VaultSwitcher({
         aria-expanded={open}
       >
         <Icon name={currentShared ? "people" : "vault"} size={14} />
-        <span>{current?.name}</span>
+        <span>{currentName}</span>
         <Icon name="chevron" size={12} className={`vault-chevron${open ? " is-open" : ""}`} />
       </button>
     </div>

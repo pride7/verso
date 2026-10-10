@@ -37,6 +37,17 @@ interface Props {
    * 每次都不一样，effect 才会重新跑；连点两次「全部折叠」也要真的都收起来。
    */
   foldAll?: { at: number; open: boolean };
+  /**
+   * 只能看、能点开，不能改（§2.8）。
+   *
+   * 侧栏把别的空间的树也摆出来，而后端此刻的活动仓库只有一个 —— 这棵树上的
+   * 拖放、新建子文档都无处落地。**连「拖到它上面」也要挡**：拖的那一行来自
+   * 活动仓库，放下去会拿两个仓库里的路径去调同一次移动。
+   *
+   * 用同一个组件而不是另写一棵只读树：点进那个空间后这棵树原地变成可改的，
+   * 行的展开状态跟着留下来；换一个组件就等于整棵重新挂载，全部收回默认。
+   */
+  readOnly?: boolean;
   depth?: number;
 }
 
@@ -66,6 +77,7 @@ function TreeItem({
   onRenameSubmit,
   onRenameCancel,
   foldAll,
+  readOnly,
   depth,
 }: Omit<Props, "nodes" | "depth"> & { node: TreeNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth === 0);
@@ -114,13 +126,13 @@ function TreeItem({
           e.preventDefault();
           onMenu(node, e.clientX, e.clientY);
         }}
-        draggable={isDoc}
+        draggable={isDoc && !readOnly}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/verso-path", node.path);
           e.dataTransfer.effectAllowed = "move";
         }}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes("text/verso-path")) return;
+          if (readOnly || !e.dataTransfer.types.includes("text/verso-path")) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
           // 上下各四分之一是"插到前面/后面"，中间一半才是"放进去当子文档"。
@@ -134,6 +146,7 @@ function TreeItem({
         }}
         onDragLeave={() => setDropAt(null)}
         onDrop={(e) => {
+          if (readOnly) return;
           e.preventDefault();
           const where = dropAt;
           setDropAt(null);
@@ -206,18 +219,20 @@ function TreeItem({
 
         {/* 纯文件夹也能建子文档（§2.1）—— 只给文档留这个入口的话，
             文件夹就成了右键菜单才能操作的二等节点 */}
-        <button
-          className="tree-add"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddChild(node);
-            setExpanded(true);
-          }}
-          title="新建子文档"
-          aria-label="新建子文档"
-        >
-          <Icon name="plus" size={13} />
-        </button>
+        {!readOnly && (
+          <button
+            className="tree-add"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddChild(node);
+              setExpanded(true);
+            }}
+            title="新建子文档"
+            aria-label="新建子文档"
+          >
+            <Icon name="plus" size={13} />
+          </button>
+        )}
       </div>
 
       {hasChildren && expanded && (
@@ -233,6 +248,7 @@ function TreeItem({
           onRenameSubmit={onRenameSubmit}
           onRenameCancel={onRenameCancel}
           foldAll={foldAll}
+          readOnly={readOnly}
           depth={depth + 1}
         />
       )}
