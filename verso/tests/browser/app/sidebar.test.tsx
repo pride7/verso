@@ -70,7 +70,7 @@ const TREE: TreeNode[] = [doc("论文.md")];
 const ARTICLE_TREE: TreeNode[] = [
   doc("项目.md", [doc("项目/实验.md", [doc("项目/实验/数据.md")])]),
 ];
-const TREES: Record<string, TreeNode[]> = {
+const BASE_TREES: Record<string, TreeNode[]> = {
   [VAULT.root]: TREE,
   [ARTICLE_VAULT.root]: ARTICLE_TREE,
 };
@@ -93,7 +93,15 @@ const openVault = vi.fn(async (path: string) => {
   backendRoot = path;
   return [OTHER_VAULT, ARTICLE_VAULT].find((item) => item.root === path) ?? VAULT;
 });
-const peekSpaceTree = vi.fn(async (root: string) => TREES[root] ?? []);
+/** 每个仓库此刻的文档树。用例里可以把某个空间换成空的 */
+let trees: Record<string, TreeNode[]> = { ...BASE_TREES };
+const peekSpaceTree = vi.fn(async (root: string) => trees[root] ?? []);
+/** 新建文档那一刻后端开着的是哪个仓库 —— 「建在了哪个空间里」只有这里看得出 */
+const createdIn: string[] = [];
+const createUntitled = vi.fn(async (_parent: string | null) => {
+  createdIn.push(backendRoot);
+  return { path: "未命名.md", id: "u", title: "未命名" };
+});
 /** 每个仓库上次留下的标签。默认都是空的 */
 let savedTabs: Record<string, { tabs: string[]; active: number; pinnedCount: number }> = {};
 const pickVaultFolder = vi.fn(async () => null as string | null);
@@ -177,7 +185,7 @@ vi.mock("../../../src/host/api", () => ({
     forgetVault: async (path: string) => {
       knownVaults = knownVaults.filter((item) => item.root !== path);
     },
-    tree: async () => TREES[backendRoot] ?? TREE,
+    tree: async () => trees[backendRoot] ?? TREE,
     peekSpaceTree: (root: string) => peekSpaceTree(root),
     listNotes: async () => NOTES,
     // 共享空间里那几篇按路径给；别的一律是 NOTE，老用例都照这个写的
@@ -186,6 +194,7 @@ vi.mock("../../../src/host/api", () => ({
     writeNote: (path: string, body: string) => writeNote(path, body),
     statNote: async () => 0,
     createNote: async () => ({ path: "x.md", id: "x", title: "x" }),
+    createUntitled: (parent: string | null) => createUntitled(parent),
     renameNote: async () => "",
     moveNote: async () => "",
     deleteNote: async () => {},
@@ -247,6 +256,9 @@ beforeEach(() => {
   workspaceSet.mockClear();
   workspaceWrites.length = 0;
   peekSpaceTree.mockClear();
+  createUntitled.mockClear();
+  createdIn.length = 0;
+  trees = { ...BASE_TREES };
   savedTabs = {};
   backendRoot = VAULT.root;
   knownVaults = KNOWN.slice();
@@ -347,10 +359,11 @@ describe("侧栏头部", () => {
     const menu = el(".vault-menu")!;
     expect(menu.textContent).toContain("test-vault");
     expect(menu.textContent).toContain("lab");
-    expect(menu.textContent).toContain("私人");
-    expect(menu.textContent).toContain("共享");
-    expect(menu.textContent).toContain("共同论文");
     expect(menu.textContent).toContain("位置不可用");
+    // 共享空间已经摆在侧栏的「共享」区里，这里不再列一遍（§2.8）
+    expect([...menu.querySelectorAll(".vault-menu-label")].map((node) => node.textContent))
+      .toEqual(["私人"]);
+    expect(menu.textContent).not.toContain("共同论文");
     const menuBox = menu.getBoundingClientRect();
     const sideBox = el(".sidebar")!.getBoundingClientRect();
     const footBox = el(".sidebar-foot")!.getBoundingClientRect();
@@ -1103,18 +1116,101 @@ describe("共享 / 私人两区", () => {
       expect(box(".zone-head").height).toBeGreaterThanOrEqual(44);
       expect(box(".space-label").height).toBeGreaterThanOrEqual(44);
       expect(box(".space-row .tree-twisty").height).toBeGreaterThanOrEqual(44);
-      // 行内的次要图标按 32 算；没有悬停的设备上它必须一直显示着
+      // 行内的次要图标按 32 算；没有悬停的设备上它们必须一直显示着
       const manage = zone("共享")!.querySelector<HTMLElement>(".space-manage")!;
-      expect(manage.getBoundingClientRect().width).toBeGreaterThanOrEqual(32);
-      expect(manage.getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
-      expect(getComputedStyle(manage).opacity).toBe("1");
-      // 齿轮没有把空间名挤出侧栏
+      const add = zone("共享")!.querySelector<HTMLElement>(".space-add")!;
+      for (const button of [add, manage]) {
+        expect(button.getBoundingClientRect().width).toBeGreaterThanOrEqual(32);
+        expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(32);
+        expect(getComputedStyle(button).opacity).toBe("1");
+      }
+      // 两个按钮并排不重叠，也没有把空间名挤没、把自己挤出侧栏
+      expect(add.getBoundingClientRect().right).toBeLessThanOrEqual(
+        manage.getBoundingClientRect().left + 1,
+      );
       expect(manage.getBoundingClientRect().right).toBeLessThanOrEqual(
         el(".sidebar")!.getBoundingClientRect().right,
       );
+      expect(box(".space-label .tree-name").width).toBeGreaterThan(20);
     } finally {
       delete document.documentElement.dataset.touch;
     }
+  });
+
+  /**
+   * 两处都列的话是同一样东西的两个入口，行为还不一样（菜单是「整个切过去」，
+   * 侧栏是「打开这一篇」）。菜单留给真正不相干的私人仓库。
+   */
+  it("底部菜单不再重复列共享空间：人在共享空间里时也只列私人的，点一下就回来", async () => {
+    await mountApp();
+    await waitFor(() => rowNamed("共享", "项目"), "共享空间的树");
+    const menuNames = () =>
+      [...document.querySelectorAll(".vault-menu-item strong")].map((node) => node.textContent);
+    const openMenu = async () => {
+      await act(async () => {
+        el<HTMLButtonElement>(".vault-name")!.click();
+        await settle(40);
+      });
+    };
+
+    await clickRow("共享", "项目");
+    await waitFor(() => el(".tab.is-active")?.textContent?.includes("项目"), "进了共享空间");
+    // 底部那一条仍然说得出此刻在哪儿
+    expect(el(".sidebar-foot")?.textContent).toContain("共同论文");
+
+    await openMenu();
+    expect(menuNames()).toEqual(["test-vault", "lab", "moved"]);
+    expect(el(".vault-menu .is-current"), "当前空间不在这张单子里，没有哪一行该打勾").toBeNull();
+    // 管理和加入的入口都还在
+    expect([...document.querySelectorAll(".vault-menu-action")].map((b) => b.textContent?.trim()))
+      .toEqual(["管理空间…", "打开其他文件夹…", "加入共享空间…"]);
+
+    await act(async () => {
+      [...document.querySelectorAll<HTMLButtonElement>(".vault-menu-item")]
+        .find((button) => button.textContent?.includes("test-vault"))!
+        .click();
+      await settle(20);
+    });
+    await waitFor(() => el(".sidebar-foot")?.textContent?.includes("test-vault"), "回到私人空间");
+    expect(openVault).toHaveBeenLastCalledWith(VAULT.root);
+  });
+
+  // 菜单不列共享空间之后，一个空的空间在侧栏里没有任何一行可点 —— 没有这个
+  // 「+」就进不去了
+  it("空间那一行的「+」直接在这个空间里新建，空的空间也进得去", async () => {
+    trees[ARTICLE_VAULT.root] = [];
+    await mountApp();
+    await waitFor(() => zone("共享")?.querySelector(".space-empty"), "空空间的提示");
+    expect(rowsIn("共享")).toEqual([]);
+
+    await act(async () => {
+      zone("共享")!.querySelector<HTMLButtonElement>(".space-add")!.click();
+      await settle(20);
+    });
+    await waitFor(() => createUntitled.mock.calls.length > 0, "新建文档");
+
+    expect(openVault).toHaveBeenCalledWith(ARTICLE_VAULT.root);
+    // 建在了那个共享空间里，不是此前所在的私人仓库
+    expect(createdIn).toEqual([ARTICLE_VAULT.root]);
+    await waitFor(() => el(".tab.is-active .tab-name")?.textContent === "未命名", "新文档被打开");
+    expect(el(".sidebar-foot")?.textContent).toContain("共同论文");
+  });
+
+  it("人已经在那个空间里时，「+」不再切一次，直接新建", async () => {
+    await mountApp();
+    await waitFor(() => rowNamed("共享", "项目"), "共享空间的树");
+    await clickRow("共享", "项目");
+    await waitFor(() => zone("共享")!.querySelector(".tree-add"), "共享这一侧变成可改的");
+    openVault.mockClear();
+
+    await act(async () => {
+      zone("共享")!.querySelector<HTMLButtonElement>(".space-add")!.click();
+      await settle(20);
+    });
+    await waitFor(() => createUntitled.mock.calls.length > 0, "新建文档");
+
+    expect(openVault).not.toHaveBeenCalled();
+    expect(createdIn).toEqual([ARTICLE_VAULT.root]);
   });
 
   it("收起一个区会被记住", async () => {

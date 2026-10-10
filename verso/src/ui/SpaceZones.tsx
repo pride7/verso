@@ -16,6 +16,11 @@ interface Props {
   renderTree: (space: ZoneSpace) => ReactNode;
   collapsed: Record<string, boolean>;
   onToggle: (key: string) => void;
+  /**
+   * 在这个空间里新建一篇。空间里一篇都没有时这是唯一进得去的路 —— 没有哪一行
+   * 可点，而底部菜单已经不再列共享空间了
+   */
+  onCreate: (space: ZoneSpace) => void;
   onManage: (root: string) => void;
   /** 正在切过去的那个空间。切换要落盘、重建索引，不是一瞬间的事 */
   opening: string | null;
@@ -31,7 +36,15 @@ interface Props {
  * **共享在上、私人在下**：共享内容通常只有几行，私人那棵树可以很长；反过来
  * 排的话共享区会一直沉在第一屏以下，「常驻」就成了一句空话。
  */
-export function SpaceZones({ zones, renderTree, collapsed, onToggle, onManage, opening }: Props) {
+export function SpaceZones({
+  zones,
+  renderTree,
+  collapsed,
+  onToggle,
+  onCreate,
+  onManage,
+  opening,
+}: Props) {
   const sharedOpen = !collapsed[ZONE_SHARED];
   const privateOpen = !collapsed[ZONE_PRIVATE];
   return (
@@ -65,6 +78,15 @@ export function SpaceZones({ zones, renderTree, collapsed, onToggle, onManage, o
                   >
                     <Icon name="people" size={14} />
                     <span className="tree-name">{space.name}</span>
+                  </button>
+                  {/* 提示里说出「成员都能看到」：这一下建出来的不是私人笔记 */}
+                  <button
+                    className="space-add"
+                    onClick={() => onCreate(space)}
+                    title="在这个空间里新建文档（成员都能看到）"
+                    aria-label={`在 ${space.name} 里新建文档`}
+                  >
+                    <Icon name="plus" size={13} />
                   </button>
                   <button
                     className="space-manage"

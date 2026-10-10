@@ -2824,27 +2824,30 @@ export default function App() {
     }
   }, [vault, commitNow, saveNow]);
 
+  /** 返回值：现在是不是已经在那个仓库里了。接着要在那边做事的调用方得看它 */
   const switchToVault = useCallback(
-    async (path: string, open?: { note: string; newTab?: boolean }) => {
+    async (path: string, open?: { note: string; newTab?: boolean }): Promise<boolean> => {
       if (switchingVault || path === vault?.root) {
         if (path === vault?.root) setVaultManagerOpen(false);
-        return;
+        return path === vault?.root;
       }
       setSwitchingVault(path);
       setVaultError(null);
       try {
         if (!(await prepareVaultSwitch())) {
           setVaultError("当前仓库未能完成保存，已取消切换。");
-          return;
+          return false;
         }
         const info = await api.openVault(path);
         await activateVault(info, null, open);
         setVaultManagerOpen(false);
+        return true;
       } catch (e) {
         const message = (e as Error).message;
         setError(message);
         setVaultError(message);
         await refreshRecentVaults();
+        return false;
       } finally {
         setSwitchingVault(null);
       }
@@ -2868,6 +2871,29 @@ export default function App() {
       );
     },
     [switchingVault, switchToVault],
+  );
+
+  /**
+   * 在侧栏某个共享空间那一行上点了「+」（§2.8）：在**那个空间里**新建一篇。
+   *
+   * 头部的「+」和新建文档的快捷键建在当前所在的空间里；想往另一个空间里放
+   * 一篇，以前得先点开它里面的某一篇。空间里一篇都没有时连这也做不到 ——
+   * 底部菜单不再列共享空间之后，这是唯一进得去的路。
+   */
+  const createInSpace = useCallback(
+    async (space: ZoneSpace) => {
+      if (switchingVault) return;
+      // 那个空间正收着的话，新建出来的那一行看不见
+      setZoneCollapsed((prev) => {
+        if (!prev[space.root]) return prev;
+        const next = { ...prev };
+        delete next[space.root];
+        return next;
+      });
+      if (!(await switchToVault(space.root))) return;
+      await createAndOpen(null);
+    },
+    [switchingVault, switchToVault, createAndOpen],
   );
 
   const openVault = useCallback(async () => {
@@ -4502,6 +4528,7 @@ export default function App() {
                   zones={zones}
                   collapsed={zoneCollapsed}
                   onToggle={toggleZone}
+                  onCreate={(space) => void createInSpace(space)}
                   onManage={(root) => void manageSharedSpace(root)}
                   opening={pendingOpen?.root ?? null}
                   renderTree={(space) => {
@@ -4629,6 +4656,8 @@ export default function App() {
               // 手机上换成「起个名字新建」：那边没有目录选择器，也没有
               // 「管理仓库」（删仓库要能选到任意目录，容器模型下不成立）
               onCreate={mobile ? (name) => void createLocalVault(name) : undefined}
+              // 侧栏分了区，共享空间就在上面摆着，菜单里不再重复列（§2.8）
+              sharedInSidebar={!!zones}
             />
           </footer>
 

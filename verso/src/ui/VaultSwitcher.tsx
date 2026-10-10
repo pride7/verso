@@ -21,6 +21,16 @@ interface SwitcherProps extends CommonProps {
    * 后者要能选到任意目录去删）。
    */
   onCreate?: (name: string) => void;
+  /**
+   * 共享空间已经摆在侧栏的「共享」区里了（§2.8），菜单里就不再列一遍。
+   *
+   * 两处都有的话是同一样东西的两个入口，行为还不一样（这里是「整个切过去」，
+   * 侧栏是「打开这一篇」）—— 留着它，「共享内容在另一个仓库里、得先切过去」
+   * 的印象就一直在。管理不走这里：成员、邀请、移回私人都在「管理空间…」里。
+   *
+   * 侧栏没分区时（手机、一个共享空间都没有）不传，菜单照旧是唯一的入口。
+   */
+  sharedInSidebar?: boolean;
 }
 
 /** 同名仓库只看名字分不出来；平时不铺路径，只有真的重名时才补一行。 */
@@ -46,12 +56,19 @@ export function VaultSwitcher({
   onJoin,
   onManage,
   onCreate,
+  sharedInSidebar,
 }: SwitcherProps) {
   const [open, setOpen] = useState(false);
   /** 新建仓库的名字输入。null = 没在建 */
   const [newName, setNewName] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const duplicates = useMemo(() => duplicateNames(vaults), [vaults]);
+  /** 菜单里列出来的那些。底部那个名字仍然从完整的 `vaults` 里认 */
+  const listed = useMemo(
+    () => (sharedInSidebar ? vaults.filter((item) => !item.shared) : vaults),
+    [vaults, sharedInSidebar],
+  );
+  const groups = useMemo(() => vaultGroups(listed), [listed]);
+  const duplicates = useMemo(() => duplicateNames(listed), [listed]);
   const currentEntry = vaults.find((item) => item.root === current?.root);
   const currentShared = currentEntry?.shared ?? false;
   // 共享空间有自己起的名字，目录名往往是 `verso-space-01hf…` 这种没人认得的。
@@ -91,7 +108,7 @@ export function VaultSwitcher({
     <div className="vault-switcher" onMouseDown={(event) => event.stopPropagation()}>
       {open && (
         <div className="vault-menu" role="menu" aria-label="切换空间">
-          {vaultGroups(vaults).map((group) => (
+          {groups.map((group) => (
             <div className="vault-menu-group" key={group.label}>
               <div className="vault-menu-label">{group.label}</div>
               {group.items.map((item) => {
@@ -125,7 +142,8 @@ export function VaultSwitcher({
               })}
             </div>
           ))}
-          <div className="vault-menu-sep" />
+          {/* 手上只有别人邀请的空间时上面一组都没有，这条线就没有东西可分 */}
+          {groups.length > 0 && <div className="vault-menu-sep" />}
           {onCreate ? (
             // 容器模型（手机）：新建只要一个名字，位置由后端定
             newName === null ? (

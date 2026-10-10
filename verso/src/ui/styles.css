@@ -2570,6 +2570,9 @@ body.is-table-resizing * {
   width: 17px;
   color: var(--muted);
 }
+/* 行尾的两个小按钮：在这个空间里新建、成员管理。和 `.tree-add` 一个脾气 ——
+   平时收着，悬停才出现；没有悬停的设备上一直在 */
+.space-add,
 .space-manage {
   flex: none;
   display: flex;
@@ -2581,12 +2584,12 @@ body.is-table-resizing * {
   color: var(--muted);
   opacity: 0;
 }
-.space-row:hover .space-manage,
-.space-manage:focus-visible,
-:root[data-touch="on"] .space-manage {
+.space-row:hover :is(.space-add, .space-manage),
+:is(.space-add, .space-manage):focus-visible,
+:root[data-touch="on"] :is(.space-add, .space-manage) {
   opacity: 1;
 }
-.space-manage:hover {
+:is(.space-add, .space-manage):hover {
   color: var(--accent);
 }
 /* 空间里的文档比空间那一行缩进一层 */
