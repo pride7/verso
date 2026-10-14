@@ -7,13 +7,36 @@
  *
  * 和终端比，多出来的是三样终端给不了的东西：回答按 Markdown 和公式排好版、
  * 改了哪篇用 diff 摆出来再让人点头、当前笔记和选区一键带上。
+ *
+ * 一个进程里可以同时开着好几个对话（ACP 的 session），左上角那个名字点开
+ * 就能切换；agent 支持的话，以前的对话也列在里面，点一下接着聊。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { version as APP_VERSION } from "../../package.json";
 import { AGENT_PRESETS } from "../app/settings";
-import { AcpConnection, AcpError, type ContentBlock, type PermissionOutcome, type PermissionRequest, type SessionMode } from "../core/acp";
-import { applyUpdate, fileUri, PERMISSION_LABEL, relativeToVault, type ChatEntry, type FileDiff } from "../core/agentChat";
+import {
+  AcpConnection,
+  AcpError,
+  type ContentBlock,
+  type NewSessionResult,
+  type PermissionOutcome,
+  type PermissionRequest,
+  type SessionInfo,
+} from "../core/acp";
+import {
+  applyUpdate,
+  conversationRows,
+  conversationTitle,
+  fileUri,
+  newConversation,
+  PERMISSION_LABEL,
+  relativeToVault,
+  type ChatEntry,
+  type Conversation,
+  type FileDiff,
+} from "../core/agentChat";
+import { relTime } from "../core/relTime";
 import type { FileDiff as TextDiff } from "../core/types";
 import { renderMarkdown } from "../editor/exportHtml";
 import { api, onAgentExit, onAgentLine, onAgentStderr } from "../host/api";
@@ -46,12 +69,12 @@ interface Props {
   onOpenSettings: () => void;
 }
 
+/** 进程这一层的状态。每个对话自己忙不忙记在 `Conversation.busy` 上 */
 type Phase =
   /** 还没选跑哪个 AI。什么都不起，等人挑 */
   | { kind: "choose" }
   | { kind: "starting" }
   | { kind: "ready" }
-  | { kind: "busy" }
   /** 起不来，或者半路没了。`log` 是 stderr 的最后几行 */
   | { kind: "dead"; message: string; log: string[] };
 
@@ -66,6 +89,9 @@ const LOG_LINES = 12;
 /** 协议里「需要先登录」的错误码 */
 const AUTH_REQUIRED = -32000;
 
+const errorText = (e: unknown) =>
+  e instanceof AcpError ? e.detail : e instanceof Error ? e.message : String(e);
+
 export function AgentPanel({
   command,
   onPickCommand,
@@ -79,11 +105,16 @@ export function AgentPanel({
   onOpenSettings,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [agentName, setAgentName] = useState("");
-  const [modes, setModes] = useState<SessionMode[]>([]);
-  const [modeId, setModeId] = useState<string | null>(null);
-  const [permission, setPermission] = useState<PendingPermission | null>(null);
+  /** 这次打开面板之后开过的对话，按 id */
+  const [convs, setConvs] = useState<Record<string, Conversation>>({});
+  const [activeId, setActiveId] = useState<string | null>(null);
+  /** 每个对话手上最多一个没回答的许可请求（agent 问完一个才往下跑） */
+  const [permissions, setPermissions] = useState<Record<string, PendingPermission>>({});
+  /** agent 记着的以前的对话。null = 它不支持列出来 */
+  const [past, setPast] = useState<SessionInfo[] | null>(null);
+  const [canLoad, setCanLoad] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [ctx, setCtx] = useState<AgentContext>({ path: null, selection: "" });
   const [withNote, setWithNote] = useState(true);
@@ -92,17 +123,45 @@ export function AgentPanel({
   const [generation, setGeneration] = useState(0);
 
   const connRef = useRef<AcpConnection | null>(null);
-  const sessionRef = useRef<string | null>(null);
   const cwdRef = useRef("");
-  const permissionRef = useRef<PendingPermission | null>(null);
-  permissionRef.current = permission;
+  const permissionsRef = useRef(permissions);
+  permissionsRef.current = permissions;
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   /** 用户往上翻了就别再把他拽回底部 */
   const stickRef = useRef(true);
 
   const cb = useRef({ getContext, beforePrompt });
   cb.current = { getContext, beforePrompt };
+
+  /** 改某一个对话。不在了（面板重启过）就什么都不做 */
+  const patch = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
+    setConvs((all) => (all[id] ? { ...all, [id]: fn(all[id]) } : all));
+  }, []);
+
+  const dropPermission = useCallback((id: string, outcome: PermissionOutcome | null) => {
+    const p = permissionsRef.current[id];
+    if (!p) return;
+    if (outcome) p.resolve(outcome);
+    setPermissions((all) => {
+      const next = { ...all };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  /** 新开的对话记下来；agent 给了模式就一起记 */
+  const adopt = useCallback((id: string, s: Pick<NewSessionResult, "modes">, title: string | null = null) => {
+    setConvs((all) => ({
+      ...all,
+      [id]: {
+        ...(all[id] ?? newConversation(id, Date.now(), title)),
+        modes: s.modes?.availableModes ?? [],
+        modeId: s.modes?.currentModeId ?? null,
+      },
+    }));
+  }, []);
 
   // ---- 起进程、握手、开会话。卸载或「重新启动」时整个停掉
   useEffect(() => {
@@ -118,14 +177,23 @@ export function AgentPanel({
     // 几乎是立刻退出）—— 那时还不知道 id，先攒着，拿到 id 再按 id 认领
     const early: { kind: "line" | "err" | "exit"; id: string; line?: string; code?: number | null }[] = [];
 
+    const cancelAll = () => {
+      for (const p of Object.values(permissionsRef.current)) p.resolve({ outcome: "cancelled" });
+      setPermissions({});
+    };
+
     /** 第一个原因说了算：进程退出之后，还在等的请求会接着失败，那句「已经
      *  退出」不能盖掉前面带着退出码的那一句 */
     let dead = false;
     const die = (message: string) => {
       if (disposed || dead) return;
       dead = true;
-      permissionRef.current?.resolve({ outcome: "cancelled" });
-      setPermission(null);
+      cancelAll();
+      setConvs((all) => {
+        const next: Record<string, Conversation> = {};
+        for (const [k, c] of Object.entries(all)) next[k] = { ...c, busy: false, loading: false };
+        return next;
+      });
       setPhase({ kind: "dead", message, log: stderr.slice(-LOG_LINES) });
     };
 
@@ -149,10 +217,10 @@ export function AgentPanel({
     ]);
 
     setPhase({ kind: "starting" });
-    setEntries([]);
-    setModes([]);
-    setModeId(null);
-    sessionRef.current = null;
+    setConvs({});
+    setActiveId(null);
+    setPast(null);
+    setCanLoad(false);
 
     void (async () => {
       try {
@@ -165,18 +233,23 @@ export function AgentPanel({
         cwdRef.current = cwd;
         const conn = new AcpConnection((line) => api.agentSend(id, line), {
           onUpdate: (n) => {
-            if (n.sessionId !== sessionRef.current) return;
             const u = n.update;
             if (u.sessionUpdate === "current_mode_update") {
-              setModeId((u as { currentModeId: string }).currentModeId);
-              return;
+              const modeId = (u as { currentModeId: string }).currentModeId;
+              patch(n.sessionId, (c) => ({ ...c, modeId }));
+            } else if (u.sessionUpdate === "session_info_update") {
+              const title = (u as { title?: string | null }).title;
+              if (title) patch(n.sessionId, (c) => ({ ...c, title }));
+            } else {
+              patch(n.sessionId, (c) => {
+                const entries = applyUpdate(c.entries, u);
+                return entries === c.entries ? c : { ...c, entries };
+              });
             }
-            setEntries((prev) => applyUpdate(prev, u));
           },
           onPermission: (req) =>
             new Promise<PermissionOutcome>((resolve) => {
-              // 同一时刻只会有一个：agent 问完一个、拿到回音才会接着往下跑
-              setPermission({ req, resolve });
+              setPermissions((all) => ({ ...all, [req.sessionId]: { req, resolve } }));
             }),
         });
         connRef.current = conn;
@@ -186,51 +259,86 @@ export function AgentPanel({
         const info = await conn.initialize(APP_VERSION);
         if (disposed) return;
         setAgentName(info.agentInfo?.title || info.agentInfo?.name || "");
+        setCanLoad(!!info.agentCapabilities?.loadSession);
+        if (info.agentCapabilities?.sessionCapabilities?.list) setPast([]);
         const session = await conn.newSession(cwd);
         if (disposed) return;
-        sessionRef.current = session.sessionId;
-        if (session.modes) {
-          setModes(session.modes.availableModes);
-          setModeId(session.modes.currentModeId);
-        }
+        adopt(session.sessionId, session);
+        setActiveId(session.sessionId);
         setPhase({ kind: "ready" });
       } catch (e) {
         if (disposed) return;
         if (e instanceof AcpError && e.code === AUTH_REQUIRED) {
           die("需要先登录。在终端里运行一次你所用的 AI CLI（例如 claude 或 codex）完成登录，再点「重新启动」。");
         } else {
-          die(e instanceof AcpError ? e.detail : e instanceof Error ? e.message : String(e));
+          die(errorText(e));
         }
       }
     })();
 
     return () => {
       disposed = true;
-      permissionRef.current?.resolve({ outcome: "cancelled" });
+      cancelAll();
       connRef.current?.close(new Error("面板已关闭"));
       connRef.current = null;
       if (procId) void api.agentStop(procId);
       void unlisten.then((fns) => fns.forEach((f) => f()));
     };
-  }, [command, generation]);
+  }, [command, generation, patch, adopt]);
 
-  // ---- 新内容进来时贴着底部
+  const active = activeId ? convs[activeId] ?? null : null;
+  const entries = active?.entries ?? [];
+  const permission = activeId ? permissions[activeId] ?? null : null;
+  const ready = phase.kind === "ready" && !!active && !active.loading;
+  const busy = !!active?.busy;
+
+  // ---- 新内容进来时贴着底部；换了一个对话就直接到底
+  useEffect(() => {
+    stickRef.current = true;
+  }, [activeId]);
   useEffect(() => {
     const el = logRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [entries, permission, phase]);
+  }, [entries, permission, phase, activeId]);
 
   const refreshContext = useCallback(() => setCtx(cb.current.getContext()), []);
   useEffect(refreshContext, [refreshContext]);
 
-  const busy = phase.kind === "busy";
-  const ready = phase.kind === "ready";
+  // ---- 对话列表：点开时才问 agent 要以前的，问一次很便宜，而它会变
+  const openMenu = () => {
+    setMenuOpen((v) => !v);
+    const conn = connRef.current;
+    if (!menuOpen && conn && past !== null) {
+      conn
+        .listSessions(cwdRef.current)
+        .then((r) => setPast(r.sessions ?? []))
+        .catch(() => {});
+    }
+  };
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [menuOpen]);
+
+  const rows = useMemo(
+    () => conversationRows(Object.values(convs), past ?? [], activeId),
+    [convs, past, activeId],
+  );
 
   const send = async () => {
     const text = draft.trim();
     const conn = connRef.current;
-    const sid = sessionRef.current;
-    if (!text || !conn || !sid || !ready) return;
+    const sid = activeId;
+    if (!text || !conn || !sid || !ready || busy) return;
 
     const now = cb.current.getContext();
     const blocks: ContentBlock[] = [{ type: "text", text }];
@@ -254,63 +362,94 @@ export function AgentPanel({
 
     setDraft("");
     stickRef.current = true;
-    setEntries((prev) => [...prev, { kind: "user", text, context: labels }]);
-    setPhase({ kind: "busy" });
+    patch(sid, (c) => ({
+      ...c,
+      busy: true,
+      updatedAt: Date.now(),
+      entries: [...c.entries, { kind: "user", text, context: labels }],
+    }));
+    const note = (text: string) =>
+      patch(sid, (c) => ({ ...c, entries: [...c.entries, { kind: "agent", text }] }));
     try {
       await cb.current.beforePrompt();
       const r = await conn.prompt(sid, blocks);
-      if (r.stopReason === "refusal") {
-        setEntries((prev) => [...prev, { kind: "agent", text: "*（它拒绝继续这一轮。）*" }]);
-      } else if (r.stopReason === "max_tokens" || r.stopReason === "max_turn_requests") {
-        setEntries((prev) => [...prev, { kind: "agent", text: "*（这一轮到了长度上限，停在了这里。）*" }]);
+      if (r.stopReason === "refusal") note("*（它拒绝继续这一轮。）*");
+      else if (r.stopReason === "max_tokens" || r.stopReason === "max_turn_requests") {
+        note("*（这一轮到了长度上限，停在了这里。）*");
       }
-      setPhase((p) => (p.kind === "busy" ? { kind: "ready" } : p));
     } catch (e) {
-      setPhase((p) => (p.kind === "dead" ? p : { kind: "ready" }));
-      const msg = e instanceof AcpError ? e.detail : e instanceof Error ? e.message : String(e);
-      setEntries((prev) => [...prev, { kind: "agent", text: `**出错了：** ${msg}` }]);
+      note(`**出错了：** ${errorText(e)}`);
+    } finally {
+      patch(sid, (c) => ({ ...c, busy: false, updatedAt: Date.now() }));
     }
   };
 
   const stop = () => {
-    const sid = sessionRef.current;
-    if (!sid) return;
+    if (!activeId) return;
     // 协议要求：取消时还没回的许可请求一律按「取消」回掉
-    permissionRef.current?.resolve({ outcome: "cancelled" });
-    setPermission(null);
-    connRef.current?.cancel(sid);
+    dropPermission(activeId, { outcome: "cancelled" });
+    connRef.current?.cancel(activeId);
   };
 
   const newChat = async () => {
     const conn = connRef.current;
-    if (!conn || busy) return;
+    setMenuOpen(false);
+    if (!conn || phase.kind !== "ready") return;
+    // 手上这个还一句话都没说过：那它就是新对话，不再多开一个空白页
+    if (active && active.entries.length === 0 && !active.loading) {
+      inputRef.current?.focus();
+      return;
+    }
     try {
       const s = await conn.newSession(cwdRef.current);
-      sessionRef.current = s.sessionId;
-      setEntries([]);
-      if (s.modes) {
-        setModes(s.modes.availableModes);
-        setModeId(s.modes.currentModeId);
-      }
+      adopt(s.sessionId, s);
+      setActiveId(s.sessionId);
       inputRef.current?.focus();
     } catch (e) {
-      setEntries((prev) => [
-        ...prev,
-        { kind: "agent", text: `**新建对话失败：** ${e instanceof Error ? e.message : String(e)}` },
-      ]);
+      if (activeId) {
+        patch(activeId, (c) => ({
+          ...c,
+          entries: [...c.entries, { kind: "agent", text: `**新建对话失败：** ${errorText(e)}` }],
+        }));
+      }
     }
   };
 
-  const pickMode = (id: string) => {
-    const sid = sessionRef.current;
-    if (!sid || !connRef.current) return;
-    setModeId(id);
-    void connRef.current.setMode(sid, id).catch(() => {});
+  /** 切到另一个对话。不在手上的（以前的）先让 agent 把它接回来 */
+  const switchTo = async (id: string, title: string) => {
+    setMenuOpen(false);
+    if (id === activeId) return;
+    if (convs[id]) {
+      setActiveId(id);
+      return;
+    }
+    const conn = connRef.current;
+    if (!conn || !canLoad) return;
+    // 先把这个对话摆好再去要：agent 是用 `session/update` 把历史重放过来的，
+    // 放完才回这个请求 —— 那时再建就把历史全丢了
+    setConvs((all) => ({ ...all, [id]: { ...newConversation(id, Date.now(), title), loading: true } }));
+    setActiveId(id);
+    try {
+      const s = await conn.loadSession(id, cwdRef.current);
+      adopt(id, s);
+      patch(id, (c) => ({ ...c, loading: false }));
+    } catch (e) {
+      patch(id, (c) => ({
+        ...c,
+        loading: false,
+        entries: [...c.entries, { kind: "agent", text: `**没能接回这个对话：** ${errorText(e)}` }],
+      }));
+    }
+  };
+
+  const pickMode = (modeId: string) => {
+    if (!activeId || !connRef.current) return;
+    patch(activeId, (c) => ({ ...c, modeId }));
+    void connRef.current.setMode(activeId, modeId).catch(() => {});
   };
 
   const answer = (o: PermissionOutcome) => {
-    permission?.resolve(o);
-    setPermission(null);
+    if (activeId) dropPermission(activeId, o);
   };
 
   /** 回答里的链接不能在 webview 里原地跳走 —— 那会把整个应用换成一个网页 */
@@ -339,22 +478,69 @@ export function AgentPanel({
   };
 
   const rel = (abs: string) => relativeToVault(abs, cwdRef.current);
+  const modes = active?.modes ?? [];
+  const now = new Date();
 
   return (
     <aside className={`agent${cover ? " is-cover" : ""}`} aria-label="AI 会话">
       {!cover && <div className="agent-resizer" onMouseDown={startDrag} />}
       <header className="agent-head">
-        <span className="agent-title">
-          <Icon name="spark" size={13} />
-          {agentName || "AI"}
-        </span>
+        <div className="agent-switch" ref={menuRef}>
+          <button
+            className="agent-title"
+            onClick={openMenu}
+            disabled={phase.kind !== "ready"}
+            title={agentName ? `${agentName} · 切换对话` : "切换对话"}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <Icon name="spark" size={13} />
+            <span className="agent-title-text">{active ? conversationTitle(active) : agentName || "AI"}</span>
+            {phase.kind === "ready" && <Icon name="chevron" size={10} />}
+          </button>
+          {menuOpen && (
+            <div className="agent-menu" role="menu" aria-label="对话">
+              <button className="agent-menu-item is-new" role="menuitem" onClick={() => void newChat()}>
+                <Icon name="plus" size={12} />
+                新对话
+              </button>
+              {rows.map((r) => {
+                const c = convs[r.id];
+                return (
+                  <button
+                    key={r.id}
+                    role="menuitem"
+                    className={`agent-menu-item${r.id === activeId ? " is-on" : ""}`}
+                    onClick={() => void switchTo(r.id, r.title)}
+                    disabled={!r.open && !canLoad}
+                    title={r.title}
+                  >
+                    <span className="agent-menu-title">{r.title}</span>
+                    <span className="agent-menu-meta">
+                      {permissions[r.id]
+                        ? "等你确认"
+                        : c?.busy
+                          ? "正在回答"
+                          : r.updatedAt
+                            ? relTime(Math.floor(r.updatedAt / 1000), now)
+                            : ""}
+                    </span>
+                  </button>
+                );
+              })}
+              {past === null && (
+                <p className="agent-menu-note">{agentName || "这个 AI"} 不提供以前的对话，这里只列这次打开之后的。</p>
+              )}
+            </div>
+          )}
+        </div>
         {modes.length > 0 && (
           <select
             className="agent-mode"
-            value={modeId ?? ""}
+            value={active?.modeId ?? ""}
             onChange={(e) => pickMode(e.target.value)}
-            disabled={phase.kind === "dead"}
-            title={modes.find((m) => m.id === modeId)?.description ?? "权限模式"}
+            disabled={!ready}
+            title={modes.find((m) => m.id === active?.modeId)?.description ?? "权限模式"}
             aria-label="权限模式"
           >
             {modes.map((m) => (
@@ -368,7 +554,7 @@ export function AgentPanel({
           <button
             className="term-btn"
             onClick={() => void newChat()}
-            disabled={!ready}
+            disabled={phase.kind !== "ready"}
             title="新对话"
             aria-label="新对话"
           >
@@ -389,7 +575,7 @@ export function AgentPanel({
           stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
       >
-        {entries.length === 0 && phase.kind === "ready" && (
+        {entries.length === 0 && ready && (
           <p className="agent-empty">
             直接问就行。它看得见整个仓库，改了哪篇会先摆出来给你看。
           </p>
@@ -425,6 +611,7 @@ export function AgentPanel({
         {phase.kind === "starting" && (
           <p className="agent-status">正在启动…第一次要先下载适配器，可能要等十几秒。</p>
         )}
+        {active?.loading && <p className="agent-status agent-thinking">正在接回这个对话…</p>}
         {busy && !permission && <p className="agent-status agent-thinking">正在回答…</p>}
         {phase.kind === "dead" && (
           <div className="agent-dead" role="alert">

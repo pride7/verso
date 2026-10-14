@@ -182,7 +182,28 @@ const agentUpdate = (update: object) =>
 function agentReply(line: string) {
   const m = JSON.parse(line) as { id: number; method?: string };
   if (m.method === "initialize") {
-    agentSay({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: 1, agentInfo: { name: "claude", title: "Claude Agent" } } });
+    agentSay({
+      jsonrpc: "2.0",
+      id: m.id,
+      result: {
+        protocolVersion: 1,
+        agentInfo: { name: "claude", title: "Claude Agent" },
+        agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } },
+      },
+    });
+  } else if (m.method === "session/list") {
+    const ago = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+    agentSay({
+      jsonrpc: "2.0",
+      id: m.id,
+      result: {
+        sessions: [
+          { sessionId: "p1", cwd: "D:/Notes/vault", title: "给线性代数补一节 SVD 的几何解释", updatedAt: ago(3) },
+          { sessionId: "p2", cwd: "D:/Notes/vault", title: "修复失效的双链", updatedAt: ago(30) },
+          { sessionId: "p3", cwd: "D:/Notes/vault", title: "把散记合并成《泛函分析》提纲", updatedAt: ago(24 * 6) },
+        ],
+      },
+    });
   } else if (m.method === "session/new") {
     agentSay({
       jsonrpc: "2.0",
@@ -779,6 +800,14 @@ describe("视觉工作台", () => {
     render();
     await shot("42-light-agent-choose");
     expect(document.querySelector(".agent-choose")).not.toBeNull();
+  });
+
+  it("浅色 · AI 会话的对话列表", async () => {
+    await chat();
+    await settle(600);
+    document.querySelector<HTMLElement>(".agent-title")!.click();
+    await shot("43-light-agent-menu");
+    expect(document.querySelector(".agent-menu")).not.toBeNull();
   });
 
   it("深色 · AI 会话", async () => {

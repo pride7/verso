@@ -109,11 +109,26 @@ export interface NewSessionResult {
   modes?: { currentModeId: string; availableModes: SessionMode[] } | null;
 }
 
+/** `session/list` 里的一条：以前的一次对话 */
+export interface SessionInfo {
+  sessionId: string;
+  cwd: string;
+  title?: string | null;
+  /** ISO 8601 */
+  updatedAt?: string | null;
+}
+
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
 
 export interface InitializeResult {
   protocolVersion: number;
   agentInfo?: { name: string; title?: string | null; version?: string } | null;
+  agentCapabilities?: {
+    /** 能用 `session/load` 接着以前的对话（会把历史整段重放一遍） */
+    loadSession?: boolean;
+    /** `list` 在 = 能用 `session/list` 列出以前的对话 */
+    sessionCapabilities?: { list?: object | null } | null;
+  } | null;
   authMethods?: { id: string; name: string; description?: string | null }[];
 }
 
@@ -258,6 +273,19 @@ export class AcpConnection {
 
   cancel(sessionId: string): void {
     this.notify("session/cancel", { sessionId });
+  }
+
+  /** 以前的对话。只列这个仓库的（`cwd`）—— 别的项目里的对话和这里无关 */
+  listSessions(cwd: string): Promise<{ sessions: SessionInfo[] }> {
+    return this.call("session/list", { cwd });
+  }
+
+  /**
+   * 接着以前的一次对话。agent 先把整段历史用 `session/update` 重放一遍，
+   * 放完才回这个请求 —— 所以调用之前，接收那些更新的地方就得准备好
+   */
+  loadSession(sessionId: string, cwd: string): Promise<Pick<NewSessionResult, "modes">> {
+    return this.call("session/load", { sessionId, cwd, mcpServers: [] });
   }
 
   setMode(sessionId: string, modeId: string): Promise<unknown> {

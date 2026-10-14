@@ -216,7 +216,9 @@ describe("起来", () => {
     expect(state.sent.map((m) => m.method)).toEqual(["initialize", "session/new"]);
     // 工作目录交给 agent 的是 vault 根
     expect(state.sent[1].params).toEqual({ cwd: "D:\\Notes\\vault", mcpServers: [] });
-    expect(host.querySelector(".agent-title")?.textContent).toContain("Fake Agent");
+    // 左上角是当前对话的名字；agent 的名字在提示里
+    expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
+    expect(host.querySelector(".agent-title")?.getAttribute("title")).toContain("Fake Agent");
     const select = host.querySelector<HTMLSelectElement>(".agent-mode")!;
     expect([...select.options].map((o) => o.textContent)).toEqual(["Default", "Accept Edits"]);
     expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
@@ -422,5 +424,150 @@ describe("回答里的东西不能越界", () => {
     });
     expect((window as { __pwned?: number }).__pwned).toBeUndefined();
     expect(host.querySelector(".agent-md img")).toBeNull();
+  });
+});
+
+describe("切换对话", () => {
+  /** 每次 session/new 给一个新 id，回答里带上是哪个对话 */
+  const twoSessions = () => {
+    let n = 0;
+    state.script["session/new"] = (m) => reply(m.id, { sessionId: `s${++n}` });
+    state.script["session/prompt"] = (m) => {
+      const sid = (m.params as { sessionId: string }).sessionId;
+      emit({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId: sid, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `这里是 ${sid}` } } },
+      });
+      reply(m.id, { stopReason: "end_turn" });
+    };
+  };
+
+  const openMenu = async () => {
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".agent-title")!.click();
+      await settle(60);
+    });
+  };
+  const menuItems = () => [...host.querySelectorAll<HTMLButtonElement>(".agent-menu-item:not(.is-new)")];
+
+  it("开着的几个对话可以来回切，各说各的", async () => {
+    twoSessions();
+    await mount();
+    await type("第一个问题");
+    expect(host.querySelector(".agent-md")?.textContent).toBe("这里是 s1");
+
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(60);
+    });
+    expect(host.querySelector(".agent-msg"), "新对话是空白的").toBeNull();
+    await type("第二个问题");
+    expect(host.querySelector(".agent-md")?.textContent).toBe("这里是 s2");
+    expect(host.querySelector(".agent-title")?.textContent).toContain("第二个问题");
+
+    await openMenu();
+    expect(menuItems().map((b) => b.querySelector(".agent-menu-title")?.textContent)).toEqual([
+      "第二个问题",
+      "第一个问题",
+    ]);
+    await act(async () => {
+      menuItems()[1].click();
+      await settle(60);
+    });
+    expect(host.querySelector(".agent-msg.is-user")?.textContent).toContain("第一个问题");
+    expect(host.querySelector(".agent-md")?.textContent).toBe("这里是 s1");
+    expect(host.querySelector(".agent-menu"), "选完就收起").toBeNull();
+  });
+
+  it("空白的新对话不重复开：再点「新对话」不会多出一个", async () => {
+    twoSessions();
+    await mount();
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(60);
+    });
+    expect(state.sent.filter((m) => m.method === "session/new")).toHaveLength(1);
+  });
+
+  it("后台那个对话来要许可：列表里标出来，切过去才看得到那张卡", async () => {
+    let n = 0;
+    state.script["session/new"] = (m) => reply(m.id, { sessionId: `s${++n}` });
+    state.script["session/prompt"] = (m) => {
+      const sid = (m.params as { sessionId: string }).sessionId;
+      if (sid === "s1") {
+        // 第一个对话：过一会儿才来要许可，那时人已经切到第二个了
+        setTimeout(
+          () =>
+            emit({
+              jsonrpc: "2.0",
+              id: 0,
+              method: "session/request_permission",
+              params: {
+                sessionId: "s1",
+                toolCall: { toolCallId: "t1", title: "Write 甲.md", kind: "edit" },
+                options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
+              },
+            }),
+          120,
+        );
+      } else reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    await type("改一下甲");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(300);
+    });
+    expect(host.querySelector(".agent-permission"), "不是这个对话的许可，不能摆在这里").toBeNull();
+
+    await openMenu();
+    const first = menuItems().find((b) => b.textContent?.includes("改一下甲"))!;
+    expect(first.querySelector(".agent-menu-meta")?.textContent).toBe("等你确认");
+    await act(async () => {
+      first.click();
+      await settle(60);
+    });
+    expect(host.querySelector(".agent-permission")?.textContent).toContain("Write 甲.md");
+  });
+
+  it("以前的对话：agent 列得出来就能接着聊，历史由它重放过来", async () => {
+    state.script.initialize = (m) =>
+      reply(m.id, {
+        protocolVersion: 1,
+        agentInfo: { name: "fake" },
+        agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } },
+      });
+    state.script["session/list"] = (m) =>
+      reply(m.id, {
+        sessions: [{ sessionId: "old1", cwd: String.raw`D:\Notes\vault`, title: "整理论文清单", updatedAt: "2026-10-01T08:00:00Z" }],
+      });
+    state.script["session/load"] = (m) => {
+      const say = (update: object) =>
+        emit({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "old1", update } });
+      say({ sessionUpdate: "user_message_chunk", content: { type: "text", text: "把清单整理一下" } });
+      say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "整理好了" } });
+      reply(m.id, {});
+    };
+    await mount();
+    await openMenu();
+    expect(state.sent.find((m) => m.method === "session/list")?.params).toEqual({ cwd: String.raw`D:\Notes\vault` });
+    const old = menuItems().find((b) => b.textContent?.includes("整理论文清单"));
+    expect(old, "以前的对话要列出来").toBeTruthy();
+    await act(async () => {
+      old!.click();
+      await settle(100);
+    });
+    expect(state.sent.find((m) => m.method === "session/load")?.params).toMatchObject({ sessionId: "old1" });
+    expect(host.querySelector(".agent-msg.is-user")?.textContent).toContain("把清单整理一下");
+    expect(host.querySelector(".agent-md")?.textContent).toBe("整理好了");
+    expect(host.querySelector(".agent-title")?.textContent).toContain("整理论文清单");
+  });
+
+  it("agent 不提供以前的对话：只列这次的，并说一声", async () => {
+    await mount();
+    await openMenu();
+    expect(state.sent.some((m) => m.method === "session/list")).toBe(false);
+    expect(host.querySelector(".agent-menu-note")?.textContent).toContain("不提供以前的对话");
   });
 });

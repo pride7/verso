@@ -6,7 +6,16 @@
  * 「一条条能画出来的东西」，这个折叠就在这里做 —— 纯函数，好测。
  */
 
-import type { ContentBlock, PlanEntry, SessionUpdate, ToolCallFields, ToolKind, ToolStatus } from "./acp";
+import type {
+  ContentBlock,
+  PlanEntry,
+  SessionInfo,
+  SessionMode,
+  SessionUpdate,
+  ToolCallFields,
+  ToolKind,
+  ToolStatus,
+} from "./acp";
 
 export interface FileDiff {
   /** 绝对路径，原样来自 agent */
@@ -114,6 +123,74 @@ export function applyUpdate(entries: ChatEntry[], u: SessionUpdate): ChatEntry[]
     default:
       return entries;
   }
+}
+
+// ------------------------------------------------------------------ 多个对话
+
+/** 面板里的一次对话。同一个 agent 进程可以同时开着好几个 */
+export interface Conversation {
+  id: string;
+  /** agent 给的标题（`session/list`、`session_info_update`）。没有就从第一句话里取 */
+  title: string | null;
+  entries: ChatEntry[];
+  modes: SessionMode[];
+  modeId: string | null;
+  /** 这一轮还没回完。各管各的：切走了它照样在后台跑 */
+  busy: boolean;
+  /** 正在从 agent 那里把以前的历史接回来 */
+  loading: boolean;
+  /** 毫秒。对话列表按它排 */
+  updatedAt: number;
+}
+
+export function newConversation(id: string, now: number, title: string | null = null): Conversation {
+  return { id, title, entries: [], modes: [], modeId: null, busy: false, loading: false, updatedAt: now };
+}
+
+/** 列表里给人看的名字 */
+export function conversationTitle(c: Pick<Conversation, "title" | "entries">): string {
+  if (c.title?.trim()) return c.title.trim();
+  const first = c.entries.find((e) => e.kind === "user");
+  if (!first) return "新对话";
+  const line = (first as { text: string }).text.trim().split(/\r?\n/)[0];
+  return line.length > 30 ? `${line.slice(0, 30)}…` : line;
+}
+
+/** 对话列表里的一行：开着的，或者 agent 那边记着的以前的 */
+export interface ConversationRow {
+  id: string;
+  title: string;
+  updatedAt: number;
+  /** 这次打开面板之后开过的（在内存里） */
+  open: boolean;
+}
+
+/**
+ * 开着的和以前的合成一张表，新的在前。
+ *
+ * 同一个对话两边都有时只留开着的那一份 —— 它的内容更新。开着但一句话都
+ * 没说过的不列（点「新对话」点出来的空白页），当前这一个除外。
+ */
+export function conversationRows(
+  open: Conversation[],
+  past: SessionInfo[],
+  activeId: string | null,
+): ConversationRow[] {
+  const rows: ConversationRow[] = open
+    .filter((c) => c.entries.length > 0 || c.id === activeId)
+    .map((c) => ({ id: c.id, title: conversationTitle(c), updatedAt: c.updatedAt, open: true }));
+  const seen = new Set(open.map((c) => c.id));
+  for (const p of past) {
+    if (seen.has(p.sessionId)) continue;
+    const t = p.updatedAt ? Date.parse(p.updatedAt) : NaN;
+    rows.push({
+      id: p.sessionId,
+      title: p.title?.trim() || "没有标题的对话",
+      updatedAt: Number.isFinite(t) ? t : 0,
+      open: false,
+    });
+  }
+  return rows.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 /**

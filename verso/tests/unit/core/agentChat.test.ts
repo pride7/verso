@@ -8,7 +8,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { SessionUpdate } from "../../../src/core/acp";
-import { applyUpdate, fileUri, relativeToVault, type ChatEntry } from "../../../src/core/agentChat";
+import {
+  applyUpdate,
+  conversationRows,
+  conversationTitle,
+  fileUri,
+  newConversation,
+  relativeToVault,
+  type ChatEntry,
+} from "../../../src/core/agentChat";
 
 const fold = (updates: SessionUpdate[]) => updates.reduce<ChatEntry[]>(applyUpdate, []);
 const chunk = (text: string): SessionUpdate => ({
@@ -131,5 +139,41 @@ describe("路径", () => {
       "file:///D:/Notes/vault/%E9%A1%B9%E7%9B%AE/a%20b.md",
     );
     expect(fileUri("/home/a/vault", "x.md")).toBe("file:///home/a/vault/x.md");
+  });
+});
+
+describe("对话列表", () => {
+  const conv = (id: string, updatedAt: number, entries: ChatEntry[] = [], title: string | null = null) => ({
+    ...newConversation(id, updatedAt, title),
+    entries,
+  });
+  const said = (text: string): ChatEntry[] => [{ kind: "user", text, context: [] }];
+
+  it("名字：agent 给的标题优先，没有就取第一句话的第一行", () => {
+    expect(conversationTitle({ title: "整理清单", entries: said("随便") })).toBe("整理清单");
+    expect(conversationTitle({ title: null, entries: said("第一行\n第二行") })).toBe("第一行");
+    expect(conversationTitle({ title: null, entries: [] })).toBe("新对话");
+    expect(conversationTitle({ title: null, entries: said("字".repeat(40)) })).toBe(`${"字".repeat(30)}…`);
+  });
+
+  it("开着的和以前的合在一起，新的在前；两边都有的只留开着的那份", () => {
+    const rows = conversationRows(
+      [conv("a", 3000, said("开着的")), conv("b", 1000, said("也开着"))],
+      [
+        { sessionId: "b", cwd: "/v", title: "旧标题", updatedAt: new Date(9000).toISOString() },
+        { sessionId: "c", cwd: "/v", title: "以前的", updatedAt: new Date(2000).toISOString() },
+      ],
+      "a",
+    );
+    expect(rows.map((r) => [r.id, r.title, r.open])).toEqual([
+      ["a", "开着的", true],
+      ["c", "以前的", false],
+      ["b", "也开着", true],
+    ]);
+  });
+
+  it("点出来还没说过话的空白对话不列，当前这个除外", () => {
+    const rows = conversationRows([conv("a", 1, []), conv("b", 2, [])], [], "b");
+    expect(rows.map((r) => r.id)).toEqual(["b"]);
   });
 });

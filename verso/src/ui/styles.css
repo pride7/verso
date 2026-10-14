@@ -5483,20 +5483,108 @@ body.is-table-resizing * {
   color: var(--muted);
   flex: none;
 }
+/* 左上角：当前对话的名字，点开是对话列表 */
+.agent-switch {
+  position: relative;
+  min-width: 0;
+  flex: 0 1 auto;
+}
 .agent-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px 2px 4px;
+  margin-left: -4px;
+  border-radius: var(--r-xs);
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+.agent-title:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.agent-title:disabled {
+  cursor: default;
+}
+.agent-title-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
-  letter-spacing: 0.02em;
 }
 .agent-title svg {
-  color: var(--accent);
   flex: none;
+}
+.agent-title svg:first-child {
+  color: var(--accent);
+}
+.agent-title svg:last-child:not(:first-child) {
+  color: var(--muted);
+  transform: rotate(90deg);
+}
+.agent-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -4px;
+  z-index: 20;
+  width: 300px;
+  max-width: calc(var(--agent-w, 420px) - 24px);
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+}
+.agent-menu-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-xs);
+  text-align: left;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.agent-menu-item:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+.agent-menu-item:disabled {
+  color: var(--muted-2);
+  cursor: default;
+}
+.agent-menu-item.is-on {
+  background: var(--accent-wash);
+}
+.agent-menu-item.is-new {
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--hairline);
+  border-radius: var(--r-xs) var(--r-xs) 0 0;
+  margin-bottom: 2px;
+}
+.agent-menu-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-menu-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+}
+.agent-menu-note {
+  margin: 4px 8px 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 .agent-mode {
   min-width: 0;
