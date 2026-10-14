@@ -89,6 +89,7 @@ export type SessionUpdate =
   | { sessionUpdate: "plan"; entries: PlanEntry[] }
   | { sessionUpdate: "current_mode_update"; currentModeId: string }
   | { sessionUpdate: "config_option_update"; configOptions: ConfigOption[] }
+  | ({ sessionUpdate: "usage_update" } & Usage)
   // 其余种类（可用命令、用量、压缩上下文…）面板眼下不显示，原样放过
   | { sessionUpdate: string; [k: string]: unknown };
 
@@ -137,7 +138,23 @@ export interface NewSessionResult {
   /** 旧写法，只有权限模式。agent 给了 `configOptions` 时以那份为准 */
   modes?: { currentModeId: string; availableModes: SessionMode[] } | null;
   configOptions?: ConfigOption[] | null;
+  /**
+   * 旧写法的模型列表（协议里标着 unstable）。只拿它做一件事：Codex 把思考强度
+   * 编在模型名里（`gpt-5.5/high`），而 `configOptions` 只列基础模型 —— 有哪些
+   * 强度可选，只有这份列得出来
+   */
+  models?: { currentModelId: string; availableModels: { modelId: string; name: string }[] } | null;
 }
+
+/** `usage_update`：上下文用了多少、这个对话花了多少 */
+export interface Usage {
+  used: number;
+  size: number;
+  cost?: { amount: number; currency: string } | null;
+}
+
+/** 开会话、接回会话时附带的私有选项（ACP 的 `_meta`） */
+export type SessionMeta = Record<string, unknown>;
 
 /** `session/list` 里的一条：以前的一次对话 */
 export interface SessionInfo {
@@ -156,8 +173,10 @@ export interface InitializeResult {
   agentCapabilities?: {
     /** 能用 `session/load` 接着以前的对话（会把历史整段重放一遍） */
     loadSession?: boolean;
-    /** `list` 在 = 能用 `session/list` 列出以前的对话 */
-    sessionCapabilities?: { list?: object | null } | null;
+    /** `list` 在 = 能用 `session/list` 列出以前的对话；`close` 在 = 能关掉一个 */
+    sessionCapabilities?: { list?: object | null; close?: object | null } | null;
+    /** 各家的私有声明。Claude 的适配器在这里放 `claudeCode` */
+    _meta?: Record<string, unknown> | null;
   } | null;
   authMethods?: { id: string; name: string; description?: string | null }[];
 }
@@ -293,8 +312,8 @@ export class AcpConnection {
     });
   }
 
-  newSession(cwd: string): Promise<NewSessionResult> {
-    return this.call("session/new", { cwd, mcpServers: [] });
+  newSession(cwd: string, meta?: SessionMeta): Promise<NewSessionResult> {
+    return this.call("session/new", { cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
   }
 
   prompt(sessionId: string, prompt: ContentBlock[]): Promise<{ stopReason: StopReason }> {
@@ -314,8 +333,17 @@ export class AcpConnection {
    * 接着以前的一次对话。agent 先把整段历史用 `session/update` 重放一遍，
    * 放完才回这个请求 —— 所以调用之前，接收那些更新的地方就得准备好
    */
-  loadSession(sessionId: string, cwd: string): Promise<Pick<NewSessionResult, "modes" | "configOptions">> {
-    return this.call("session/load", { sessionId, cwd, mcpServers: [] });
+  loadSession(
+    sessionId: string,
+    cwd: string,
+    meta?: SessionMeta,
+  ): Promise<Omit<NewSessionResult, "sessionId">> {
+    return this.call("session/load", { sessionId, cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
+  }
+
+  /** 关掉一个对话（agent 那边的进程状态），历史仍记在它那里，之后还能接回 */
+  closeSession(sessionId: string): Promise<unknown> {
+    return this.call("session/close", { sessionId });
   }
 
   /** 改一项配置。回来的是改完之后的整份（改模型可能连带改掉别的选项） */

@@ -91,6 +91,7 @@ const { AgentPanel } = await import("../../../src/ui/AgentPanel");
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+const last = <T,>(xs: T[]): T | undefined => xs[xs.length - 1];
 
 /** 等到条件成立。握手是好几轮异步来回，固定睡多久都可能不够 */
 async function until(cond: () => boolean, what: string) {
@@ -224,8 +225,9 @@ describe("起来", () => {
     expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
     expect(host.querySelector(".agent-title")?.getAttribute("title")).toContain("Fake Agent");
     // 只给了旧写法的模式：画在输入框下面那一行，叫「权限」
-    const select = host.querySelector<HTMLSelectElement>('.agent-config select[aria-label="权限"]')!;
-    expect([...select.options].map((o) => o.textContent)).toEqual(["Default", "Accept Edits"]);
+    const select = host.querySelector<HTMLSelectElement>('.agent-bar select[aria-label="权限"]')!;
+    // agent 给的英文名换成说人话的中文
+    expect([...select.options].map((o) => o.textContent)).toEqual(["每次询问", "自动接受修改"]);
     expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
   });
 
@@ -695,7 +697,7 @@ describe("选模型", () => {
   });
 
   const select = (label: string) =>
-    host.querySelector<HTMLSelectElement>(`.agent-config select[aria-label="${label}"]`);
+    host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
   const choose = async (label: string, value: string) => {
     await act(async () => {
       const el = select(label)!;
@@ -711,7 +713,7 @@ describe("选模型", () => {
     await mount();
     expect([...select("模型")!.options].map((o) => o.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
     expect(select("模型")!.value).toBe("opus");
-    expect(host.querySelectorAll(".agent-config select"), "权限只画一份").toHaveLength(2);
+    expect(host.querySelectorAll(".agent-bar select"), "权限只画一份").toHaveLength(2);
 
     await choose("模型", "sonnet");
     expect(sets()).toEqual([{ sessionId: "s1", configId: "model", value: "sonnet" }]);
@@ -753,5 +755,174 @@ describe("选模型", () => {
     state.sent = [];
     await mount(undefined, "codex-cmd");
     expect(sets()).toEqual([]);
+  });
+});
+
+describe("思考强度和上下文", () => {
+  const sel = (label: string) => host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
+  const choose = async (label: string, value: string) => {
+    await act(async () => {
+      const el = sel(label)!;
+      el.value = value;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle(120);
+    });
+  };
+  const sent = (method: string) => state.sent.filter((m) => m.method === method).map((m) => m.params);
+
+  it("Codex：强度编在模型名里，拆成两个下拉，改哪个都拼回去", async () => {
+    // 照抄 codex-acp：configOptions 只列基础模型，强度只在旧写法的变体列表里
+    const variants = ["gpt-6.1-sol", "gpt-5.5/low", "gpt-5.5/medium", "gpt-5.5/high", "gpt-5.4/low", "gpt-5.4/high"];
+    const cfg = (model: string) => [
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: "read-only",
+        options: [
+          { value: "read-only", name: "Read Only" },
+          { value: "full-access", name: "Full Access" },
+        ],
+      },
+      {
+        id: "model",
+        name: "Model",
+        category: "model",
+        type: "select",
+        currentValue: model,
+        options: [
+          { value: "gpt-6.1-sol", name: "gpt-6.1-sol" },
+          { value: "gpt-5.5", name: "GPT-5.5" },
+          { value: "gpt-5.4", name: "gpt-5.4" },
+        ],
+      },
+    ];
+    state.script["session/new"] = (m) =>
+      reply(m.id, {
+        sessionId: "s1",
+        configOptions: cfg("gpt-5.5"),
+        models: { currentModelId: "gpt-5.5", availableModels: variants.map((modelId) => ({ modelId, name: modelId })) },
+      });
+    state.script["session/set_config_option"] = (m) =>
+      reply(m.id, { configOptions: cfg((m.params as { value: string }).value) });
+    await mount();
+
+    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高"]);
+    await choose("思考强度", "high");
+    expect(sent("session/set_config_option")).toEqual([{ sessionId: "s1", configId: "model", value: "gpt-5.5/high" }]);
+    // 回来的当前值是 `gpt-5.5/high`：模型那一格仍显示基础名
+    expect(sel("模型")!.value).toBe("gpt-5.5");
+    expect(sel("思考强度")!.value).toBe("high");
+
+    await choose("模型", "gpt-5.4");
+    expect(last(sent("session/set_config_option"))).toEqual({ sessionId: "s1", configId: "model", value: "gpt-5.4/high" });
+
+    // 没有强度可选的模型：那一格不出现
+    await choose("模型", "gpt-6.1-sol");
+    expect(sel("思考强度")).toBeNull();
+  });
+
+  /** 照抄 claude-agent-acp 的 initialize：私有声明里有 claudeCode，能关、能接回 */
+  const claudeLike = () => {
+    state.script.initialize = (m) =>
+      reply(m.id, {
+        protocolVersion: 1,
+        agentInfo: { name: "claude", title: "Claude Agent" },
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: { close: {} },
+          _meta: { claudeCode: { promptQueueing: true } },
+        },
+      });
+    let n = 0;
+    state.script["session/new"] = (m) => reply(m.id, { sessionId: `s${++n}` });
+    state.script["session/close"] = (m) => reply(m.id, {});
+    state.script["session/prompt"] = (m) => reply(m.id, { stopReason: "end_turn" });
+    state.script["session/load"] = (m) => {
+      const sid = (m.params as { sessionId: string }).sessionId;
+      emit({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: { sessionId: sid, update: { sessionUpdate: "user_message_chunk", content: { type: "text", text: "之前问的" } } },
+      });
+      reply(m.id, {});
+    };
+  };
+  const effortOf = (p: unknown) =>
+    ((p as { _meta?: { claudeCode?: { options?: { effort?: string } } } })._meta?.claudeCode?.options?.effort) ?? null;
+
+  it("Claude：空白对话里换强度，直接换一个带着新强度开的对话", async () => {
+    claudeLike();
+    await mount();
+    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高", "超高", "最高"]);
+    await choose("思考强度", "high");
+    const news = sent("session/new");
+    expect(news).toHaveLength(2);
+    expect(effortOf(news[1])).toBe("high");
+    expect(sent("session/close")).toEqual([{ sessionId: "s1" }]);
+    expect(sel("思考强度")!.value).toBe("high");
+  });
+
+  it("Claude：说过话的对话里换强度，关掉再带着新强度接回来，历史由它重放", async () => {
+    claudeLike();
+    await mount();
+    await type("先问一句");
+    await choose("思考强度", "medium");
+    expect(sent("session/close")).toEqual([{ sessionId: "s1" }]);
+    const load = sent("session/load")[0];
+    expect(load).toMatchObject({ sessionId: "s1" });
+    expect(effortOf(load)).toBe("medium");
+    expect(host.querySelector(".agent-msg.is-user")?.textContent).toContain("之前问的");
+    expect(sel("思考强度")!.value).toBe("medium");
+  });
+
+  it("Claude：选过的强度，新对话接着用", async () => {
+    claudeLike();
+    await mount();
+    await choose("思考强度", "xhigh");
+    await type("说句话");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(120);
+    });
+    expect(effortOf(last(sent("session/new")))).toBe("xhigh");
+  });
+
+  it("上下文：画成一个圆环，悬停看数字和花费", async () => {
+    state.script["session/prompt"] = (m) => {
+      update({ sessionUpdate: "usage_update", used: 250000, size: 1000000, cost: { amount: 0.2, currency: "USD" } });
+      reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    expect(host.querySelector(".agent-ctx"), "还没报过就不画").toBeNull();
+    await type("你好");
+    const ring = host.querySelector(".agent-ctx")!;
+    expect(ring.getAttribute("aria-label")).toBe("上下文已用 25%");
+    expect(ring.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
+  });
+
+  it("完全访问：权限那一格换成提醒色", async () => {
+    state.script["session/new"] = (m) =>
+      reply(m.id, {
+        sessionId: "s1",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "bypassPermissions",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "bypassPermissions", name: "Bypass Permissions" },
+            ],
+          },
+        ],
+      });
+    await mount();
+    const pick = sel("权限")!.closest(".agent-pick")!;
+    expect(pick.classList.contains("is-risky")).toBe(true);
+    expect(pick.textContent).toContain("完全访问");
   });
 });

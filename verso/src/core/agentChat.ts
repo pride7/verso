@@ -17,6 +17,7 @@ import type {
   ToolCallFields,
   ToolKind,
   ToolStatus,
+  Usage,
 } from "./acp";
 
 export interface FileDiff {
@@ -139,6 +140,12 @@ export interface Conversation {
   modeId: string | null;
   /** agent 报上来的可调配置（模型、权限模式…）。给了它就不再用 `modes` */
   config: ConfigOption[];
+  /** 旧写法模型列表里的全部 id。Codex 的思考强度藏在这里（见 `effortControl`） */
+  variants: string[];
+  /** 开这个对话时交给 Claude 的 effort（`_meta`）。null = 用它自己的默认 */
+  effort: string | null;
+  /** 最近一次 `usage_update`。agent 不报就一直是 null，界面上不画那个圆环 */
+  usage: Usage | null;
   /** 这一轮还没回完。各管各的：切走了它照样在后台跑 */
   busy: boolean;
   /** 正在从 agent 那里把以前的历史接回来 */
@@ -148,7 +155,20 @@ export interface Conversation {
 }
 
 export function newConversation(id: string, now: number, title: string | null = null): Conversation {
-  return { id, title, entries: [], modes: [], modeId: null, config: [], busy: false, loading: false, updatedAt: now };
+  return {
+    id,
+    title,
+    entries: [],
+    modes: [],
+    modeId: null,
+    config: [],
+    variants: [],
+    effort: null,
+    usage: null,
+    busy: false,
+    loading: false,
+    updatedAt: now,
+  };
 }
 
 // ------------------------------------------------------------------ 可调配置
@@ -189,6 +209,7 @@ export function configLabel(o: ConfigOption): string {
 export function configToRestore(
   options: ConfigOption[],
   saved: Record<string, string | boolean>,
+  variants: string[] = [],
 ): { id: string; value: string | boolean }[] {
   const out: { id: string; value: string | boolean }[] = [];
   for (const o of options) {
@@ -196,12 +217,112 @@ export function configToRestore(
     const want = saved[o.id];
     if (want === undefined || want === o.currentValue) continue;
     if (o.type === "select") {
-      if (typeof want === "string" && configChoices(o).some((c) => c.value === want)) out.push({ id: o.id, value: want });
+      // Codex 记住的是带强度的那个（`gpt-5.5/high`），它不在基础列表里、在变体列表里
+      const known = configChoices(o).some((c) => c.value === want) || variants.includes(want as string);
+      if (typeof want === "string" && known) out.push({ id: o.id, value: want });
     } else if (typeof want === "boolean") {
       out.push({ id: o.id, value: want });
     }
   }
   return out;
+}
+
+// ------------------------------------------------------------------ 思考强度
+
+/** 各家都用这几个词，按从低到高排 */
+export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export const EFFORT_LABEL: Record<string, string> = {
+  none: "不思考",
+  minimal: "最低",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "超高",
+  max: "最高",
+};
+
+/**
+ * Claude Code 认的那几档（`claude --help` 里 `--effort` 的取值）。适配器不报
+ * 每个模型支持哪些，所以列全；模型不支持时 Claude Code 自己会忽略
+ */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+
+/** `gpt-5.5/high` → 基础模型和强度。不带斜杠的就是没有强度可选 */
+export function splitModel(value: string): { base: string; effort: string | null } {
+  const at = value.lastIndexOf("/");
+  return at > 0 ? { base: value.slice(0, at), effort: value.slice(at + 1) } : { base: value, effort: null };
+}
+
+/** 某个基础模型有哪些强度可选（照 Codex 的变体列表），按从低到高排 */
+export function variantEfforts(base: string, variants: string[]): string[] {
+  const rank = (e: string) => (EFFORT_ORDER.includes(e) ? EFFORT_ORDER.indexOf(e) : EFFORT_ORDER.length);
+  return variants
+    .filter((v) => v.startsWith(`${base}/`))
+    .map((v) => v.slice(base.length + 1))
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * 拼回 Codex 认的模型名。这个强度在新模型上没有，就退到「中」，再没有就退到
+ * 基础名（用它自己的默认）—— 换模型时不能因为强度对不上就整个设不进去
+ */
+export function joinModel(base: string, effort: string | null, variants: string[]): string {
+  const levels = variantEfforts(base, variants);
+  if (effort && levels.includes(effort)) return `${base}/${effort}`;
+  if (levels.includes("medium") && effort) return `${base}/medium`;
+  return base;
+}
+
+/**
+ * 这个对话的思考强度怎么调。三家三种做法，按优先级：
+ *
+ * 1. **协议标准的那一项**（`configOptions` 里 category 是 `thought_level`）——
+ *    哪家按标准报了就用它，下面两条都是为眼下还没这么做的适配器补的
+ * 2. **编在模型名里**（Codex：`gpt-5.5/high`）
+ * 3. **开对话时传进去**（Claude：`_meta.claudeCode.options.effort`）。中途改就得
+ *    把对话关掉再接回来，所以这一种要 agent 能关、能接回
+ */
+export type EffortControl =
+  | { kind: "config"; option: ConfigOption }
+  | { kind: "variant"; model: ConfigOption; base: string; current: string | null; levels: string[] }
+  | { kind: "meta"; current: string | null; levels: string[] }
+  | null;
+
+export function effortControl(c: Conversation, metaEffort: boolean): EffortControl {
+  const thought = c.config.find((o) => o.category === "thought_level");
+  if (thought) return { kind: "config", option: thought };
+  const model = c.config.find((o) => o.category === "model" && o.type === "select");
+  if (model && model.type === "select") {
+    const { base, effort } = splitModel(model.currentValue);
+    const levels = variantEfforts(base, c.variants);
+    if (levels.length > 0) return { kind: "variant", model, base, current: effort, levels };
+  }
+  if (metaEffort) return { kind: "meta", current: c.effort, levels: CLAUDE_EFFORTS };
+  return null;
+}
+
+/**
+ * 权限模式给人看的名字。agent 给的是英文，而且两家叫法不一样（Claude 的
+ * `bypassPermissions` 和 Codex 的 `full-access` 是同一件事）。`risky` 的那几个
+ * 不再逐个确认，界面上要换个颜色提醒
+ */
+export const MODE_LABEL: Record<string, { label: string; risky?: boolean }> = {
+  default: { label: "每次询问" },
+  acceptEdits: { label: "自动接受修改" },
+  plan: { label: "只做计划" },
+  dontAsk: { label: "不询问，未授权的拒绝" },
+  bypassPermissions: { label: "完全访问", risky: true },
+  "read-only": { label: "只读" },
+  auto: { label: "可改仓库" },
+  "full-access": { label: "完全访问", risky: true },
+};
+
+/** 一个数字的短写：25109 → 25k，1000000 → 1M */
+export function shortCount(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return String(n);
 }
 
 /** 列表里给人看的名字 */

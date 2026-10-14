@@ -12,6 +12,11 @@ import {
   applyUpdate,
   configChoices,
   configToRestore,
+  effortControl,
+  joinModel,
+  shortCount,
+  splitModel,
+  variantEfforts,
   conversationRows,
   conversationTitle,
   fileUri,
@@ -228,5 +233,62 @@ describe("可调配置", () => {
     expect(configToRestore([model], { model: "claude-2" })).toEqual([]);
     // 什么都没记过
     expect(configToRestore([model], {})).toEqual([]);
+  });
+});
+
+describe("思考强度", () => {
+  const variants = ["gpt-6.1-sol", "gpt-5.5/high", "gpt-5.5/low", "gpt-5.5/xhigh", "gpt-5.5/medium", "gpt-5.4/low"];
+
+  it("拆、排、拼", () => {
+    expect(splitModel("gpt-5.5/high")).toEqual({ base: "gpt-5.5", effort: "high" });
+    expect(splitModel("opus")).toEqual({ base: "opus", effort: null });
+    expect(variantEfforts("gpt-5.5", variants)).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(joinModel("gpt-5.5", "xhigh", variants)).toBe("gpt-5.5/xhigh");
+    // 新模型上没有这一档：退到「中」，再没有就用基础名
+    expect(joinModel("gpt-5.4", "high", variants)).toBe("gpt-5.4");
+    expect(joinModel("gpt-5.5", "max", variants)).toBe("gpt-5.5/medium");
+    expect(joinModel("gpt-6.1-sol", "high", variants)).toBe("gpt-6.1-sol");
+  });
+
+  const model = (currentValue: string): ConfigOption => ({
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue,
+    options: [{ value: "gpt-5.5", name: "GPT-5.5" }],
+  });
+
+  it("按优先级认：标准的那一项 > 编在模型名里 > 开对话时传入", () => {
+    const thought: ConfigOption = {
+      id: "effort",
+      name: "Effort",
+      category: "thought_level",
+      type: "select",
+      currentValue: "high",
+      options: [{ value: "high", name: "High" }],
+    };
+    const base = { ...newConversation("s", 0), variants };
+    expect(effortControl({ ...base, config: [thought, model("gpt-5.5/high")] }, true)?.kind).toBe("config");
+    expect(effortControl({ ...base, config: [model("gpt-5.5/high")] }, true)).toMatchObject({
+      kind: "variant",
+      base: "gpt-5.5",
+      current: "high",
+    });
+    expect(effortControl({ ...newConversation("s", 0), effort: "max" }, true)).toMatchObject({ kind: "meta", current: "max" });
+    expect(effortControl(newConversation("s", 0), false)).toBeNull();
+  });
+
+  it("Codex 记住的模型带着强度，也能补回去", () => {
+    expect(configToRestore([model("gpt-5.5")], { model: "gpt-5.5/high" }, variants)).toEqual([
+      { id: "model", value: "gpt-5.5/high" },
+    ]);
+  });
+
+  it("数字短写", () => {
+    expect(shortCount(950)).toBe("950");
+    expect(shortCount(25109)).toBe("25k");
+    expect(shortCount(1_000_000)).toBe("1M");
+    expect(shortCount(1_500_000)).toBe("1.5M");
   });
 });

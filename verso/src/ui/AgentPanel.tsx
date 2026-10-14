@@ -24,15 +24,21 @@ import {
   type PermissionOutcome,
   type PermissionRequest,
   type SessionInfo,
+  type SessionMeta,
 } from "../core/acp";
 import {
   applyUpdate,
   configChoices,
-  configLabel,
   configToRestore,
   conversationRows,
   conversationTitle,
+  EFFORT_LABEL,
+  effortControl,
+  joinModel,
+  MODE_LABEL,
   REMEMBERED_CATEGORIES,
+  shortCount,
+  splitModel,
   fileUri,
   newConversation,
   PERMISSION_LABEL,
@@ -115,6 +121,13 @@ function savePref(command: string, id: string, value: string | boolean) {
   localStorage.setItem(PREFS_KEY, JSON.stringify(all));
 }
 
+/** Claude 的 effort 不在 agent 报的配置里，单独记在这个键下。空串 = 用它自己的默认 */
+const EFFORT_PREF = "__effort";
+
+/** 开对话时交给 Claude 适配器的私有选项：它原样转给 Claude Agent SDK（`--effort`） */
+const claudeEffortMeta = (effort: string | null): SessionMeta | undefined =>
+  effort ? { claudeCode: { options: { effort } } } : undefined;
+
 const errorText = (e: unknown) =>
   e instanceof AcpError ? e.detail : e instanceof Error ? e.message : String(e);
 
@@ -140,6 +153,11 @@ export function AgentPanel({
   /** agent 记着的以前的对话。null = 它不支持列出来 */
   const [past, setPast] = useState<SessionInfo[] | null>(null);
   const [canLoad, setCanLoad] = useState(false);
+  /**
+   * Claude 的适配器：effort 只能在开对话时传进去。中途改要关掉再接回，所以
+   * 还得它能关（`session/close`）、能接回（`session/load`）
+   */
+  const [metaEffort, setMetaEffort] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [ctx, setCtx] = useState<AgentContext>({ path: null, selection: "" });
@@ -179,29 +197,39 @@ export function AgentPanel({
 
   /** 新开的对话记下来；agent 给了模式、配置就一起记 */
   const adopt = useCallback(
-    (id: string, s: Pick<NewSessionResult, "modes" | "configOptions">, title: string | null = null) => {
+    (id: string, s: Omit<NewSessionResult, "sessionId">, extra: Partial<Conversation> = {}) => {
       setConvs((all) => ({
         ...all,
         [id]: {
-          ...(all[id] ?? newConversation(id, Date.now(), title)),
+          ...(all[id] ?? newConversation(id, Date.now())),
           modes: s.modes?.availableModes ?? [],
           modeId: s.modes?.currentModeId ?? null,
           config: s.configOptions ?? [],
+          variants: (s.models?.availableModels ?? []).map((m) => m.modelId),
+          ...extra,
         },
       }));
     },
     [],
   );
 
+  /** 记住的 Claude effort。null = 没选过，用它自己的默认 */
+  const savedEffort = useCallback((): string | null => {
+    const v = readPrefs()[command]?.[EFFORT_PREF];
+    return typeof v === "string" && v ? v : null;
+  }, [command]);
+
   /**
    * 新对话用上次选的模型。agent 每开一个会话都回到它自己的默认值，不补的话，
    * 人每开一个新对话都得重新选一遍
    */
   const restorePrefs = useCallback(
-    async (id: string, options: ConfigOption[] | null | undefined) => {
+    async (id: string, s: Omit<NewSessionResult, "sessionId">) => {
       const conn = connRef.current;
+      const options = s.configOptions;
       if (!conn || !options) return;
-      for (const { id: configId, value } of configToRestore(options, readPrefs()[command] ?? {})) {
+      const variants = (s.models?.availableModels ?? []).map((m) => m.modelId);
+      for (const { id: configId, value } of configToRestore(options, readPrefs()[command] ?? {}, variants)) {
         try {
           const r = await conn.setConfigOption(id, configId, value);
           if (r.configOptions) patch(id, (c) => ({ ...c, config: r.configOptions! }));
@@ -271,6 +299,7 @@ export function AgentPanel({
     setActiveId(null);
     setPast(null);
     setCanLoad(false);
+    setMetaEffort(false);
 
     void (async () => {
       try {
@@ -290,6 +319,9 @@ export function AgentPanel({
             } else if (u.sessionUpdate === "current_mode_update") {
               const modeId = (u as { currentModeId: string }).currentModeId;
               patch(n.sessionId, (c) => ({ ...c, modeId }));
+            } else if (u.sessionUpdate === "usage_update") {
+              const { used, size, cost } = u as unknown as Conversation["usage"] & object;
+              patch(n.sessionId, (c) => ({ ...c, usage: { used, size, cost } }));
             } else if (u.sessionUpdate === "session_info_update") {
               const title = (u as { title?: string | null }).title;
               if (title) patch(n.sessionId, (c) => ({ ...c, title }));
@@ -312,14 +344,18 @@ export function AgentPanel({
         const info = await conn.initialize(APP_VERSION);
         if (disposed) return;
         setAgentName(info.agentInfo?.title || info.agentInfo?.name || "");
-        setCanLoad(!!info.agentCapabilities?.loadSession);
-        if (info.agentCapabilities?.sessionCapabilities?.list) setPast([]);
-        const session = await conn.newSession(cwd);
+        const caps = info.agentCapabilities;
+        setCanLoad(!!caps?.loadSession);
+        if (caps?.sessionCapabilities?.list) setPast([]);
+        const claude = !!caps?._meta?.claudeCode;
+        setMetaEffort(claude && !!caps?.loadSession && !!caps?.sessionCapabilities?.close);
+        const effort = claude ? savedEffort() : null;
+        const session = await conn.newSession(cwd, claudeEffortMeta(effort));
         if (disposed) return;
-        adopt(session.sessionId, session);
+        adopt(session.sessionId, session, { effort });
         setActiveId(session.sessionId);
         setPhase({ kind: "ready" });
-        void restorePrefs(session.sessionId, session.configOptions);
+        void restorePrefs(session.sessionId, session);
       } catch (e) {
         if (disposed) return;
         if (e instanceof AcpError && e.code === AUTH_REQUIRED) {
@@ -338,7 +374,7 @@ export function AgentPanel({
       if (procId) void api.agentStop(procId);
       void unlisten.then((fns) => fns.forEach((f) => f()));
     };
-  }, [command, generation, patch, adopt, restorePrefs]);
+  }, [command, generation, patch, adopt, restorePrefs, savedEffort]);
 
   const active = activeId ? convs[activeId] ?? null : null;
   const entries = active?.entries ?? [];
@@ -455,11 +491,12 @@ export function AgentPanel({
       return;
     }
     try {
-      const s = await conn.newSession(cwdRef.current);
-      adopt(s.sessionId, s);
+      const effort = metaEffort ? savedEffort() : null;
+      const s = await conn.newSession(cwdRef.current, claudeEffortMeta(effort));
+      adopt(s.sessionId, s, { effort });
       setActiveId(s.sessionId);
       inputRef.current?.focus();
-      void restorePrefs(s.sessionId, s.configOptions);
+      void restorePrefs(s.sessionId, s);
     } catch (e) {
       if (activeId) {
         patch(activeId, (c) => ({
@@ -482,12 +519,14 @@ export function AgentPanel({
     if (!conn || !canLoad) return;
     // 先把这个对话摆好再去要：agent 是用 `session/update` 把历史重放过来的，
     // 放完才回这个请求 —— 那时再建就把历史全丢了
-    setConvs((all) => ({ ...all, [id]: { ...newConversation(id, Date.now(), title), loading: true } }));
+    const effort = metaEffort ? savedEffort() : null;
+    setConvs((all) => ({ ...all, [id]: { ...newConversation(id, Date.now(), title), loading: true, effort } }));
     setActiveId(id);
     try {
-      const s = await conn.loadSession(id, cwdRef.current);
+      const s = await conn.loadSession(id, cwdRef.current, claudeEffortMeta(effort));
       adopt(id, s);
       patch(id, (c) => ({ ...c, loading: false }));
+      void restorePrefs(id, s);
     } catch (e) {
       patch(id, (c) => ({
         ...c,
@@ -547,7 +586,49 @@ export function AgentPanel({
       set(before);
       patch(sid, (c) => ({
         ...c,
-        entries: [...c.entries, { kind: "agent", text: `**没能切换${configLabel(o)}：** ${errorText(e)}` }],
+        entries: [...c.entries, { kind: "agent", text: `**没能切换：** ${errorText(e)}` }],
+      }));
+    }
+  };
+
+  /**
+   * 换 Claude 的 effort。它只在开对话时生效，所以：
+   *
+   * - 还没说过话的空白对话：直接换一个带新 effort 的
+   * - 说过话的：在 agent 那边关掉、再带着新 effort 接回来 —— 历史由它重放，
+   *   上下文一句不丢，只是这一下要等它重放完
+   */
+  const changeMetaEffort = async (effort: string | null) => {
+    const sid = activeId;
+    const conn = connRef.current;
+    if (!sid || !conn || !active || active.busy) return;
+    savePref(command, EFFORT_PREF, effort ?? "");
+    const meta = claudeEffortMeta(effort);
+    try {
+      if (active.entries.length === 0) {
+        const s = await conn.newSession(cwdRef.current, meta);
+        adopt(s.sessionId, s, { effort });
+        setActiveId(s.sessionId);
+        setConvs((all) => {
+          const next = { ...all };
+          delete next[sid];
+          return next;
+        });
+        void conn.closeSession(sid).catch(() => {});
+        void restorePrefs(s.sessionId, s);
+        return;
+      }
+      patch(sid, (c) => ({ ...c, loading: true, entries: [], effort }));
+      await conn.closeSession(sid);
+      const s = await conn.loadSession(sid, cwdRef.current, meta);
+      adopt(sid, s);
+      patch(sid, (c) => ({ ...c, loading: false }));
+      void restorePrefs(sid, s);
+    } catch (e) {
+      patch(sid, (c) => ({
+        ...c,
+        loading: false,
+        entries: [...c.entries, { kind: "agent", text: `**没能切换思考强度：** ${errorText(e)}` }],
       }));
     }
   };
@@ -584,8 +665,12 @@ export function AgentPanel({
   const rel = (abs: string) => relativeToVault(abs, cwdRef.current);
   const modes = active?.modes ?? [];
   const config = active?.config ?? [];
-  // 配置里已经有权限模式了，旧写法的那一份就不再单独画
-  const legacyModes = config.some((o) => o.category === "mode") ? [] : modes;
+  const modeOption = config.find((o) => o.category === "mode" && o.type === "select");
+  const modelOption = config.find((o) => o.category === "model" && o.type === "select");
+  const effort = active ? effortControl(active, metaEffort) : null;
+  // 底部那一行专门画了权限、模型、强度；agent 另外报的（少见）照原样排在后面
+  const otherConfig = config.filter((o) => o !== modeOption && o !== modelOption && !(effort?.kind === "config" && effort.option === o));
+  const usage = active?.usage ?? null;
   const now = new Date();
 
   return (
@@ -817,68 +902,142 @@ export function AgentPanel({
               }
             }}
           />
-          {busy ? (
-            <button className="agent-send is-stop" onClick={stop} title="停下这一轮" aria-label="停下这一轮">
-              <Icon name="stop" size={14} />
-            </button>
-          ) : (
-            <button
-              className="agent-send"
-              onClick={() => void send()}
-              disabled={!ready || !draft.trim()}
-              title="发送"
-              aria-label="发送"
-            >
-              <Icon name="arrow-up" size={14} />
-            </button>
-          )}
-        </div>
-        {(config.length > 0 || legacyModes.length > 0) && (
-          <div className="agent-config">
-            {config.map((o) =>
+          {/* 底部一行：左边是权限（这个对话能做什么），右边是模型、思考强度、
+              上下文和发送 —— 和常见的 AI 输入框同一个排法，人一眼就知道在哪儿 */}
+          <div className="agent-bar">
+            {modeOption && modeOption.type === "select" ? (
+              <Picker
+                label="权限"
+                icon="shield"
+                risky={!!MODE_LABEL[modeOption.currentValue]?.risky}
+                value={modeOption.currentValue}
+                disabled={!ready}
+                options={configChoices(modeOption).map((c) => ({
+                  value: c.value,
+                  label: MODE_LABEL[c.value]?.label ?? c.name,
+                  title: c.description ?? c.name,
+                }))}
+                onChange={(v) => void pickConfig(modeOption, v)}
+              />
+            ) : (
+              modes.length > 0 && (
+                <Picker
+                  label="权限"
+                  icon="shield"
+                  risky={!!MODE_LABEL[active?.modeId ?? ""]?.risky}
+                  value={active?.modeId ?? ""}
+                  disabled={!ready}
+                  options={modes.map((m) => ({
+                    value: m.id,
+                    label: MODE_LABEL[m.id]?.label ?? m.name,
+                    title: m.description ?? m.name,
+                  }))}
+                  onChange={pickMode}
+                />
+              )
+            )}
+            <span className="agent-bar-gap" />
+            {otherConfig.map((o) =>
               o.type === "select" ? (
-                <label key={o.id} className="agent-config-item" title={o.description ?? o.name}>
-                  <span>{configLabel(o)}</span>
-                  <select
-                    value={o.currentValue}
-                    disabled={!ready}
-                    aria-label={configLabel(o)}
-                    onChange={(e) => void pickConfig(o, e.target.value)}
-                  >
-                    <ConfigOptions option={o} />
-                  </select>
-                </label>
+                <Picker
+                  key={o.id}
+                  label={o.name}
+                  value={o.currentValue}
+                  disabled={!ready}
+                  options={configChoices(o).map((c) => ({ value: c.value, label: c.name, group: c.group }))}
+                  onChange={(v) => void pickConfig(o, v)}
+                />
               ) : (
-                <label key={o.id} className="agent-config-item" title={o.description ?? o.name}>
+                <label key={o.id} className="agent-pick" title={o.description ?? o.name}>
                   <input
                     type="checkbox"
                     checked={o.currentValue}
                     disabled={!ready}
                     onChange={(e) => void pickConfig(o, e.target.checked)}
                   />
-                  <span>{configLabel(o)}</span>
+                  <span className="agent-pick-text">{o.name}</span>
                 </label>
               ),
             )}
-            {legacyModes.length > 0 && (
-              <label className="agent-config-item" title="权限模式">
-                <span>权限</span>
-                <select
-                  value={active?.modeId ?? ""}
-                  disabled={!ready}
-                  aria-label="权限"
-                  onChange={(e) => pickMode(e.target.value)}
-                >
-                  {legacyModes.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {modelOption && modelOption.type === "select" && (
+              <Picker
+                label="模型"
+                value={effort?.kind === "variant" ? effort.base : modelOption.currentValue}
+                disabled={!ready}
+                options={configChoices(modelOption).map((c) => ({
+                  value: c.value,
+                  label: c.name,
+                  group: c.group,
+                  title: c.description ?? undefined,
+                }))}
+                onChange={(v) =>
+                  void pickConfig(
+                    modelOption,
+                    // Codex：换模型时把强度带过去（`gpt-5.4` + 高 → `gpt-5.4/high`）
+                    active?.variants.length ? joinModel(splitModel(v).base, effort?.kind === "variant" ? effort.current : null, active.variants) : v,
+                  )
+                }
+              />
+            )}
+            {effort?.kind === "config" && effort.option.type === "select" && (
+              <Picker
+                label="思考强度"
+                value={effort.option.currentValue}
+                disabled={!ready}
+                options={configChoices(effort.option).map((c) => ({
+                  value: c.value,
+                  label: EFFORT_LABEL[c.value] ?? c.name,
+                }))}
+                onChange={(v) => void pickConfig(effort.option, v)}
+              />
+            )}
+            {effort?.kind === "variant" && (
+              <Picker
+                label="思考强度"
+                value={effort.current ?? ""}
+                disabled={!ready}
+                options={[
+                  ...(effort.current === null ? [{ value: "", label: "默认强度" }] : []),
+                  ...effort.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
+                ]}
+                onChange={(v) => void pickConfig(effort.model, v ? `${effort.base}/${v}` : effort.base)}
+              />
+            )}
+            {effort?.kind === "meta" && (
+              <Picker
+                label="思考强度"
+                value={effort.current ?? ""}
+                disabled={!ready || busy}
+                title={
+                  active && active.entries.length > 0
+                    ? "换思考强度会把这个对话关掉再接回来，历史不会丢"
+                    : undefined
+                }
+                options={[
+                  { value: "", label: "默认强度" },
+                  ...effort.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
+                ]}
+                onChange={(v) => void changeMetaEffort(v || null)}
+              />
+            )}
+            {usage && usage.size > 0 && <ContextRing usage={usage} />}
+            {busy ? (
+              <button className="agent-send is-stop" onClick={stop} title="停下这一轮" aria-label="停下这一轮">
+                <Icon name="stop" size={14} />
+              </button>
+            ) : (
+              <button
+                className="agent-send"
+                onClick={() => void send()}
+                disabled={!ready || !draft.trim()}
+                title="发送"
+                aria-label="发送"
+              >
+                <Icon name="arrow-up" size={14} />
+              </button>
             )}
           </div>
-        )}
+        </div>
       </footer>
     </aside>
   );
@@ -886,24 +1045,96 @@ export function AgentPanel({
 
 // ------------------------------------------------------------ 对话里的一条
 
-/** 下拉的选项。agent 分了组就画成 optgroup */
-function ConfigOptions({ option }: { option: ConfigOption }) {
-  const choices = configChoices(option);
-  const groups = [...new Set(choices.map((c) => c.group))];
-  const item = (c: (typeof choices)[number]) => (
-    <option key={`${c.group}/${c.value}`} value={c.value} title={c.description ?? undefined}>
-      {c.name}
+interface PickerOption {
+  value: string;
+  label: string;
+  group?: string | null;
+  title?: string;
+}
+
+/**
+ * 输入框底部那几个「文字 + 小箭头」的选择器。
+ *
+ * 看起来是自己画的，点开却是系统原生的下拉：一个透明的 `<select>` 盖在上面。
+ * 键盘、读屏、长列表滚动都白拿，不用再写一个弹出菜单。分了组的画成 optgroup
+ */
+function Picker({
+  label,
+  icon,
+  risky = false,
+  value,
+  options,
+  disabled,
+  title,
+  onChange,
+}: {
+  label: string;
+  icon?: "shield";
+  /** 不再逐个确认的权限，换个颜色提醒 */
+  risky?: boolean;
+  value: string;
+  options: PickerOption[];
+  disabled?: boolean;
+  title?: string;
+  onChange: (value: string) => void;
+}) {
+  const current = options.find((o) => o.value === value);
+  const groups = [...new Set(options.map((o) => o.group ?? null))];
+  const item = (o: PickerOption) => (
+    <option key={`${o.group ?? ""}/${o.value}`} value={o.value} title={o.title}>
+      {o.label}
     </option>
   );
-  if (groups.length === 1 && groups[0] === null) return <>{choices.map(item)}</>;
   return (
-    <>
-      {groups.map((g) => (
-        <optgroup key={g ?? ""} label={g ?? ""}>
-          {choices.filter((c) => c.group === g).map(item)}
-        </optgroup>
-      ))}
-    </>
+    <label
+      className={`agent-pick${risky ? " is-risky" : ""}${disabled ? " is-disabled" : ""}`}
+      title={title ?? (current ? `${label}：${current.label}` : label)}
+    >
+      {icon && <Icon name={icon} size={12} />}
+      <span className="agent-pick-text">{current?.label ?? value ?? label}</span>
+      <Icon name="chevron" size={9} />
+      <select value={value} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value)}>
+        {groups.length === 1 && groups[0] === null
+          ? options.map(item)
+          : groups.map((g) => (
+              <optgroup key={g ?? ""} label={g ?? ""}>
+                {options.filter((o) => (o.group ?? null) === g).map(item)}
+              </optgroup>
+            ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * 上下文用了多少：一个小圆环，悬停看数字。快满时变色 —— 到那时 agent 会开始
+ * 压缩前面的对话，人该知道它正在忘事
+ */
+function ContextRing({ usage }: { usage: NonNullable<Conversation["usage"]> }) {
+  const ratio = Math.min(1, Math.max(0, usage.used / usage.size));
+  const r = 6.5;
+  const len = 2 * Math.PI * r;
+  const pct = Math.round(ratio * 100);
+  const cost = usage.cost ? ` · 这个对话花了 ${usage.cost.currency === "USD" ? "$" : `${usage.cost.currency} `}${usage.cost.amount.toFixed(2)}` : "";
+  return (
+    <span
+      className={`agent-ctx${ratio > 0.8 ? " is-full" : ""}`}
+      title={`上下文：${shortCount(usage.used)} / ${shortCount(usage.size)}（${pct}%）${cost}`}
+      aria-label={`上下文已用 ${pct}%`}
+      role="img"
+    >
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <circle cx="9" cy="9" r={r} className="agent-ctx-track" />
+        <circle
+          cx="9"
+          cy="9"
+          r={r}
+          className="agent-ctx-fill"
+          strokeDasharray={`${len * ratio} ${len}`}
+          transform="rotate(-90 9 9)"
+        />
+      </svg>
+    </span>
   );
 }
 

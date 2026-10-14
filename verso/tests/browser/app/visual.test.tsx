@@ -188,7 +188,11 @@ function agentReply(line: string) {
       result: {
         protocolVersion: 1,
         agentInfo: { name: "claude", title: "Claude Agent" },
-        agentCapabilities: { loadSession: true, sessionCapabilities: { list: {} } },
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: { list: {}, close: {} },
+          _meta: { claudeCode: { promptQueueing: true } },
+        },
       },
     });
   } else if (m.method === "session/list") {
@@ -247,6 +251,7 @@ function agentReply(line: string) {
       },
     });
   } else if (m.method === "session/prompt") {
+    agentUpdate({ sessionUpdate: "usage_update", used: 182000, size: 1000000, cost: { amount: 0.41, currency: "USD" } });
     agentUpdate({ sessionUpdate: "tool_call", toolCallId: "r1", title: "Read 论文.md", kind: "read", status: "completed" });
     agentUpdate({
       sessionUpdate: "plan",
