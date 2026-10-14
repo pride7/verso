@@ -217,6 +217,33 @@ function agentReply(line: string) {
             { id: "acceptEdits", name: "Accept Edits" },
           ],
         },
+        configOptions: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "opus",
+            options: [
+              { value: "default", name: "Default (recommended)" },
+              { value: "opus", name: "Opus 5.5" },
+              { value: "sonnet", name: "Sonnet 5.5" },
+              { value: "haiku", name: "Haiku 5.5" },
+            ],
+          },
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "default",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "acceptEdits", name: "Accept Edits" },
+              { value: "plan", name: "Plan Mode" },
+            ],
+          },
+        ],
       },
     });
   } else if (m.method === "session/prompt") {

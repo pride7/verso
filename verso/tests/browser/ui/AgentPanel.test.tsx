@@ -179,6 +179,7 @@ const button = (label: string) =>
   [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === label);
 
 beforeEach(() => {
+  localStorage.clear();
   state.lines = [];
   state.errs = [];
   state.exits = [];
@@ -222,7 +223,8 @@ describe("起来", () => {
     // 左上角是当前对话的名字；agent 的名字在提示里
     expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
     expect(host.querySelector(".agent-title")?.getAttribute("title")).toContain("Fake Agent");
-    const select = host.querySelector<HTMLSelectElement>(".agent-mode")!;
+    // 只给了旧写法的模式：画在输入框下面那一行，叫「权限」
+    const select = host.querySelector<HTMLSelectElement>('.agent-config select[aria-label="权限"]')!;
     expect([...select.options].map((o) => o.textContent)).toEqual(["Default", "Accept Edits"]);
     expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
   });
@@ -641,5 +643,115 @@ describe("换一个 AI", () => {
       await settle(30);
     });
     expect(onPickCommand).toHaveBeenCalledWith("gemini --acp");
+  });
+});
+
+describe("选模型", () => {
+  /** 照抄 Claude 适配器 session/new 回的 configOptions（截短了） */
+  const claudeConfig = (model = "opus", mode = "default") => [
+    {
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      type: "select",
+      currentValue: mode,
+      options: [
+        { value: "default", name: "Default" },
+        { value: "acceptEdits", name: "Accept Edits" },
+        { value: "bypassPermissions", name: "Bypass Permissions" },
+      ],
+    },
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: model,
+      options: [
+        { value: "opus", name: "Opus 5.5" },
+        { value: "sonnet", name: "Sonnet 5.5" },
+        { value: "haiku", name: "Haiku 5.5" },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    let n = 0;
+    state.script["session/new"] = (m) =>
+      reply(m.id, {
+        sessionId: `s${++n}`,
+        // 旧写法也给着 —— 有 configOptions 时不能再画一份
+        modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+        configOptions: claudeConfig(),
+      });
+    state.script["session/set_config_option"] = (m) => {
+      const p = m.params as { configId: string; value: string };
+      const cfg = claudeConfig(
+        p.configId === "model" ? p.value : "opus",
+        p.configId === "mode" ? p.value : "default",
+      );
+      reply(m.id, { configOptions: cfg });
+    };
+  });
+
+  const select = (label: string) =>
+    host.querySelector<HTMLSelectElement>(`.agent-config select[aria-label="${label}"]`);
+  const choose = async (label: string, value: string) => {
+    await act(async () => {
+      const el = select(label)!;
+      el.value = value;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle(60);
+    });
+  };
+  const sets = () =>
+    state.sent.filter((m) => m.method === "session/set_config_option").map((m) => m.params);
+
+  it("agent 报上来的模型列在输入框下面，选了就告诉它", async () => {
+    await mount();
+    expect([...select("模型")!.options].map((o) => o.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+    expect(select("模型")!.value).toBe("opus");
+    expect(host.querySelectorAll(".agent-config select"), "权限只画一份").toHaveLength(2);
+
+    await choose("模型", "sonnet");
+    expect(sets()).toEqual([{ sessionId: "s1", configId: "model", value: "sonnet" }]);
+    expect(select("模型")!.value).toBe("sonnet");
+  });
+
+  it("新对话沿用上次选的模型", async () => {
+    await mount();
+    await choose("模型", "haiku");
+    state.sent = [];
+    await type("说句话"); // 让当前对话不是空白的，「新对话」才会真的开一个
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(120);
+    });
+    expect(sets()).toContainEqual({ sessionId: "s2", configId: "model", value: "haiku" });
+    expect(select("模型")!.value).toBe("haiku");
+  });
+
+  it("权限模式不沿用 —— 「跳过所有确认」不能悄悄带进下一个对话", async () => {
+    await mount();
+    await choose("权限", "bypassPermissions");
+    state.sent = [];
+    await type("说句话");
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="新对话"]')!.click();
+      await settle(120);
+    });
+    expect(sets().some((p) => (p as { configId: string }).configId === "mode")).toBe(false);
+    expect(select("权限")!.value).toBe("default");
+  });
+
+  it("记住的是按 AI 分开的：别的命令下次启动不受影响", async () => {
+    await mount(undefined, "claude-cmd");
+    await choose("模型", "sonnet");
+    act(() => root?.unmount());
+    root = null;
+    document.body.innerHTML = "";
+    state.sent = [];
+    await mount(undefined, "codex-cmd");
+    expect(sets()).toEqual([]);
   });
 });

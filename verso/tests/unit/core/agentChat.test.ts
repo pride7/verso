@@ -7,9 +7,11 @@
  */
 import { describe, expect, it } from "vitest";
 
-import type { SessionUpdate } from "../../../src/core/acp";
+import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
   applyUpdate,
+  configChoices,
+  configToRestore,
   conversationRows,
   conversationTitle,
   fileUri,
@@ -175,5 +177,56 @@ describe("对话列表", () => {
   it("点出来还没说过话的空白对话不列，当前这个除外", () => {
     const rows = conversationRows([conv("a", 1, []), conv("b", 2, [])], [], "b");
     expect(rows.map((r) => r.id)).toEqual(["b"]);
+  });
+});
+
+describe("可调配置", () => {
+  const model: ConfigOption = {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue: "opus",
+    options: [
+      { value: "opus", name: "Opus" },
+      { value: "sonnet", name: "Sonnet" },
+    ],
+  };
+  const mode: ConfigOption = {
+    id: "mode",
+    name: "Mode",
+    category: "mode",
+    type: "select",
+    currentValue: "default",
+    options: [
+      { value: "default", name: "Default" },
+      { value: "bypassPermissions", name: "Bypass" },
+    ],
+  };
+
+  it("分组的选项摊平，组名带着", () => {
+    const grouped: ConfigOption = {
+      ...model,
+      options: [
+        { group: "a", name: "Anthropic", options: [{ value: "opus", name: "Opus" }] },
+        { group: "o", name: "OpenAI", options: [{ value: "gpt", name: "GPT" }] },
+      ],
+    } as ConfigOption;
+    expect(configChoices(grouped).map((c) => [c.group, c.value])).toEqual([
+      ["Anthropic", "opus"],
+      ["OpenAI", "gpt"],
+    ]);
+  });
+
+  it("只补模型这类：记住的值还在选项里、和现在的不一样才补", () => {
+    expect(configToRestore([model, mode], { model: "sonnet", mode: "bypassPermissions" })).toEqual([
+      { id: "model", value: "sonnet" },
+    ]);
+    // 已经是了
+    expect(configToRestore([model], { model: "opus" })).toEqual([]);
+    // 那个模型下架了
+    expect(configToRestore([model], { model: "claude-2" })).toEqual([]);
+    // 什么都没记过
+    expect(configToRestore([model], {})).toEqual([]);
   });
 });

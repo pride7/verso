@@ -7,6 +7,8 @@
  */
 
 import type {
+  ConfigChoice,
+  ConfigOption,
   ContentBlock,
   PlanEntry,
   SessionInfo,
@@ -135,6 +137,8 @@ export interface Conversation {
   entries: ChatEntry[];
   modes: SessionMode[];
   modeId: string | null;
+  /** agent 报上来的可调配置（模型、权限模式…）。给了它就不再用 `modes` */
+  config: ConfigOption[];
   /** 这一轮还没回完。各管各的：切走了它照样在后台跑 */
   busy: boolean;
   /** 正在从 agent 那里把以前的历史接回来 */
@@ -144,7 +148,60 @@ export interface Conversation {
 }
 
 export function newConversation(id: string, now: number, title: string | null = null): Conversation {
-  return { id, title, entries: [], modes: [], modeId: null, busy: false, loading: false, updatedAt: now };
+  return { id, title, entries: [], modes: [], modeId: null, config: [], busy: false, loading: false, updatedAt: now };
+}
+
+// ------------------------------------------------------------------ 可调配置
+
+/** 下拉里的全部选项，分组的摊平。组名带在 `group` 上，画成 `<optgroup>` */
+export function configChoices(o: ConfigOption): (ConfigChoice & { group: string | null })[] {
+  if (o.type !== "select") return [];
+  const out: (ConfigChoice & { group: string | null })[] = [];
+  for (const item of o.options) {
+    if ("group" in item) for (const c of item.options) out.push({ ...c, group: item.name });
+    else out.push({ ...item, group: null });
+  }
+  return out;
+}
+
+/**
+ * 哪些配置值得替人记住、下一个对话自动沿用：模型和思考强度。
+ *
+ * **权限模式不记。** 「跳过所有确认」是为眼前这件事开的口子，悄悄延续到下一个
+ * 对话里，人就不知道自己是在什么规则下让它改文件的。
+ */
+export const REMEMBERED_CATEGORIES = new Set(["model", "model_config", "thought_level"]);
+
+/** 控件旁边的小字。agent 给的名字是英文的（「Model」），常见的几类换成中文 */
+export function configLabel(o: ConfigOption): string {
+  const byCategory: Record<string, string> = {
+    model: "模型",
+    thought_level: "思考",
+    mode: "权限",
+  };
+  return (o.category && byCategory[o.category]) || o.name;
+}
+
+/**
+ * 记住的值里，哪些要在新对话上补设：这一项还在、记住的值还在选项里、
+ * 而且和现在的不一样。模型下架了、换了一家 AI，就安静地不补。
+ */
+export function configToRestore(
+  options: ConfigOption[],
+  saved: Record<string, string | boolean>,
+): { id: string; value: string | boolean }[] {
+  const out: { id: string; value: string | boolean }[] = [];
+  for (const o of options) {
+    if (!o.category || !REMEMBERED_CATEGORIES.has(o.category)) continue;
+    const want = saved[o.id];
+    if (want === undefined || want === o.currentValue) continue;
+    if (o.type === "select") {
+      if (typeof want === "string" && configChoices(o).some((c) => c.value === want)) out.push({ id: o.id, value: want });
+    } else if (typeof want === "boolean") {
+      out.push({ id: o.id, value: want });
+    }
+  }
+  return out;
 }
 
 /** 列表里给人看的名字 */

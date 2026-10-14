@@ -88,6 +88,7 @@ export type SessionUpdate =
   | ({ sessionUpdate: "tool_call_update" } & ToolCallFields)
   | { sessionUpdate: "plan"; entries: PlanEntry[] }
   | { sessionUpdate: "current_mode_update"; currentModeId: string }
+  | { sessionUpdate: "config_option_update"; configOptions: ConfigOption[] }
   // 其余种类（可用命令、用量、压缩上下文…）面板眼下不显示，原样放过
   | { sessionUpdate: string; [k: string]: unknown };
 
@@ -104,9 +105,38 @@ export interface SessionMode {
   description?: string | null;
 }
 
+/** 下拉里的一项 */
+export interface ConfigChoice {
+  value: string;
+  name: string;
+  description?: string | null;
+}
+
+/**
+ * 会话的一项可调配置（模型、思考强度、权限模式…）。协议里的新写法：agent
+ * 把能调的东西连同当前值一起报上来，客户端照着画控件，不必认识每一家的私有
+ * 字段。`options` 可能按组给（`{ group, name, options }`）。
+ */
+export type ConfigOption = {
+  id: string;
+  name: string;
+  description?: string | null;
+  /** "mode" | "model" | "model_config" | "thought_level" | 别的 */
+  category?: string | null;
+} & (
+  | {
+      type: "select";
+      currentValue: string;
+      options: ConfigChoice[] | { group: string; name: string; options: ConfigChoice[] }[];
+    }
+  | { type: "boolean"; currentValue: boolean }
+);
+
 export interface NewSessionResult {
   sessionId: string;
+  /** 旧写法，只有权限模式。agent 给了 `configOptions` 时以那份为准 */
   modes?: { currentModeId: string; availableModes: SessionMode[] } | null;
+  configOptions?: ConfigOption[] | null;
 }
 
 /** `session/list` 里的一条：以前的一次对话 */
@@ -284,8 +314,22 @@ export class AcpConnection {
    * 接着以前的一次对话。agent 先把整段历史用 `session/update` 重放一遍，
    * 放完才回这个请求 —— 所以调用之前，接收那些更新的地方就得准备好
    */
-  loadSession(sessionId: string, cwd: string): Promise<Pick<NewSessionResult, "modes">> {
+  loadSession(sessionId: string, cwd: string): Promise<Pick<NewSessionResult, "modes" | "configOptions">> {
     return this.call("session/load", { sessionId, cwd, mcpServers: [] });
+  }
+
+  /** 改一项配置。回来的是改完之后的整份（改模型可能连带改掉别的选项） */
+  setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<{ configOptions?: ConfigOption[] | null }> {
+    return this.call(
+      "session/set_config_option",
+      typeof value === "boolean"
+        ? { sessionId, configId, type: "boolean", value }
+        : { sessionId, configId, value },
+    );
   }
 
   setMode(sessionId: string, modeId: string): Promise<unknown> {

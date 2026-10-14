@@ -18,6 +18,7 @@ import { AGENT_PRESETS } from "../app/settings";
 import {
   AcpConnection,
   AcpError,
+  type ConfigOption,
   type ContentBlock,
   type NewSessionResult,
   type PermissionOutcome,
@@ -26,8 +27,12 @@ import {
 } from "../core/acp";
 import {
   applyUpdate,
+  configChoices,
+  configLabel,
+  configToRestore,
   conversationRows,
   conversationTitle,
+  REMEMBERED_CATEGORIES,
   fileUri,
   newConversation,
   PERMISSION_LABEL,
@@ -89,6 +94,26 @@ const LOG_LINES = 12;
 
 /** 协议里「需要先登录」的错误码 */
 const AUTH_REQUIRED = -32000;
+
+/**
+ * 记住的模型、思考强度（`REMEMBERED_CATEGORIES`），按启动命令分开存 ——
+ * Claude 的「sonnet」拿到 Codex 那边没有意义。只是界面偏好，存本机
+ */
+const PREFS_KEY = "verso.agentConfig";
+type Prefs = Record<string, Record<string, string | boolean>>;
+function readPrefs(): Prefs {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as Prefs;
+  } catch {
+    // 坏了就从头记
+    return {};
+  }
+}
+function savePref(command: string, id: string, value: string | boolean) {
+  const all = readPrefs();
+  all[command] = { ...(all[command] ?? {}), [id]: value };
+  localStorage.setItem(PREFS_KEY, JSON.stringify(all));
+}
 
 const errorText = (e: unknown) =>
   e instanceof AcpError ? e.detail : e instanceof Error ? e.message : String(e);
@@ -152,17 +177,41 @@ export function AgentPanel({
     });
   }, []);
 
-  /** 新开的对话记下来；agent 给了模式就一起记 */
-  const adopt = useCallback((id: string, s: Pick<NewSessionResult, "modes">, title: string | null = null) => {
-    setConvs((all) => ({
-      ...all,
-      [id]: {
-        ...(all[id] ?? newConversation(id, Date.now(), title)),
-        modes: s.modes?.availableModes ?? [],
-        modeId: s.modes?.currentModeId ?? null,
-      },
-    }));
-  }, []);
+  /** 新开的对话记下来；agent 给了模式、配置就一起记 */
+  const adopt = useCallback(
+    (id: string, s: Pick<NewSessionResult, "modes" | "configOptions">, title: string | null = null) => {
+      setConvs((all) => ({
+        ...all,
+        [id]: {
+          ...(all[id] ?? newConversation(id, Date.now(), title)),
+          modes: s.modes?.availableModes ?? [],
+          modeId: s.modes?.currentModeId ?? null,
+          config: s.configOptions ?? [],
+        },
+      }));
+    },
+    [],
+  );
+
+  /**
+   * 新对话用上次选的模型。agent 每开一个会话都回到它自己的默认值，不补的话，
+   * 人每开一个新对话都得重新选一遍
+   */
+  const restorePrefs = useCallback(
+    async (id: string, options: ConfigOption[] | null | undefined) => {
+      const conn = connRef.current;
+      if (!conn || !options) return;
+      for (const { id: configId, value } of configToRestore(options, readPrefs()[command] ?? {})) {
+        try {
+          const r = await conn.setConfigOption(id, configId, value);
+          if (r.configOptions) patch(id, (c) => ({ ...c, config: r.configOptions! }));
+        } catch {
+          // 补不上就算了：用的是 agent 自己的默认值，人照样能在下面手动换
+        }
+      }
+    },
+    [command, patch],
+  );
 
   // ---- 起进程、握手、开会话。卸载或「重新启动」时整个停掉
   useEffect(() => {
@@ -235,7 +284,10 @@ export function AgentPanel({
         const conn = new AcpConnection((line) => api.agentSend(id, line), {
           onUpdate: (n) => {
             const u = n.update;
-            if (u.sessionUpdate === "current_mode_update") {
+            if (u.sessionUpdate === "config_option_update") {
+              const config = (u as { configOptions: ConfigOption[] }).configOptions;
+              patch(n.sessionId, (c) => ({ ...c, config }));
+            } else if (u.sessionUpdate === "current_mode_update") {
               const modeId = (u as { currentModeId: string }).currentModeId;
               patch(n.sessionId, (c) => ({ ...c, modeId }));
             } else if (u.sessionUpdate === "session_info_update") {
@@ -267,6 +319,7 @@ export function AgentPanel({
         adopt(session.sessionId, session);
         setActiveId(session.sessionId);
         setPhase({ kind: "ready" });
+        void restorePrefs(session.sessionId, session.configOptions);
       } catch (e) {
         if (disposed) return;
         if (e instanceof AcpError && e.code === AUTH_REQUIRED) {
@@ -285,7 +338,7 @@ export function AgentPanel({
       if (procId) void api.agentStop(procId);
       void unlisten.then((fns) => fns.forEach((f) => f()));
     };
-  }, [command, generation, patch, adopt]);
+  }, [command, generation, patch, adopt, restorePrefs]);
 
   const active = activeId ? convs[activeId] ?? null : null;
   const entries = active?.entries ?? [];
@@ -406,6 +459,7 @@ export function AgentPanel({
       adopt(s.sessionId, s);
       setActiveId(s.sessionId);
       inputRef.current?.focus();
+      void restorePrefs(s.sessionId, s.configOptions);
     } catch (e) {
       if (activeId) {
         patch(activeId, (c) => ({
@@ -473,6 +527,31 @@ export function AgentPanel({
     void connRef.current.setMode(activeId, modeId).catch(() => {});
   };
 
+  /** 改一项配置（模型、思考强度、权限…）。先改界面，agent 回来的那份为准 */
+  const pickConfig = async (o: ConfigOption, value: string | boolean) => {
+    const sid = activeId;
+    const conn = connRef.current;
+    if (!sid || !conn) return;
+    const before = o.currentValue;
+    const set = (v: string | boolean) =>
+      patch(sid, (c) => ({
+        ...c,
+        config: c.config.map((x) => (x.id === o.id ? ({ ...x, currentValue: v } as ConfigOption) : x)),
+      }));
+    set(value);
+    if (o.category && REMEMBERED_CATEGORIES.has(o.category)) savePref(command, o.id, value);
+    try {
+      const r = await conn.setConfigOption(sid, o.id, value);
+      if (r.configOptions) patch(sid, (c) => ({ ...c, config: r.configOptions! }));
+    } catch (e) {
+      set(before);
+      patch(sid, (c) => ({
+        ...c,
+        entries: [...c.entries, { kind: "agent", text: `**没能切换${configLabel(o)}：** ${errorText(e)}` }],
+      }));
+    }
+  };
+
   const answer = (o: PermissionOutcome) => {
     if (activeId) dropPermission(activeId, o);
   };
@@ -504,6 +583,9 @@ export function AgentPanel({
 
   const rel = (abs: string) => relativeToVault(abs, cwdRef.current);
   const modes = active?.modes ?? [];
+  const config = active?.config ?? [];
+  // 配置里已经有权限模式了，旧写法的那一份就不再单独画
+  const legacyModes = config.some((o) => o.category === "mode") ? [] : modes;
   const now = new Date();
 
   return (
@@ -602,22 +684,6 @@ export function AgentPanel({
             </div>
           )}
         </div>
-        {modes.length > 0 && (
-          <select
-            className="agent-mode"
-            value={active?.modeId ?? ""}
-            onChange={(e) => pickMode(e.target.value)}
-            disabled={!ready}
-            title={modes.find((m) => m.id === active?.modeId)?.description ?? "权限模式"}
-            aria-label="权限模式"
-          >
-            {modes.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        )}
         <span className="agent-actions">
           <button
             className="term-btn"
@@ -767,12 +833,79 @@ export function AgentPanel({
             </button>
           )}
         </div>
+        {(config.length > 0 || legacyModes.length > 0) && (
+          <div className="agent-config">
+            {config.map((o) =>
+              o.type === "select" ? (
+                <label key={o.id} className="agent-config-item" title={o.description ?? o.name}>
+                  <span>{configLabel(o)}</span>
+                  <select
+                    value={o.currentValue}
+                    disabled={!ready}
+                    aria-label={configLabel(o)}
+                    onChange={(e) => void pickConfig(o, e.target.value)}
+                  >
+                    <ConfigOptions option={o} />
+                  </select>
+                </label>
+              ) : (
+                <label key={o.id} className="agent-config-item" title={o.description ?? o.name}>
+                  <input
+                    type="checkbox"
+                    checked={o.currentValue}
+                    disabled={!ready}
+                    onChange={(e) => void pickConfig(o, e.target.checked)}
+                  />
+                  <span>{configLabel(o)}</span>
+                </label>
+              ),
+            )}
+            {legacyModes.length > 0 && (
+              <label className="agent-config-item" title="权限模式">
+                <span>权限</span>
+                <select
+                  value={active?.modeId ?? ""}
+                  disabled={!ready}
+                  aria-label="权限"
+                  onChange={(e) => pickMode(e.target.value)}
+                >
+                  {legacyModes.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
       </footer>
     </aside>
   );
 }
 
 // ------------------------------------------------------------ 对话里的一条
+
+/** 下拉的选项。agent 分了组就画成 optgroup */
+function ConfigOptions({ option }: { option: ConfigOption }) {
+  const choices = configChoices(option);
+  const groups = [...new Set(choices.map((c) => c.group))];
+  const item = (c: (typeof choices)[number]) => (
+    <option key={`${c.group}/${c.value}`} value={c.value} title={c.description ?? undefined}>
+      {c.name}
+    </option>
+  );
+  if (groups.length === 1 && groups[0] === null) return <>{choices.map(item)}</>;
+  return (
+    <>
+      {groups.map((g) => (
+        <optgroup key={g ?? ""} label={g ?? ""}>
+          {choices.filter((c) => c.group === g).map(item)}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 
 function Markdown({ text }: { text: string }) {
   // 外链图片不加载（见 `remoteImages`）。流式输出时每个 chunk 都重排一遍，
