@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Verso（页）是本地优先的 Markdown 笔记软件：快速输入公式、清楚组织项目，并使用自己的 Git 仓库同步协作。">
   <meta name="theme-color" content="#103a36">
-  <link rel="icon" type="image/png" href="icon.png">
-  <link rel="apple-touch-icon" href="icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Verso · 页 —— 你的笔记，始终是你的文件">
+  <meta property="og:description" content="本地优先的 Markdown 笔记软件：快速输入公式、清楚组织项目，并使用自己的 Git 仓库同步协作。">
+  <meta property="og:locale" content="zh_CN">
+  <link rel="icon" type="image/png" sizes="64x64" href="icon-64.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
   <title>Verso · 页 —— 你的笔记，始终是你的文件</title>
   <style>
     :root {
@@ -95,9 +99,9 @@
     .doc-text { max-width: 37em; color: #607069; font-size: 12px; line-height: 1.8; }
     .formula-card { position: relative; margin: 27px 0 23px; padding: 17px 19px; overflow: hidden; border: 1px solid #dfe6e1; border-radius: 10px; background: white; }
     .formula-card::before { content: "数学模式"; position: absolute; top: 8px; right: 11px; color: #8a9690; font: 9px var(--mono); }
-    .formula-input { margin-bottom: 12px; color: var(--teal); font: 12px var(--mono); }
+    .formula-input { margin-bottom: 12px; padding-right: 56px; color: var(--teal); font: 12px var(--mono); }
     .formula-render { font: italic 25px/1.2 var(--serif); }
-    .formula-render .frac { display: inline-flex; flex-direction: column; vertical-align: -.62em; margin: 0 .13em; text-align: center; font-size: .82em; }
+    .formula-render .frac { display: inline-flex; flex-direction: column; vertical-align: middle; margin: 0 .13em; text-align: center; font-size: .82em; }
     .formula-render .frac span:first-child { padding: 0 .25em; border-bottom: 1px solid currentColor; }
     .formula-render .frac span:last-child { padding: 0 .25em; }
     .doc-meta { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -177,23 +181,10 @@
 
     /* Mind map showcase */
     .map-ui { position: relative; min-height: 350px; overflow: hidden; border-radius: 16px; background-color: #fcfdfb; background-image: radial-gradient(#d7dfda 1px, transparent 1px); background-size: 18px 18px; }
-    .map-node { position: absolute; padding: 8px 12px; border: 1px solid #d7dfda; border-radius: 8px; background: white; box-shadow: 0 4px 9px rgba(24, 48, 43, .06); font-size: 12px; white-space: nowrap; }
-    .map-node.root { top: 144px; left: 30px; border-color: #5fa69c; background: #e4f0eb; color: #215e57; font-weight: 700; }
-    .map-node.n1 { top: 57px; left: 216px; }
-    .map-node.n2 { top: 145px; left: 216px; }
-    .map-node.n3 { top: 234px; left: 216px; }
-    .map-node.n4 { top: 25px; right: 25px; }
-    .map-node.n5 { top: 106px; right: 25px; }
-    .map-node.n6 { top: 187px; right: 25px; }
-    .map-node.n7 { top: 268px; right: 25px; }
-    .map-line { position: absolute; height: 1px; background: #aebcb5; transform-origin: left center; }
-    .l1 { top: 159px; left: 130px; width: 95px; transform: rotate(-37deg); }
-    .l2 { top: 160px; left: 130px; width: 87px; }
-    .l3 { top: 161px; left: 130px; width: 96px; transform: rotate(37deg); }
-    .l4 { top: 71px; left: 323px; width: 97px; transform: rotate(-19deg); }
-    .l5 { top: 151px; left: 323px; width: 96px; transform: rotate(-4deg); }
-    .l6 { top: 168px; left: 323px; width: 98px; transform: rotate(10deg); }
-    .l7 { top: 247px; left: 323px; width: 95px; transform: rotate(25deg); }
+    .map-node { position: absolute; padding: 8px 12px; border: 1px solid #d7dfda; border-radius: 8px; background: white; box-shadow: 0 4px 9px rgba(24, 48, 43, .06); font-size: 12px; white-space: nowrap; transform: translate(-50%, -50%); }
+    .map-node.root { border-color: #5fa69c; background: #e4f0eb; color: #215e57; font-weight: 700; }
+    .map-links { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .map-links path { fill: none; stroke: #aebcb5; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
 
     /* Sync showcase */
     .sync-ui { padding: 25px; border-radius: 16px; background: #103a36; color: #edf7f1; }
@@ -270,11 +261,6 @@
       .showcase { padding: 10px; }
       .map-ui { min-height: 315px; font-size: 10px; }
       .map-node { font-size: 10px; padding: 7px 9px; }
-      .map-node.root { left: 16px; }
-      .map-node.n1, .map-node.n2, .map-node.n3 { left: 132px; }
-      .map-node.n4, .map-node.n5, .map-node.n6, .map-node.n7 { right: 10px; }
-      .l1, .l2, .l3 { left: 91px; width: 47px; }
-      .l4, .l5, .l6, .l7 { left: 227px; width: 43px; }
       .project-cells, .project-card-grid { grid-template-columns: 1fr; }
       .download { padding: 70px 0; }
       .footer-inner { display: block; }
@@ -289,11 +275,12 @@
 <body>
   <header class="topbar">
     <nav class="nav wrap" aria-label="主导航">
-      <a class="brand" href="#" aria-label="Verso 首页"><img class="brand-mark" src="icon.png" alt="">Verso <small>页</small></a>
+      <a class="brand" href="#" aria-label="Verso 首页"><img class="brand-mark" src="icon-64.png" width="31" height="31" alt="">Verso <small>页</small></a>
       <div class="nav-links">
         <a href="#features">能力</a>
-        <a href="#project">项目</a>
         <a href="#sync">协作</a>
+        <a href="#project">项目</a>
+        <a href="#ai">AI</a>
         <a class="nav-download" href="#download">下载</a>
       </div>
     </nav>
@@ -313,15 +300,15 @@
           <p class="hero-note"><span aria-hidden="true"></span>笔记始终以标准 .md 文件保存，可使用其他编辑器直接打开</p>
           <div class="proof" aria-label="产品特点">
             <div><strong>纯 Markdown</strong><span>不依赖专有数据库</span></div>
-            <div><strong>135 条触发词</strong><span>专为公式输入设计</span></div>
+            <div><strong>139 条触发词</strong><span>专为公式输入设计</span></div>
             <div><strong>自有 Git 仓库</strong><span>同步与协作由你掌控</span></div>
           </div>
         </div>
 
-        <div class="app-window" aria-label="Verso 编辑器示意">
+        <div class="app-window" role="img" aria-label="Verso 编辑器示意：左侧文档树，右侧正在编辑一篇带公式的实验记录">
           <div class="app-top"><span>verso · 项目 / 低温相变测量</span><span class="traffic"><i></i><i></i><i></i></span></div>
           <div class="app-body">
-            <aside class="app-side" aria-label="文档树示意">
+            <div class="app-side">
               <div class="side-title">论文</div>
               <div class="tree-line">理论背景</div>
               <div class="tree-line active">低温相变测量</div>
@@ -330,17 +317,17 @@
               <div class="tree-line deep">08-05 补测</div>
               <div class="tree-line indent">问题</div>
               <div class="tree-line">文献笔记</div>
-            </aside>
-            <article class="app-doc">
+            </div>
+            <div class="app-doc">
               <div class="crumb">项目 / 低温相变测量 / 实验 / 08-05 补测</div>
-              <h2 class="doc-title">关于临界区的补测</h2>
+              <div class="doc-title">关于临界区的补测</div>
               <p class="doc-text">二次降温仍然看到滞后。下一步需要排除样品台温漂，再对照不同扫描速率下的结果。</p>
               <div class="formula-card">
                 <div class="formula-input">\chi(T) = \frac&#123;\partial M&#125;&#123;\partial H&#125;</div>
                 <div class="formula-render">χ(T) = <span class="frac"><span>∂M</span><span>∂H</span></span></div>
               </div>
               <div class="doc-meta"><span>实验</span><span>进行中</span><span>待补数据</span></div>
-            </article>
+            </div>
           </div>
           <div class="floating-note"><b>下一步</b>换一支热电偶，在相同扫描速率下重测。</div>
         </div>
@@ -357,39 +344,39 @@
       </div>
       <div class="feature-grid">
         <article class="feature">
-          <div class="feature-num"><span>01</span><span class="feature-icon">⌁</span></div>
+          <div class="feature-num"><span>01</span><span class="feature-icon" aria-hidden="true">⌁</span></div>
           <h3>纯 Markdown</h3>
           <p>笔记、属性和数据库视图都能脱离 Verso 存在。删掉索引也不会丢任何内容。</p>
           <a href="#markdown">文件仍属于你</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>02</span><span class="feature-icon">∑</span></div>
+          <div class="feature-num"><span>02</span><span class="feature-icon" aria-hidden="true">∑</span></div>
           <h3>快速公式输入</h3>
           <p>触发词自动展开、实时预览与 Tab 跳位，使公式输入接近自然书写。</p>
           <a href="#math">为数学写作而做</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>03</span><span class="feature-icon">↗</span></div>
+          <div class="feature-num"><span>03</span><span class="feature-icon" aria-hidden="true">↗</span></div>
           <h3>自有仓库同步</h3>
           <p>用自己的 GitHub 或 GitLab 仓库同步。历史、冲突和权限都可追溯。</p>
           <a href="#sync">看见谁改了什么</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>04</span><span class="feature-icon">◌</span></div>
+          <div class="feature-num"><span>04</span><span class="feature-icon" aria-hidden="true">◌</span></div>
           <h3>同一内容的导图视图</h3>
           <p>导图是标题和列表的图形视图，不创建额外副本，也不保存坐标数据。</p>
           <a href="#mindmap">在图上编辑 Markdown</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>05</span><span class="feature-icon">▦</span></div>
+          <div class="feature-num"><span>05</span><span class="feature-icon" aria-hidden="true">▦</span></div>
           <h3>项目中心</h3>
           <p>集中查看所有项目的状态与关键事项；进入单个项目后，再阅读完整记录。</p>
           <a href="#project">从全局进入细节</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>06</span><span class="feature-icon">›_</span></div>
-          <h3>让 AI 读懂你的库</h3>
-          <p>在内置终端中使用自行选择的 AI CLI；每项改动仍可检查、比较和恢复。</p>
+          <div class="feature-num"><span>06</span><span class="feature-icon" aria-hidden="true">›_</span></div>
+          <h3>用你自己的 AI</h3>
+          <p>在侧边会话面板里使用 Claude Code、Codex 或 Gemini CLI；改哪篇笔记先给你看，同意才写入。</p>
           <a href="#ai">在既有工具链中工作</a>
         </article>
       </div>
@@ -408,7 +395,7 @@
           </ul>
         </div>
         <div class="showcase">
-          <div class="project-ui">
+          <div class="project-ui" role="img" aria-label="笔记库示意：数学文件夹下的 Markdown 文件与同名子文档">
             <div class="project-ui-head"><span class="project-ui-title">数学</span><span class="tag">普通文件夹</span></div>
             <div class="project-list">
               <div class="project-row"><span><b>线性代数</b><small>数学/线性代数.md</small></span><em>有 2 个子文档</em></div>
@@ -424,14 +411,14 @@
     <section class="story" id="math">
       <div class="wrap story-grid reverse">
         <div class="showcase">
-          <div class="sync-ui">
+          <div class="sync-ui" role="img" aria-label="公式输入示意：输入触发词、Tab 填写占位符、实时预览">
             <div class="sync-head"><b>数学模式</b><span>实时预览</span></div>
             <div class="activity">
               <div class="activity-item"><span class="avatar">//</span><span><b>输入触发词</b><small>敲到最后一个字符，自动展开</small></span><time>01</time></div>
               <div class="activity-item"><span class="avatar">Tab</span><span><b>填写占位符</b><small>依次跳到分子、分母与下一个位置</small></span><time>02</time></div>
               <div class="activity-item"><span class="avatar">∫</span><span><b>立即看到结果</b><small>输入区与公式预览始终在同一个上下文中</small></span><time>03</time></div>
             </div>
-            <div class="sync-foot"><span>135 条内置触发词</span><span>兼容 Obsidian Latex Suite</span></div>
+            <div class="sync-foot"><span>139 条内置触发词</span><span>兼容 Obsidian Latex Suite</span></div>
           </div>
         </div>
         <div class="story-copy">
@@ -442,6 +429,60 @@
             <li><code>//</code> 生成分式，<code>@a</code> 生成 <code>\alpha</code>，<code>pmat3x3</code> 生成矩阵骨架。</li>
             <li><code>Tab</code> 在待填位置之间跳转；填写完成后继续跳出括号。</li>
             <li>桌面有符号搜索，手机有专属公式工具条，不把两种输入方式混为一谈。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="sync">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">03 · Sync & collaboration</p>
+          <h2>协作聚焦内容，无需面对 Git 命令。</h2>
+          <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需同步；需要回溯时，仍可查看完整且可验证的历史。</p>
+          <ul class="story-points">
+            <li>停手后自动记录版本，提交说明会指出具体修改的笔记。</li>
+            <li>共享一篇笔记可创建独立空间，不必交出整个私有库。</li>
+            <li>多人修改时显示“谁改了什么”；真正冲突才进入按段落或属性处理的面板。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="sync-ui" role="img" aria-label="协作动态示意：几位协作者最近修改的笔记">
+            <div class="sync-head"><b>协作动态</b><span>已同步</span></div>
+            <div class="activity">
+              <div class="activity-item"><span class="avatar">林</span><span><b>更新了《实验方案》</b><small>补充 3 组控制变量 · 已合并</small></span><time>12 分钟前</time></div>
+              <div class="activity-item"><span class="avatar">你</span><span><b>修改了《数据处理》</b><small>更新图 3 的拟合方式 · 已同步</small></span><time>刚刚</time></div>
+              <div class="activity-item"><span class="avatar">周</span><span><b>提交了修改建议</b><small>《相关工作》有 2 处待审阅</small></span><time>昨天</time></div>
+            </div>
+            <div class="sync-foot"><span>你的仓库 · 你的权限</span><span>HTTPS + 系统钥匙串</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="story" id="mindmap">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="map-ui" role="img" aria-label="思维导图示意：由笔记标题生成的三层导图">
+            <svg class="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M14 50C28 50 28 22 42 22"/><path d="M14 50C28 50 28 50 42 50"/><path d="M14 50C28 50 28 78 42 78"/><path d="M42 22C62 22 62 12 82 12"/><path d="M42 50C62 50 62 37 82 37"/><path d="M42 50C62 50 62 63 82 63"/><path d="M42 78C62 78 62 88 82 88"/></svg>
+            <span class="map-node root" style="left: 14%; top: 50%">研究问题</span>
+            <span class="map-node" style="left: 42%; top: 22%">背景</span>
+            <span class="map-node" style="left: 42%; top: 50%">方法</span>
+            <span class="map-node" style="left: 42%; top: 78%">待验证</span>
+            <span class="map-node" style="left: 82%; top: 12%">已有结果</span>
+            <span class="map-node" style="left: 82%; top: 37%">实验设计</span>
+            <span class="map-node" style="left: 82%; top: 63%">潜在误差</span>
+            <span class="map-node" style="left: 82%; top: 88%">下一步</span>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">04 · Mind map</p>
+          <h2>切换视图，不复制内容。</h2>
+          <p>思维导图由笔记标题与列表即时生成。节点对应正文中的原始行，因此在图上编辑、增加分支或删除子树，始终是在编辑同一篇 Markdown。</p>
+          <ul class="story-points">
+            <li>不保存额外坐标，不会往笔记里塞一份其他软件看不懂的数据。</li>
+            <li><code>Enter</code> 添加同级，<code>Tab</code> 添加子级，<code>Space</code> 折叠。</li>
+            <li>键盘、鼠标与触摸设备都有对应操作方式。</li>
           </ul>
         </div>
       </div>
@@ -461,7 +502,7 @@
           </ul>
         </div>
         <div class="showcase">
-          <div class="project-center-ui" aria-label="项目中心示意">
+          <div class="project-center-ui" role="img" aria-label="项目中心示意：三个项目按状态汇总成卡片">
             <div class="project-center-head"><span><span class="project-center-kicker">项目</span><b>项目中心</b></span><span class="project-center-action">＋ 新建项目</span></div>
             <div class="project-metrics"><div><b>3</b><span>全部项目</span></div><div><b>2</b><span>仍在推进</span></div><div><b>1</b><span>已归档</span></div></div>
             <div class="project-tools"><span class="project-search">⌕　搜索项目</span><span class="project-filter">进行中</span></div>
@@ -475,75 +516,27 @@
       </div>
     </section>
 
-    <section class="story" id="mindmap">
-      <div class="wrap story-grid reverse">
-        <div class="showcase">
-          <div class="map-ui" aria-label="思维导图示意">
-            <span class="map-line l1"></span><span class="map-line l2"></span><span class="map-line l3"></span>
-            <span class="map-line l4"></span><span class="map-line l5"></span><span class="map-line l6"></span><span class="map-line l7"></span>
-            <span class="map-node root">研究问题</span>
-            <span class="map-node n1">背景</span><span class="map-node n2">方法</span><span class="map-node n3">待验证</span>
-            <span class="map-node n4">已有结果</span><span class="map-node n5">实验设计</span><span class="map-node n6">潜在误差</span><span class="map-node n7">下一步</span>
-          </div>
-        </div>
-        <div class="story-copy">
-          <p class="eyebrow">04 · Mind map</p>
-          <h2>切换视图，不复制内容。</h2>
-          <p>思维导图由笔记标题与列表即时生成。节点对应正文中的原始行，因此在图上编辑、增加分支或删除子树，始终是在编辑同一篇 Markdown。</p>
-          <ul class="story-points">
-            <li>不保存额外坐标，不会往笔记里塞一份其他软件看不懂的数据。</li>
-            <li><code>Enter</code> 添加同级，<code>Tab</code> 添加子级，<code>Space</code> 折叠。</li>
-            <li>键盘、鼠标与触摸设备都有对应操作方式。</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <section class="story" id="sync">
-      <div class="wrap story-grid">
-        <div class="story-copy">
-          <p class="eyebrow">03 · Sync & collaboration</p>
-          <h2>协作聚焦内容，无需面对 Git 命令。</h2>
-          <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需同步；需要回溯时，仍可查看完整且可验证的历史。</p>
-          <ul class="story-points">
-            <li>停手后自动记录版本，提交说明会指出具体修改的笔记。</li>
-            <li>共享一篇笔记可创建独立空间，不必交出整个私有库。</li>
-            <li>多人修改时显示“谁改了什么”；真正冲突才进入按段落或属性处理的面板。</li>
-          </ul>
-        </div>
-        <div class="showcase">
-          <div class="sync-ui">
-            <div class="sync-head"><b>协作动态</b><span>已同步</span></div>
-            <div class="activity">
-              <div class="activity-item"><span class="avatar">林</span><span><b>更新了《实验方案》</b><small>补充 3 组控制变量 · 已合并</small></span><time>12 分钟前</time></div>
-              <div class="activity-item"><span class="avatar">你</span><span><b>修改了《数据处理》</b><small>更新图 3 的拟合方式 · 已同步</small></span><time>刚刚</time></div>
-              <div class="activity-item"><span class="avatar">周</span><span><b>提交了修改建议</b><small>《相关工作》有 2 处待审阅</small></span><time>昨天</time></div>
-            </div>
-            <div class="sync-foot"><span>你的仓库 · 你的权限</span><span>HTTPS + 系统钥匙串</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section class="story" id="ai">
       <div class="wrap story-grid reverse">
         <div class="showcase">
-          <div class="sync-ui">
-            <div class="sync-head"><b>终端</b><span>工作目录：笔记库</span></div>
+          <div class="sync-ui" role="img" aria-label="AI 会话示意：AI 提议修改当前笔记，等待用户允许">
+            <div class="sync-head"><b>AI 会话</b><span>Claude Code</span></div>
             <div class="activity">
-              <div class="activity-item"><span class="avatar">›_</span><span><b>@项目/实验/08-05 补测.md</b><small>当前笔记已作为上下文插入</small></span><time>就绪</time></div>
-              <div class="activity-item"><span class="avatar">Δ</span><span><b>未提交改动 · 3 个文件</b><small>可逐文件查看，随时恢复</small></span><time>安全</time></div>
+              <div class="activity-item"><span class="avatar">@</span><span><b>08-05 补测.md · 选中的 2 行</b><small>当前笔记与选区自动作为上下文</small></span><time>已带上</time></div>
+              <div class="activity-item"><span class="avatar">Δ</span><span><b>想修改《08-05 补测》</b><small>+3 −1 行 · 逐行差异先摆出来</small></span><time>等你允许</time></div>
+              <div class="activity-item"><span class="avatar">∑</span><span><b>回答按笔记排版</b><small>标题、表格、代码与公式照常渲染</small></span><time>完成</time></div>
             </div>
-            <div class="sync-foot"><span>Claude Code · Codex · aider</span><span>不绑定模型或 API Key</span></div>
+            <div class="sync-foot"><span>Claude Code · Codex · Gemini CLI</span><span>不内置模型，不经手登录与计费</span></div>
           </div>
         </div>
         <div class="story-copy">
           <p class="eyebrow">06 · Your AI, your tools</p>
           <h2>让 AI 服务于笔记工作流，而非取代它。</h2>
-          <p>Verso 不替用户选择模型，也不将内容发送至内置服务。它提供与笔记库相连的终端，使你能够使用已信任的 AI CLI 处理纯文本文件。</p>
+          <p>Verso 不替你选择模型，也不把内容发往内置服务。桌面端的 AI 会话面板直接运行你已在使用的 AI 工具，它读写的始终是笔记库里的纯文本文件。</p>
           <ul class="story-points">
-            <li>可一键把当前笔记或选区作为上下文插入终端，不会自动执行命令。</li>
-            <li>AI 修改后可直接查看逐行差异；不满意就恢复，不会丢掉原稿。</li>
+            <li>AI 要改哪篇笔记，先显示逐行差异；点「允许」才会写入，不满意也能从版本历史恢复。</li>
+            <li>可以同时开多个对话，也能接着以前的对话聊；模型与权限都在输入框下方切换。</li>
+            <li>内置终端依然保留，任何 AI CLI 都能在笔记库目录里直接运行。</li>
             <li>笔记库会带一份 AI 可读的约定说明，降低误改目录和视图定义的风险。</li>
           </ul>
         </div>
