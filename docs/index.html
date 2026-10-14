@@ -116,9 +116,9 @@
     .floating-note { position: absolute; right: -14px; bottom: 31px; width: 172px; padding: 13px 14px; border-radius: 12px; background: var(--sun); color: #63460c; box-shadow: 0 14px 30px rgba(0, 25, 20, .16); transform: rotate(-3deg); font-size: 11px; line-height: 1.55; }
     .floating-note b { display: block; margin-bottom: 3px; font-size: 11px; }
 
-    .proof { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border-top: 1px solid rgba(255, 255, 255, .16); }
+    .proof { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border-top: 1px solid rgba(255, 255, 255, .16); }
     .proof div { padding: 20px 8px 0 0; }
-    .proof strong { display: block; margin-bottom: 3px; color: #f6f7f0; font: 600 21px/1 var(--serif); }
+    .proof strong { display: block; margin-bottom: 5px; color: #f6f7f0; font: 600 18px/1.1 var(--serif); white-space: nowrap; }
     .proof span { color: rgba(245, 247, 239, .58); font-size: 12px; }
 
     /* Feature overview */
@@ -207,6 +207,69 @@
     .activity-item time { color: rgba(237, 247, 241, .48); font-size: 10px; }
     .sync-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, .13); color: rgba(237, 247, 241, .65); font-size: 11px; }
 
+    /* Editor showcase */
+    .note-ui { padding: 24px 26px; border: 1px solid #d7ddd8; border-radius: 16px; background: #fbfcfa; }
+    .note-title { margin-bottom: 10px; font: 600 24px/1.2 var(--serif); letter-spacing: -.02em; }
+    .note-p { margin: 0 0 14px; color: #55655f; font-size: 12px; }
+    .note-link { color: var(--teal); border-bottom: 1px solid color-mix(in srgb, var(--teal) 35%, transparent); }
+    .note-flow { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px; padding: 18px 12px 14px; border: 1px solid #e0e6e1; border-radius: 10px; background: white; font-size: 11px; }
+    .note-flow span { padding: 6px 10px; border: 1px solid #9cc5bd; border-radius: 7px; background: #eef6f2; color: #215e57; font-weight: 700; }
+    .note-flow i { color: #8a9a93; font-style: normal; }
+    .note-flow em, .note-code em { position: absolute; top: 5px; right: 9px; color: #9aa7a1; font: normal 9px var(--mono); }
+    .note-table { width: 100%; margin-bottom: 14px; border-collapse: collapse; font-size: 11px; }
+    .note-table th { padding: 6px 8px; border-bottom: 1px solid #c9d2cd; color: #4e5f58; text-align: left; }
+    .note-table td { padding: 6px 8px; border-bottom: 1px solid #e6ebe7; color: #33463f; }
+    .note-code { position: relative; display: grid; grid-template-columns: 18px 1fr; gap: 3px 10px; padding: 12px 14px; border-radius: 10px; background: #f0f3f0; color: #33463f; font: 11px/1.6 var(--mono); }
+    .note-code .ln { color: #a3b0aa; text-align: right; }
+    .note-code b { color: #a2477a; font-weight: 400; }
+    .note-code u { color: #0d756b; text-decoration: none; }
+
+    /* Database showcase */
+    .db-ui { overflow: hidden; border: 1px solid #d7ddd8; border-radius: 16px; background: #fbfcfa; }
+    .db-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 16px; border-bottom: 1px solid #e1e5e1; }
+    .db-head b { font: 600 19px/1 var(--serif); }
+    .db-tabs { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: #edf0ed; font-size: 10px; }
+    .db-tabs span { padding: 4px 7px; border-radius: 6px; color: #74827c; }
+    .db-tabs .on { background: white; color: #20675f; font-weight: 700; box-shadow: 0 1px 3px rgba(20, 43, 40, .1); }
+    .db-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; padding: 13px; }
+    .db-col { display: grid; align-content: start; gap: 7px; padding: 8px; border-radius: 10px; background: #f0f3f0; }
+    .db-col-head { padding: 2px 3px 3px; color: #46564f; font-size: 11px; font-weight: 700; }
+    .db-col-head small { margin-left: 3px; color: #93a099; font-weight: 400; }
+    .db-card { padding: 9px; border: 1px solid #e0e6e1; border-radius: 8px; background: white; }
+    .db-card.active { border-color: #8ab9b1; box-shadow: 0 6px 14px rgba(24, 48, 43, .1); transform: rotate(-1.5deg); }
+    .db-card b { display: block; margin-bottom: 6px; font-size: 11px; line-height: 1.35; }
+    .db-card span { display: flex; flex-wrap: wrap; gap: 4px; }
+    .db-card i { padding: 2px 6px; border-radius: 999px; background: #e7f1ed; color: #287168; font-size: 9px; font-style: normal; }
+    .db-foot { display: flex; justify-content: space-between; gap: 10px; padding: 11px 16px; border-top: 1px solid #e1e5e1; color: #74827c; font-size: 10px; }
+    .db-foot code { color: var(--teal); font: 10px var(--mono); }
+
+    /* History showcase */
+    .history-ui { overflow: hidden; border: 1px solid #d7ddd8; border-radius: 16px; background: #fbfcfa; }
+    .history-head { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e1e5e1; }
+    .history-head b { font: 600 19px/1 var(--serif); }
+    .history-head span { color: #74827c; font: 10px var(--mono); }
+    .history-list { display: grid; gap: 4px; padding: 10px; }
+    .history-item { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 8px; }
+    .history-item.on { background: #e4f0eb; }
+    .history-item i { width: 8px; height: 8px; border: 2px solid #5fa69c; border-radius: 50%; background: white; }
+    .history-item.on i { background: #5fa69c; }
+    .history-item b { display: block; font-size: 12px; }
+    .history-item small { color: #7e8c86; font-size: 10px; }
+    .history-diff { position: relative; margin: 0 14px 16px; padding: 10px 0; border: 1px solid #e0e6e1; border-radius: 10px; background: white; font: 11px/1.9 var(--mono); }
+    .history-diff div { padding: 0 12px; }
+    .history-diff div span { display: inline-block; width: 16px; }
+    .history-diff .del { background: #fbecea; color: #9c4535; }
+    .history-diff .add { background: #e7f4ee; color: #1f6b5f; }
+    .history-revert { position: absolute; right: 10px; top: 9px; padding: 4px 9px; border-radius: 999px; background: var(--ink); color: white; font: 700 10px/1.4 var(--sans); box-shadow: 0 6px 14px rgba(20, 43, 40, .2); }
+
+    /* More */
+    .more { padding: 104px 0; border-top: 1px solid var(--line); }
+    .more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .more-item { padding: 22px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
+    .more-item .feature-icon { margin-bottom: 18px; }
+    .more-item h3 { font-size: 16px; }
+    .more-item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+
     /* Download */
     .download { padding: 106px 0 114px; border-top: 1px solid var(--line); }
     .download-card { position: relative; overflow: hidden; padding: clamp(31px, 5vw, 58px); border-radius: var(--r-xl); color: #f5f7ef; background: linear-gradient(130deg, #135a52, #103a36 55%, #1f766c); }
@@ -232,8 +295,8 @@
       .hero-copy { max-width: 660px; }
       .app-window { max-width: 680px; width: calc(100% - 8px); margin: 0 auto; transform: rotate(.6deg); }
       .story-grid.reverse .story-copy { order: -1; }
-      .feature-grid { grid-template-columns: repeat(2, 1fr); }
-      .story { padding: 82px 0; }
+      .feature-grid, .more-grid { grid-template-columns: repeat(2, 1fr); }
+      .story, .more { padding: 82px 0; }
     }
     @media (max-width: 640px) {
       .wrap { width: min(100% - 32px, 1180px); }
@@ -254,14 +317,21 @@
       .formula-card { margin: 17px 0; padding: 13px; }
       .formula-render { font-size: 19px; }
       .floating-note { display: none; }
-      .proof { gap: 14px; border: 0; }
+      .proof { grid-template-columns: repeat(2, 1fr); gap: 14px; border: 0; }
       .proof div { padding: 0; }
       .proof strong { font-size: 18px; }
       .proof span { font-size: 10px; }
       .intro { padding: 76px 0 48px; }
       .intro-head { display: block; }
       .intro-head .lede { margin-top: 16px; }
-      .feature-grid { grid-template-columns: 1fr; }
+      .feature-grid, .more-grid { grid-template-columns: 1fr; }
+      .more { padding: 67px 0; }
+      .db-tabs span:nth-child(n+3) { display: none; }
+      .db-board { gap: 6px; padding: 9px; }
+      .db-col { padding: 6px; }
+      .note-ui { padding: 18px 16px; }
+      .note-flow { gap: 4px; padding: 18px 6px 12px; font-size: 10px; }
+      .note-flow span { padding: 5px 6px; }
       .feature { min-height: 0; padding: 22px; }
       .feature-num { margin-bottom: 20px; }
       .story { padding: 67px 0; }
@@ -285,9 +355,10 @@
       <a class="brand" href="#" aria-label="Verso 首页"><img class="brand-mark" src="icon-64.png" width="31" height="31" alt="">Verso <small>页</small></a>
       <div class="nav-links">
         <a href="#features">能力</a>
-        <a href="#sync">协作</a>
-        <a href="#project">项目</a>
         <a href="#ai">AI</a>
+        <a href="#database">数据库</a>
+        <a href="#sync">协作</a>
+        <a href="#more">更多</a>
         <a class="nav-download" href="#download">下载</a>
       </div>
     </nav>
@@ -299,7 +370,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Local-first Markdown workspace</p>
           <h1 class="hero-title">本地优先的 Markdown 笔记与项目工作空间</h1>
-          <p>Verso 是一款本地优先的 Markdown 笔记软件，提供高效的公式输入、清晰的项目组织，以及建立在用户自有仓库之上的同步与协作能力。</p>
+          <p>Verso 是一款本地优先的 Markdown 笔记软件：公式输入快，项目组织清楚，用自己的 Git 仓库同步协作，还能在笔记旁边直接和你自己的 AI 工具对话。</p>
           <div class="actions">
             <a class="button button-primary" href="#download">获取 Verso <span aria-hidden="true">↓</span></a>
             <a class="button button-ghost" href="#features">了解产品能力 <span aria-hidden="true">↓</span></a>
@@ -309,6 +380,7 @@
             <div><strong>纯 Markdown</strong><span>不依赖专有数据库</span></div>
             <div><strong>139 条触发词</strong><span>专为公式输入设计</span></div>
             <div><strong>自有 Git 仓库</strong><span>同步与协作由你掌控</span></div>
+            <div><strong>你的 AI</strong><span>不绑定模型与账号</span></div>
           </div>
         </div>
 
@@ -344,7 +416,7 @@
     <section class="intro wrap" id="features">
       <div class="intro-head">
         <div>
-          <p class="eyebrow">Six capabilities</p>
+          <p class="eyebrow">Nine capabilities</p>
           <h2>围绕 Markdown 与文件构建完整工作流。</h2>
         </div>
         <p class="lede">Verso 不会把笔记转换为专有数据。编辑、组织、检索与协作均直接建立在 Markdown、文件夹和 Git 之上。</p>
@@ -357,34 +429,52 @@
           <a href="#markdown">文件仍属于你</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>02</span><span class="feature-icon" aria-hidden="true">∑</span></div>
+          <div class="feature-num"><span>02</span><span class="feature-icon" aria-hidden="true">¶</span></div>
+          <h3>排好版的正文</h3>
+          <p>源码只在光标处露出来；表格、代码、Mermaid 图都按最终样式显示。</p>
+          <a href="#editor">所见即所写</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>03</span><span class="feature-icon" aria-hidden="true">∑</span></div>
           <h3>快速公式输入</h3>
           <p>触发词自动展开、实时预览与 Tab 跳位，使公式输入接近自然书写。</p>
           <a href="#math">为数学写作而做</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>03</span><span class="feature-icon" aria-hidden="true">↗</span></div>
-          <h3>自有仓库同步</h3>
-          <p>用自己的 GitHub 或 GitLab 仓库同步。历史、冲突和权限都可追溯。</p>
-          <a href="#sync">看见谁改了什么</a>
+          <div class="feature-num"><span>04</span><span class="feature-icon" aria-hidden="true">▦</span></div>
+          <h3>数据库视图</h3>
+          <p>按属性查询全库，表格、看板、列表、画廊、日历随时切换。</p>
+          <a href="#database">笔记即数据</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>04</span><span class="feature-icon" aria-hidden="true">◌</span></div>
-          <h3>同一内容的导图视图</h3>
-          <p>导图是标题和列表的图形视图，不创建额外副本，也不保存坐标数据。</p>
-          <a href="#mindmap">在图上编辑 Markdown</a>
+          <div class="feature-num"><span>05</span><span class="feature-icon" aria-hidden="true">✦</span></div>
+          <h3>用你自己的 AI</h3>
+          <p>在侧边会话面板里使用 Claude Code、Codex 或 Gemini CLI；改哪篇笔记先给你看，同意才写入。</p>
+          <a href="#ai">AI 就在笔记旁边</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>05</span><span class="feature-icon" aria-hidden="true">▦</span></div>
+          <div class="feature-num"><span>06</span><span class="feature-icon" aria-hidden="true">◫</span></div>
           <h3>项目中心</h3>
           <p>集中查看所有项目的状态与关键事项；进入单个项目后，再阅读完整记录。</p>
           <a href="#project">从全局进入细节</a>
         </article>
         <article class="feature">
-          <div class="feature-num"><span>06</span><span class="feature-icon" aria-hidden="true">›_</span></div>
-          <h3>用你自己的 AI</h3>
-          <p>在侧边会话面板里使用 Claude Code、Codex 或 Gemini CLI；改哪篇笔记先给你看，同意才写入。</p>
-          <a href="#ai">在既有工具链中工作</a>
+          <div class="feature-num"><span>07</span><span class="feature-icon" aria-hidden="true">◌</span></div>
+          <h3>收集箱与思维导图</h3>
+          <p>随手记成卡片，再切成导图整理结构；改的始终是同一篇 Markdown。</p>
+          <a href="#mindmap">先记下，再整理</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>08</span><span class="feature-icon" aria-hidden="true">↶</span></div>
+          <h3>版本历史</h3>
+          <p>自动记录每一版，任意对比；单独一处改动也能退回。</p>
+          <a href="#history">改错了也不怕</a>
+        </article>
+        <article class="feature">
+          <div class="feature-num"><span>09</span><span class="feature-icon" aria-hidden="true">↗</span></div>
+          <h3>自有仓库同步</h3>
+          <p>用自己的 GitHub 或 GitLab 仓库同步与协作。历史、冲突和权限都可追溯。</p>
+          <a href="#sync">看见谁改了什么</a>
         </article>
       </div>
     </section>
@@ -397,8 +487,8 @@
           <p>整个笔记库就是一个普通文件夹。使用同名文件夹组织子文档时，界面会将 <code>X.md</code> 与 <code>X/</code> 视为同一节点，使内容与相关资料保持在一起。</p>
           <ul class="story-points">
             <li>不自动补写你没有要求的 <code>id</code>、<code>title</code> 或时间字段。</li>
-            <li>搜索、标签与反向链接来自可随时重建的本地索引。</li>
-            <li>数据库视图保存在笔记代码块中；编辑单元格即编辑对应的 frontmatter。</li>
+            <li>搜索、标签与反向链接来自可随时重建的本地索引，中文两个字也能搜到。</li>
+            <li>写入采用原子替换，断电也不会留下半份文件。</li>
           </ul>
         </div>
         <div class="showcase">
@@ -414,9 +504,43 @@
         </div>
       </div>
     </section>
-
-    <section class="story" id="math">
+    <section class="story" id="editor">
       <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="note-ui" role="img" aria-label="排版后的笔记示意：链接、流程图、表格与代码块都按最终样式显示">
+            <div class="note-title">实验流程</div>
+            <p class="note-p">制样方法参考<span class="note-link">原始论文</span>，整体流程如下：</p>
+            <div class="note-flow"><span>制样</span><i>→</i><span>降温</span><i>→</i><span>扫描</span><i>→</i><span>拟合</span><em>mermaid</em></div>
+            <table class="note-table"><thead><tr><th>批次</th><th>扫描速率</th><th>滞后</th></tr></thead><tbody><tr><td>A</td><td>0.5 K/min</td><td>0.32 K</td></tr><tr><td>B</td><td>1 K/min</td><td>0.41 K</td></tr></tbody></table>
+            <div class="note-code"><span class="ln">1</span><span><b>import</b> numpy <b>as</b> np</span><span class="ln">2</span><span>fit = np.polyfit(T, chi, <u>3</u>)</span><em>python</em></div>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">02 · Live preview</p>
+          <h2>写的时候是 Markdown，读的时候是一篇排好版的文章。</h2>
+          <p>不用在编辑和预览之间来回切换。光标所在的那一处露出源码，其余部分始终按最终样式排好；点到别处，整篇立刻渲染回去。</p>
+          <ul class="story-points">
+            <li>表格点一格直接改字，插行、插列、拖列宽都在表格上完成。</li>
+            <li>代码块带语法高亮、行号和一键复制；<code>```mermaid</code> 直接画成流程图、时序图和甘特图。</li>
+            <li>从网页复制的标题、列表、表格和公式，粘贴后就是干净的 Markdown；图片和 PDF 拖进来自动归档。</li>
+            <li>大纲可逐级折叠，链接点一下就用浏览器打开，<code>[[内部链接]]</code> 跳到另一篇。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    <section class="story" id="math">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">03 · Math input</p>
+          <h2>公式输入不应中断写作。</h2>
+          <p>Verso 将公式输入视为核心能力，而非 Markdown 的附加功能。触发词仅在数学环境中生效，即使公式尚未闭合也可立即使用。</p>
+          <ul class="story-points">
+            <li><code>//</code> 生成分式，<code>@a</code> 生成 <code>\alpha</code>，<code>pmat3x3</code> 生成矩阵骨架；<code>Tab</code> 在待填位置之间跳转。</li>
+            <li>打出前缀就提示还有哪些触发词；<code>Ctrl+/</code> 打开可用中文搜索的符号面板。</li>
+            <li>从论文或 AI 对话粘贴的 <code>\(…\)</code>、<code>\[…\]</code> 公式自动转成 Markdown 写法。</li>
+            <li>桌面有符号搜索，手机有专属公式工具条，不把两种输入方式混为一谈。</li>
+          </ul>
+        </div>
         <div class="showcase">
           <div class="sync-ui" role="img" aria-label="公式输入示意：输入触发词、Tab 填写占位符、实时预览">
             <div class="sync-head"><b>数学模式</b><span>实时预览</span></div>
@@ -428,29 +552,156 @@
             <div class="sync-foot"><span>139 条内置触发词</span><span>兼容 Obsidian Latex Suite</span></div>
           </div>
         </div>
+      </div>
+    </section>
+    <section class="story" id="database">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="db-ui" role="img" aria-label="数据库视图示意：文献笔记按阅读状态分成三列看板">
+            <div class="db-head"><b>文献笔记</b><span class="db-tabs"><span>表格</span><span class="on">看板</span><span>列表</span><span>画廊</span><span>日历</span></span></div>
+            <div class="db-board">
+              <div class="db-col"><div class="db-col-head">想读 <small>2</small></div><div class="db-card"><b>Critical slowing down</b><span><i>2019</i><i>相变</i></span></div><div class="db-card"><b>磁化率的测量方法</b><span><i>2021</i><i>方法</i></span></div></div>
+              <div class="db-col"><div class="db-col-head">在读 <small>1</small></div><div class="db-card active"><b>低温滞后的来源</b><span><i>2023</i><i>相变</i></span></div></div>
+              <div class="db-col"><div class="db-col-head">读完 <small>2</small></div><div class="db-card"><b>热电偶标定</b><span><i>2018</i><i>方法</i></span></div><div class="db-card"><b>Landau 理论讲义</b><span><i>2016</i><i>理论</i></span></div></div>
+            </div>
+            <div class="db-foot"><code>```verso-view</code><span>拖动卡片 = 修改那篇笔记的 status</span></div>
+          </div>
+        </div>
         <div class="story-copy">
-          <p class="eyebrow">02 · Math input</p>
-          <h2>公式输入不应中断写作。</h2>
-          <p>Verso 将公式输入视为核心能力，而非 Markdown 的附加功能。触发词仅在数学环境中生效，即使公式尚未闭合也可立即使用。</p>
+          <p class="eyebrow">04 · Database views</p>
+          <h2>笔记的属性，就是一张能随时换视图的数据库。</h2>
+          <p>在任意笔记里插入一个视图，Verso 按 frontmatter 查询整个笔记库，表格、看板、列表、画廊、日历五种视图随时切换。视图本身也只是笔记里的一段代码块。</p>
           <ul class="story-points">
-            <li><code>//</code> 生成分式，<code>@a</code> 生成 <code>\alpha</code>，<code>pmat3x3</code> 生成矩阵骨架。</li>
-            <li><code>Tab</code> 在待填位置之间跳转；填写完成后继续跳出括号。</li>
-            <li>桌面有符号搜索，手机有专属公式工具条，不把两种输入方式混为一谈。</li>
+            <li>改单元格就是改那篇笔记的 frontmatter；看板上拖一张卡片，就是改它的状态。</li>
+            <li>日历按日期属性排开，拖到另一天即改日期；手机上自动换成按天排列的议程。</li>
+            <li>筛选支持相对时间，例如 <code>updated &lt; "90d ago"</code>，长期没碰的笔记一目了然。</li>
+            <li>不用 Verso 了，属性仍在每篇笔记里，换任何编辑器都读得懂。</li>
           </ul>
         </div>
       </div>
     </section>
-
+    <section class="story" id="ai">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">05 · Your AI, your tools</p>
+          <h2>让 AI 服务于笔记工作流，而非取代它。</h2>
+          <p>Verso 不替你选择模型，也不把内容发往内置服务。桌面端的 AI 会话面板直接运行你已在使用的 AI 工具，它读写的始终是笔记库里的纯文本文件。</p>
+          <ul class="story-points">
+            <li>AI 要改哪篇笔记，先显示逐行差异；点「允许」才会写入，不满意也能从版本历史恢复。</li>
+            <li>可以同时开多个对话，也能接着以前的对话聊；模型与权限都在输入框下方切换。</li>
+            <li>内置终端依然保留，任何 AI CLI 都能在笔记库目录里直接运行。</li>
+            <li>笔记库会带一份 AI 可读的约定说明，降低误改目录和视图定义的风险。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="sync-ui" role="img" aria-label="AI 会话示意：AI 提议修改当前笔记，等待用户允许">
+            <div class="sync-head"><b>AI 会话</b><span>Claude Code</span></div>
+            <div class="activity">
+              <div class="activity-item"><span class="avatar">@</span><span><b>08-05 补测.md · 选中的 2 行</b><small>当前笔记与选区自动作为上下文</small></span><time>已带上</time></div>
+              <div class="activity-item"><span class="avatar">Δ</span><span><b>想修改《08-05 补测》</b><small>+3 −1 行 · 逐行差异先摆出来</small></span><time>等你允许</time></div>
+              <div class="activity-item"><span class="avatar">∑</span><span><b>回答按笔记排版</b><small>标题、表格、代码与公式照常渲染</small></span><time>完成</time></div>
+            </div>
+            <div class="sync-foot"><span>Claude Code · Codex · Gemini CLI</span><span>不内置模型，不经手登录与计费</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="story" id="project">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="project-center-ui" role="img" aria-label="项目中心示意：三个项目按状态汇总成卡片">
+            <div class="project-center-head"><span><span class="project-center-kicker">项目</span><b>项目中心</b></span><span class="project-center-action">＋ 新建项目</span></div>
+            <div class="project-metrics"><div><b>3</b><span>全部项目</span></div><div><b>2</b><span>仍在推进</span></div><div><b>1</b><span>已归档</span></div></div>
+            <div class="project-tools"><span class="project-search">⌕　搜索项目</span><span class="project-filter">进行中</span></div>
+            <div class="project-card-grid">
+              <article class="project-card featured"><div class="project-card-head"><span>● 进行中</span><time>08-05</time></div><h3>低温相变测量</h3><p>优先排查样品台温漂</p><div class="project-card-foot"><span>下一步：补测</span><span>进入 →</span></div></article>
+              <article class="project-card"><div class="project-card-head"><span>● 进行中</span><time>08-04</time></div><h3>相图拟合</h3><p>等待新的测量批次</p><div class="project-card-foot"><span>1 项待决策</span><span>进入 →</span></div></article>
+              <article class="project-card"><div class="project-card-head"><span>● 已归档</span><time>07-28</time></div><h3>标定流程</h3><p>结论与原始数据已整理</p><div class="project-card-foot"><span>查看记录</span><span>进入 →</span></div></article>
+            </div>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">06 · Project center</p>
+          <h2>先从项目中心掌握全局，再进入单个项目处理细节。</h2>
+          <p>项目中心按状态汇总仓库中的全部项目，并提供检索与筛选。进入项目后，项目总览仅呈现当前结论、下一步和阻碍；完整过程仍保留在可独立阅读的记录中。</p>
+          <ul class="story-points">
+            <li>项目卡片汇总状态、更新时间和待处理事项，可以置顶，也能自选排序方式。</li>
+            <li>项目总览固定展示当前结论、状态、下一步、阻碍和最近进展，做得再久也只有一屏。</li>
+            <li>实验、问题、决策和资料各自是一篇普通 Markdown 子文档。</li>
+            <li>可随时从项目中心或文档树打开原文，不会形成封闭的项目数据。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+    <section class="story" id="mindmap">
+      <div class="wrap story-grid">
+        <div class="story-copy">
+          <p class="eyebrow">07 · Inbox &amp; mind map</p>
+          <h2>先记下来，再整理成结构。</h2>
+          <p><code>Ctrl/⌘+Shift+Space</code> 打开收集箱，一个念头就是一张卡片，不必先想标题和分类。想清楚了，同一份内容可以切成思维导图，在图上继续调整结构。</p>
+          <ul class="story-points">
+            <li>卡片自动排版：<code>Enter</code> 记下一条，<code>Tab</code> 调整层级；选中几张就能整理成正式的子文档。</li>
+            <li>思维导图由标题与列表即时生成，在图上编辑、加分支、删子树，改的都是同一篇 Markdown。</li>
+            <li>不保存额外坐标，不会往笔记里塞一份其他软件看不懂的数据。</li>
+            <li>键盘、鼠标与触摸设备都有对应操作方式。</li>
+          </ul>
+        </div>
+        <div class="showcase">
+          <div class="map-ui" role="img" aria-label="思维导图示意：由笔记标题生成的三层导图">
+            <svg class="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M14 50C28 50 28 22 42 22"/><path d="M14 50C28 50 28 50 42 50"/><path d="M14 50C28 50 28 78 42 78"/><path d="M42 22C62 22 62 12 82 12"/><path d="M42 50C62 50 62 37 82 37"/><path d="M42 50C62 50 62 63 82 63"/><path d="M42 78C62 78 62 88 82 88"/></svg>
+            <span class="map-node root" style="left: 14%; top: 50%">研究问题</span>
+            <span class="map-node" style="left: 42%; top: 22%">背景</span>
+            <span class="map-node" style="left: 42%; top: 50%">方法</span>
+            <span class="map-node" style="left: 42%; top: 78%">待验证</span>
+            <span class="map-node" style="left: 82%; top: 12%">已有结果</span>
+            <span class="map-node" style="left: 82%; top: 37%">实验设计</span>
+            <span class="map-node" style="left: 82%; top: 63%">潜在误差</span>
+            <span class="map-node" style="left: 82%; top: 88%">下一步</span>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="story" id="history">
+      <div class="wrap story-grid reverse">
+        <div class="showcase">
+          <div class="history-ui" role="img" aria-label="版本历史示意：对比两个版本，可以单独退回其中一处改动">
+            <div class="history-head"><b>版本历史</b><span>实验方案.md</span></div>
+            <div class="history-list">
+              <div class="history-item on"><i></i><span><b>修改《实验方案》</b><small>自动记录 · 14:32</small></span></div>
+              <div class="history-item"><i></i><span><b>新增《08-05 补测》</b><small>自动记录 · 昨天</small></span></div>
+            </div>
+            <div class="history-diff">
+              <div class="del"><span>−</span>扫描速率固定为 1 K/min</div>
+              <div class="add"><span>+</span>扫描速率分 0.5、1、2 K/min 三组</div>
+              <div class="add"><span>+</span>每组重复测量两次</div>
+              <span class="history-revert">↶ 退回这一处</span>
+            </div>
+          </div>
+        </div>
+        <div class="story-copy">
+          <p class="eyebrow">08 · Version history</p>
+          <h2>改错了也不怕，每一步都能退回去。</h2>
+          <p>停手片刻，Verso 就自动记一个版本，说明里写清改的是哪篇笔记。不需要懂 Git，也不需要记得手动保存。</p>
+          <ul class="story-points">
+            <li>任意两个版本并排对比，单独一篇笔记也能回退到某一版。</li>
+            <li>对比页上的每一处改动都能单独退回：AI 改对的留下，改错的那几行退掉。</li>
+            <li>回退之前会先把现状记一版，所以回退本身也能撤销。</li>
+            <li>让 AI 大改时可以暂停自动记录，改完再整体记一版。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
     <section class="story" id="sync">
       <div class="wrap story-grid">
         <div class="story-copy">
-          <p class="eyebrow">03 · Sync & collaboration</p>
+          <p class="eyebrow">09 · Sync &amp; collaboration</p>
           <h2>协作聚焦内容，无需面对 Git 命令。</h2>
-          <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需同步；需要回溯时，仍可查看完整且可验证的历史。</p>
+          <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需按一次同步；仓库、权限和远端都由你掌握，Verso 不保存你的内容。</p>
           <ul class="story-points">
-            <li>停手后自动记录版本，提交说明会指出具体修改的笔记。</li>
-            <li>共享一篇笔记可创建独立空间，不必交出整个私有库。</li>
-            <li>多人修改时显示“谁改了什么”；真正冲突才进入按段落或属性处理的面板。</li>
+            <li>用自己的 GitHub 或 GitLab 仓库同步，令牌存进系统钥匙串。</li>
+            <li>分享一篇笔记会创建独立共享空间，不必交出整个私有库；共享内容直接出现在侧栏里。</li>
+            <li>协作动态显示「谁改了什么」；需要把关时，可以先提交修改建议，由他人逐文件接受或退回。</li>
+            <li>真正冲突才进入三方对比面板，按段落或属性定稿。</li>
           </ul>
         </div>
         <div class="showcase">
@@ -467,85 +718,24 @@
       </div>
     </section>
 
-    <section class="story" id="mindmap">
-      <div class="wrap story-grid reverse">
-        <div class="showcase">
-          <div class="map-ui" role="img" aria-label="思维导图示意：由笔记标题生成的三层导图">
-            <svg class="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="M14 50C28 50 28 22 42 22"/><path d="M14 50C28 50 28 50 42 50"/><path d="M14 50C28 50 28 78 42 78"/><path d="M42 22C62 22 62 12 82 12"/><path d="M42 50C62 50 62 37 82 37"/><path d="M42 50C62 50 62 63 82 63"/><path d="M42 78C62 78 62 88 82 88"/></svg>
-            <span class="map-node root" style="left: 14%; top: 50%">研究问题</span>
-            <span class="map-node" style="left: 42%; top: 22%">背景</span>
-            <span class="map-node" style="left: 42%; top: 50%">方法</span>
-            <span class="map-node" style="left: 42%; top: 78%">待验证</span>
-            <span class="map-node" style="left: 82%; top: 12%">已有结果</span>
-            <span class="map-node" style="left: 82%; top: 37%">实验设计</span>
-            <span class="map-node" style="left: 82%; top: 63%">潜在误差</span>
-            <span class="map-node" style="left: 82%; top: 88%">下一步</span>
+    <section class="more" id="more">
+      <div class="wrap">
+        <div class="intro-head">
+          <div>
+            <p class="eyebrow">And more</p>
+            <h2>这些细节，也都替你想好了。</h2>
           </div>
+          <p class="lede">从手机上的公式工具条到导出一张长图，Verso 把日常写作里的小摩擦一处一处磨平。</p>
         </div>
-        <div class="story-copy">
-          <p class="eyebrow">04 · Mind map</p>
-          <h2>切换视图，不复制内容。</h2>
-          <p>思维导图由笔记标题与列表即时生成。节点对应正文中的原始行，因此在图上编辑、增加分支或删除子树，始终是在编辑同一篇 Markdown。</p>
-          <ul class="story-points">
-            <li>不保存额外坐标，不会往笔记里塞一份其他软件看不懂的数据。</li>
-            <li><code>Enter</code> 添加同级，<code>Tab</code> 添加子级，<code>Space</code> 折叠。</li>
-            <li>键盘、鼠标与触摸设备都有对应操作方式。</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <section class="story" id="project">
-      <div class="wrap story-grid">
-        <div class="story-copy">
-          <p class="eyebrow">05 · Project center</p>
-          <h2>先从项目中心掌握全局，再进入单个项目处理细节。</h2>
-          <p>项目中心按状态汇总仓库中的全部项目，并提供检索与筛选。进入项目后，项目总览仅呈现当前结论、下一步和阻碍；完整过程仍保留在可独立阅读的记录中。</p>
-          <ul class="story-points">
-            <li>项目卡片汇总状态、更新时间和待处理事项，点击即可进入对应总览。</li>
-            <li>项目总览固定展示当前结论、状态、下一步、阻碍和最近进展。</li>
-            <li>实验、问题、决策和资料各自是一篇普通 Markdown 子文档。</li>
-            <li>可随时从项目中心或文档树打开原文，不会形成封闭的项目数据。</li>
-          </ul>
-        </div>
-        <div class="showcase">
-          <div class="project-center-ui" role="img" aria-label="项目中心示意：三个项目按状态汇总成卡片">
-            <div class="project-center-head"><span><span class="project-center-kicker">项目</span><b>项目中心</b></span><span class="project-center-action">＋ 新建项目</span></div>
-            <div class="project-metrics"><div><b>3</b><span>全部项目</span></div><div><b>2</b><span>仍在推进</span></div><div><b>1</b><span>已归档</span></div></div>
-            <div class="project-tools"><span class="project-search">⌕　搜索项目</span><span class="project-filter">进行中</span></div>
-            <div class="project-card-grid">
-              <article class="project-card featured"><div class="project-card-head"><span>● 进行中</span><time>08-05</time></div><h3>低温相变测量</h3><p>优先排查样品台温漂</p><div class="project-card-foot"><span>下一步：补测</span><span>进入 →</span></div></article>
-              <article class="project-card"><div class="project-card-head"><span>● 进行中</span><time>08-04</time></div><h3>相图拟合</h3><p>等待新的测量批次</p><div class="project-card-foot"><span>1 项待决策</span><span>进入 →</span></div></article>
-              <article class="project-card"><div class="project-card-head"><span>● 已归档</span><time>07-28</time></div><h3>标定流程</h3><p>结论与原始数据已整理</p><div class="project-card-foot"><span>查看记录</span><span>进入 →</span></div></article>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="story" id="ai">
-      <div class="wrap story-grid reverse">
-        <div class="showcase">
-          <div class="sync-ui" role="img" aria-label="AI 会话示意：AI 提议修改当前笔记，等待用户允许">
-            <div class="sync-head"><b>AI 会话</b><span>Claude Code</span></div>
-            <div class="activity">
-              <div class="activity-item"><span class="avatar">@</span><span><b>08-05 补测.md · 选中的 2 行</b><small>当前笔记与选区自动作为上下文</small></span><time>已带上</time></div>
-              <div class="activity-item"><span class="avatar">Δ</span><span><b>想修改《08-05 补测》</b><small>+3 −1 行 · 逐行差异先摆出来</small></span><time>等你允许</time></div>
-              <div class="activity-item"><span class="avatar">∑</span><span><b>回答按笔记排版</b><small>标题、表格、代码与公式照常渲染</small></span><time>完成</time></div>
-            </div>
-            <div class="sync-foot"><span>Claude Code · Codex · Gemini CLI</span><span>不内置模型，不经手登录与计费</span></div>
-          </div>
-        </div>
-        <div class="story-copy">
-          <p class="eyebrow">06 · Your AI, your tools</p>
-          <h2>让 AI 服务于笔记工作流，而非取代它。</h2>
-          <p>Verso 不替你选择模型，也不把内容发往内置服务。桌面端的 AI 会话面板直接运行你已在使用的 AI 工具，它读写的始终是笔记库里的纯文本文件。</p>
-          <ul class="story-points">
-            <li>AI 要改哪篇笔记，先显示逐行差异；点「允许」才会写入，不满意也能从版本历史恢复。</li>
-            <li>可以同时开多个对话，也能接着以前的对话聊；模型与权限都在输入框下方切换。</li>
-            <li>内置终端依然保留，任何 AI CLI 都能在笔记库目录里直接运行。</li>
-            <li>笔记库会带一份 AI 可读的约定说明，降低误改目录和视图定义的风险。</li>
-          </ul>
+        <div class="more-grid">
+          <article class="more-item"><span class="feature-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="4" y="1.5" width="8" height="13" rx="1.6"/><path d="M7 12.2h2"/></svg></span><h3>安卓手机</h3><p>阅读、编辑、同步都能用；公式有专属工具条，看板和日历用手指就能改。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M4.5 6V2h7v4M4.5 11.5H2.5v-5.5h11v5.5h-2"/><path d="M4.5 9.5h7v5h-7z"/></svg></span><h3>打印与导出</h3><p>按纸张重新排版导出 PDF；也能导出一张长图，直接贴进聊天窗口。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">⧉</span><h3>模板</h3><p>常用结构存成模板，新建时一键套用，还能给模板绑定快捷键。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">⊞</span><h3>多标签页</h3><p>同时打开多篇笔记，常用的那几篇可以固定在标签栏。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">⌘</span><h3>键位都能改</h3><p>每一条命令的快捷键都能自定义，<code>/</code> 菜单的条目也能自己配。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">=</span><h3>正文小计算</h3><p>输入 <code>64 * 512 =</code> 就显示结果，按 <code>Tab</code> 才写入。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">›_</span><h3>内置终端</h3><p>工作目录就是笔记库，一键把当前笔记作为上下文发过去。</p></article>
+          <article class="more-item"><span class="feature-icon" aria-hidden="true">↻</span><h3>轻巧，会自动更新</h3><p>安装包约 10 MB；桌面端在应用内检查并安装新版本。</p></article>
         </div>
       </div>
     </section>
