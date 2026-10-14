@@ -118,6 +118,9 @@ pub struct Settings {
     pub terminal_font_size: f64,
     /// 终端字体。留空跟随 `mono_font`
     pub terminal_font: String,
+    /// 把笔记发给终端时加在路径前面的引用前缀（§7.6）。空串是合法值 ——
+    /// 用不认 `@` 的工具的人清空它，得到的就是裸路径
+    pub terminal_mention: String,
 
     /// 文档树排序方式。`"manual"` 时按每篇笔记 frontmatter 里的 `order` 排。
     ///
@@ -255,6 +258,7 @@ impl Default for Settings {
             mono_font: String::new(),
             terminal_font_size: default_terminal_font_size(),
             terminal_font: String::new(),
+            terminal_mention: "@".into(),
             tree_sort: default_tree_sort(),
             tab_open: default_tab_open(),
             template_dir: default_template_dir(),
@@ -391,6 +395,17 @@ mod tests {
         assert_eq!(s.line_height, 1.85);
         assert_eq!(s.paragraph_spacing, 0.35);
         assert_eq!(s.content_width, 42.0);
+    }
+
+    /// 引用前缀以前只有前端认得：这里没有这个字段，存一次设置它就被丢掉，
+    /// 发给终端的文字前面变成 `undefined`。清空是合法的选择，不能被当成缺省
+    #[test]
+    fn terminal_mention_survives_a_round_trip() {
+        let s: Settings = serde_json::from_str(r#"{"terminalMention":""}"#).unwrap();
+        assert_eq!(s.terminal_mention, "");
+        let back = serde_json::to_value(&s).unwrap();
+        assert_eq!(back["terminalMention"], "");
+        assert_eq!(Settings::default().terminal_mention, "@");
     }
 
     #[test]

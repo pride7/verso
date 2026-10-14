@@ -86,3 +86,31 @@ describe("设置夹紧", () => {
     expect(s.customSnippets).toBe("[]");
   });
 });
+
+/**
+ * 前端的每一项设置，Rust 那边都得有同名字段。
+ *
+ * 设置是经 `settings_set` 存的，Rust 反序列化时**默默丢掉不认识的键**，再把
+ * 自己那份传回来 —— 前端照单全收。于是只加在前端的设置看上去能改，存一次就
+ * 没了：`terminalMention` 就这样坏了很久，发给终端的路径前面变成 `undefined`。
+ */
+describe("设置的两份定义对得上", () => {
+  const rust = import.meta.glob("../../../src-tauri/src/settings.rs", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+  const src = Object.values(rust)[0];
+  const body = src.slice(src.indexOf("pub struct Settings {"));
+  const fields = new Set(
+    [...body.slice(0, body.indexOf("\n}\n")).matchAll(/^\s*pub (\w+):/gm)].map((m) =>
+      m[1].replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()),
+    ),
+  );
+
+  it("前端有的键 Rust 都认得", () => {
+    expect(fields.size).toBeGreaterThan(10);
+    const missing = Object.keys(DEFAULT_SETTINGS).filter((k) => !fields.has(k));
+    expect(missing).toEqual([]);
+  });
+});
