@@ -67,7 +67,7 @@
     .brand small { margin-left: 3px; color: var(--muted); font: 500 13px/1 var(--sans); letter-spacing: .16em; }
     .nav-links { display: flex; align-items: center; gap: 24px; }
     .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 14px; font-weight: 600; }
-    .nav-links a:hover { color: var(--teal); }
+    .nav-links a:hover, .nav-links a.is-active { color: var(--teal); }
     .nav-download { padding: 9px 14px; border: 1px solid var(--teal); border-radius: 999px; color: var(--teal) !important; }
     .nav-download:hover { color: white !important; background: var(--teal); }
 
@@ -122,20 +122,21 @@
     .proof span { color: rgba(245, 247, 239, .58); font-size: 12px; }
 
     /* Feature overview */
-    .intro { padding: 112px 0 72px; }
+    .intro { padding: 96px 0 64px; }
     .intro-head { display: flex; align-items: end; justify-content: space-between; gap: 32px; margin-bottom: 39px; }
     .intro-head .lede { margin-bottom: 3px; max-width: 31em; font-size: 16px; }
     .feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-    .feature { min-height: 238px; padding: 26px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+    .feature { position: relative; min-height: 238px; padding: 26px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
     .feature:hover { border-color: color-mix(in srgb, var(--teal) 42%, var(--line)); box-shadow: 0 16px 34px rgba(24, 48, 43, .09); transform: translateY(-4px); }
     .feature-num { display: flex; align-items: center; justify-content: space-between; margin-bottom: 33px; color: var(--muted); font: 11px var(--mono); }
     .feature-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; background: var(--teal-wash); color: var(--teal); font-size: 17px; }
     .feature p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
     .feature a { display: inline-block; margin-top: 16px; color: var(--teal); font-size: 13px; font-weight: 700; text-decoration: none; }
     .feature a::after { content: " ↗"; }
+    .feature a::before { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 
     /* Stories */
-    .story { padding: 104px 0; border-top: 1px solid var(--line); }
+    .story { padding: 88px 0; border-top: 1px solid var(--line); }
     .story-grid { display: grid; grid-template-columns: minmax(0, .84fr) minmax(420px, 1.16fr); align-items: center; gap: clamp(48px, 9vw, 132px); }
     .story-grid.reverse { grid-template-columns: minmax(420px, 1.16fr) minmax(0, .84fr); }
     .story-copy { max-width: 34em; }
@@ -246,7 +247,7 @@
     .history-revert { position: absolute; right: 10px; top: 9px; padding: 4px 9px; border-radius: 999px; background: var(--ink); color: white; font: 700 10px/1.4 var(--sans); box-shadow: 0 6px 14px rgba(20, 43, 40, .2); }
 
     /* More */
-    .more { padding: 104px 0; border-top: 1px solid var(--line); }
+    .more { padding: 88px 0; border-top: 1px solid var(--line); }
     .more-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .more-item { padding: 22px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); }
     .more-item .feature-icon { margin-bottom: 18px; }
@@ -254,7 +255,7 @@
     .more-item p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
 
     /* Download */
-    .download { padding: 106px 0 114px; border-top: 1px solid var(--line); }
+    .download { padding: 88px 0 96px; border-top: 1px solid var(--line); }
     .download-card { position: relative; overflow: hidden; padding: clamp(31px, 5vw, 58px); border-radius: var(--r-xl); color: #f5f7ef; background: linear-gradient(130deg, #135a52, #103a36 55%, #1f766c); }
     .download-card::after { content: ""; position: absolute; right: -80px; top: -90px; width: 370px; height: 370px; border: 1px solid rgba(255,255,255,.14); border-radius: 50%; box-shadow: 0 0 0 48px rgba(255,255,255,.035), 0 0 0 96px rgba(255,255,255,.025); }
     .download-card > * { position: relative; z-index: 1; }
@@ -262,6 +263,7 @@
     .download-card p { max-width: 38em; color: rgba(245, 247, 239, .72); }
     .platforms { display: flex; flex-wrap: wrap; gap: 8px; margin: 27px 0; }
     .platforms span { padding: 5px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: rgba(245,247,239,.84); font: 11px var(--mono); }
+    .platforms span.is-current { border-color: var(--sun); color: var(--ink); background: var(--sun); }
     .download-note { margin-top: 22px; color: rgba(245,247,239,.57); font-size: 12px; }
 
     footer { padding: 0 0 48px; color: var(--muted); font-size: 13px; }
@@ -307,17 +309,22 @@
       .proof div { padding: 0; }
       .proof strong { font-size: 18px; }
       .proof span { font-size: 10px; }
-      .intro { padding: 76px 0 48px; }
+      .intro { padding: 64px 0 40px; }
       .intro-head { display: block; }
       .intro-head .lede { margin-top: 16px; }
-      .feature-grid, .more-grid { grid-template-columns: 1fr; }
-      .more { padding: 67px 0; }
+      .more-grid { grid-template-columns: 1fr; }
+      .feature-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .feature { min-height: 0; padding: 16px; }
+      .feature-num { margin-bottom: 14px; }
+      .feature h3 { margin: 0; font-size: 15px; }
+      .feature p { display: none; }
+      .feature a { position: static; margin: 0; font-size: 0; }
+      .feature a::after { content: none; }
+      .more { padding: 60px 0; }
       .db-tabs span:nth-child(n+3) { display: none; }
       .db-board { gap: 6px; padding: 9px; }
       .db-col { padding: 6px; }
-      .feature { min-height: 0; padding: 22px; }
-      .feature-num { margin-bottom: 20px; }
-      .story { padding: 67px 0; }
+      .story { padding: 60px 0; }
       .showcase { padding: 10px; }
       .map-ui { min-height: 315px; font-size: 10px; }
       .map-node { font-size: 10px; padding: 7px 9px; }
@@ -325,6 +332,10 @@
       .download { padding: 70px 0; }
       .footer-inner { display: block; }
       .footer-links { justify-content: flex-start; margin-top: 20px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal-ready .showcase { transition: opacity .7s ease, transform .7s ease; }
+      .reveal-ready .showcase:not(.is-in) { opacity: 0; transform: translateY(18px); }
     }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
@@ -358,7 +369,7 @@
             <a class="button button-primary" href="#download">获取 Verso <span aria-hidden="true">↓</span></a>
             <a class="button button-ghost" href="#features">了解产品能力 <span aria-hidden="true">↓</span></a>
           </div>
-          <p class="hero-note"><span aria-hidden="true"></span>笔记始终以标准 .md 文件保存，可使用其他编辑器直接打开</p>
+          <p class="hero-note"><span aria-hidden="true"></span>免费开源（Apache 2.0）· 笔记始终是标准 .md 文件，换任何编辑器都能打开</p>
           <div class="proof" aria-label="产品特点">
             <div><strong>纯 Markdown</strong><span>不依赖专有数据库</span></div>
             <div><strong>139 条触发词</strong><span>专为公式输入设计</span></div>
@@ -400,7 +411,7 @@
       <div class="intro-head">
         <div>
           <p class="eyebrow">Eight capabilities</p>
-          <h2>围绕 Markdown 与文件构建完整工作流。</h2>
+          <h2>写、整理、协作，都在普通文件上完成。</h2>
         </div>
         <p class="lede">Verso 不会把笔记转换为专有数据。编辑、组织、检索与协作均直接建立在 Markdown、文件夹和 Git 之上。</p>
       </div>
@@ -460,7 +471,7 @@
       <div class="wrap story-grid">
         <div class="story-copy">
           <p class="eyebrow">01 · Markdown first</p>
-          <h2>日常编辑与长期保存可以兼得。</h2>
+          <h2>你的笔记，始终是你的文件。</h2>
           <p>整个笔记库就是一个普通文件夹。使用同名文件夹组织子文档时，界面会将 <code>X.md</code> 与 <code>X/</code> 视为同一节点，使内容与相关资料保持在一起。</p>
           <ul class="story-points">
             <li>不自动补写你没有要求的 <code>id</code>、<code>title</code> 或时间字段。</li>
@@ -511,7 +522,7 @@
       <div class="wrap story-grid">
         <div class="story-copy">
           <p class="eyebrow">03 · Database views</p>
-          <h2>笔记的属性，就是一张能随时换视图的数据库。</h2>
+          <h2>笔记的属性，就是一张数据库。</h2>
           <p>在任意笔记里插入一个视图，Verso 按 frontmatter 查询整个笔记库，表格、看板、列表、画廊、日历五种视图随时切换。视图本身也只是笔记里的一段代码块。</p>
           <ul class="story-points">
             <li>改单元格就是改那篇笔记的 frontmatter；看板上拖一张卡片，就是改它的状态。</li>
@@ -548,7 +559,7 @@
         </div>
         <div class="story-copy">
           <p class="eyebrow">04 · Your AI, your tools</p>
-          <h2>让 AI 服务于笔记工作流，而非取代它。</h2>
+          <h2>用你自己的 AI，改什么先给你看。</h2>
           <p>Verso 不替你选择模型，也不把内容发往内置服务。桌面端的 AI 会话面板直接运行你已在使用的 AI 工具，它读写的始终是笔记库里的纯文本文件。</p>
           <ul class="story-points">
             <li>AI 要改哪篇笔记，先显示逐行差异；点「允许」才会写入，不满意也能从版本历史恢复。</li>
@@ -563,7 +574,7 @@
       <div class="wrap story-grid">
         <div class="story-copy">
           <p class="eyebrow">05 · Project center</p>
-          <h2>先从项目中心掌握全局，再进入单个项目处理细节。</h2>
+          <h2>项目做得再久，主页也只有一屏。</h2>
           <p>项目中心按状态汇总仓库中的全部项目，并提供检索与筛选。进入项目后，项目总览仅呈现当前结论、下一步和阻碍；完整过程仍保留在可独立阅读的记录中。</p>
           <ul class="story-points">
             <li>项目卡片汇总状态、更新时间和待处理事项，可以置顶，也能自选排序方式。</li>
@@ -659,7 +670,7 @@
         </div>
         <div class="story-copy">
           <p class="eyebrow">08 · Sync &amp; collaboration</p>
-          <h2>协作聚焦内容，无需面对 Git 命令。</h2>
+          <h2>用 Git 协作，但不必学 Git。</h2>
           <p>Verso 使用 Git 作为同步与版本历史的底层机制，同时将分支、暂存区等概念留在后台。日常只需按一次同步；仓库、权限和远端都由你掌握，Verso 不保存你的内容。</p>
           <ul class="story-points">
             <li>用自己的 GitHub 或 GitLab 仓库同步，令牌存进系统钥匙串。</li>
@@ -697,11 +708,11 @@
       <div class="wrap">
         <div class="download-card">
           <p class="eyebrow">Download</p>
-          <h2>从 Markdown 文件开始，构建自己的工作空间。</h2>
-          <p>安装包通过 GitHub Releases 发布。桌面端安装后可在应用内检查更新；你也可以查看源码、提交反馈或参与开发。</p>
-          <div class="platforms" aria-label="可用平台"><span>Windows</span><span>macOS · Apple Silicon</span><span>macOS · Intel</span><span>Android · arm64</span><span>Linux 构建产物</span></div>
+          <h2>打开一个文件夹，就能开始。</h2>
+          <p>Verso 免费开源（Apache 2.0），安装包通过 GitHub Releases 发布。桌面端安装后可在应用内检查更新；你也可以查看源码、提交反馈或参与开发。</p>
+          <div class="platforms" aria-label="可用平台"><span data-os="Windows">Windows</span><span data-os="macOS">macOS · Apple Silicon</span><span data-os="macOS">macOS · Intel</span><span data-os="Android">Android · arm64</span><span>Linux 构建产物</span></div>
           <div class="actions">
-            <a class="button button-primary" href="https://github.com/pride7/verso/releases/latest" target="_blank" rel="noopener">下载最新版本 <span aria-hidden="true">↗</span></a>
+            <a class="button button-primary" id="download-latest" href="https://github.com/pride7/verso/releases/latest" target="_blank" rel="noopener">下载最新版本 <span aria-hidden="true">↗</span></a>
             <a class="button button-ghost" href="https://github.com/pride7/verso" target="_blank" rel="noopener">在 GitHub 上查看 <span aria-hidden="true">↗</span></a>
           </div>
           <p class="download-note">macOS 安装包尚未完成 Apple 签名与公证，首次启动可能需要手动放行。Linux 产物可下载，但 v1 暂不声明正式支持。</p>
@@ -712,7 +723,7 @@
 
   <footer class="wrap">
     <div class="footer-inner">
-      <div><div class="footer-brand">Verso <small>页</small></div><p>verso folio · 翻过这一页</p></div>
+      <div><div class="footer-brand">Verso <small>页</small></div><p>verso folio · 翻过这一页 · Apache 2.0 开源</p></div>
       <div class="footer-links">
         <a href="https://github.com/pride7/verso" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/pride7/verso/releases/latest" target="_blank" rel="noopener">下载</a>
@@ -722,5 +733,29 @@
       </div>
     </div>
   </footer>
+  <script>
+    (() => {
+      const ua = navigator.userAgent;
+      const os = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) ? '' : /Mac/i.test(ua) ? 'macOS' : /Win/i.test(ua) ? 'Windows' : '';
+      if (os) {
+        document.querySelectorAll(`.platforms [data-os="${os}"]`).forEach(el => el.classList.add('is-current'));
+        document.getElementById('download-latest').firstChild.textContent = `下载 ${os} 版 `;
+      }
+
+      if (!('IntersectionObserver' in window)) return;
+
+      const reveal = new IntersectionObserver(entries => {
+        for (const e of entries) if (e.isIntersecting) { e.target.classList.add('is-in'); reveal.unobserve(e.target); }
+      }, { rootMargin: '0px 0px -8% 0px' });
+      document.documentElement.classList.add('reveal-ready');
+      document.querySelectorAll('.showcase').forEach(el => reveal.observe(el));
+
+      const links = new Map([...document.querySelectorAll('.nav-links a[href^="#"]')].map(a => [a.hash.slice(1), a]));
+      const spy = new IntersectionObserver(entries => {
+        for (const e of entries) if (e.isIntersecting) links.forEach((a, id) => a.classList.toggle('is-active', id === e.target.id));
+      }, { rootMargin: '-45% 0px -50% 0px' });
+      document.querySelectorAll('main section[id]').forEach(el => spy.observe(el));
+    })();
+  </script>
 </body>
 </html>
