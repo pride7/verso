@@ -28,6 +28,12 @@ import {
 } from "../core/acp";
 import {
   applyUpdate,
+  attachmentBlock,
+  attachmentName,
+  looksLikeText,
+  MAX_IMAGE_BYTES,
+  MAX_TEXT_BYTES,
+  type Attachment,
   configChoices,
   configToRestore,
   conversationRows,
@@ -50,7 +56,7 @@ import {
 import { relTime } from "../core/relTime";
 import type { FileDiff as TextDiff } from "../core/types";
 import { renderMarkdown } from "../editor/exportHtml";
-import { api, onAgentExit, onAgentLine, onAgentStderr } from "../host/api";
+import { api, onAgentExit, onAgentLine, onAgentStderr, pickFiles } from "../host/api";
 import { confirm } from "../host/dialog";
 import { openExternalPage } from "../host/external";
 import { UnifiedDiff } from "./DiffView";
@@ -79,6 +85,10 @@ interface Props {
   beforePrompt: () => Promise<void>;
   onOpenPath: (rel: string) => void;
   onOpenSettings: () => void;
+  /** 面板关着：只是藏起来，背后的进程和对话都留着（App 的 `agentMounted`） */
+  hidden?: boolean;
+  /** 藏着的时候有事要人处理（来要许可了）。App 把面板弹出来 */
+  onAttention?: () => void;
 }
 
 /** 进程这一层的状态。每个对话自己忙不忙记在 `Conversation.busy` 上 */
@@ -86,6 +96,8 @@ type Phase =
   /** 还没选跑哪个 AI。什么都不起，等人挑 */
   | { kind: "choose" }
   | { kind: "starting" }
+  /** 第一次用某个常用适配器：Verso 正在替人装一份（只有这一次） */
+  | { kind: "installing"; label: string }
   | { kind: "ready" }
   /** 起不来，或者半路没了。`log` 是 stderr 的最后几行 */
   | { kind: "dead"; message: string; log: string[] };
@@ -142,6 +154,8 @@ export function AgentPanel({
   beforePrompt,
   onOpenPath,
   onOpenSettings,
+  hidden = false,
+  onAttention,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const [agentName, setAgentName] = useState("");
@@ -165,6 +179,10 @@ export function AgentPanel({
   const [withSelection, setWithSelection] = useState(true);
   /** 换一下就重启进程（「重新启动」按钮） */
   const [generation, setGeneration] = useState(0);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  /** 附件带不上时的一句话（太大、读不了），过几秒自己消失 */
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const connRef = useRef<AcpConnection | null>(null);
   const cwdRef = useRef("");
@@ -176,8 +194,8 @@ export function AgentPanel({
   /** 用户往上翻了就别再把他拽回底部 */
   const stickRef = useRef(true);
 
-  const cb = useRef({ getContext, beforePrompt });
-  cb.current = { getContext, beforePrompt };
+  const cb = useRef({ getContext, beforePrompt, onAttention, hidden });
+  cb.current = { getContext, beforePrompt, onAttention, hidden };
 
   /** 改某一个对话。不在了（面板重启过）就什么都不做 */
   const patch = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
@@ -304,7 +322,19 @@ export function AgentPanel({
     void (async () => {
       try {
         await unlisten;
-        const [id, cwd] = await api.agentStart(command);
+        // 常用的适配器装在本机，直接运行（见 agent_pkg.rs）。没装过就先装一份
+        const preset = AGENT_PRESETS.find((p) => p.command === command && p.package);
+        let launch = command;
+        if (preset?.package) {
+          const installed = await api.agentResolve(preset.package);
+          if (installed) launch = installed;
+          else {
+            setPhase({ kind: "installing", label: preset.label });
+            launch = await api.agentInstall(preset.package);
+          }
+          if (disposed) return;
+        }
+        const [id, cwd] = await api.agentStart(launch);
         if (disposed) {
           void api.agentStop(id);
           return;
@@ -335,6 +365,7 @@ export function AgentPanel({
           onPermission: (req) =>
             new Promise<PermissionOutcome>((resolve) => {
               setPermissions((all) => ({ ...all, [req.sessionId]: { req, resolve } }));
+              if (cb.current.hidden) cb.current.onAttention?.();
             }),
         });
         connRef.current = conn;
@@ -356,6 +387,8 @@ export function AgentPanel({
         setActiveId(session.sessionId);
         setPhase({ kind: "ready" });
         void restorePrefs(session.sessionId, session);
+        // 有新版就在后台装上，下次启动生效。一天最多真去问一次
+        if (preset?.package) void api.agentUpdate(preset.package).catch(() => {});
       } catch (e) {
         if (disposed) return;
         if (e instanceof AcpError && e.code === AUTH_REQUIRED) {
@@ -433,6 +466,11 @@ export function AgentPanel({
     const now = cb.current.getContext();
     const blocks: ContentBlock[] = [{ type: "text", text }];
     const labels: string[] = [];
+    const sentAttachments = attachments;
+    for (const a of sentAttachments) {
+      blocks.push(attachmentBlock(a, cwdRef.current));
+      labels.push(attachmentName(a));
+    }
     if (withNote && now.path) {
       blocks.push({ type: "resource_link", uri: fileUri(cwdRef.current, now.path), name: now.path });
       labels.push(now.path);
@@ -451,12 +489,14 @@ export function AgentPanel({
     }
 
     setDraft("");
+    setAttachments([]);
     stickRef.current = true;
+    const images = sentAttachments.flatMap((a) => (a.kind === "image" ? [`data:${a.mimeType};base64,${a.data}`] : []));
     patch(sid, (c) => ({
       ...c,
       busy: true,
       updatedAt: Date.now(),
-      entries: [...c.entries, { kind: "user", text, context: labels }],
+      entries: [...c.entries, { kind: "user", text, context: labels, ...(images.length ? { images } : {}) }],
     }));
     const note = (text: string) =>
       patch(sid, (c) => ({ ...c, entries: [...c.entries, { kind: "agent", text }] }));
@@ -472,6 +512,86 @@ export function AgentPanel({
     } finally {
       patch(sid, (c) => ({ ...c, busy: false, updatedAt: Date.now() }));
     }
+  };
+
+  // ---- 附件
+
+  const addAttachments = (more: Attachment[]) => {
+    if (more.length === 0) return;
+    setAttachments((all) => {
+      const key = (a: Attachment) => `${a.kind}:${a.kind === "note" ? a.rel : a.kind === "path" ? a.path : a.name}`;
+      const seen = new Set(all.map(key));
+      return [...all, ...more.filter((a) => !seen.has(key(a)))];
+    });
+    inputRef.current?.focus();
+  };
+
+  const notice = (text: string) => {
+    setAttachNotice(text);
+    window.setTimeout(() => setAttachNotice((t) => (t === text ? null : t)), 5000);
+  };
+
+  /** 「+」：选本机文件。只交路径，读由 agent 自己来（PDF、Word 它读得懂） */
+  const pickAttachments = async () => {
+    const paths = await pickFiles().catch(() => [] as string[]);
+    addAttachments(paths.map((path) => ({ kind: "path", path, name: path.split(/[\\/]/).pop() || path })));
+  };
+
+  /**
+   * 粘贴或拖进来的文件：浏览器只给内容、不给路径。图片和文本带上内容，
+   * 别的（PDF、压缩包…）带不上 —— 说一声，告诉人走「+」
+   */
+  const readFiles = async (files: File[]) => {
+    const out: Attachment[] = [];
+    for (const f of files) {
+      if (f.type.startsWith("image/")) {
+        if (f.size > MAX_IMAGE_BYTES) {
+          notice(`「${f.name}」太大了（超过 5 MB），图片发不出去`);
+          continue;
+        }
+        const data = await fileBase64(f);
+        out.push({ kind: "image", name: f.name || "粘贴的图片", mimeType: f.type, data });
+      } else if (looksLikeText(f.name, f.type)) {
+        if (f.size > MAX_TEXT_BYTES) {
+          notice(`「${f.name}」太大，整个带上不合适 —— 用「+」选它，让 AI 自己按需去读`);
+          continue;
+        }
+        out.push({ kind: "text", name: f.name, mimeType: f.type || "text/plain", text: await f.text() });
+      } else {
+        notice(`「${f.name}」拖进来读不了 —— 用「+」选它，AI 会自己去读`);
+      }
+    }
+    addAttachments(out);
+  };
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = [...e.clipboardData.files];
+    if (files.length === 0) return; // 纯文字照常粘贴
+    e.preventDefault();
+    void readFiles(files);
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    setDragOver(false);
+    // 从文档树拖来的一篇笔记：带路径，不带内容
+    const note = e.dataTransfer.getData("text/verso-path");
+    if (note) {
+      e.preventDefault();
+      addAttachments([{ kind: "note", rel: note }]);
+      return;
+    }
+    const files = [...e.dataTransfer.files];
+    if (files.length === 0) return;
+    e.preventDefault();
+    void readFiles(files);
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    const types = [...e.dataTransfer.types];
+    if (!types.includes("Files") && !types.includes("text/verso-path")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
   };
 
   const stop = () => {
@@ -674,7 +794,16 @@ export function AgentPanel({
   const now = new Date();
 
   return (
-    <aside className={`agent${cover ? " is-cover" : ""}`} aria-label="AI 会话">
+    <aside
+      className={`agent${cover ? " is-cover" : ""}${hidden ? " is-hidden" : ""}${dragOver ? " is-drop" : ""}`}
+      aria-label="AI 会话"
+      aria-hidden={hidden || undefined}
+      onDragOver={onDragOver}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={onDrop}
+    >
       {!cover && <div className="agent-resizer" onMouseDown={startDrag} />}
       <header className="agent-head">
         <div className="agent-switch" ref={menuRef}>
@@ -828,8 +957,11 @@ export function AgentPanel({
             </button>
           </div>
         )}
-        {phase.kind === "starting" && (
-          <p className="agent-status">正在启动…第一次要先下载适配器，可能要等十几秒。</p>
+        {phase.kind === "starting" && <p className="agent-status agent-thinking">正在启动…</p>}
+        {phase.kind === "installing" && (
+          <p className="agent-status agent-thinking">
+            正在安装 {phase.label} 的适配器…只有第一次需要，之后打开就快了。
+          </p>
         )}
         {active?.loading && <p className="agent-status agent-thinking">正在接回这个对话…</p>}
         {busy && !permission && <p className="agent-status agent-thinking">正在回答…</p>}
@@ -853,8 +985,31 @@ export function AgentPanel({
       </div>
 
       <footer className="agent-input">
-        {(ctx.path || ctx.selection) && (
+        {attachNotice && (
+          <p className="agent-attach-notice" role="status">
+            {attachNotice}
+          </p>
+        )}
+        {(ctx.path || ctx.selection || attachments.length > 0) && (
           <div className="agent-chips">
+            {attachments.map((a, i) => (
+              <span key={i} className="agent-chip is-on is-attachment" title={a.kind === "path" ? a.path : attachmentName(a)}>
+                {a.kind === "image" ? (
+                  <img src={`data:${a.mimeType};base64,${a.data}`} alt="" className="agent-chip-thumb" />
+                ) : (
+                  <Icon name={a.kind === "text" ? "text" : "doc"} size={12} />
+                )}
+                <span className="agent-chip-name">{attachmentName(a)}</span>
+                <button
+                  className="agent-chip-x"
+                  onClick={() => setAttachments((all) => all.filter((_, j) => j !== i))}
+                  aria-label={`去掉 ${attachmentName(a)}`}
+                  title="去掉"
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </span>
+            ))}
             {ctx.path && (
               <button
                 className={`agent-chip${withNote ? " is-on" : ""}`}
@@ -893,6 +1048,7 @@ export function AgentPanel({
             }
             disabled={phase.kind === "dead" || phase.kind === "choose"}
             onFocus={refreshContext}
+            onPaste={onPaste}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               // 输入法组词时的回车是「选这个词」，不是「发送」
@@ -905,6 +1061,15 @@ export function AgentPanel({
           {/* 底部一行：左边是权限（这个对话能做什么），右边是模型、思考强度、
               上下文和发送 —— 和常见的 AI 输入框同一个排法，人一眼就知道在哪儿 */}
           <div className="agent-bar">
+            <button
+              className="agent-attach"
+              onClick={() => void pickAttachments()}
+              disabled={!ready}
+              title="添加附件（也可以粘贴图片、把文件或笔记拖进来）"
+              aria-label="添加附件"
+            >
+              <Icon name="plus" size={14} />
+            </button>
             {modeOption && modeOption.type === "select" ? (
               <Picker
                 label="权限"
@@ -1018,6 +1183,18 @@ export function AgentPanel({
                   ...effort.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
                 ]}
                 onChange={(v) => void changeMetaEffort(v || null)}
+              />
+            )}
+            {effort === null && modelOption && (
+              // 这个模型没有可选的档位（比如 Codex 的 gpt-6.1-sol）：留一格灰的，
+              // 不让人以为是面板漏了这个功能
+              <Picker
+                label="思考强度"
+                value=""
+                disabled
+                title="这个模型没有可选的思考强度"
+                options={[{ value: "", label: "默认强度" }]}
+                onChange={() => {}}
               />
             )}
             {usage && usage.size > 0 && <ContextRing usage={usage} />}
@@ -1138,6 +1315,16 @@ function ContextRing({ usage }: { usage: NonNullable<Conversation["usage"]> }) {
   );
 }
 
+/** 文件内容 → base64（不带 `data:` 前缀） */
+function fileBase64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ""));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(f);
+  });
+}
+
 function Markdown({ text }: { text: string }) {
   // 外链图片不加载（见 `remoteImages`）。流式输出时每个 chunk 都重排一遍，
   // 一段回答通常就几 KB，同步渲染跟得上
@@ -1166,6 +1353,13 @@ function EntryView({
     case "user":
       return (
         <div className="agent-msg is-user">
+          {entry.images && entry.images.length > 0 && (
+            <div className="agent-user-images">
+              {entry.images.map((src, i) => (
+                <img key={i} src={src} alt="" />
+              ))}
+            </div>
+          )}
           <div className="agent-user-text">{entry.text}</div>
           {entry.context.length > 0 && <div className="agent-user-ctx">带上了：{entry.context.join("、")}</div>}
         </div>

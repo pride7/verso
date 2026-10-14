@@ -5455,6 +5455,15 @@ body.is-table-resizing * {
   border-left: 1px solid var(--border);
   font-size: var(--ui-font-size);
 }
+/* 关着：只是藏起来，背后的进程和对话都留着 */
+.agent.is-hidden {
+  display: none;
+}
+/* 文件或笔记拖到面板上方：整块描一圈，告诉人「松手就带上」 */
+.agent.is-drop {
+  outline: 2px dashed color-mix(in oklch, var(--accent) 60%, transparent);
+  outline-offset: -6px;
+}
 /* 窄窗口：盖在编辑区上，不再挤出一栏 */
 .agent.is-cover {
   grid-area: main;
@@ -5994,6 +6003,68 @@ body.is-table-resizing * {
   border-color: color-mix(in oklch, var(--accent) 40%, var(--hairline));
   background: var(--accent-wash);
 }
+.agent-attach {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+}
+.agent-attach:hover:not(:disabled) {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+.agent-chip.is-attachment {
+  padding-right: 2px;
+  max-width: 220px;
+}
+.agent-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-chip-thumb {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex: none;
+}
+.agent-chip-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--muted);
+  flex: none;
+}
+.agent-chip-x:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+}
+.agent-attach-notice {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--warn);
+  line-height: 1.5;
+}
+.agent-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.agent-user-images img {
+  max-width: 160px;
+  max-height: 120px;
+  border-radius: var(--r-sm);
+  object-fit: cover;
+}
+
 .agent-box {
   display: flex;
   flex-direction: column;

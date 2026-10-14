@@ -29,7 +29,14 @@ export interface FileDiff {
 }
 
 export type ChatEntry =
-  | { kind: "user"; text: string; context: string[] }
+  | {
+      kind: "user";
+      text: string;
+      /** 这一句带上了什么：笔记、选区、附件的名字 */
+      context: string[];
+      /** 随这一句发出去的图片（data URL），画成缩略图 */
+      images?: string[];
+    }
   | { kind: "agent"; text: string }
   | { kind: "thought"; text: string }
   | {
@@ -384,6 +391,65 @@ export function relativeToVault(abs: string, root: string): string {
   const windows = /^[a-zA-Z]:\//.test(r);
   const same = windows ? a.toLowerCase().startsWith(r.toLowerCase() + "/") : a.startsWith(r + "/");
   return same ? a.slice(r.length + 1) : abs;
+}
+
+// ------------------------------------------------------------------ 附件
+
+/**
+ * 随一句话发出去的附件。按来源分四种，各有各的送法：
+ *
+ * - `path`：用「+」选的本机文件。只给路径，让 agent 用它自己的工具去读 ——
+ *   PDF、Word 这类 Verso 读不懂的它读得懂，而且它读文件有自己的许可规则
+ * - `note`：从文档树拖进来的笔记，同上，路径在 vault 里
+ * - `image`：粘贴或拖进来的图片。它没有路径（剪贴板里的截图本来就不是文件），
+ *   只能把内容整个带上
+ * - `text`：拖进来的文本文件，同理带上内容
+ */
+export type Attachment =
+  | { kind: "path"; path: string; name: string }
+  | { kind: "note"; rel: string }
+  | { kind: "image"; name: string; mimeType: string; data: string }
+  | { kind: "text"; name: string; mimeType: string; text: string };
+
+/** 图片多大还能带上。各家模型的单张上限在 5 MB 上下，超了发出去也是被拒 */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** 文本文件多大还整个带上。再大就该让 agent 自己按需去读，用「+」选 */
+export const MAX_TEXT_BYTES = 512 * 1024;
+
+export function attachmentName(a: Attachment): string {
+  return a.kind === "note" ? a.rel.replace(/\.md$/, "") : a.name;
+}
+
+/** 本机绝对路径 → `file://` URI。Windows 的盘符、反斜杠都照规矩换 */
+export function absFileUri(path: string): string {
+  const norm = path.replace(/\\/g, "/");
+  const encoded = norm
+    .split("/")
+    .map((seg) => (/^[a-zA-Z]:$/.test(seg) ? seg : encodeURIComponent(seg)))
+    .join("/");
+  return encoded.startsWith("/") ? `file://${encoded}` : `file:///${encoded}`;
+}
+
+/** 附件 → 协议里的内容块 */
+export function attachmentBlock(a: Attachment, vaultRoot: string): ContentBlock {
+  switch (a.kind) {
+    case "path":
+      return { type: "resource_link", uri: absFileUri(a.path), name: a.name };
+    case "note":
+      return { type: "resource_link", uri: fileUri(vaultRoot, a.rel), name: a.rel };
+    case "image":
+      return { type: "image", mimeType: a.mimeType, data: a.data };
+    case "text":
+      return { type: "resource", resource: { uri: `file:///${encodeURIComponent(a.name)}`, text: a.text, mimeType: a.mimeType } };
+  }
+}
+
+/** 拖进来的文件按文本带上的那些。浏览器给的 MIME 常常是空的，再看扩展名 */
+export function looksLikeText(name: string, mimeType: string): boolean {
+  if (mimeType.startsWith("text/") || /json|xml|yaml|toml|javascript|typescript/.test(mimeType)) return true;
+  return /\.(md|markdown|txt|csv|tsv|json|ya?ml|toml|xml|html?|css|js|jsx|ts|tsx|py|rs|go|java|kt|c|h|cpp|hpp|cs|rb|php|sh|ps1|sql|tex|bib|log|ini|cfg|conf)$/i.test(
+    name,
+  );
 }
 
 /** vault 里的相对路径 → `file://` URI，给 `resource_link` 用 */

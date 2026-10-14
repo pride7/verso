@@ -99,7 +99,7 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 ///   窗口 —— 否则每开一次面板就闪一个黑框
 /// - 其余：`$SHELL -l -c`。登录 shell 才读得到用户的 PATH：从 Dock / 访达
 ///   启动的应用拿到的 PATH 只有系统那几个目录，`npx` 都找不到
-fn shell_command(command: &str) -> Command {
+pub(crate) fn shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -123,7 +123,7 @@ fn shell_command(command: &str) -> Command {
 
 /// 连同子进程一起停掉。shell → npx → node → Claude Code 是一整串，只杀
 /// 最上面那个，下面几层会留在后台继续占着内存和登录态。
-fn kill_tree(child: &mut Child) {
+pub(crate) fn kill_tree(child: &mut Child) {
     let pid = child.id();
     #[cfg(windows)]
     {

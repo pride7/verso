@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
+  absFileUri,
+  attachmentBlock,
+  looksLikeText,
   applyUpdate,
   configChoices,
   configToRestore,
@@ -290,5 +293,40 @@ describe("思考强度", () => {
     expect(shortCount(25109)).toBe("25k");
     expect(shortCount(1_000_000)).toBe("1M");
     expect(shortCount(1_500_000)).toBe("1.5M");
+  });
+});
+
+describe("附件", () => {
+  it("本机路径换成 file URI：盘符不编码、空格和中文编码", () => {
+    expect(absFileUri(String.raw`C:\Users\x\论文 草稿.pdf`)).toBe(
+      "file:///C:/Users/x/%E8%AE%BA%E6%96%87%20%E8%8D%89%E7%A8%BF.pdf",
+    );
+    expect(absFileUri("/home/a/b c.txt")).toBe("file:///home/a/b%20c.txt");
+  });
+
+  it("四种附件四种送法", () => {
+    expect(attachmentBlock({ kind: "path", path: "/a/x.pdf", name: "x.pdf" }, "/v")).toEqual({
+      type: "resource_link",
+      uri: "file:///a/x.pdf",
+      name: "x.pdf",
+    });
+    expect(attachmentBlock({ kind: "note", rel: "甲.md" }, "/v")).toMatchObject({ type: "resource_link", name: "甲.md" });
+    expect(attachmentBlock({ kind: "image", name: "a.png", mimeType: "image/png", data: "AAA" }, "/v")).toEqual({
+      type: "image",
+      mimeType: "image/png",
+      data: "AAA",
+    });
+    expect(attachmentBlock({ kind: "text", name: "a.csv", mimeType: "text/csv", text: "1,2" }, "/v")).toMatchObject({
+      type: "resource",
+      resource: { text: "1,2", mimeType: "text/csv" },
+    });
+  });
+
+  it("哪些按文本带上：看 MIME，MIME 空着就看扩展名", () => {
+    expect(looksLikeText("a.bin", "text/plain")).toBe(true);
+    expect(looksLikeText("数据.csv", "")).toBe(true);
+    expect(looksLikeText("x.py", "")).toBe(true);
+    expect(looksLikeText("x.pdf", "application/pdf")).toBe(false);
+    expect(looksLikeText("x.zip", "")).toBe(false);
   });
 });

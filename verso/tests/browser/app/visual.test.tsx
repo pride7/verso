@@ -410,6 +410,8 @@ vi.mock("../../../src/host/api", () => ({
     agentStart: async () => ["agent-1", String.raw`D:\Notes\vault`],
     agentSend: async (_id: string, line: string) => agentReply(line),
     agentStop: async () => {},
+    agentResolve: async () => "node agent.js",
+    agentUpdate: async () => false,
     textDiff: async (path: string, _old: string, next: string) => ({
       path,
       kind: "added",
@@ -446,6 +448,7 @@ vi.mock("../../../src/host/api", () => ({
   },
   onAgentStderr: async () => () => {},
   onAgentExit: async () => () => {},
+  pickFiles: async () => [],
   pickVaultFolder: async () => null,
   pickCloneFolder: async () => null,
   pickImageSavePath: async () => null,

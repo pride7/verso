@@ -72,6 +72,13 @@ export async function pickImageSavePath(defaultName: string): Promise<string | n
   });
 }
 
+/** AI 会话里「+」选附件（§7.8）。取消返回空数组 */
+export async function pickFiles(): Promise<string[]> {
+  const picked = await open({ multiple: true, directory: false, title: "选择要交给 AI 的文件" });
+  if (!picked) return [];
+  return Array.isArray(picked) ? picked : [picked];
+}
+
 /** 加入已有共享空间时选一个空目录；单独命名，避免对话框仍写着「打开」。 */
 export async function pickCloneFolder(): Promise<string | null> {
   const picked = await open({ directory: true, multiple: false, title: "选择一个空文件夹" });
@@ -216,6 +223,12 @@ export const api = {
   agentStart: (command: string) => call<[string, string]>("agent_start", { command }),
   /** 往 agent 的 stdin 写一行（一条 JSON-RPC 消息） */
   agentSend: (id: string, line: string) => call<void>("agent_send", { id, line }),
+  /** 常用适配器本机装过没有。装过返回直接运行它的那一行命令 */
+  agentResolve: (pkg: string) => call<string | null>("agent_resolve", { package: pkg }),
+  /** 装一份（第一次选它时，要下载，可能十几秒）。返回运行它的命令 */
+  agentInstall: (pkg: string) => call<string>("agent_install", { package: pkg }),
+  /** 后台看有没有新版，有就装上、下次启动生效。一天最多真去问一次 */
+  agentUpdate: (pkg: string) => call<boolean>("agent_update", { package: pkg }),
   agentStop: (id: string) => call<void>("agent_stop", { id }),
 
   // —— §2.5 索引 ——

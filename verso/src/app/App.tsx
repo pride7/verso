@@ -632,16 +632,22 @@ export default function App() {
     [setTermOpen],
   );
   /**
-   * AI 会话面板（§7.8）开着没有。和终端一样跨会话记住；关掉就停掉背后那个
-   * 进程，所以「开着」的代价是一个常驻的 agent，不想要的人关一次就够了
+   * AI 会话面板（§7.8）开着没有。和终端一样跨会话记住。
+   *
+   * **关掉只是藏起来，背后那个进程留着**（`agentMounted`）：起一个 agent 要
+   * 好几秒（Codex 开会话就要十秒上下），关一下再打开就重来一遍的话，人会
+   * 觉得每次都在「启动」。进程在换仓库、退出应用时才停
    */
   const [agentOpen, setAgentOpenRaw] = useState(() => localStorage.getItem("verso.agentOpen") === "1");
-  const toggleAgent = useCallback(() => {
-    setAgentOpenRaw((v) => {
-      localStorage.setItem("verso.agentOpen", v ? "0" : "1");
-      return !v;
-    });
+  const [agentMounted, setAgentMounted] = useState(agentOpen);
+  const setAgentOpen = useCallback((open: boolean) => {
+    localStorage.setItem("verso.agentOpen", open ? "1" : "0");
+    setAgentOpenRaw(open);
+    if (open) setAgentMounted(true);
   }, []);
+  const toggleAgent = useCallback(() => setAgentOpen(!agentOpenRef.current), [setAgentOpen]);
+  const agentOpenRef = useRef(agentOpen);
+  agentOpenRef.current = agentOpen;
   const [agentWidth, setAgentWidth] = useState(() => {
     const saved = Number(localStorage.getItem("verso.agentWidth"));
     return Number.isFinite(saved) && saved >= 300 ? saved : 420;
@@ -4954,11 +4960,15 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* §7.8。换 vault 就换一个进程：agent 的工作目录是 vault 根 */}
-      {agentOpen && !mobile && (
+      {/* §7.8。换 vault 就换一个进程：agent 的工作目录是 vault 根。
+          关着的时候只是藏起来，见 `agentMounted` */}
+      {agentMounted && !mobile && (
         <Suspense fallback={null}>
           <AgentPanel
             key={vault.root}
+            hidden={!agentOpen}
+            // 藏着的时候它来要许可：弹出来。不弹的话它就一直卡在那里等，人却看不见
+            onAttention={() => setAgentOpen(true)}
             command={settings.agentCommand}
             onPickCommand={(agentCommand) => updateSettings({ agentCommand })}
             width={agentWidth}

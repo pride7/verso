@@ -418,16 +418,21 @@ export function useSettings() {
  * Claude 和 Codex 的是 Zed 维护的 ACP 适配器，经 npx 运行（第一次会下载）；
  * Gemini CLI 自己就会说 ACP。
  */
-export const AGENT_PRESETS: { label: string; command: string; needs: string }[] = [
+export const AGENT_PRESETS: { label: string; command: string; needs: string; package?: string }[] = [
   {
     label: "Claude Code",
     command: "npx -y @zed-industries/claude-agent-acp",
     needs: "需要 Node.js，并且在终端里登录过 claude",
+    // 有 package 的：第一次用时由 Verso 装一份到本机，之后直接运行，不再每次
+    // 经 npx 现解析；每天后台看一次新版（src-tauri/src/agent_pkg.rs）。
+    // `command` 仍然是它的「意思」，装不上时照它跑
+    package: "@zed-industries/claude-agent-acp",
   },
   {
     label: "Codex",
     command: "npx -y @zed-industries/codex-acp",
     needs: "需要 Node.js，并且在终端里登录过 codex",
+    package: "@zed-industries/codex-acp",
   },
   { label: "Gemini CLI", command: "gemini --acp", needs: "需要装好并登录过 gemini" },
 ];

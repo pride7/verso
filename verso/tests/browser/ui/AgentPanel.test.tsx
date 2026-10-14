@@ -27,6 +27,10 @@ const h = vi.hoisted(() => {
     script: {} as Record<string, (msg: Record<string, unknown>) => void>,
     /** `agentStart` 之前抢先发生的事（命令打错时进程几乎是立刻退出） */
     beforeStart: null as null | (() => void),
+    /** 常用适配器装过没有（`agentResolve` 的回答） */
+    installed: null as string | null,
+    /** 「+」选出来的文件 */
+    picked: [] as string[],
   };
   return { state };
 });
@@ -49,6 +53,12 @@ vi.mock("../../../src/host/api", () => ({
       if (run) setTimeout(() => run(msg), 0);
     }),
     agentStop: vi.fn(async () => {}),
+    agentResolve: vi.fn(async () => h.state.installed),
+    agentInstall: vi.fn(async (pkg: string) => {
+      h.state.installed = `node "C:/agents/${pkg}/index.js"`;
+      return h.state.installed;
+    }),
+    agentUpdate: vi.fn(async () => false),
     textDiff: vi.fn(async (path: string, _old: string, next: string) => ({
       path,
       kind: "added",
@@ -78,6 +88,7 @@ vi.mock("../../../src/host/api", () => ({
     h.state.exits.push(f);
     return () => {};
   },
+  pickFiles: async () => h.state.picked,
 }));
 
 const confirmMock = vi.fn(async () => true);
@@ -187,6 +198,8 @@ beforeEach(() => {
   state.sent = [];
   state.script = {};
   state.beforeStart = null;
+  state.installed = null;
+  state.picked = [];
   openExternalPage.mockClear();
   onOpenPath.mockClear();
   beforePrompt.mockClear();
@@ -713,7 +726,7 @@ describe("选模型", () => {
     await mount();
     expect([...select("模型")!.options].map((o) => o.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
     expect(select("模型")!.value).toBe("opus");
-    expect(host.querySelectorAll(".agent-bar select"), "权限只画一份").toHaveLength(2);
+    expect(host.querySelectorAll('.agent-bar select[aria-label="权限"]'), "权限只画一份").toHaveLength(1);
 
     await choose("模型", "sonnet");
     expect(sets()).toEqual([{ sessionId: "s1", configId: "model", value: "sonnet" }]);
@@ -818,9 +831,56 @@ describe("思考强度和上下文", () => {
     await choose("模型", "gpt-5.4");
     expect(last(sent("session/set_config_option"))).toEqual({ sessionId: "s1", configId: "model", value: "gpt-5.4/high" });
 
-    // 没有强度可选的模型：那一格不出现
+    // 没有强度可选的模型：那一格留着但灰掉，不让人以为面板漏了这个功能
     await choose("模型", "gpt-6.1-sol");
-    expect(sel("思考强度")).toBeNull();
+    expect(sel("思考强度")!.disabled).toBe(true);
+  });
+
+  it("新版 Codex：换到支持的模型后才报出「思考强度」这一项，照着画", async () => {
+    // 照抄 codex-acp 0.16：gpt-6.1-sol 没有这一项；换成 gpt-5.5 之后回来的配置里多了
+    // 一项 category 为 thought_level 的 reasoning_effort
+    const mode = {
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      type: "select",
+      currentValue: "auto",
+      options: [{ value: "auto", name: "Default" }],
+    };
+    const model = (v: string) => ({
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: v,
+      options: [
+        { value: "gpt-6.1-sol", name: "gpt-6.1-sol" },
+        { value: "gpt-5.5", name: "GPT-5.5" },
+      ],
+    });
+    const reasoning = (v: string) => ({
+      id: "reasoning_effort",
+      name: "Reasoning Effort",
+      category: "thought_level",
+      type: "select",
+      currentValue: v,
+      options: ["low", "medium", "high", "xhigh"].map((x) => ({ value: x, name: x })),
+    });
+    state.script["session/new"] = (m) => reply(m.id, { sessionId: "s1", configOptions: [mode, model("gpt-6.1-sol")] });
+    state.script["session/set_config_option"] = (m) => {
+      const p = m.params as { configId: string; value: string };
+      const effortNow = p.configId === "reasoning_effort" ? p.value : "xhigh";
+      reply(m.id, { configOptions: [mode, model("gpt-5.5"), reasoning(effortNow)] });
+    };
+    await mount();
+    expect(sel("思考强度")!.disabled, "gpt-6.1-sol 没有档位可选").toBe(true);
+
+    await choose("模型", "gpt-5.5");
+    expect(sel("思考强度")!.disabled).toBe(false);
+    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["低", "中", "高", "超高"]);
+    await choose("思考强度", "high");
+    expect(last(sent("session/set_config_option"))).toEqual({ sessionId: "s1", configId: "reasoning_effort", value: "high" });
+    expect(sel("思考强度")!.value).toBe("high");
   });
 
   /** 照抄 claude-agent-acp 的 initialize：私有声明里有 claudeCode，能关、能接回 */
@@ -924,5 +984,168 @@ describe("思考强度和上下文", () => {
     const pick = sel("权限")!.closest(".agent-pick")!;
     expect(pick.classList.contains("is-risky")).toBe(true);
     expect(pick.textContent).toContain("完全访问");
+  });
+});
+
+describe("常用适配器装在本机", () => {
+  const CLAUDE = "npx -y @zed-industries/claude-agent-acp";
+
+  it("第一次用：先装一份，再直接运行它，不经 npx", async () => {
+    const { api } = await import("../../../src/host/api");
+    const start = api.agentStart as ReturnType<typeof vi.fn>;
+    start.mockClear();
+    await mount(undefined, CLAUDE);
+    expect(api.agentInstall).toHaveBeenCalledWith("@zed-industries/claude-agent-acp");
+    expect(start).toHaveBeenCalledWith('node "C:/agents/@zed-industries/claude-agent-acp/index.js"');
+    // 起来之后在后台看一眼新版
+    expect(api.agentUpdate).toHaveBeenCalledWith("@zed-industries/claude-agent-acp");
+  });
+
+  it("装过的：直接运行，不再装", async () => {
+    const { api } = await import("../../../src/host/api");
+    (api.agentInstall as ReturnType<typeof vi.fn>).mockClear();
+    state.installed = 'node "C:/agents/claude/index.js"';
+    await mount(undefined, CLAUDE);
+    expect(api.agentInstall).not.toHaveBeenCalled();
+    expect(api.agentStart).toHaveBeenLastCalledWith('node "C:/agents/claude/index.js"');
+  });
+
+  it("自己填的命令照原样跑", async () => {
+    const { api } = await import("../../../src/host/api");
+    await mount();
+    expect(api.agentStart).toHaveBeenLastCalledWith("fake-agent");
+  });
+});
+
+describe("附件", () => {
+  const promptBlocks = () =>
+    (state.sent.find((m) => m.method === "session/prompt")!.params as { prompt: Record<string, unknown>[] }).prompt;
+
+  beforeEach(() => {
+    state.script["session/prompt"] = (m) => reply(m.id, { stopReason: "end_turn" });
+  });
+
+  it("「+」选的文件只交路径，让 AI 自己去读", async () => {
+    state.picked = [String.raw`C:\Users\x\论文 草稿.pdf`];
+    await mount({ path: null, selection: "" });
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="添加附件"]')!.click();
+      await settle(30);
+    });
+    expect(host.querySelector(".agent-chip.is-attachment")?.textContent).toContain("论文 草稿.pdf");
+    await type("总结这篇");
+    expect(promptBlocks()[1]).toEqual({
+      type: "resource_link",
+      uri: "file:///C:/Users/x/%E8%AE%BA%E6%96%87%20%E8%8D%89%E7%A8%BF.pdf",
+      name: "论文 草稿.pdf",
+    });
+    expect(host.querySelector(".agent-chip.is-attachment"), "发出去就清掉").toBeNull();
+    expect(host.querySelector(".agent-user-ctx")?.textContent).toContain("论文 草稿.pdf");
+  });
+
+  /** 1×1 的 PNG */
+  const PNG = Uint8Array.from(
+    atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="),
+    (c) => c.charCodeAt(0),
+  );
+
+  it("粘贴的截图带着内容走，对话里画成缩略图", async () => {
+    await mount({ path: null, selection: "" });
+    const ta = host.querySelector("textarea")!;
+    const dt = new DataTransfer();
+    dt.items.add(new File([PNG], "image.png", { type: "image/png" }));
+    await act(async () => {
+      ta.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+      await settle(80);
+    });
+    expect(host.querySelector(".agent-chip-thumb")).not.toBeNull();
+    await type("这张图里是什么");
+    expect(promptBlocks()[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+    expect((promptBlocks()[1] as { data: string }).data.startsWith("iVBOR")).toBe(true);
+    expect(host.querySelector(".agent-user-images img")).not.toBeNull();
+  });
+
+  it("拖进来的：文本文件带内容，笔记带路径，读不了的说一声", async () => {
+    await mount({ path: null, selection: "" });
+    const panel = host.querySelector(".agent")!;
+    const drop = async (dt: DataTransfer) => {
+      await act(async () => {
+        panel.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        await settle(60);
+      });
+    };
+    const files = new DataTransfer();
+    files.items.add(new File(["a,b\n1,2"], "数据.csv", { type: "" }));
+    files.items.add(new File([new Uint8Array([1, 2, 3])], "压缩包.zip", { type: "application/zip" }));
+    await drop(files);
+    expect(host.querySelector(".agent-attach-notice")?.textContent).toContain("压缩包.zip");
+
+    const note = new DataTransfer();
+    note.setData("text/verso-path", "项目/甲.md");
+    await drop(note);
+    expect([...host.querySelectorAll(".agent-chip.is-attachment")].map((c) => c.textContent)).toEqual([
+      "数据.csv",
+      "项目/甲",
+    ]);
+
+    await type("看看");
+    const blocks = promptBlocks();
+    expect(blocks[1]).toMatchObject({ type: "resource", resource: { text: "a,b\n1,2" } });
+    expect(blocks[2]).toMatchObject({ type: "resource_link", uri: "file:///D:/Notes/vault/%E9%A1%B9%E7%9B%AE/%E7%94%B2.md" });
+  });
+});
+
+describe("关着的面板", () => {
+  it("藏起来时来要许可：叫 App 把它弹出来", async () => {
+    const onAttention = vi.fn();
+    state.script["session/prompt"] = () =>
+      emit({
+        jsonrpc: "2.0",
+        id: 0,
+        method: "session/request_permission",
+        params: {
+          sessionId: "s1",
+          toolCall: { toolCallId: "t", title: "Write 甲.md", kind: "edit" },
+          options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
+        },
+      });
+    await mount();
+    await type("改一下");
+    // 发完就关掉面板：换成藏着的那一份
+    await act(async () => {
+      root!.render(
+        <AgentPanel
+          command="fake-agent"
+          onPickCommand={() => {}}
+          width={420}
+          onWidthChange={() => {}}
+          cover={false}
+          onClose={() => {}}
+          getContext={() => ({ path: null, selection: "" })}
+          beforePrompt={async () => {}}
+          onOpenPath={() => {}}
+          onOpenSettings={() => {}}
+          hidden
+          onAttention={onAttention}
+        />,
+      );
+      await settle(30);
+    });
+    expect(host.querySelector(".agent")!.classList.contains("is-hidden")).toBe(true);
+    // 许可已经在路上了（剧本在发问时就发），再来一个让它在藏着时到
+    await act(async () => {
+      emit({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "session/request_permission",
+        params: {
+          sessionId: "s1",
+          toolCall: { toolCallId: "t2", title: "Write 乙.md", kind: "edit" },
+          options: [{ kind: "allow_once", name: "Allow", optionId: "allow" }],
+        },
+      });
+      await settle(30);
+    });
+    expect(onAttention).toHaveBeenCalled();
   });
 });

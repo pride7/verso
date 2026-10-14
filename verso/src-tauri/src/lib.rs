@@ -1,4 +1,5 @@
 mod agent;
+mod agent_pkg;
 mod error;
 mod index;
 mod mobile_vaults;
@@ -1530,6 +1531,42 @@ fn agent_start(app: AppHandle, state: State<'_, AppState>, command: String) -> R
     Ok((id, winpath::for_external(&root).to_string_lossy().into_owned()))
 }
 
+/// 常用适配器装在哪：应用数据目录下的 `agents/`
+fn agents_root(app: &AppHandle) -> Result<PathBuf> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| Error::Vault(format!("找不到应用数据目录：{e}")))?
+        .join("agents"))
+}
+
+/// 这个适配器本机装过没有。装过就给出直接运行它的那一行命令
+#[tauri::command]
+fn agent_resolve(app: AppHandle, package: String) -> Result<Option<String>> {
+    let root = agents_root(&app)?;
+    Ok(agent_pkg::installed(&root, &package).map(|e| agent_pkg::launch_command(&e)))
+}
+
+/// 装一份（第一次选它的时候）。要跑 npm、要下载，所以放到别的线程上等，
+/// 不卡住界面
+#[tauri::command]
+async fn agent_install(app: AppHandle, package: String) -> Result<String> {
+    let root = agents_root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || agent_pkg::install(&root, &package))
+        .await
+        .map_err(|e| Error::Vault(e.to_string()))?
+        .map(|e| agent_pkg::launch_command(&e))
+}
+
+/// 后台看一眼有没有新版，有就装上、下次启动生效。返回装没装
+#[tauri::command]
+async fn agent_update(app: AppHandle, package: String) -> Result<bool> {
+    let root = agents_root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || agent_pkg::update(&root, &package))
+        .await
+        .map_err(|e| Error::Vault(e.to_string()))?
+}
+
 #[tauri::command]
 fn agent_send(state: State<'_, AppState>, id: String, line: String) -> Result<()> {
     state.agent.send(&id, &line)
@@ -2034,6 +2071,9 @@ pub fn run() {
             settings_set,
             close_now,
             agent_start,
+            agent_resolve,
+            agent_install,
+            agent_update,
             agent_send,
             agent_stop,
             #[cfg(desktop)]
