@@ -6092,21 +6092,28 @@ body.is-table-resizing * {
 /* 输入框底部一行：权限在左，模型 · 思考强度 · 上下文 · 发送在右 */
 .agent-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 2px;
   min-width: 0;
   margin-left: -4px;
 }
-.agent-bar-gap {
+.agent-bar-right {
   flex: 1;
-  min-width: 4px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
 }
 /* 看着是文字加小箭头，点开是系统原生下拉：透明的 select 盖在整块上面 */
+/* 不缩：截成「每次…」「Opus …」就看不出选的是什么了。面板太窄时整行换行 */
 .agent-pick {
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex: none;
   min-width: 0;
   max-width: 180px;
   padding: 3px 6px;
@@ -6152,6 +6159,28 @@ body.is-table-resizing * {
   color: var(--warn);
 }
 
+.agent-usage {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.agent-usage.is-warn .agent-quota {
+  color: var(--warn);
+}
+.agent-usage.is-out .agent-quota {
+  color: var(--danger);
+}
+.agent-quota {
+  padding-left: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.agent-ctx.is-empty {
+  opacity: 0.6;
+}
 .agent-ctx {
   flex: none;
   display: grid;

@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
+  quotaPercent,
+  rateLimitOf,
   absFileUri,
   attachmentBlock,
   looksLikeText,
@@ -328,5 +330,19 @@ describe("附件", () => {
     expect(looksLikeText("x.py", "")).toBe(true);
     expect(looksLikeText("x.pdf", "application/pdf")).toBe(false);
     expect(looksLikeText("x.zip", "")).toBe(false);
+  });
+});
+
+describe("额度", () => {
+  it("从私有字段里认出来，认不出就是 null", () => {
+    expect(rateLimitOf({ "_claude/rateLimit": { status: "allowed", utilization: 0.5 } })).toMatchObject({ status: "allowed" });
+    expect(rateLimitOf({ other: 1 })).toBeNull();
+    expect(rateLimitOf(null)).toBeNull();
+  });
+
+  it("百分比：比例和百分数都认", () => {
+    expect(quotaPercent({ status: "allowed", utilization: 0.345 })).toBe(35);
+    expect(quotaPercent({ status: "allowed", utilization: 81 })).toBe(81);
+    expect(quotaPercent({ status: "allowed" })).toBeNull();
   });
 });

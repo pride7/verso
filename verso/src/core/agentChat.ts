@@ -151,7 +151,7 @@ export interface Conversation {
   variants: string[];
   /** 开这个对话时交给 Claude 的 effort（`_meta`）。null = 用它自己的默认 */
   effort: string | null;
-  /** 最近一次 `usage_update`。agent 不报就一直是 null，界面上不画那个圆环 */
+  /** 最近一次 `usage_update`。agent 不报就一直是 null */
   usage: Usage | null;
   /** 这一轮还没回完。各管各的：切走了它照样在后台跑 */
   busy: boolean;
@@ -237,16 +237,18 @@ export function configToRestore(
 // ------------------------------------------------------------------ 思考强度
 
 /** 各家都用这几个词，按从低到高排 */
-export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 export const EFFORT_LABEL: Record<string, string> = {
+  default: "默认强度",
   none: "不思考",
-  minimal: "最低",
+  minimal: "极低",
   low: "低",
   medium: "中",
   high: "高",
   xhigh: "超高",
-  max: "最高",
+  max: "极高",
+  ultra: "最高",
 };
 
 /**
@@ -315,15 +317,77 @@ export function effortControl(c: Conversation, metaEffort: boolean): EffortContr
  * 不再逐个确认，界面上要换个颜色提醒
  */
 export const MODE_LABEL: Record<string, { label: string; risky?: boolean }> = {
+  // Claude
   default: { label: "每次询问" },
   acceptEdits: { label: "自动接受修改" },
   plan: { label: "只做计划" },
+  auto: { label: "自动判断" },
   dontAsk: { label: "不询问，未授权的拒绝" },
   bypassPermissions: { label: "完全访问", risky: true },
+  // Codex（新适配器）
   "read-only": { label: "只读" },
-  auto: { label: "可改仓库" },
+  "workspace-write": { label: "可改仓库" },
+  agent: { label: "只问有风险的" },
+  "agent-full-access": { label: "完全访问", risky: true },
+  // Codex（旧适配器）
   "full-access": { label: "完全访问", risky: true },
 };
+
+/**
+ * 底部那一行里「别的」配置（快速模式、协作模式…）的中文名。按 id 认，认不出
+ * 的照 agent 给的英文名
+ */
+export const CONFIG_NAME: Record<string, string> = {
+  fast: "快速",
+  "fast-mode": "快速",
+  collaboration_mode: "协作",
+};
+
+/** 那些配置的常见选项 */
+export const CHOICE_LABEL: Record<string, string> = {
+  on: "开",
+  off: "关",
+  default: "默认",
+  plan: "先计划",
+};
+
+// ------------------------------------------------------------------ 额度
+
+/**
+ * 账号的用量额度（Claude：5 小时窗口、7 天窗口…）。Claude 的适配器把它塞在
+ * `usage_update` 的 `_meta["_claude/rateLimit"]` 里，一次报一个窗口
+ */
+export interface RateLimit {
+  status: "allowed" | "allowed_warning" | "rejected";
+  /** 哪个窗口：five_hour、seven_day… */
+  rateLimitType?: string;
+  /** 用了多少。可能是 0–1 的比例，也可能已经是百分数 —— 见 `quotaPercent` */
+  utilization?: number;
+  /** 什么时候重置（Unix 秒） */
+  resetsAt?: number;
+}
+
+export const QUOTA_WINDOW_LABEL: Record<string, string> = {
+  five_hour: "5 小时",
+  seven_day: "7 天",
+  seven_day_opus: "7 天（Opus）",
+  seven_day_sonnet: "7 天（Sonnet）",
+  seven_day_overage_included: "7 天（含超额）",
+  overage: "超额",
+};
+
+/** 从 `usage_update` 的私有字段里认出额度。认不出就是 null */
+export function rateLimitOf(meta: unknown): RateLimit | null {
+  const r = (meta as Record<string, unknown> | null | undefined)?.["_claude/rateLimit"] as RateLimit | undefined;
+  return r && typeof r.status === "string" ? r : null;
+}
+
+/** 已用百分比，0–100。≤1 的当比例，>1 的当已经是百分数 */
+export function quotaPercent(r: RateLimit): number | null {
+  if (typeof r.utilization !== "number" || !Number.isFinite(r.utilization)) return null;
+  const pct = r.utilization <= 1 ? r.utilization * 100 : r.utilization;
+  return Math.max(0, Math.min(100, Math.round(pct)));
+}
 
 /** 一个数字的短写：25109 → 25k，1000000 → 1M */
 export function shortCount(n: number): string {

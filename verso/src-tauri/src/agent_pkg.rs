@@ -252,7 +252,7 @@ mod real {
     #[ignore]
     fn real_install_and_launch() {
         let root = std::env::temp_dir().join(format!("verso-agents-{}", ulid::Ulid::new()));
-        let pkg = "@zed-industries/codex-acp";
+        let pkg = "@agentclientprotocol/codex-acp";
         let t = std::time::Instant::now();
         let entry = install(&root, pkg).expect("装得上");
         println!("装好用了 {:?}：{}", t.elapsed(), entry.display());

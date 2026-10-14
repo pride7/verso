@@ -225,7 +225,7 @@ describe("起来", () => {
         .click();
       await settle(10);
     });
-    expect(onPickCommand).toHaveBeenCalledWith("npx -y @zed-industries/codex-acp");
+    expect(onPickCommand).toHaveBeenCalledWith("npx -y @agentclientprotocol/codex-acp");
   });
 
 
@@ -613,7 +613,7 @@ describe("换一个 AI", () => {
   });
 
   it("对话列表里就能换，正在用的那个标出来", async () => {
-    await mount(undefined, "npx -y @zed-industries/claude-agent-acp");
+    await mount(undefined, "npx -y @agentclientprotocol/claude-agent-acp");
     await openMenu();
     expect(agentItem("Claude Code")?.getAttribute("aria-checked")).toBe("true");
     expect(agentItem("Claude Code")?.textContent).toContain("正在用");
@@ -622,7 +622,7 @@ describe("换一个 AI", () => {
       await settle(30);
     });
     expect(confirmMock, "没有在跑的对话，不用问").not.toHaveBeenCalled();
-    expect(onPickCommand).toHaveBeenCalledWith("npx -y @zed-industries/codex-acp");
+    expect(onPickCommand).toHaveBeenCalledWith("npx -y @agentclientprotocol/codex-acp");
   });
 
   it("设置里填的是别的命令：也列出来，标成正在用", async () => {
@@ -915,7 +915,7 @@ describe("思考强度和上下文", () => {
   it("Claude：空白对话里换强度，直接换一个带着新强度开的对话", async () => {
     claudeLike();
     await mount();
-    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高", "超高", "最高"]);
+    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高", "超高", "极高"]);
     await choose("思考强度", "high");
     const news = sent("session/new");
     expect(news).toHaveLength(2);
@@ -955,11 +955,12 @@ describe("思考强度和上下文", () => {
       reply(m.id, { stopReason: "end_turn" });
     };
     await mount();
-    expect(host.querySelector(".agent-ctx"), "还没报过就不画").toBeNull();
+    // 还没报过：圆环是空的，悬停说明数字什么时候来
+    expect(host.querySelector(".agent-ctx")?.classList.contains("is-empty")).toBe(true);
     await type("你好");
     const ring = host.querySelector(".agent-ctx")!;
     expect(ring.getAttribute("aria-label")).toBe("上下文已用 25%");
-    expect(ring.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
+    expect(ring.closest(".agent-usage")!.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
   });
 
   it("完全访问：权限那一格换成提醒色", async () => {
@@ -988,17 +989,17 @@ describe("思考强度和上下文", () => {
 });
 
 describe("常用适配器装在本机", () => {
-  const CLAUDE = "npx -y @zed-industries/claude-agent-acp";
+  const CLAUDE = "npx -y @agentclientprotocol/claude-agent-acp";
 
   it("第一次用：先装一份，再直接运行它，不经 npx", async () => {
     const { api } = await import("../../../src/host/api");
     const start = api.agentStart as ReturnType<typeof vi.fn>;
     start.mockClear();
     await mount(undefined, CLAUDE);
-    expect(api.agentInstall).toHaveBeenCalledWith("@zed-industries/claude-agent-acp");
-    expect(start).toHaveBeenCalledWith('node "C:/agents/@zed-industries/claude-agent-acp/index.js"');
+    expect(api.agentInstall).toHaveBeenCalledWith("@agentclientprotocol/claude-agent-acp");
+    expect(start).toHaveBeenCalledWith('node "C:/agents/@agentclientprotocol/claude-agent-acp/index.js"');
     // 起来之后在后台看一眼新版
-    expect(api.agentUpdate).toHaveBeenCalledWith("@zed-industries/claude-agent-acp");
+    expect(api.agentUpdate).toHaveBeenCalledWith("@agentclientprotocol/claude-agent-acp");
   });
 
   it("装过的：直接运行，不再装", async () => {
@@ -1147,5 +1148,83 @@ describe("关着的面板", () => {
       await settle(30);
     });
     expect(onAttention).toHaveBeenCalled();
+  });
+});
+
+describe("额度和别的配置", () => {
+  const sel = (label: string) => host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
+
+  it("Claude 报的额度：显示用得最多的那个窗口，悬停看每个窗口和重置时间", async () => {
+    const reset = Math.floor(new Date(2030, 0, 2, 18, 0).getTime() / 1000);
+    state.script["session/prompt"] = (m) => {
+      // 照抄新版 claude-agent-acp：额度一次报一个窗口，塞在 _meta 里
+      update({
+        sessionUpdate: "usage_update",
+        used: 50000,
+        size: 1000000,
+        _meta: { "_claude/rateLimit": { status: "allowed", rateLimitType: "five_hour", utilization: 0.34, resetsAt: reset } },
+      });
+      update({
+        sessionUpdate: "usage_update",
+        used: 50000,
+        size: 1000000,
+        _meta: { "_claude/rateLimit": { status: "allowed_warning", rateLimitType: "seven_day", utilization: 0.81 } },
+      });
+      reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    await type("你好");
+    const usage = host.querySelector(".agent-usage")!;
+    expect(usage.querySelector(".agent-quota")?.textContent).toBe("额度 81%");
+    expect(usage.classList.contains("is-warn"), "快到头了要变色").toBe(true);
+    const title = usage.getAttribute("title")!;
+    expect(title).toContain("7 天额度：已用 81%");
+    expect(title).toContain("5 小时额度：已用 34%，1月2日 18:00 重置");
+  });
+
+  it("没人报额度（Codex）：不画「额度」那几个字", async () => {
+    state.script["session/prompt"] = (m) => {
+      update({ sessionUpdate: "usage_update", used: 10, size: 100 });
+      reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    await type("你好");
+    expect(host.querySelector(".agent-quota")).toBeNull();
+  });
+
+  it("快速模式、协作模式这类：用中文名，选项写成「快速：开」", async () => {
+    state.script["session/new"] = (m) =>
+      reply(m.id, {
+        sessionId: "s1",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "workspace-write",
+            options: [
+              { value: "read-only", name: "Read-only" },
+              { value: "workspace-write", name: "Workspace access" },
+              { value: "agent", name: "Auto review" },
+              { value: "agent-full-access", name: "Full access" },
+            ],
+          },
+          {
+            id: "fast-mode",
+            name: "Fast mode",
+            category: "model_config",
+            type: "select",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+        ],
+      });
+    await mount();
+    expect([...sel("权限")!.options].map((o) => o.textContent)).toEqual(["只读", "可改仓库", "只问有风险的", "完全访问"]);
+    expect([...sel("快速")!.options].map((o) => o.textContent)).toEqual(["快速：关", "快速：开"]);
   });
 });

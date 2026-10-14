@@ -251,7 +251,13 @@ function agentReply(line: string) {
       },
     });
   } else if (m.method === "session/prompt") {
-    agentUpdate({ sessionUpdate: "usage_update", used: 182000, size: 1000000, cost: { amount: 0.41, currency: "USD" } });
+    agentUpdate({
+      sessionUpdate: "usage_update",
+      used: 182000,
+      size: 1000000,
+      cost: { amount: 0.41, currency: "USD" },
+      _meta: { "_claude/rateLimit": { status: "allowed", rateLimitType: "five_hour", utilization: 0.34 } },
+    });
     agentUpdate({ sessionUpdate: "tool_call", toolCallId: "r1", title: "Read 论文.md", kind: "read", status: "completed" });
     agentUpdate({
       sessionUpdate: "plan",

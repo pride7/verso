@@ -38,8 +38,14 @@ import {
   configToRestore,
   conversationRows,
   conversationTitle,
+  CHOICE_LABEL,
+  CONFIG_NAME,
   EFFORT_LABEL,
   effortControl,
+  QUOTA_WINDOW_LABEL,
+  quotaPercent,
+  rateLimitOf,
+  type RateLimit,
   joinModel,
   MODE_LABEL,
   REMEMBERED_CATEGORIES,
@@ -172,6 +178,8 @@ export function AgentPanel({
    * 还得它能关（`session/close`）、能接回（`session/load`）
    */
   const [metaEffort, setMetaEffort] = useState(false);
+  /** 账号额度，按窗口（5 小时、7 天…）。是账号的事、不是某个对话的，所以放在这一层 */
+  const [quota, setQuota] = useState<Record<string, RateLimit>>({});
   const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [ctx, setCtx] = useState<AgentContext>({ path: null, selection: "" });
@@ -318,6 +326,7 @@ export function AgentPanel({
     setPast(null);
     setCanLoad(false);
     setMetaEffort(false);
+    setQuota({});
 
     void (async () => {
       try {
@@ -350,8 +359,15 @@ export function AgentPanel({
               const modeId = (u as { currentModeId: string }).currentModeId;
               patch(n.sessionId, (c) => ({ ...c, modeId }));
             } else if (u.sessionUpdate === "usage_update") {
-              const { used, size, cost } = u as unknown as Conversation["usage"] & object;
-              patch(n.sessionId, (c) => ({ ...c, usage: { used, size, cost } }));
+              const { used, size, cost, _meta } = u as unknown as NonNullable<Conversation["usage"]> & {
+                _meta?: unknown;
+              };
+              const limit = rateLimitOf(_meta);
+              if (limit) setQuota((q) => ({ ...q, [limit.rateLimitType ?? "default"]: limit }));
+              // 只报额度的那种更新也带着 used/size，花费可能没有 —— 别把之前的花费抹掉
+              if (typeof used === "number" && typeof size === "number") {
+                patch(n.sessionId, (c) => ({ ...c, usage: { used, size, cost: cost ?? c.usage?.cost ?? null } }));
+              }
             } else if (u.sessionUpdate === "session_info_update") {
               const title = (u as { title?: string | null }).title;
               if (title) patch(n.sessionId, (c) => ({ ...c, title }));
@@ -1101,15 +1117,22 @@ export function AgentPanel({
                 />
               )
             )}
-            <span className="agent-bar-gap" />
+            {/* 右边那一组自己换行：面板窄的时候折成两行，发送键始终钉在最右 */}
+            <div className="agent-bar-right">
             {otherConfig.map((o) =>
               o.type === "select" ? (
                 <Picker
                   key={o.id}
-                  label={o.name}
+                  label={CONFIG_NAME[o.id] ?? o.name}
                   value={o.currentValue}
                   disabled={!ready}
-                  options={configChoices(o).map((c) => ({ value: c.value, label: c.name, group: c.group }))}
+                  options={configChoices(o).map((c) => ({
+                    value: c.value,
+                    // 「快速：开」—— 只写一个「开」看不出开的是什么
+                    label: `${CONFIG_NAME[o.id] ?? o.name}：${CHOICE_LABEL[c.value] ?? c.name}`,
+                    group: c.group,
+                    title: c.description ?? undefined,
+                  }))}
                   onChange={(v) => void pickConfig(o, v)}
                 />
               ) : (
@@ -1197,7 +1220,8 @@ export function AgentPanel({
                 onChange={() => {}}
               />
             )}
-            {usage && usage.size > 0 && <ContextRing usage={usage} />}
+            {ready && <ContextRing usage={usage && usage.size > 0 ? usage : null} quota={Object.values(quota)} />}
+            </div>
             {busy ? (
               <button className="agent-send is-stop" onClick={stop} title="停下这一轮" aria-label="停下这一轮">
                 <Icon name="stop" size={14} />
@@ -1283,34 +1307,72 @@ function Picker({
   );
 }
 
+/** 重置时间说成人话：今天的说钟点，别的天说日期 */
+function resetText(unixSeconds: number): string {
+  const d = new Date(unixSeconds * 1000);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const today = new Date();
+  return d.toDateString() === today.toDateString() ? `${hm} 重置` : `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
+}
+
 /**
  * 上下文用了多少：一个小圆环，悬停看数字。快满时变色 —— 到那时 agent 会开始
- * 压缩前面的对话，人该知道它正在忘事
+ * 压缩前面的对话，人该知道它正在忘事。
+ *
+ * 旁边是账号额度（agent 报了才有，眼下只有 Claude）：几个窗口里用得最多的那个，
+ * 快到头了变色、用完了变红。还没发过话时圆环是空的，悬停说明数字什么时候来
  */
-function ContextRing({ usage }: { usage: NonNullable<Conversation["usage"]> }) {
-  const ratio = Math.min(1, Math.max(0, usage.used / usage.size));
+function ContextRing({ usage, quota }: { usage: NonNullable<Conversation["usage"]> | null; quota: RateLimit[] }) {
+  const ratio = usage ? Math.min(1, Math.max(0, usage.used / usage.size)) : 0;
   const r = 6.5;
   const len = 2 * Math.PI * r;
   const pct = Math.round(ratio * 100);
-  const cost = usage.cost ? ` · 这个对话花了 ${usage.cost.currency === "USD" ? "$" : `${usage.cost.currency} `}${usage.cost.amount.toFixed(2)}` : "";
+  const cost = usage?.cost
+    ? ` · 这个对话花了 ${usage.cost.currency === "USD" ? "$" : `${usage.cost.currency} `}${usage.cost.amount.toFixed(2)}`
+    : "";
+  const ctxLine = usage
+    ? `上下文：${shortCount(usage.used)} / ${shortCount(usage.size)}（${pct}%）${cost}`
+    : "上下文：发出第一句之后才有数字";
+
+  const windows = quota
+    .map((q) => ({ q, pct: quotaPercent(q) }))
+    .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const top = windows[0];
+  const rejected = quota.some((q) => q.status === "rejected");
+  const warning = quota.some((q) => q.status === "allowed_warning");
+  const quotaLines = windows.map(({ q, pct }) => {
+    const name = QUOTA_WINDOW_LABEL[q.rateLimitType ?? ""] ?? q.rateLimitType ?? "额度";
+    const used = q.status === "rejected" ? "已用完" : pct === null ? "可用" : `已用 ${pct}%`;
+    return `${name}额度：${used}${q.resetsAt ? `，${resetText(q.resetsAt)}` : ""}`;
+  });
+
   return (
     <span
-      className={`agent-ctx${ratio > 0.8 ? " is-full" : ""}`}
-      title={`上下文：${shortCount(usage.used)} / ${shortCount(usage.size)}（${pct}%）${cost}`}
-      aria-label={`上下文已用 ${pct}%`}
-      role="img"
+      className={`agent-usage${rejected ? " is-out" : warning ? " is-warn" : ""}`}
+      title={[ctxLine, ...quotaLines].join("\n")}
     >
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <circle cx="9" cy="9" r={r} className="agent-ctx-track" />
-        <circle
-          cx="9"
-          cy="9"
-          r={r}
-          className="agent-ctx-fill"
-          strokeDasharray={`${len * ratio} ${len}`}
-          transform="rotate(-90 9 9)"
-        />
-      </svg>
+      {top && (
+        <span className="agent-quota">{rejected ? "额度用完" : top.pct === null ? "额度正常" : `额度 ${top.pct}%`}</span>
+      )}
+      <span
+        className={`agent-ctx${ratio > 0.8 ? " is-full" : ""}${usage ? "" : " is-empty"}`}
+        aria-label={usage ? `上下文已用 ${pct}%` : "上下文还没有用量"}
+        role="img"
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18">
+          <circle cx="9" cy="9" r={r} className="agent-ctx-track" />
+          {usage && (
+            <circle
+              cx="9"
+              cy="9"
+              r={r}
+              className="agent-ctx-fill"
+              strokeDasharray={`${len * ratio} ${len}`}
+              transform="rotate(-90 9 9)"
+            />
+          )}
+        </svg>
+      </span>
     </span>
   );
 }

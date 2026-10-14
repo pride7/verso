@@ -329,8 +329,11 @@ export function sanitize(s: Settings): Settings {
     // 用 `|| DEFAULT` 的话，清空前缀会在下次启动时又变回 `@`
     terminalMention:
       typeof s.terminalMention === "string" ? s.terminalMention : DEFAULT_SETTINGS.terminalMention,
-    // 空串 = 还没选过，面板会请人挑一个
-    agentCommand: typeof s.agentCommand === "string" ? s.agentCommand.trim() : DEFAULT_SETTINGS.agentCommand,
+    // 空串 = 还没选过，面板会请人挑一个。选的是已经停更的旧适配器，换成接替它的那个
+    agentCommand:
+      typeof s.agentCommand === "string"
+        ? (RETIRED_AGENT_COMMANDS[s.agentCommand.trim()] ?? s.agentCommand.trim())
+        : DEFAULT_SETTINGS.agentCommand,
   };
 }
 
@@ -421,18 +424,33 @@ export function useSettings() {
 export const AGENT_PRESETS: { label: string; command: string; needs: string; package?: string }[] = [
   {
     label: "Claude Code",
-    command: "npx -y @zed-industries/claude-agent-acp",
+    command: "npx -y @agentclientprotocol/claude-agent-acp",
     needs: "需要 Node.js，并且在终端里登录过 claude",
     // 有 package 的：第一次用时由 Verso 装一份到本机，之后直接运行，不再每次
     // 经 npx 现解析；每天后台看一次新版（src-tauri/src/agent_pkg.rs）。
     // `command` 仍然是它的「意思」，装不上时照它跑
-    package: "@zed-industries/claude-agent-acp",
+    package: "@agentclientprotocol/claude-agent-acp",
   },
   {
     label: "Codex",
-    command: "npx -y @zed-industries/codex-acp",
-    needs: "需要 Node.js，并且在终端里登录过 codex",
-    package: "@zed-industries/codex-acp",
+    command: "npx -y @agentclientprotocol/codex-acp",
+    // 这一版的适配器驱动的是本机装的 codex（经它的 app-server），所以模型列表、
+    // 档位都跟着用户自己的 Codex 走
+    needs: "需要 Node.js 和装好、登录过的 codex 命令行",
+    package: "@agentclientprotocol/codex-acp",
   },
   { label: "Gemini CLI", command: "gemini --acp", needs: "需要装好并登录过 gemini" },
 ];
+
+/**
+ * 已经停更的适配器 → 接替它的那个。
+ *
+ * Zed 最早维护的两个适配器（`@zed-industries/...`）后来搬进了 ACP 自己的
+ * 组织（`@agentclientprotocol/...`，见 ACP 注册表）。旧的 Codex 适配器停在
+ * 半年前的 Codex 内核上：解析不了服务器新报的模型档位，只好退回一份内置的
+ * 过时模型表（列出来的多半用不了），思考强度也拿不到。选过旧的人原样换过去
+ */
+export const RETIRED_AGENT_COMMANDS: Record<string, string> = {
+  "npx -y @zed-industries/claude-agent-acp": "npx -y @agentclientprotocol/claude-agent-acp",
+  "npx -y @zed-industries/codex-acp": "npx -y @agentclientprotocol/codex-acp",
+};

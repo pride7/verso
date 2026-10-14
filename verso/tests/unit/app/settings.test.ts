@@ -114,3 +114,22 @@ describe("设置的两份定义对得上", () => {
     expect(missing).toEqual([]);
   });
 });
+
+/**
+ * 选过旧适配器的人，设置里存的还是 `@zed-industries/...`。那两个已经停更 ——
+ * 旧的 Codex 适配器连模型列表都拿不对 —— 读设置时原样换成接替它的那个
+ */
+describe("停更的 AI 适配器", () => {
+  it("换成接替它的那个", () => {
+    expect(sanitize({ ...DEFAULT_SETTINGS, agentCommand: "npx -y @zed-industries/codex-acp" }).agentCommand).toBe(
+      "npx -y @agentclientprotocol/codex-acp",
+    );
+    expect(sanitize({ ...DEFAULT_SETTINGS, agentCommand: "npx -y @zed-industries/claude-agent-acp" }).agentCommand).toBe(
+      "npx -y @agentclientprotocol/claude-agent-acp",
+    );
+  });
+
+  it("自己填的命令不动", () => {
+    expect(sanitize({ ...DEFAULT_SETTINGS, agentCommand: "gemini --acp" }).agentCommand).toBe("gemini --acp");
+  });
+});
