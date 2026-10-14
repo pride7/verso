@@ -19,6 +19,7 @@ export type RailActionId =
   | "mindmap"
   | "project"
   | "term"
+  | "agent"
   | "palette"
   | "settings";
 
@@ -58,6 +59,9 @@ interface Props {
   /** 移动端没有终端（§7.3 没有可用的 PTY），整个按钮不渲染 */
   showTerm: boolean;
   onToggleTerm: () => void;
+  /** AI 会话面板（§7.8）。和终端一样只在桌面上有，跟着 `showTerm` 走 */
+  agentOpen: boolean;
+  onToggleAgent: () => void;
   onSystemTerminal: () => void;
   onPalette: () => void;
   onSettings: () => void;
@@ -104,6 +108,8 @@ const ACTIONS: { id: RailActionId; icon: IconName; label: string; cmd: string | 
   { id: "project", icon: "project", label: "项目中心", cmd: "view.projects" },
   // 终端的 tooltip 要额外说右键，所以它的提示由组件自己拼，这里不给 cmd
   { id: "term", icon: "terminal", label: "终端", cmd: null },
+  // 紧挨着终端：两者是同一件事的两种界面（§7.8），手机上也一起不出现
+  { id: "agent", icon: "spark", label: "AI 会话", cmd: "ai.toggle" },
   { id: "palette", icon: "command", label: "命令面板", cmd: "view.palette" },
   { id: "settings", icon: "settings", label: "设置", cmd: "view.settings" },
 ];
@@ -195,6 +201,8 @@ export function ActivityBar({
   termOpen,
   showTerm,
   onToggleTerm,
+  agentOpen,
+  onToggleAgent,
   onSystemTerminal,
   onPalette,
   onSettings,
@@ -267,13 +275,14 @@ export function ActivityBar({
         },
       },
     },
+    agent: { on: agentOpen, run: onToggleAgent },
     palette: { on: null, run: onPalette },
     settings: { on: null, run: onSettings },
   };
 
   const actions = ACTIONS
     // 移动端没有终端（§7.3 没有可用的 PTY），整个按钮不渲染
-    .filter((a) => (a.id !== "term" || showTerm) && shown(a.id))
+    .filter((a) => ((a.id !== "term" && a.id !== "agent") || showTerm) && shown(a.id))
     .map((a) => renderAction(a, state[a.id]));
 
   return (

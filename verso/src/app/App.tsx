@@ -147,6 +147,8 @@ import "../ui/styles.css";
 const TerminalPanel = lazy(() =>
   import("../ui/TerminalPanel").then((m) => ({ default: m.TerminalPanel })),
 );
+/** AI 会话面板（§7.8）。同终端：不开它的人不该为它付启动时间 */
+const AgentPanel = lazy(() => import("../ui/AgentPanel").then((m) => ({ default: m.AgentPanel })));
 
 const AUTOSAVE_MS = 800; // §2.7 保存策略
 
@@ -629,6 +631,21 @@ export default function App() {
     },
     [setTermOpen],
   );
+  /**
+   * AI 会话面板（§7.8）开着没有。和终端一样跨会话记住；关掉就停掉背后那个
+   * 进程，所以「开着」的代价是一个常驻的 agent，不想要的人关一次就够了
+   */
+  const [agentOpen, setAgentOpenRaw] = useState(() => localStorage.getItem("verso.agentOpen") === "1");
+  const toggleAgent = useCallback(() => {
+    setAgentOpenRaw((v) => {
+      localStorage.setItem("verso.agentOpen", v ? "0" : "1");
+      return !v;
+    });
+  }, []);
+  const [agentWidth, setAgentWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("verso.agentWidth"));
+    return Number.isFinite(saved) && saved >= 300 ? saved : 420;
+  });
 
   // ---- 正文右键菜单里的剪切 / 复制 / 粘贴（§4.10）----
   //
@@ -3942,6 +3959,13 @@ export default function App() {
               label: "在系统终端中打开",
               run: () => api.openTerminal(null).catch((e: Error) => setError(e.message)),
             },
+            {
+              id: "ai.toggle",
+              group: "AI",
+              label: "打开／关闭 AI 会话面板",
+              defaultKeys: "Mod+Alt+I",
+              run: toggleAgent,
+            },
           ]),
       {
         id: "view.theme",
@@ -4092,6 +4116,7 @@ export default function App() {
     // label 在「靠右竖排 / 放回底部」之间换，和 mindmapOpen 同理
     termDock,
     toggleTermDock,
+    toggleAgent,
     sendToTerm,
     settings.terminalMention,
     updateSettings,
@@ -4380,9 +4405,15 @@ export default function App() {
         narrow && keyboardUp ? " is-keyboard" : ""
       }${
         termOpen && !mobile && termDockEffective === "right" && !termMaximized ? " term-right" : ""
-      }${termOpen && !mobile && termMaximized ? " term-maximized" : ""}`}
+      }${termOpen && !mobile && termMaximized ? " term-maximized" : ""}${
+        agentOpen && !mobile && !narrow ? " agent-open" : ""
+      }`}
       style={
-        { "--sidebar-w": `${sidebarWidth}px`, "--term-w": `${termWidth}px` } as React.CSSProperties
+        {
+          "--sidebar-w": `${sidebarWidth}px`,
+          "--term-w": `${termWidth}px`,
+          "--agent-w": `${agentWidth}px`,
+        } as React.CSSProperties
       }
     >
       <ActivityBar
@@ -4413,6 +4444,8 @@ export default function App() {
         termOpen={termOpen}
         showTerm={!mobile}
         onToggleTerm={toggleTerminal}
+        agentOpen={agentOpen}
+        onToggleAgent={toggleAgent}
         onSystemTerminal={() =>
           api.openTerminal(null).catch((err) => setError((err as Error).message))
         }
@@ -4918,6 +4951,33 @@ export default function App() {
           dark={effectiveTheme === "dark"}
           theme={`${effectiveTheme}/${settings.terminalFont}/${settings.monoFont}`}
         />
+        </Suspense>
+      )}
+
+      {/* §7.8。换 vault 就换一个进程：agent 的工作目录是 vault 根 */}
+      {agentOpen && !mobile && (
+        <Suspense fallback={null}>
+          <AgentPanel
+            key={vault.root}
+            command={settings.agentCommand}
+            onPickCommand={(agentCommand) => updateSettings({ agentCommand })}
+            width={agentWidth}
+            onWidthChange={(px) => {
+              setAgentWidth(px);
+              localStorage.setItem("verso.agentWidth", String(px));
+            }}
+            cover={narrow}
+            onClose={toggleAgent}
+            getContext={() => ({
+              path: noteRef.current?.path ?? null,
+              selection: editorRef.current?.selectedText() ?? "",
+            })}
+            beforePrompt={async () => {
+              await flushCurrent();
+            }}
+            onOpenPath={(rel) => void openPath(rel)}
+            onOpenSettings={() => openSettings("ai")}
+          />
         </Suspense>
       )}
 

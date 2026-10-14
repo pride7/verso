@@ -377,8 +377,8 @@ describe("手机竖屏下的布局", () => {
     const items = [...document.querySelectorAll(".rail-sheet-item")].map((b) =>
       b.getAttribute("aria-label"),
     );
-    // 桌面窄窗口上终端还在；手机上它整个不渲染（另有一条测试盯着）
-    expect(items).toEqual(["源码模式", "收集箱", "思维导图", "项目中心", "终端", "命令面板", "设置"]);
+    // 桌面窄窗口上终端和 AI 会话还在；手机上它们整个不渲染（另有一条测试盯着）
+    expect(items).toEqual(["源码模式", "收集箱", "思维导图", "项目中心", "终端", "AI 会话", "命令面板", "设置"]);
 
     // 面板里的行同样要够一根手指
     for (const item of document.querySelectorAll<HTMLElement>(".rail-sheet-item")) {
@@ -899,6 +899,18 @@ describe("移动端没有终端", () => {
     expect(document.querySelector(".term")).toBeNull();
     // 只是这次不生效，不把桌面的偏好覆盖掉
     expect(localStorage.getItem("verso.termOpen")).toBe("1");
+  });
+
+  /** AI 会话（§7.8）同理：手机上起不了本机的 agent 进程 */
+  it("AI 会话的按钮和面板也不出现", async () => {
+    mobileFlag = true;
+    localStorage.setItem("verso.agentOpen", "1");
+    await mount();
+
+    await openAction("更多");
+    expect(document.querySelector('[aria-label="AI 会话"]')).toBeNull();
+    expect(document.querySelector(".agent")).toBeNull();
+    expect(localStorage.getItem("verso.agentOpen")).toBe("1");
   });
 
   it("不是手机时终端按钮还在", async () => {

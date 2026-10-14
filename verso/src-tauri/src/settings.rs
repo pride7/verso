@@ -121,6 +121,9 @@ pub struct Settings {
     /// 把笔记发给终端时加在路径前面的引用前缀（§7.6）。空串是合法值 ——
     /// 用不认 `@` 的工具的人清空它，得到的就是裸路径
     pub terminal_mention: String,
+    /// AI 会话面板启动的命令（§7.8）。交给系统 shell 去跑。
+    /// 空串 = 还没选过：面板会请人从几个常用的里挑，不替人决定跑什么（§7.5）
+    pub agent_command: String,
 
     /// 文档树排序方式。`"manual"` 时按每篇笔记 frontmatter 里的 `order` 排。
     ///
@@ -259,6 +262,7 @@ impl Default for Settings {
             terminal_font_size: default_terminal_font_size(),
             terminal_font: String::new(),
             terminal_mention: "@".into(),
+            agent_command: String::new(),
             tree_sort: default_tree_sort(),
             tab_open: default_tab_open(),
             template_dir: default_template_dir(),
@@ -332,6 +336,7 @@ impl Settings {
         if self.template_dir.contains("..") {
             self.template_dir = default_template_dir();
         }
+        self.agent_command = self.agent_command.trim().to_string();
         // 手改的文件里塞进来一堆超长字符串，会让设置界面那一页铺满整个面板
         self.slash_hidden.retain(|name| name.len() <= 64);
         self.rail_hidden.retain(|id| id.len() <= 64);

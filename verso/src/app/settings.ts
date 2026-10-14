@@ -37,6 +37,17 @@ export interface Settings {
    * 裸路径。
    */
   terminalMention: string;
+  /**
+   * AI 会话面板启动的那一行命令（§7.8）。
+   *
+   * 跑的是一个说 ACP 的程序 —— 通常是用户自己那个 AI CLI 的适配器。交给
+   * 系统 shell 去跑，所以写法和在终端里敲一样。
+   *
+   * **默认是空的**：第一次打开面板时让人自己挑（`AGENT_PRESETS`）。给一个
+   * 默认值的话，打开面板这一下就会替人用 npx 下载、运行一个他没选过的程序
+   * —— 正是 §7.5「不代为下载、不代为执行」那条线。
+   */
+  agentCommand: string;
   /** 文档树排序方式 */
   treeSort: TreeSort;
   /**
@@ -159,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13.5,
   terminalFont: "",
   terminalMention: "@",
+  agentCommand: "",
   treeSort: "name",
   templateDir: "templates",
   journalKeep: 3,
@@ -317,6 +329,8 @@ export function sanitize(s: Settings): Settings {
     // 用 `|| DEFAULT` 的话，清空前缀会在下次启动时又变回 `@`
     terminalMention:
       typeof s.terminalMention === "string" ? s.terminalMention : DEFAULT_SETTINGS.terminalMention,
+    // 空串 = 还没选过，面板会请人挑一个
+    agentCommand: typeof s.agentCommand === "string" ? s.agentCommand.trim() : DEFAULT_SETTINGS.agentCommand,
   };
 }
 
@@ -396,3 +410,24 @@ export function useSettings() {
 
   return { settings, update, reset, error };
 }
+
+/**
+ * AI 会话面板的几条常用命令（§7.8）。只是把命令行填进来 —— 那几个程序装不装、
+ * 登没登录，都是用户自己的事，Verso 不替人装其中任何一个（§7.5）。
+ *
+ * Claude 和 Codex 的是 Zed 维护的 ACP 适配器，经 npx 运行（第一次会下载）；
+ * Gemini CLI 自己就会说 ACP。
+ */
+export const AGENT_PRESETS: { label: string; command: string; needs: string }[] = [
+  {
+    label: "Claude Code",
+    command: "npx -y @zed-industries/claude-agent-acp",
+    needs: "需要 Node.js，并且在终端里登录过 claude",
+  },
+  {
+    label: "Codex",
+    command: "npx -y @zed-industries/codex-acp",
+    needs: "需要 Node.js，并且在终端里登录过 codex",
+  },
+  { label: "Gemini CLI", command: "gemini --acp", needs: "需要装好并登录过 gemini" },
+];

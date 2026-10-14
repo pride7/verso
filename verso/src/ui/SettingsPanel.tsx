@@ -11,7 +11,7 @@ import {
   updatesSupported,
   type UpdateApi,
 } from "../host/update";
-import { DEFAULT_SETTINGS, type Settings } from "../app/settings";
+import { AGENT_PRESETS, DEFAULT_SETTINGS, type Settings } from "../app/settings";
 import type {
   GitHubAccount,
   GitHubDeviceAuthorization,
@@ -198,6 +198,64 @@ function TextRow({
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
         />
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * AI 会话面板跑的那条命令（§7.8）。
+ *
+ * 不像别的文字设置那样逐字生效：面板开着时，命令一变就会重启背后的进程 ——
+ * 敲一个字重启一次，打完一行要起停十几个 agent。所以按回车或离开输入框才算数。
+ * 预设只是把常见的几条填进来，Verso 不替人装其中任何一个（§7.5）。
+ */
+function AgentCommandRow({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  // 清空也算数：那就回到「还没选过」，下次打开面板时再挑
+  const commit = () => {
+    if (draft.trim() !== value) onChange(draft.trim());
+    else setDraft(value);
+  };
+  return (
+    <div className="set-row set-row-wide">
+      <div className="set-label">
+        <span>启动命令</span>
+        <span className="set-hint">
+          一个支持 ACP 的程序，交给系统 shell 运行，写法和在终端里一样。登录和计费都在那个程序里，
+          Verso 不经手。
+        </span>
+      </div>
+      <div className="set-control set-agent-command">
+        <input
+          type="text"
+          className="set-text"
+          value={draft}
+          placeholder="还没有选择"
+          spellCheck={false}
+          aria-label="AI 启动命令"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") setDraft(value);
+          }}
+        />
+        <div className="set-agent-presets">
+          {AGENT_PRESETS.map((p) => (
+            <button
+              key={p.label}
+              className={`set-chip${value === p.command ? " is-on" : ""}`}
+              onClick={() => onChange(p.command)}
+              title={`${p.command}
+${p.needs}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1142,6 +1200,22 @@ export function SettingsPanel({
 
           {tab === "ai" && (
             <div className="set-ai">
+              <h3 className="set-section">会话面板</h3>
+              <p className="set-note">
+                图标栏上的 AI 会话
+                {/* 键位从命令表里现取：用户改过之后，这里写的必须是他自己那一套 */}
+                {commands.find((c) => c.id === "ai.toggle")?.keys
+                  ? `（${commands.find((c) => c.id === "ai.toggle")!.keys}）`
+                  : ""}
+                。它启动你自己的 AI 工具，把对话按笔记的样子排好版；它要改哪篇，会先把改动摆出来等你点头。
+                工作目录是当前仓库。
+              </p>
+              <AgentCommandRow
+                value={settings.agentCommand}
+                onChange={(v) => onChange({ agentCommand: v })}
+              />
+
+              <h3 className="set-section">仓库说明</h3>
               <p className="set-note">
                 Verso 会在仓库根目录保留两份标准 Markdown 说明，供你在终端里使用的
                 AI CLI 自动读取。它们会参与版本记录和同步，但不会混进普通文档树、

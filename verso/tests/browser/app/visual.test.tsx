@@ -167,6 +167,88 @@ let workspace: { tabs: string[]; active: number; pinnedCount: number } = {
 
 /** 平台能力开关（终端、目录选择器…）。手机那几张要它为真才拍得准 */
 let mobileFlag = false;
+/** AI 会话面板跑的命令。空串 = 第一次打开、还没选过 */
+let agentCommand = "npx -y @zed-industries/claude-agent-acp";
+
+/**
+ * 假 agent（§7.8）。剧本照抄真机上 Claude 的适配器：一段带公式的回答、
+ * 一个读文件的工具调用、一个计划，最后为改文件来要许可、带着 diff。
+ */
+const agentLines: ((e: { id: string; line: string }) => void)[] = [];
+const agentSay = (msg: object) =>
+  setTimeout(() => agentLines.forEach((f) => f({ id: "agent-1", line: JSON.stringify(msg) })), 0);
+const agentUpdate = (update: object) =>
+  agentSay({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update } });
+function agentReply(line: string) {
+  const m = JSON.parse(line) as { id: number; method?: string };
+  if (m.method === "initialize") {
+    agentSay({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: 1, agentInfo: { name: "claude", title: "Claude Agent" } } });
+  } else if (m.method === "session/new") {
+    agentSay({
+      jsonrpc: "2.0",
+      id: m.id,
+      result: {
+        sessionId: "s1",
+        modes: {
+          currentModeId: "default",
+          availableModes: [
+            { id: "default", name: "Default" },
+            { id: "acceptEdits", name: "Accept Edits" },
+          ],
+        },
+      },
+    });
+  } else if (m.method === "session/prompt") {
+    agentUpdate({ sessionUpdate: "tool_call", toolCallId: "r1", title: "Read 论文.md", kind: "read", status: "completed" });
+    agentUpdate({
+      sessionUpdate: "plan",
+      entries: [
+        { content: "读完《论文》里的清单", status: "completed" },
+        { content: "按状态分组整理成表", status: "in_progress" },
+        { content: "新建一篇「阅读进度」", status: "pending" },
+      ],
+    });
+    agentUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: {
+        type: "text",
+        text: [
+          "清单里一共 **6 篇**，其中 4 篇已读。奇异值分解那一篇的核心是",
+          "",
+          String.raw`$$A = U \Sigma V^{\top}$$`,
+          "",
+          String.raw`其中 $\Sigma$ 是对角阵。我把进度整理成一篇新笔记：`,
+        ].join("\n"),
+      },
+    });
+    agentSay({
+      jsonrpc: "2.0",
+      id: 0,
+      method: "session/request_permission",
+      params: {
+        sessionId: "s1",
+        toolCall: {
+          toolCallId: "w1",
+          title: "Write 阅读进度.md",
+          kind: "edit",
+          content: [
+            {
+              type: "diff",
+              path: String.raw`D:\Notes\vault\阅读进度.md`,
+              oldText: null,
+              newText: ["# 阅读进度", "", "| 篇目 | 状态 |", "|---|---|", "| 奇异值分解的数值方法 | 已读 |", ""].join("\n"),
+            },
+          ],
+        },
+        options: [
+          { kind: "allow_always", name: "Always Allow", optionId: "allow_always" },
+          { kind: "allow_once", name: "Allow", optionId: "allow" },
+          { kind: "reject_once", name: "Reject", optionId: "reject" },
+        ],
+      },
+    });
+  }
+}
 
 vi.mock("../../../src/host/api", () => ({
   api: {
@@ -269,9 +351,31 @@ vi.mock("../../../src/host/api", () => ({
     vaultSync: async () => ({ committed: null, pulled: 0, pushed: 0, conflicts: [] }),
     workspaceGet: async () => workspace,
     workspaceSet: async () => {},
-    getSettings: async () => ({ theme }),
+    getSettings: async () => ({ theme, agentCommand }),
     setSettings: async (s: unknown) => s,
     openTerminal: async () => {},
+    agentStart: async () => ["agent-1", String.raw`D:\Notes\vault`],
+    agentSend: async (_id: string, line: string) => agentReply(line),
+    agentStop: async () => {},
+    textDiff: async (path: string, _old: string, next: string) => ({
+      path,
+      kind: "added",
+      additions: 5,
+      deletions: 0,
+      binary: false,
+      hunks: [
+        {
+          oldStart: 0,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 5,
+          lines: next
+            .trimEnd()
+            .split(/\r?\n/)
+            .map((text, i) => ({ kind: "added", oldLine: null, newLine: i + 1, text })),
+        },
+      ],
+    }),
     rebuildIndex: async () => ({}),
     ptyOpen: async () => "1",
     ptyWrite: async () => {},
@@ -283,6 +387,12 @@ vi.mock("../../../src/host/api", () => ({
   onAppClosing: async () => () => {},
   onPtyData: async () => () => {},
   onPtyExit: async () => () => {},
+  onAgentLine: async (f: (e: { id: string; line: string }) => void) => {
+    agentLines.push(f);
+    return () => agentLines.splice(agentLines.indexOf(f), 1);
+  },
+  onAgentStderr: async () => () => {},
+  onAgentExit: async () => () => {},
   pickVaultFolder: async () => null,
   pickCloneFolder: async () => null,
   pickImageSavePath: async () => null,
@@ -313,6 +423,7 @@ beforeEach(() => {
   localStorage.clear();
   theme = "light";
   mobileFlag = false;
+  agentCommand = "npx -y @zed-industries/claude-agent-acp";
   currentNote = NOTE;
   workspace = { tabs: [], active: 0, pinnedCount: 0 };
   document.documentElement.removeAttribute("data-theme");
@@ -642,6 +753,39 @@ describe("视觉工作台", () => {
     });
     await shot("07-light-slash");
     alive();
+  });
+
+  /** AI 会话面板（§7.8）：发一句，等假 agent 把回答、计划和许可请求都摆出来 */
+  async function chat() {
+    localStorage.setItem("verso.agentOpen", "1");
+    render();
+    await settle(1200);
+    const ta = document.querySelector<HTMLTextAreaElement>(".agent textarea")!;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(ta, "把论文清单的阅读进度整理一下");
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(50);
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  }
+
+  it("浅色 · AI 会话", async () => {
+    await chat();
+    await shot("40-light-agent");
+    expect(document.querySelector(".agent-permission")).not.toBeNull();
+  });
+
+  it("浅色 · AI 会话（第一次打开，挑一个）", async () => {
+    agentCommand = "";
+    localStorage.setItem("verso.agentOpen", "1");
+    render();
+    await shot("42-light-agent-choose");
+    expect(document.querySelector(".agent-choose")).not.toBeNull();
+  });
+
+  it("深色 · AI 会话", async () => {
+    theme = "dark";
+    await chat();
+    await shot("41-dark-agent");
+    expect(document.querySelector(".agent-permission")).not.toBeNull();
   });
 
   it("浅色 · 设置", async () => {

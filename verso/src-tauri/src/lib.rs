@@ -1,3 +1,4 @@
+mod agent;
 mod error;
 mod index;
 mod mobile_vaults;
@@ -25,6 +26,8 @@ struct AppState {
     vault: Mutex<Option<Vault>>,
     index: Mutex<Option<index::Index>>,
     pty: pty::PtyManager,
+    /// AI 会话面板背后的 ACP 进程（§7.8）
+    agent: agent::AgentManager,
     /// 自己写入的路径登记表，与文件监听共享（§2.7）
     self_writes: std::sync::Arc<watcher::SelfWrites>,
     /// 持有它就是在监听；换 vault 时替换掉，旧的 Drop 里会停线程
@@ -1515,6 +1518,28 @@ fn pty_active_count(state: State<'_, AppState>) -> usize {
     state.pty.active_count()
 }
 
+// ---------------------------------------------------------------- AI 会话面板
+// §7.8。cwd 和终端一样是 vault 根：agent 要看得见整个 vault 才做得了跨笔记的事。
+
+/// 起一个 agent 进程。返回它的 id，以及交给它的工作目录 —— 前端要拿这个目录
+/// 把 agent 报上来的绝对路径换回 vault 里的相对路径
+#[tauri::command]
+fn agent_start(app: AppHandle, state: State<'_, AppState>, command: String) -> Result<(String, String)> {
+    let root = state.with_vault(|v| Ok(v.root.clone()))?;
+    let id = state.agent.start(&app, &command, &root)?;
+    Ok((id, winpath::for_external(&root).to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+fn agent_send(state: State<'_, AppState>, id: String, line: String) -> Result<()> {
+    state.agent.send(&id, &line)
+}
+
+#[tauri::command]
+fn agent_stop(state: State<'_, AppState>, id: String) {
+    state.agent.stop(&id)
+}
+
 /// 在**系统**终端中打开（§7.3 方案 A）。内嵌面板之外的备用入口 ——
 /// 有时候还是想要一个独立窗口。`path` 为空则用 vault 根目录。
 ///
@@ -2008,6 +2033,9 @@ pub fn run() {
             settings_get,
             settings_set,
             close_now,
+            agent_start,
+            agent_send,
+            agent_stop,
             #[cfg(desktop)]
             print_webview,
         ])
@@ -2034,8 +2062,15 @@ pub fn run() {
                 let _ = w.destroy();
             });
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // agent 进程是一整串（shell → npx → node → CLI），面板的卸载清理
+            // 在关窗那一刻不一定跑得到；留下来的话，退出 Verso 之后它们还在后台
+            if let tauri::RunEvent::Exit = event {
+                app.state::<AppState>().agent.stop_all();
+            }
+        });
 }
 
 #[cfg(test)]

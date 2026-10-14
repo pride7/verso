@@ -211,6 +211,13 @@ export const api = {
   ptyClose: (id: string) => call<void>("pty_close", { id }),
   ptyActiveCount: () => call<number>("pty_active_count"),
 
+  // —— §7.8 AI 会话面板 ——
+  /** 起 agent 进程。返回 `[进程 id, 它的工作目录]`，后者就是 vault 根的绝对路径 */
+  agentStart: (command: string) => call<[string, string]>("agent_start", { command }),
+  /** 往 agent 的 stdin 写一行（一条 JSON-RPC 消息） */
+  agentSend: (id: string, line: string) => call<void>("agent_send", { id, line }),
+  agentStop: (id: string) => call<void>("agent_stop", { id }),
+
   // —— §2.5 索引 ——
   /** 全文搜索。≥3 字符走 FTS，更短的在 Rust 侧退回 LIKE */
   search: (query: string, limit?: number) => call<SearchHit[]>("search", { query, limit }),
@@ -392,6 +399,19 @@ export const onBackendNotice = (cb: (msg: string) => void): Promise<UnlistenFn> 
 /** PTY 输出。`data` 是 base64 的原始字节，交给 xterm 自己解 UTF-8。 */
 export const onPtyData = (cb: (e: { id: string; data: string }) => void): Promise<UnlistenFn> =>
   listen<{ id: string; data: string }>("pty:data", (ev) => cb(ev.payload));
+
+/** agent 的 stdout，一行一条 JSON-RPC 消息（§7.8） */
+export const onAgentLine = (cb: (e: { id: string; line: string }) => void): Promise<UnlistenFn> =>
+  listen<{ id: string; line: string }>("agent:line", (ev) => cb(ev.payload));
+
+/** agent 的 stderr。只用来诊断：起不来、半路退出时把最后几行摆出来 */
+export const onAgentStderr = (cb: (e: { id: string; line: string }) => void): Promise<UnlistenFn> =>
+  listen<{ id: string; line: string }>("agent:stderr", (ev) => cb(ev.payload));
+
+export const onAgentExit = (
+  cb: (e: { id: string; code: number | null }) => void,
+): Promise<UnlistenFn> =>
+  listen<{ id: string; code: number | null }>("agent:exit", (ev) => cb(ev.payload));
 
 export const onPtyExit = (cb: (e: { id: string }) => void): Promise<UnlistenFn> =>
   listen<{ id: string }>("pty:exit", (ev) => cb(ev.payload));

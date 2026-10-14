@@ -9,7 +9,7 @@
 桌面与移动端共用 Tauri 2、Rust、React 和 CodeMirror 6。安装包约 10 MB，内存占用约为
 同类 Electron 应用的一半。
 
-当前版本：**v0.8.53**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
+当前版本：**v0.8.54**。完整设计见 [DESIGN.md](DESIGN.md)，每次更新见
 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
@@ -140,6 +140,8 @@
 Verso 不绑定模型，也不提供“AI 续写”按钮；它提供的是一条可靠路径，让你使用已有的 AI CLI。
 
 - 编辑器下方或右侧有可折叠终端（``Ctrl+` ``），默认工作目录就是当前笔记库。
+- 也可以打开右侧的 AI 会话面板（`Ctrl+Alt+I`）：它启动你自己选的 Claude Code、Codex 或
+  Gemini CLI，回答按 Markdown 和公式排版，要改哪篇会先把 diff 摆出来等你点头。
 - 纯文本笔记可直接交给 Claude Code、Codex、aider 等工具处理：整理结构、生成索引、修链接、
   合并散记、翻译或生成 database 查询都不需要导出。
 - 一个快捷键可把当前笔记或选区作为 `@相对路径` 插入终端；它只提供上下文，不会自动执行命令。
@@ -150,7 +152,7 @@ Verso 不绑定模型，也不提供“AI 续写”按钮；它提供的是一�
 
 | 项目 | 状态 |
 |---|---|
-| 当前版本 | v0.8.53 |
+| 当前版本 | v0.8.54 |
 | 桌面端 | Windows / macOS 已有安装包；CI 同时产出 Linux 的 deb、rpm 与 AppImage（v1 暂不声明 Linux 支持） |
 | 移动端 | Android 已完成并提供 APK；iOS 暂缓，需 Mac、Xcode 和真机 |
 | 自动更新 | 桌面端已接入 GitHub Releases |
