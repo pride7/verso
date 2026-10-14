@@ -80,6 +80,9 @@ vi.mock("../../../src/host/api", () => ({
   },
 }));
 
+const confirmMock = vi.fn(async () => true);
+vi.mock("../../../src/host/dialog", () => ({ confirm: (...a: unknown[]) => confirmMock(...(a as [])) }));
+
 const openExternalPage = vi.fn();
 vi.mock("../../../src/host/external", () => ({ openExternalPage: (u: string) => openExternalPage(u) }));
 
@@ -449,7 +452,9 @@ describe("切换对话", () => {
       await settle(60);
     });
   };
-  const menuItems = () => [...host.querySelectorAll<HTMLButtonElement>(".agent-menu-item:not(.is-new)")];
+  const menuItems = () => [
+    ...host.querySelectorAll<HTMLButtonElement>(".agent-menu-item:not(.is-new):not(.agent-menu-agent)"),
+  ];
 
   it("开着的几个对话可以来回切，各说各的", async () => {
     twoSessions();
@@ -569,5 +574,72 @@ describe("切换对话", () => {
     await openMenu();
     expect(state.sent.some((m) => m.method === "session/list")).toBe(false);
     expect(host.querySelector(".agent-menu-note")?.textContent).toContain("不提供以前的对话");
+  });
+});
+
+describe("换一个 AI", () => {
+  const openMenu = async () => {
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".agent-title")!.click();
+      await settle(60);
+    });
+  };
+  const agentItem = (label: string) =>
+    [...host.querySelectorAll<HTMLButtonElement>(".agent-menu-agent")].find((b) =>
+      b.querySelector(".agent-menu-title")?.textContent?.includes(label),
+    );
+
+  beforeEach(() => {
+    confirmMock.mockClear();
+    confirmMock.mockImplementation(async () => true);
+    onPickCommand.mockClear();
+  });
+
+  it("对话列表里就能换，正在用的那个标出来", async () => {
+    await mount(undefined, "npx -y @zed-industries/claude-agent-acp");
+    await openMenu();
+    expect(agentItem("Claude Code")?.getAttribute("aria-checked")).toBe("true");
+    expect(agentItem("Claude Code")?.textContent).toContain("正在用");
+    await act(async () => {
+      agentItem("Codex")!.click();
+      await settle(30);
+    });
+    expect(confirmMock, "没有在跑的对话，不用问").not.toHaveBeenCalled();
+    expect(onPickCommand).toHaveBeenCalledWith("npx -y @zed-industries/codex-acp");
+  });
+
+  it("设置里填的是别的命令：也列出来，标成正在用", async () => {
+    await mount();
+    await openMenu();
+    const custom = [...host.querySelectorAll(".agent-menu-agent.is-current")];
+    expect(custom).toHaveLength(1);
+    expect(custom[0].textContent).toContain("Fake Agent");
+  });
+
+  it("有对话正在回答：先问一句，说不换就不换", async () => {
+    state.script["session/prompt"] = () => {}; // 一直不回，停在「正在回答」
+    confirmMock.mockImplementation(async () => false);
+    await mount();
+    await type("慢慢想");
+    await openMenu();
+    await act(async () => {
+      agentItem("Codex")!.click();
+      await settle(30);
+    });
+    expect(confirmMock).toHaveBeenCalled();
+    expect(onPickCommand).not.toHaveBeenCalled();
+  });
+
+  it("AI 起不来时也能换 —— 那正是最想换的时候", async () => {
+    state.beforeStart = () => state.exits.forEach((f) => f({ id: "agent-1", code: 1 }));
+    await mount();
+    expect(host.querySelector(".agent-dead")).not.toBeNull();
+    await openMenu();
+    expect(host.querySelector<HTMLButtonElement>(".agent-menu-item.is-new")!.disabled).toBe(true);
+    await act(async () => {
+      agentItem("Gemini")!.click();
+      await settle(30);
+    });
+    expect(onPickCommand).toHaveBeenCalledWith("gemini --acp");
   });
 });

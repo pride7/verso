@@ -40,6 +40,7 @@ import { relTime } from "../core/relTime";
 import type { FileDiff as TextDiff } from "../core/types";
 import { renderMarkdown } from "../editor/exportHtml";
 import { api, onAgentExit, onAgentLine, onAgentStderr } from "../host/api";
+import { confirm } from "../host/dialog";
 import { openExternalPage } from "../host/external";
 import { UnifiedDiff } from "./DiffView";
 import { Icon } from "./Icon";
@@ -308,7 +309,7 @@ export function AgentPanel({
   const openMenu = () => {
     setMenuOpen((v) => !v);
     const conn = connRef.current;
-    if (!menuOpen && conn && past !== null) {
+    if (!menuOpen && conn && past !== null && phase.kind === "ready") {
       conn
         .listSessions(cwdRef.current)
         .then((r) => setPast(r.sessions ?? []))
@@ -442,6 +443,30 @@ export function AgentPanel({
     }
   };
 
+  /**
+   * 换一个 AI。就是改设置里那一行命令 —— 面板跟着重启进程。
+   *
+   * 手上的对话会跟着旧进程一起没了（以前的对话还在那个 AI 自己那边，换回来
+   * 照样列得出来）。有对话正在回答、或者在等人点头时先问一句，免得一点下去
+   * 把跑到一半的活掐断
+   */
+  const switchAgent = async (next: string) => {
+    setMenuOpen(false);
+    if (next === command) return;
+    const working = Object.values(convs).some((c) => c.busy) || Object.keys(permissions).length > 0;
+    if (
+      working &&
+      !(await confirm("换一个 AI 会停掉正在回答的对话，没做完的那一步不会再继续。", {
+        title: "换一个 AI",
+        okLabel: "换",
+        cancelLabel: "不换",
+      }))
+    ) {
+      return;
+    }
+    onPickCommand(next);
+  };
+
   const pickMode = (modeId: string) => {
     if (!activeId || !connRef.current) return;
     patch(activeId, (c) => ({ ...c, modeId }));
@@ -489,18 +514,23 @@ export function AgentPanel({
           <button
             className="agent-title"
             onClick={openMenu}
-            disabled={phase.kind !== "ready"}
+            disabled={phase.kind === "choose"}
             title={agentName ? `${agentName} · 切换对话` : "切换对话"}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
           >
             <Icon name="spark" size={13} />
             <span className="agent-title-text">{active ? conversationTitle(active) : agentName || "AI"}</span>
-            {phase.kind === "ready" && <Icon name="chevron" size={10} />}
+            {phase.kind !== "choose" && <Icon name="chevron" size={10} />}
           </button>
           {menuOpen && (
             <div className="agent-menu" role="menu" aria-label="对话">
-              <button className="agent-menu-item is-new" role="menuitem" onClick={() => void newChat()}>
+              <button
+                className="agent-menu-item is-new"
+                role="menuitem"
+                onClick={() => void newChat()}
+                disabled={phase.kind !== "ready"}
+              >
                 <Icon name="plus" size={12} />
                 新对话
               </button>
@@ -528,9 +558,47 @@ export function AgentPanel({
                   </button>
                 );
               })}
-              {past === null && (
+              {past === null && phase.kind === "ready" && (
                 <p className="agent-menu-note">{agentName || "这个 AI"} 不提供以前的对话，这里只列这次打开之后的。</p>
               )}
+              {/* 跑哪个 AI 也在这里换：它和「在哪个对话里」是同一层的选择，
+                  不该让人为了换一个工具跑去设置里找 */}
+              <p className="agent-menu-section">用哪个 AI</p>
+              {AGENT_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  role="menuitemradio"
+                  aria-checked={p.command === command}
+                  className={`agent-menu-item agent-menu-agent${p.command === command ? " is-current" : ""}`}
+                  onClick={() => void switchAgent(p.command)}
+                  title={`${p.command}\n${p.needs}`}
+                >
+                  <span className="agent-menu-title">{p.label}</span>
+                  <span className="agent-menu-meta">{p.command === command ? "正在用" : ""}</span>
+                </button>
+              ))}
+              {!AGENT_PRESETS.some((p) => p.command === command) && (
+                <button
+                  role="menuitemradio"
+                  aria-checked
+                  className="agent-menu-item agent-menu-agent is-current"
+                  onClick={() => setMenuOpen(false)}
+                  title={command}
+                >
+                  <span className="agent-menu-title">{agentName || "自定义命令"}</span>
+                  <span className="agent-menu-meta">正在用</span>
+                </button>
+              )}
+              <button
+                className="agent-menu-item agent-menu-agent"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenSettings();
+                }}
+              >
+                <span className="agent-menu-title">别的程序…</span>
+              </button>
             </div>
           )}
         </div>
@@ -577,6 +645,7 @@ export function AgentPanel({
       >
         {entries.length === 0 && ready && (
           <p className="agent-empty">
+            {agentName ? `正在用 ${agentName}。` : ""}
             直接问就行。它看得见整个仓库，改了哪篇会先摆出来给你看。
           </p>
         )}

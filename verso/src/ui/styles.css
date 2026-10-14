@@ -5580,6 +5580,16 @@ body.is-table-resizing * {
   font-size: 11px;
   color: var(--muted);
 }
+.agent-menu-section {
+  margin: 6px 0 2px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--muted);
+}
+.agent-menu-agent.is-current .agent-menu-title {
+  color: var(--accent);
+}
 .agent-menu-note {
   margin: 4px 8px 2px;
   font-size: 11px;

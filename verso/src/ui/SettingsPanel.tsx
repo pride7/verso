@@ -249,8 +249,7 @@ function AgentCommandRow({ value, onChange }: { value: string; onChange: (v: str
               key={p.label}
               className={`set-chip${value === p.command ? " is-on" : ""}`}
               onClick={() => onChange(p.command)}
-              title={`${p.command}
-${p.needs}`}
+              title={`${p.command}\n${p.needs}`}
             >
               {p.label}
             </button>
