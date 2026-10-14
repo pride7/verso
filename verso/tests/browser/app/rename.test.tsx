@@ -531,3 +531,40 @@ describe("database 视图里改名", () => {
     expect(title()!.textContent).toBe("MoE 专家模型");
   });
 });
+
+/**
+ * 打开一篇笔记时焦点给不给正文（§4.2「没有焦点就没有光标可言」）。
+ *
+ * 作者报的是：**点开一篇笔记，光标默认停在第一行。** 新建的 state 选区在 0，
+ * 编辑器一挂载就聚焦，于是第一行算「光标在这儿」—— 标题开头的笔记露出 `## `，
+ * 那条「没焦点就整篇渲染」的修复在桌面上一次都没生效过。
+ */
+describe("打开笔记时的焦点", () => {
+  async function openByTree(name: string) {
+    const row = [...document.querySelectorAll<HTMLElement>(".tree-label")].find(
+      (b) => b.textContent === name,
+    )!;
+    await act(async () => {
+      row.click();
+      await settle(400);
+    });
+  }
+  const bodyFocused = () => !!document.activeElement?.closest(".cm-editor");
+
+  it("有内容的笔记：焦点不进正文，第一行的标题不露 `##`", async () => {
+    bodies["甲.md"] = "## 小节\n\n正文\n";
+    await mountApp();
+    await openByTree("甲");
+
+    expect(bodyFocused(), "光标不该替人摆在第一行").toBe(false);
+    const text = document.querySelector(".cm-content")!.textContent ?? "";
+    expect(text).toContain("小节");
+    expect(text).not.toContain("##");
+  });
+
+  it("空文档：直接聚焦，打开就能写", async () => {
+    await mountApp();
+    await openByTree("甲");
+    expect(bodyFocused()).toBe(true);
+  });
+});

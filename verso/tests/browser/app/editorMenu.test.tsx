@@ -334,6 +334,12 @@ describe("正文里的右键菜单（§4.10）", () => {
         await settle(300);
       });
     }
+    // 光标放进表格里 —— 人在表格上右键之前总是先点进去过。打开笔记时正文
+    // 不自动聚焦（§4.2），没焦点的表格整个渲染成 widget，找不到那一行
+    await act(async () => {
+      EditorView.findFromDOM(document.querySelector<HTMLElement>(".cm-editor")!)!.focus();
+      await settle(150);
+    });
     await rightClickAt("甲");
 
     expect(item("在下面插一行"), "光标在表格里，这几条就该出现").toBeTruthy();

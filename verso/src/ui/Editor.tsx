@@ -108,6 +108,20 @@ export interface EditorHandle {
 /** 默认值放模块级：写成 `= []` 的话每次渲染都是新数组，effect 会白跑一轮 */
 const EMPTY_HIDDEN: string[] = [];
 
+/**
+ * 标题改名按了回车，等着接手焦点的那个新名字。
+ *
+ * 名字一改，编辑器跟着新路径重挂 —— 旧 view 连同它的焦点一起没了，新 view
+ * 挂载时已经认不出「这是刚才正在写的那篇」。挂载时取走并清掉；改名失败或
+ * 没改动时它留下来也无妨，下一次挂载照样清掉，只有同名那篇会被聚焦
+ */
+let focusAfterRename: string | null = null;
+
+/** 文件名去掉目录和 `.md`，也就是标题上显示的那个名字 */
+function noteName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+}
+
 /** 跳转后标题距上沿留的空隙，也是 `topLine` 的取样点 */
 const TOP_MARGIN = 12;
 
@@ -648,7 +662,16 @@ ${insert}` },
     // 就弹起来一次，吃掉半屏、把公式工具条顶上来，而多数时候用户只是想
     // 读一眼。要改就点一下正文，那一下本来也躲不掉（§1.2）
     const touch = document.documentElement.dataset.touch === "on";
-    if (!typing && !touch) view.focus();
+    // **光标没处可放时也别拿焦点。** 新建的 state 选区在 0，聚焦就等于把光标
+    // 摆在第一行 —— 而有焦点的那一行会露出源码（§4.2「没有焦点就没有光标
+    // 可言」）：以标题开头的笔记一打开就是一行 `## `。所以只在三种情况下拿：
+    // 空文档（写字是唯一要做的事）、切回来的标签里光标是人自己放的、标题
+    // 改名刚按了回车（§4.12「回车 = 名字定了，接着写」）
+    const renamed = focusAfterRename === noteName(note.path);
+    focusAfterRename = null;
+    const placed = reusable !== null && reusable.selection.main.head > 0;
+    const wanted = note.body === "" || placed || renamed;
+    if (!typing && !touch && wanted) view.focus();
 
     // 「只看最新」：把旧的日志条目折起来（§2.10）。
     //
@@ -726,7 +749,7 @@ ${insert}` },
    * 极少（Verso 从不主动写 `title`），而一旦不一致，显示别名会让改名这个
    * 动作变成一件说不清改了什么的事。
    */
-  const name = note.path.slice(note.path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  const name = noteName(note.path);
   /** 「未命名」是后端建文档时的占位名（`create_untitled`），不是人取的 */
   const untitled = /^未命名(?: \d+)?$/.test(name);
 
@@ -768,10 +791,11 @@ ${insert}` },
           name={name}
           className="doc-title-input"
           onSubmit={(value, by) => {
-            onTitleRename?.(value);
             // **回车 = 名字定了，接着写。** 改动了名字的话编辑器会跟着新路径
-            // 重挂一次、自己拿回焦点（见挂载那一段）；没改动则什么都不会发生，
-            // 所以这里补一次，让两条路的手感一样
+            // 重挂一次，靠 `focusAfterRename` 拿回焦点（见挂载那一段）；没改动
+            // 则什么都不会发生，所以这里补一次，让两条路的手感一样
+            if (by === "enter") focusAfterRename = value.trim();
+            onTitleRename?.(value);
             if (by === "enter") viewRef.current?.focus();
           }}
           onCancel={() => {
