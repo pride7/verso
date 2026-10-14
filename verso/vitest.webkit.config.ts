@@ -28,6 +28,8 @@ export default defineConfig({
   plugins: [react()],
   test: {
     include: ["tests/browser/**/*.test.{ts,tsx}"],
+    // 每个测试文件一份自己的 localStorage，见那个文件的注释
+    setupFiles: ["tests/browser/setup.ts"],
     browser: {
       enabled: true,
       provider: playwright(),
