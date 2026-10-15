@@ -481,6 +481,28 @@ export function resetPhrase(at: number, now: Date): string {
   return `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
 }
 
+/**
+ * 卡片里额度窗口的顺序：按时间从短到长 —— 5 小时、每天、每周（全部模型）、
+ * 每周（某个模型）、别的。按用量排的话，几个窗口的位置会随用量跳来跳去，
+ * 人每次都得重新找「5 小时那一行在哪」
+ */
+export function sortQuota(windows: QuotaWindow[]): QuotaWindow[] {
+  const rank = (name: string) =>
+    name.startsWith("5 小时")
+      ? 0
+      : name.startsWith("每天")
+        ? 1
+        : name === "每周" || name === "每周（全部模型）"
+          ? 2
+          : name.startsWith("每周")
+            ? 3
+            : 4;
+  return windows
+    .map((w, i) => ({ w, i }))
+    .sort((a, b) => rank(a.w.name) - rank(b.w.name) || a.i - b.i)
+    .map(({ w }) => w);
+}
+
 /** 结构化的额度事件（`_claude/rateLimit`）换成同一种窗口 */
 export function windowOf(r: RateLimit, resetText: (unixSeconds: number) => string): QuotaWindow {
   return {

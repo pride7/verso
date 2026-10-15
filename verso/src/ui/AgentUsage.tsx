@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Conversation, QuotaWindow } from "../core/agentChat";
-import { resetPhrase, shortCount } from "../core/agentChat";
+import { resetPhrase, shortCount, sortQuota } from "../core/agentChat";
 
 export interface AgentUsageData {
   /** 哪个 AI（卡片的标题用） */
@@ -68,9 +68,9 @@ export function AgentUsage({
   const r = 5;
   const len = 2 * Math.PI * r;
 
-  // 按用量从高到低：最要紧的那个在最上面，也是状态栏上显示的那一个
-  const windows = [...quota].sort((a, b) => (b.used ?? -1) - (a.used ?? -1));
-  const top = windows[0];
+  // 状态栏上显示用得最多的那个（提醒用）；卡片里按时间从短到长排（5 小时在前）
+  const top = [...quota].sort((a, b) => (b.used ?? -1) - (a.used ?? -1))[0];
+  const windows = sortQuota(quota);
   const level = top ? levelOf(top.used, top.status) : "";
   const now = new Date();
 

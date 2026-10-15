@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
+  sortQuota,
   parseResetTime,
   resetPhrase,
   parseQuotaText,
@@ -430,4 +431,11 @@ describe("重置时间", () => {
     const far = new Date(2026, 9, 20, 4, 46).getTime();
     expect(resetPhrase(far, new Date(2026, 9, 14, 20, 0))).toBe("10月20日 04:46 重置");
   });
+});
+
+it("额度窗口按时间从短到长排：5 小时在前，每周全部模型在每周某个模型前", () => {
+  const w = (name: string, used: number) => ({ name, used, resets: null });
+  expect(
+    sortQuota([w("每周（Fable）", 0), w("每周（全部模型）", 70), w("超额", 5), w("5 小时", 2)]).map((x) => x.name),
+  ).toEqual(["5 小时", "每周（全部模型）", "每周（Fable）", "超额"]);
 });

@@ -1262,15 +1262,16 @@ describe("额度和别的配置", () => {
     expect(usage.querySelector(".agent-quota")?.textContent).toBe("额度 81%");
     expect(usage.classList.contains("is-warn"), "快到头了要变色").toBe(true);
     expect(usage.closest(".status"), "画在状态栏里").not.toBeNull();
-    // 点开是一张卡，不是一段悬停文字：最要紧的在最上面，快到头的那一行变色
+    // 点开是一张卡，不是一段悬停文字：按时间从短到长，5 小时在前；快到头的那一行变色
     const rows = await usageRows();
     expect(rows.map((r) => r.slice(0, 2))).toEqual([
-      ["每周", "81%"],
       ["5 小时", "34%"],
+      ["每周", "81%"],
     ]);
-    expect(rows[1][2]).toBe("1月2日 18:00 重置");
-    expect(host.querySelector(".usage-row")!.classList.contains("is-warn")).toBe(true);
-    expect(host.querySelector<HTMLElement>(".usage-row .usage-bar > span")!.style.width).toBe("81%");
+    expect(rows[0][2]).toBe("1月2日 18:00 重置");
+    const weekly = host.querySelectorAll(".usage-row")[1];
+    expect(weekly.classList.contains("is-warn")).toBe(true);
+    expect(weekly.querySelector<HTMLElement>(".usage-bar > span")!.style.width).toBe("81%");
   });
 
   it("没人报额度（Codex）：不画「额度」那几个字", async () => {
@@ -1380,13 +1381,13 @@ describe("额度：开一个藏起来的对话问一句", () => {
     expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 70%");
     const rows = await usageRows();
     expect(rows.map((r) => r.slice(0, 2))).toEqual([
-      ["每周（全部模型）", "70%"],
       ["5 小时", "12%"],
+      ["每周（全部模型）", "70%"],
       ["每周（Fable）", "0%"],
     ]);
     // 「Oct 15, 1:20 AM EDT」认出来了，说成还有多久或者哪天几点
-    expect(rows[1][2]).toMatch(/重置$/);
-    expect(rows[1][2]).not.toContain("EDT");
+    expect(rows[0][2]).toMatch(/重置$/);
+    expect(rows[0][2]).not.toContain("EDT");
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
