@@ -316,21 +316,21 @@ export function effortControl(c: Conversation, metaEffort: boolean): EffortContr
  * `bypassPermissions` 和 Codex 的 `full-access` 是同一件事）。`risky` 的那几个
  * 不再逐个确认，界面上要换个颜色提醒
  */
-export const MODE_LABEL: Record<string, { label: string; risky?: boolean }> = {
+export const MODE_LABEL: Record<string, { label: string; hint?: string; risky?: boolean }> = {
   // Claude
-  default: { label: "每次询问" },
-  acceptEdits: { label: "自动接受修改" },
-  plan: { label: "只做计划" },
-  auto: { label: "自动判断" },
-  dontAsk: { label: "不询问，未授权的拒绝" },
-  bypassPermissions: { label: "完全访问", risky: true },
-  // Codex（新适配器）
-  "read-only": { label: "只读" },
-  "workspace-write": { label: "可改仓库" },
-  agent: { label: "只问有风险的" },
-  "agent-full-access": { label: "完全访问", risky: true },
-  // Codex（旧适配器）
-  "full-access": { label: "完全访问", risky: true },
+  default: { label: "每次询问", hint: "改文件、跑命令之前都先问你" },
+  acceptEdits: { label: "自动接受修改", hint: "改文件不再问，跑命令还会问" },
+  plan: { label: "只做计划", hint: "先出一份计划，不动任何文件" },
+  // 旧的 Codex 适配器也有一个 `auto`（= 可改仓库），新 Claude 的 `auto` 是这个
+  auto: { label: "自动判断", hint: "由它自己判断哪些要先问你" },
+  dontAsk: { label: "不询问，未授权的拒绝", hint: "没授权过的操作直接拒绝" },
+  bypassPermissions: { label: "完全访问", hint: "什么都不问，直接做", risky: true },
+  // Codex
+  "read-only": { label: "只读", hint: "只能看，改文件、联网都要先问" },
+  "workspace-write": { label: "可改仓库", hint: "能改仓库里的文件；出仓库或联网要先问" },
+  agent: { label: "只问有风险的", hint: "只在它觉得可能不安全时才问" },
+  "agent-full-access": { label: "完全访问", hint: "任何文件、联网都不问", risky: true },
+  "full-access": { label: "完全访问", hint: "任何文件、联网都不问", risky: true },
 };
 
 /**
@@ -353,9 +353,71 @@ export const CHOICE_LABEL: Record<string, string> = {
 
 // ------------------------------------------------------------------ 额度
 
+/** 一个额度窗口，界面上就画这个 */
+export interface QuotaWindow {
+  /** 已经换成中文的名字：「5 小时」「每周（全部模型）」 */
+  name: string;
+  /** 已用百分比，0–100；不知道就是 null */
+  used: number | null;
+  /** 什么时候重置，原样（各家的写法不一样） */
+  resets: string | null;
+  /** 快到头 / 用完了 */
+  status?: "warning" | "out";
+}
+
+/** 「5-hour limit」「Weekly · all models」「codex Weekly limit」→ 中文 */
+export function quotaName(raw: string): string {
+  let t = raw.trim().replace(/^codex\s+/i, "").replace(/\s+limit$/i, "").trim();
+  const [head, ...rest] = t.split(/\s*·\s*/);
+  const base = /^(5[-\s]?h(our)?|five[-_\s]hour)$/i.test(head)
+    ? "5 小时"
+    : /^(weekly|7[-\s]?day|seven[-_\s]day)$/i.test(head)
+      ? "每周"
+      : /^daily$/i.test(head)
+        ? "每天"
+        : head;
+  const extra = rest.join(" · ").replace(/^all models$/i, "全部模型");
+  t = extra ? `${base}（${extra}）` : base;
+  return t;
+}
+
 /**
- * 账号的用量额度（Claude：5 小时窗口、7 天窗口…）。Claude 的适配器把它塞在
- * `usage_update` 的 `_meta["_claude/rateLimit"]` 里，一次报一个窗口
+ * 从 `/usage`（Claude）或 `/status`（Codex）的输出里认出额度。
+ *
+ * 两家都是排好版的 Markdown，不是数据，所以只能照着写法认：
+ *
+ * - Claude：`**5-hour limit** — **34%** · Resets Oct 15, 1:20 AM EDT`（已用）
+ * - Codex：`**codex Weekly limit:** 99% left (resets 04:46 on 10月20日)`（剩余）
+ *
+ * 认不出的行跳过 —— 哪天格式变了，最坏是不显示额度，不会显示错的
+ */
+export function parseQuotaText(md: string): QuotaWindow[] {
+  const out: QuotaWindow[] = [];
+  const claude = /\*\*([^*\n]+?)\*\*\s*[—–-]\s*\*\*(\d+(?:\.\d+)?)%\*\*(?:\s*·\s*Resets?\s+([^\n`]+?))?\s*$/gim;
+  for (const m of md.matchAll(claude)) {
+    out.push({ name: quotaName(m[1]), used: Math.round(Number(m[2])), resets: m[3]?.trim() || null });
+  }
+  const codex = /\*\*([^*\n]*limit[^*\n]*?):?\*\*:?\s*(\d+(?:\.\d+)?)%\s*left(?:\s*\(resets\s+([^)\n]+)\))?/gim;
+  for (const m of md.matchAll(codex)) {
+    out.push({ name: quotaName(m[1]), used: Math.round(100 - Number(m[2])), resets: m[3]?.trim() || null });
+  }
+  return out;
+}
+
+/** 结构化的额度事件（`_claude/rateLimit`）换成同一种窗口 */
+export function windowOf(r: RateLimit, resetText: (unixSeconds: number) => string): QuotaWindow {
+  return {
+    name: QUOTA_WINDOW_LABEL[r.rateLimitType ?? ""] ?? r.rateLimitType ?? "额度",
+    used: quotaPercent(r),
+    resets: r.resetsAt ? resetText(r.resetsAt) : null,
+    status: r.status === "rejected" ? "out" : r.status === "allowed_warning" ? "warning" : undefined,
+  };
+}
+
+/**
+ * 账号的用量额度（Claude：5 小时窗口、7 天窗口…）。Claude 的适配器在快到
+ * 限额时把它塞在 `usage_update` 的 `_meta["_claude/rateLimit"]` 里，一次报
+ * 一个窗口 —— 平时不报，平时的数字靠 `/usage`（见 `parseQuotaText`）
  */
 export interface RateLimit {
   status: "allowed" | "allowed_warning" | "rejected";
@@ -369,10 +431,10 @@ export interface RateLimit {
 
 export const QUOTA_WINDOW_LABEL: Record<string, string> = {
   five_hour: "5 小时",
-  seven_day: "7 天",
-  seven_day_opus: "7 天（Opus）",
-  seven_day_sonnet: "7 天（Sonnet）",
-  seven_day_overage_included: "7 天（含超额）",
+  seven_day: "每周",
+  seven_day_opus: "每周（Opus）",
+  seven_day_sonnet: "每周（Sonnet）",
+  seven_day_overage_included: "每周（含超额）",
   overage: "超额",
 };
 
@@ -431,6 +493,8 @@ export function conversationRows(
   const seen = new Set(open.map((c) => c.id));
   for (const p of past) {
     if (seen.has(p.sessionId)) continue;
+    // 面板查额度时开的那种（只跑了一个 `/usage`），不是人的对话
+    if (/^\/(usage|status)$/.test(p.title?.trim() ?? "")) continue;
     const t = p.updatedAt ? Date.parse(p.updatedAt) : NaN;
     rows.push({
       id: p.sessionId,

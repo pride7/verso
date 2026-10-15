@@ -6106,56 +6106,132 @@ body.is-table-resizing * {
   align-items: center;
   gap: 2px;
 }
-/* 看着是文字加小箭头，点开是系统原生下拉：透明的 select 盖在整块上面 */
+/* 文字加小箭头，点开是往上弹的小菜单（不是系统原生下拉，那个和面板格格不入） */
+.agent-pick-wrap {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
 /* 不缩：截成「每次…」「Opus …」就看不出选的是什么了。面板太窄时整行换行 */
 .agent-pick {
-  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex: none;
-  min-width: 0;
   max-width: 180px;
   padding: 3px 6px;
   border-radius: var(--r-sm);
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
-  cursor: pointer;
 }
-.agent-pick:hover:not(.is-disabled) {
+.agent-pick:hover:not(:disabled),
+.agent-pick.is-open {
   background: var(--hover-bg);
   color: var(--text);
 }
-.agent-pick.is-disabled {
+.agent-pick:disabled {
   opacity: 0.55;
   cursor: default;
 }
 .agent-pick svg {
   flex: none;
 }
-.agent-pick > svg:last-of-type {
-  transform: rotate(90deg);
+.agent-pick > svg:last-child {
+  transform: rotate(-90deg);
   opacity: 0.7;
+  transition: transform var(--t-fast);
+}
+.agent-pick.is-open > svg:last-child {
+  transform: rotate(90deg);
 }
 .agent-pick-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.agent-pick select {
+
+.agent-pop {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  opacity: 0;
-  cursor: inherit;
-  font: inherit;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  /* 按内容撑开：说明那一行别被挤成三行 */
+  width: max-content;
+  min-width: 160px;
+  max-width: 300px;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
 }
+.agent-pop.is-right {
+  right: 0;
+}
+.agent-pop.is-left {
+  left: 0;
+}
+.agent-pop-group {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.agent-pop-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px 6px 6px;
+  border-radius: var(--r-xs);
+  text-align: left;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.agent-pop-item:hover,
+.agent-pop-item:focus-visible {
+  background: var(--hover-bg);
+  outline: none;
+}
+.agent-pop-item.is-on .agent-pop-label {
+  font-weight: 600;
+}
+.agent-pop-item.is-risky .agent-pop-label {
+  color: var(--warn);
+}
+.agent-pop-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 17px;
+  color: var(--accent);
+}
+.agent-pop-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.agent-pop-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-pop-hint {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: normal;
+}
+
 /* 不再逐个确认的权限（完全访问）：换成提醒色，开着它的时候人得一直看得见 */
 .agent-pick.is-risky {
   color: var(--warn);
 }
-.agent-pick.is-risky:hover:not(.is-disabled) {
+.agent-pick.is-risky:hover:not(:disabled) {
   color: var(--warn);
 }
 

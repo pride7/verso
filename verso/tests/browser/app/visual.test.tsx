@@ -851,6 +851,14 @@ describe("视觉工作台", () => {
     expect(document.querySelector(".agent-menu")).not.toBeNull();
   });
 
+  it("浅色 · AI 会话的权限菜单", async () => {
+    await chat();
+    await settle(600);
+    document.querySelector<HTMLElement>('.agent-bar button.agent-pick[aria-label="权限"]')!.click();
+    await shot("44-light-agent-picker");
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+  });
+
   it("深色 · AI 会话", async () => {
     theme = "dark";
     await chat();

@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
+  parseQuotaText,
+  quotaName,
   quotaPercent,
   rateLimitOf,
   absFileUri,
@@ -344,5 +346,47 @@ describe("额度", () => {
     expect(quotaPercent({ status: "allowed", utilization: 0.345 })).toBe(35);
     expect(quotaPercent({ status: "allowed", utilization: 81 })).toBe(81);
     expect(quotaPercent({ status: "allowed" })).toBeNull();
+  });
+});
+
+describe("从命令输出里认额度", () => {
+  it("Claude 的 /usage：写的是已用", () => {
+    const md = [
+      "**5-hour limit** — **0%** · Resets Oct 15, 1:20 AM EDT",
+      "`░░░░`",
+      "**Weekly · all models** — **70%** · Resets Oct 15, 1:00 AM EDT",
+      "**Weekly · Fable** — **0%** · Resets Oct 15, 1:00 AM EDT",
+      "| Cost | API time |",
+    ].join("\n");
+    expect(parseQuotaText(md)).toEqual([
+      { name: "5 小时", used: 0, resets: "Oct 15, 1:20 AM EDT" },
+      { name: "每周（全部模型）", used: 70, resets: "Oct 15, 1:00 AM EDT" },
+      { name: "每周（Fable）", used: 0, resets: "Oct 15, 1:00 AM EDT" },
+    ]);
+  });
+
+  it("Codex 的 /status：写的是还剩多少", () => {
+    const md = [
+      "**Model:** gpt-6.1-sol[xhigh]  ",
+      "**Context window:** data not available yet  ",
+      "**codex 5h limit:** 80% left (resets 13:05)  ",
+      "**codex Weekly limit:** 99% left (resets 04:46 on 10月20日)  ",
+      "**codex Credits:** 0",
+    ].join("\n");
+    expect(parseQuotaText(md)).toEqual([
+      { name: "5 小时", used: 20, resets: "13:05" },
+      { name: "每周", used: 1, resets: "04:46 on 10月20日" },
+    ]);
+  });
+
+  it("认不出的不瞎认", () => {
+    expect(parseQuotaText("**Token usage:** 12%\n随便一段话 — 50%")).toEqual([]);
+  });
+
+  it("窗口名字", () => {
+    expect(quotaName("5-hour limit")).toBe("5 小时");
+    expect(quotaName("codex 5h limit")).toBe("5 小时");
+    expect(quotaName("Weekly · all models")).toBe("每周（全部模型）");
+    expect(quotaName("Monthly limit")).toBe("Monthly");
   });
 });

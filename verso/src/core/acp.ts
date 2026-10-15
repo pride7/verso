@@ -174,7 +174,7 @@ export interface InitializeResult {
     /** 能用 `session/load` 接着以前的对话（会把历史整段重放一遍） */
     loadSession?: boolean;
     /** `list` 在 = 能用 `session/list` 列出以前的对话；`close` 在 = 能关掉一个 */
-    sessionCapabilities?: { list?: object | null; close?: object | null } | null;
+    sessionCapabilities?: { list?: object | null; close?: object | null; delete?: object | null } | null;
     /** 各家的私有声明。Claude 的适配器在这里放 `claudeCode` */
     _meta?: Record<string, unknown> | null;
   } | null;
@@ -339,6 +339,11 @@ export class AcpConnection {
     meta?: SessionMeta,
   ): Promise<Omit<NewSessionResult, "sessionId">> {
     return this.call("session/load", { sessionId, cwd, mcpServers: [], ...(meta ? { _meta: meta } : {}) });
+  }
+
+  /** 彻底删掉一个对话，连它那边的历史一起。只用在面板自己开的、查额度用的那种 */
+  deleteSession(sessionId: string): Promise<unknown> {
+    return this.call("session/delete", { sessionId });
   }
 
   /** 关掉一个对话（agent 那边的进程状态），历史仍记在它那里，之后还能接回 */

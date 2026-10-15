@@ -104,6 +104,39 @@ const { AgentPanel } = await import("../../../src/ui/AgentPanel");
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const last = <T,>(xs: T[]): T | undefined => xs[xs.length - 1];
 
+/** 底部那一格选择器的按钮。当前值在 `data-value` 上 */
+function pickerOf(label: string): HTMLButtonElement | null {
+  return host.querySelector<HTMLButtonElement>(`.agent-bar button.agent-pick[aria-label="${label}"]`);
+}
+
+/** 点开那一格，读出全部选项的字，再收起来 */
+async function optionLabels(label: string): Promise<string[]> {
+  await act(async () => {
+    pickerOf(label)!.click();
+    await settle(20);
+  });
+  const out = [...host.querySelectorAll(`[role="listbox"][aria-label="${label}"] .agent-pop-label`)].map(
+    (e) => e.textContent ?? "",
+  );
+  await act(async () => {
+    pickerOf(label)!.click();
+    await settle(20);
+  });
+  return out;
+}
+
+/** 点开那一格，点某一项 */
+async function choose(label: string, value: string) {
+  await act(async () => {
+    pickerOf(label)!.click();
+    await settle(20);
+  });
+  await act(async () => {
+    host.querySelector<HTMLElement>(`[role="listbox"][aria-label="${label}"] [role="option"][data-value="${value}"]`)!.click();
+    await settle(120);
+  });
+}
+
 /** 等到条件成立。握手是好几轮异步来回，固定睡多久都可能不够 */
 async function until(cond: () => boolean, what: string) {
   for (let i = 0; i < 60 && !cond(); i++) {
@@ -238,9 +271,8 @@ describe("起来", () => {
     expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
     expect(host.querySelector(".agent-title")?.getAttribute("title")).toContain("Fake Agent");
     // 只给了旧写法的模式：画在输入框下面那一行，叫「权限」
-    const select = host.querySelector<HTMLSelectElement>('.agent-bar select[aria-label="权限"]')!;
     // agent 给的英文名换成说人话的中文
-    expect([...select.options].map((o) => o.textContent)).toEqual(["每次询问", "自动接受修改"]);
+    expect(await optionLabels("权限")).toEqual(["每次询问", "自动接受修改"]);
     expect(host.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
   });
 
@@ -709,28 +741,18 @@ describe("选模型", () => {
     };
   });
 
-  const select = (label: string) =>
-    host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
-  const choose = async (label: string, value: string) => {
-    await act(async () => {
-      const el = select(label)!;
-      el.value = value;
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      await settle(60);
-    });
-  };
   const sets = () =>
     state.sent.filter((m) => m.method === "session/set_config_option").map((m) => m.params);
 
   it("agent 报上来的模型列在输入框下面，选了就告诉它", async () => {
     await mount();
-    expect([...select("模型")!.options].map((o) => o.textContent)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
-    expect(select("模型")!.value).toBe("opus");
-    expect(host.querySelectorAll('.agent-bar select[aria-label="权限"]'), "权限只画一份").toHaveLength(1);
+    expect(await optionLabels("模型")).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
+    expect(pickerOf("模型")!.dataset.value).toBe("opus");
+    expect(host.querySelectorAll('.agent-bar button.agent-pick[aria-label="权限"]'), "权限只画一份").toHaveLength(1);
 
     await choose("模型", "sonnet");
     expect(sets()).toEqual([{ sessionId: "s1", configId: "model", value: "sonnet" }]);
-    expect(select("模型")!.value).toBe("sonnet");
+    expect(pickerOf("模型")!.dataset.value).toBe("sonnet");
   });
 
   it("新对话沿用上次选的模型", async () => {
@@ -743,7 +765,7 @@ describe("选模型", () => {
       await settle(120);
     });
     expect(sets()).toContainEqual({ sessionId: "s2", configId: "model", value: "haiku" });
-    expect(select("模型")!.value).toBe("haiku");
+    expect(pickerOf("模型")!.dataset.value).toBe("haiku");
   });
 
   it("权限模式不沿用 —— 「跳过所有确认」不能悄悄带进下一个对话", async () => {
@@ -756,7 +778,7 @@ describe("选模型", () => {
       await settle(120);
     });
     expect(sets().some((p) => (p as { configId: string }).configId === "mode")).toBe(false);
-    expect(select("权限")!.value).toBe("default");
+    expect(pickerOf("权限")!.dataset.value).toBe("default");
   });
 
   it("记住的是按 AI 分开的：别的命令下次启动不受影响", async () => {
@@ -772,15 +794,6 @@ describe("选模型", () => {
 });
 
 describe("思考强度和上下文", () => {
-  const sel = (label: string) => host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
-  const choose = async (label: string, value: string) => {
-    await act(async () => {
-      const el = sel(label)!;
-      el.value = value;
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      await settle(120);
-    });
-  };
   const sent = (method: string) => state.sent.filter((m) => m.method === method).map((m) => m.params);
 
   it("Codex：强度编在模型名里，拆成两个下拉，改哪个都拼回去", async () => {
@@ -821,19 +834,19 @@ describe("思考强度和上下文", () => {
       reply(m.id, { configOptions: cfg((m.params as { value: string }).value) });
     await mount();
 
-    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高"]);
+    expect(await optionLabels("思考强度")).toEqual(["默认强度", "低", "中", "高"]);
     await choose("思考强度", "high");
     expect(sent("session/set_config_option")).toEqual([{ sessionId: "s1", configId: "model", value: "gpt-5.5/high" }]);
     // 回来的当前值是 `gpt-5.5/high`：模型那一格仍显示基础名
-    expect(sel("模型")!.value).toBe("gpt-5.5");
-    expect(sel("思考强度")!.value).toBe("high");
+    expect(pickerOf("模型")!.dataset.value).toBe("gpt-5.5");
+    expect(pickerOf("思考强度")!.dataset.value).toBe("high");
 
     await choose("模型", "gpt-5.4");
     expect(last(sent("session/set_config_option"))).toEqual({ sessionId: "s1", configId: "model", value: "gpt-5.4/high" });
 
     // 没有强度可选的模型：那一格留着但灰掉，不让人以为面板漏了这个功能
     await choose("模型", "gpt-6.1-sol");
-    expect(sel("思考强度")!.disabled).toBe(true);
+    expect(pickerOf("思考强度")!.disabled).toBe(true);
   });
 
   it("新版 Codex：换到支持的模型后才报出「思考强度」这一项，照着画", async () => {
@@ -873,14 +886,14 @@ describe("思考强度和上下文", () => {
       reply(m.id, { configOptions: [mode, model("gpt-5.5"), reasoning(effortNow)] });
     };
     await mount();
-    expect(sel("思考强度")!.disabled, "gpt-6.1-sol 没有档位可选").toBe(true);
+    expect(pickerOf("思考强度")!.disabled, "gpt-6.1-sol 没有档位可选").toBe(true);
 
     await choose("模型", "gpt-5.5");
-    expect(sel("思考强度")!.disabled).toBe(false);
-    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["低", "中", "高", "超高"]);
+    expect(pickerOf("思考强度")!.disabled).toBe(false);
+    expect(await optionLabels("思考强度")).toEqual(["低", "中", "高", "超高"]);
     await choose("思考强度", "high");
     expect(last(sent("session/set_config_option"))).toEqual({ sessionId: "s1", configId: "reasoning_effort", value: "high" });
-    expect(sel("思考强度")!.value).toBe("high");
+    expect(pickerOf("思考强度")!.dataset.value).toBe("high");
   });
 
   /** 照抄 claude-agent-acp 的 initialize：私有声明里有 claudeCode，能关、能接回 */
@@ -915,13 +928,13 @@ describe("思考强度和上下文", () => {
   it("Claude：空白对话里换强度，直接换一个带着新强度开的对话", async () => {
     claudeLike();
     await mount();
-    expect([...sel("思考强度")!.options].map((o) => o.textContent)).toEqual(["默认强度", "低", "中", "高", "超高", "极高"]);
+    expect(await optionLabels("思考强度")).toEqual(["默认强度", "低", "中", "高", "超高", "极高"]);
     await choose("思考强度", "high");
     const news = sent("session/new");
     expect(news).toHaveLength(2);
     expect(effortOf(news[1])).toBe("high");
     expect(sent("session/close")).toEqual([{ sessionId: "s1" }]);
-    expect(sel("思考强度")!.value).toBe("high");
+    expect(pickerOf("思考强度")!.dataset.value).toBe("high");
   });
 
   it("Claude：说过话的对话里换强度，关掉再带着新强度接回来，历史由它重放", async () => {
@@ -934,7 +947,7 @@ describe("思考强度和上下文", () => {
     expect(load).toMatchObject({ sessionId: "s1" });
     expect(effortOf(load)).toBe("medium");
     expect(host.querySelector(".agent-msg.is-user")?.textContent).toContain("之前问的");
-    expect(sel("思考强度")!.value).toBe("medium");
+    expect(pickerOf("思考强度")!.dataset.value).toBe("medium");
   });
 
   it("Claude：选过的强度，新对话接着用", async () => {
@@ -982,7 +995,7 @@ describe("思考强度和上下文", () => {
         ],
       });
     await mount();
-    const pick = sel("权限")!.closest(".agent-pick")!;
+    const pick = pickerOf("权限")!;
     expect(pick.classList.contains("is-risky")).toBe(true);
     expect(pick.textContent).toContain("完全访问");
   });
@@ -1152,7 +1165,6 @@ describe("关着的面板", () => {
 });
 
 describe("额度和别的配置", () => {
-  const sel = (label: string) => host.querySelector<HTMLSelectElement>(`.agent-bar select[aria-label="${label}"]`);
 
   it("Claude 报的额度：显示用得最多的那个窗口，悬停看每个窗口和重置时间", async () => {
     const reset = Math.floor(new Date(2030, 0, 2, 18, 0).getTime() / 1000);
@@ -1178,7 +1190,7 @@ describe("额度和别的配置", () => {
     expect(usage.querySelector(".agent-quota")?.textContent).toBe("额度 81%");
     expect(usage.classList.contains("is-warn"), "快到头了要变色").toBe(true);
     const title = usage.getAttribute("title")!;
-    expect(title).toContain("7 天额度：已用 81%");
+    expect(title).toContain("每周额度：已用 81%");
     expect(title).toContain("5 小时额度：已用 34%，1月2日 18:00 重置");
   });
 
@@ -1224,7 +1236,218 @@ describe("额度和别的配置", () => {
         ],
       });
     await mount();
-    expect([...sel("权限")!.options].map((o) => o.textContent)).toEqual(["只读", "可改仓库", "只问有风险的", "完全访问"]);
-    expect([...sel("快速")!.options].map((o) => o.textContent)).toEqual(["快速：关", "快速：开"]);
+    expect(await optionLabels("权限")).toEqual(["只读", "可改仓库", "只问有风险的", "完全访问"]);
+    expect(await optionLabels("快速")).toEqual(["快速：关", "快速：开"]);
+  });
+});
+
+describe("额度：开一个藏起来的对话问一句", () => {
+  /** 照抄真机 `/usage` 的输出（截了一段） */
+  const USAGE = [
+    "## Usage",
+    "",
+    "### Limits",
+    "",
+    "**5-hour limit** — **12%** · Resets Oct 15, 1:20 AM EDT",
+    "",
+    "**Weekly · all models** — **70%** · Resets Oct 15, 1:00 AM EDT",
+    "",
+    "**Weekly · Fable** — **0%** · Resets Oct 15, 1:00 AM EDT",
+  ].join("\n");
+
+  const agent = (name: string, canDelete = true) => {
+    state.script.initialize = (m) =>
+      reply(m.id, {
+        protocolVersion: 1,
+        agentInfo: { name },
+        agentCapabilities: {
+          loadSession: true,
+          sessionCapabilities: { list: {}, close: {}, ...(canDelete ? { delete: {} } : {}) },
+          ...(name.includes("claude") ? { _meta: { claudeCode: {} } } : {}),
+        },
+      });
+    let n = 0;
+    state.script["session/new"] = (m) => reply(m.id, { sessionId: `s${++n}` });
+    state.script["session/delete"] = (m) => reply(m.id, {});
+    state.script["session/list"] = (m) =>
+      reply(m.id, {
+        sessions: [
+          { sessionId: "old", cwd: "D:/v", title: "/usage", updatedAt: "2026-10-01T00:00:00Z" },
+          { sessionId: "real", cwd: "D:/v", title: "整理清单", updatedAt: "2026-10-01T00:00:00Z" },
+        ],
+      });
+  };
+
+  it("Claude：起来就用 /usage 问一次，读完删掉那个对话，界面上只多一个「额度 70%」", async () => {
+    agent("@agentclientprotocol/claude-agent-acp");
+    state.script["session/prompt"] = (m) => {
+      const { sessionId, prompt } = m.params as { sessionId: string; prompt: { text: string }[] };
+      if (prompt[0].text === "/usage") {
+        emit({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: USAGE } } },
+        });
+      }
+      reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    await act(async () => {
+      await settle(200);
+    });
+    const probe = state.sent.find((m) => m.method === "session/prompt")!.params as { sessionId: string };
+    expect(probe.sessionId, "问额度用的是另一个对话").toBe("s2");
+    expect(state.sent.find((m) => m.method === "session/delete")?.params).toEqual({ sessionId: "s2" });
+    expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 70%");
+    const title = host.querySelector(".agent-usage")!.getAttribute("title")!;
+    expect(title).toContain("5 小时额度：已用 12%，Oct 15, 1:20 AM EDT 重置");
+    expect(title).toContain("每周（全部模型）额度：已用 70%");
+    // 那段 Markdown 不能出现在对话里
+    expect(host.querySelector(".agent-msg")).toBeNull();
+    expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
+
+    // 以前留下的那种只跑了 /usage 的对话，不进对话列表
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".agent-title")!.click();
+      await settle(80);
+    });
+    const titles = [...host.querySelectorAll(".agent-menu-item:not(.is-new):not(.agent-menu-agent) .agent-menu-title")].map(
+      (e) => e.textContent,
+    );
+    expect(titles).toContain("整理清单");
+    expect(titles).not.toContain("/usage");
+  });
+
+  it("Codex：用 /status，它写的是「还剩多少」", async () => {
+    agent("@agentclientprotocol/codex-acp");
+    state.script["session/prompt"] = (m) => {
+      const { sessionId } = m.params as { sessionId: string };
+      emit({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "**codex Weekly limit:** 99% left (resets 04:46 on 10月20日)\n**codex Credits:** 0" },
+          },
+        },
+      });
+      reply(m.id, { stopReason: "end_turn" });
+    };
+    await mount();
+    await act(async () => {
+      await settle(200);
+    });
+    expect((state.sent.find((m) => m.method === "session/prompt")!.params as { prompt: { text: string }[] }).prompt[0].text).toBe(
+      "/status",
+    );
+    expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 1%");
+    expect(host.querySelector(".agent-usage")!.getAttribute("title")).toContain("每周额度：已用 1%，04:46 on 10月20日 重置");
+  });
+
+  it("删不掉对话的 AI 不去问 —— 每问一次就在它的历史里多一条", async () => {
+    agent("@agentclientprotocol/claude-agent-acp", false);
+    await mount();
+    await act(async () => {
+      await settle(200);
+    });
+    expect(state.sent.some((m) => m.method === "session/prompt")).toBe(false);
+  });
+
+  it("不认识的 AI 不去问 —— 它的 /status 可能会被当成一句话发给模型", async () => {
+    agent("some-other-agent");
+    await mount();
+    await act(async () => {
+      await settle(200);
+    });
+    expect(state.sent.some((m) => m.method === "session/prompt")).toBe(false);
+  });
+});
+
+describe("底部的选择器", () => {
+  const listbox = (label: string) => host.querySelector<HTMLElement>(`[role="listbox"][aria-label="${label}"]`);
+
+  beforeEach(() => {
+    state.script["session/new"] = (m) =>
+      reply(m.id, {
+        sessionId: "s1",
+        configOptions: [
+          {
+            id: "mode",
+            name: "Mode",
+            category: "mode",
+            type: "select",
+            currentValue: "default",
+            options: [
+              { value: "default", name: "Manual" },
+              { value: "acceptEdits", name: "Accept edits" },
+              { value: "bypassPermissions", name: "Bypass permissions" },
+            ],
+          },
+        ],
+      });
+    state.script["session/set_config_option"] = (m) => reply(m.id, {});
+  });
+
+  it("点开是自己画的菜单：当前项打勾，每项带一行中文说明，危险的换色", async () => {
+    await mount();
+    await act(async () => {
+      pickerOf("权限")!.click();
+      await settle(30);
+    });
+    const list = listbox("权限")!;
+    expect(list, "不是系统原生的下拉").not.toBeNull();
+    expect(host.querySelector(".agent-bar select")).toBeNull();
+    const on = list.querySelector('[aria-selected="true"]')!;
+    expect(on.querySelector(".agent-pop-label")?.textContent).toBe("每次询问");
+    expect(on.querySelector(".agent-pop-check svg")).not.toBeNull();
+    expect(list.querySelector(".agent-pop-hint")?.textContent).toBe("改文件、跑命令之前都先问你");
+    expect(list.querySelector('[data-value="bypassPermissions"]')!.classList.contains("is-risky")).toBe(true);
+    // 打开时焦点在当前项上
+    expect(document.activeElement).toBe(on);
+  });
+
+  it("键盘：下箭头往下走，回车选中；Esc 收起", async () => {
+    await mount();
+    await act(async () => {
+      pickerOf("权限")!.click();
+      await settle(30);
+    });
+    const list = listbox("权限")!;
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      await settle(10);
+    });
+    expect((document.activeElement as HTMLElement).dataset.value).toBe("acceptEdits");
+    await act(async () => {
+      (document.activeElement as HTMLElement).click(); // 回车在按钮上就是 click
+      await settle(60);
+    });
+    expect(listbox("权限")).toBeNull();
+    expect(pickerOf("权限")!.dataset.value).toBe("acceptEdits");
+
+    await act(async () => {
+      pickerOf("权限")!.click();
+      await settle(30);
+    });
+    await act(async () => {
+      listbox("权限")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await settle(10);
+    });
+    expect(listbox("权限")).toBeNull();
+  });
+
+  it("点别处就收起", async () => {
+    await mount();
+    await act(async () => {
+      pickerOf("权限")!.click();
+      await settle(30);
+    });
+    await act(async () => {
+      host.querySelector(".agent-log")!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      await settle(10);
+    });
+    expect(listbox("权限")).toBeNull();
   });
 });

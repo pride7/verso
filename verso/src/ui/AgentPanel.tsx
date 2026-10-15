@@ -42,10 +42,10 @@ import {
   CONFIG_NAME,
   EFFORT_LABEL,
   effortControl,
-  QUOTA_WINDOW_LABEL,
-  quotaPercent,
+  parseQuotaText,
   rateLimitOf,
-  type RateLimit,
+  windowOf,
+  type QuotaWindow,
   joinModel,
   MODE_LABEL,
   REMEMBERED_CATEGORIES,
@@ -178,8 +178,14 @@ export function AgentPanel({
    * 还得它能关（`session/close`）、能接回（`session/load`）
    */
   const [metaEffort, setMetaEffort] = useState(false);
-  /** 账号额度，按窗口（5 小时、7 天…）。是账号的事、不是某个对话的，所以放在这一层 */
-  const [quota, setQuota] = useState<Record<string, RateLimit>>({});
+  /** 账号额度，按窗口（5 小时、每周…）。是账号的事、不是某个对话的，所以放在这一层 */
+  const [quota, setQuota] = useState<Record<string, QuotaWindow>>({});
+  /**
+   * 怎么问额度：开一个只给自己看的对话，发一句本地命令（Claude 的 `/usage`、
+   * Codex 的 `/status`），读完就删掉。null = 这个 AI 没有这种命令，或者删不掉
+   * —— 删不掉的话每查一次都会在它的历史里留下一条，宁可不查
+   */
+  const probeRef = useRef<{ command: string; running: boolean; at: number; text: Map<string, string> } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [ctx, setCtx] = useState<AgentContext>({ path: null, selection: "" });
@@ -352,6 +358,15 @@ export function AgentPanel({
         const conn = new AcpConnection((line) => api.agentSend(id, line), {
           onUpdate: (n) => {
             const u = n.update;
+            // 查额度那个对话：只收文字，别的一概不进界面
+            const probing = probeRef.current?.text;
+            if (probing?.has(n.sessionId)) {
+              if (u.sessionUpdate === "agent_message_chunk") {
+                const t = (u as { content: { type: string; text?: string } }).content;
+                if (t.type === "text") probing.set(n.sessionId, probing.get(n.sessionId)! + (t.text ?? ""));
+              }
+              return;
+            }
             if (u.sessionUpdate === "config_option_update") {
               const config = (u as { configOptions: ConfigOption[] }).configOptions;
               patch(n.sessionId, (c) => ({ ...c, config }));
@@ -362,8 +377,12 @@ export function AgentPanel({
               const { used, size, cost, _meta } = u as unknown as NonNullable<Conversation["usage"]> & {
                 _meta?: unknown;
               };
+              // 快到限额时 Claude 会顺手报一下（平时的数字靠 `probeQuota`）
               const limit = rateLimitOf(_meta);
-              if (limit) setQuota((q) => ({ ...q, [limit.rateLimitType ?? "default"]: limit }));
+              if (limit) {
+                const w = windowOf(limit, resetText);
+                setQuota((q) => ({ ...q, [w.name]: w }));
+              }
               // 只报额度的那种更新也带着 used/size，花费可能没有 —— 别把之前的花费抹掉
               if (typeof used === "number" && typeof size === "number") {
                 patch(n.sessionId, (c) => ({ ...c, usage: { used, size, cost: cost ?? c.usage?.cost ?? null } }));
@@ -396,6 +415,14 @@ export function AgentPanel({
         if (caps?.sessionCapabilities?.list) setPast([]);
         const claude = !!caps?._meta?.claudeCode;
         setMetaEffort(claude && !!caps?.loadSession && !!caps?.sessionCapabilities?.close);
+        // 只认得这两家的本地命令。别家的 `/status` 可能会被当成一句话发给模型 ——
+        // 那就成了每查一次额度都在花额度
+        const codex = /codex/i.test(info.agentInfo?.name ?? "");
+        const probeCommand = claude ? "/usage" : codex ? "/status" : null;
+        probeRef.current =
+          probeCommand && caps?.sessionCapabilities?.delete
+            ? { command: probeCommand, running: false, at: 0, text: new Map() }
+            : null;
         const effort = claude ? savedEffort() : null;
         const session = await conn.newSession(cwd, claudeEffortMeta(effort));
         if (disposed) return;
@@ -405,6 +432,7 @@ export function AgentPanel({
         void restorePrefs(session.sessionId, session);
         // 有新版就在后台装上，下次启动生效。一天最多真去问一次
         if (preset?.package) void api.agentUpdate(preset.package).catch(() => {});
+        void probeQuotaRef.current();
       } catch (e) {
         if (disposed) return;
         if (e instanceof AcpError && e.code === AUTH_REQUIRED) {
@@ -473,6 +501,37 @@ export function AgentPanel({
     [convs, past, activeId],
   );
 
+  /**
+   * 问一次额度。起来的时候问一次，之后每轮回答完再问，最多一分钟一次 ——
+   * 是本地命令，不花额度，但也没必要每秒都问
+   */
+  const probeQuota = async () => {
+    const probe = probeRef.current;
+    const conn = connRef.current;
+    if (!probe || !conn || probe.running || Date.now() - probe.at < 60_000) return;
+    probe.running = true;
+    probe.at = Date.now();
+    let sid: string | null = null;
+    try {
+      const s = await conn.newSession(cwdRef.current);
+      sid = s.sessionId;
+      probe.text.set(sid, "");
+      await conn.prompt(sid, [{ type: "text", text: probe.command }]);
+      const windows = parseQuotaText(probe.text.get(sid) ?? "");
+      if (windows.length > 0) setQuota(Object.fromEntries(windows.map((w) => [w.name, w])));
+    } catch {
+      // 问不到就不显示，不打扰人
+    } finally {
+      if (sid) {
+        probe.text.delete(sid);
+        void conn.deleteSession(sid).catch(() => {});
+      }
+      probe.running = false;
+    }
+  };
+  const probeQuotaRef = useRef(probeQuota);
+  probeQuotaRef.current = probeQuota;
+
   const send = async () => {
     const text = draft.trim();
     const conn = connRef.current;
@@ -527,6 +586,7 @@ export function AgentPanel({
       note(`**出错了：** ${errorText(e)}`);
     } finally {
       patch(sid, (c) => ({ ...c, busy: false, updatedAt: Date.now() }));
+      void probeQuota();
     }
   };
 
@@ -1090,12 +1150,15 @@ export function AgentPanel({
               <Picker
                 label="权限"
                 icon="shield"
+                align="left"
                 risky={!!MODE_LABEL[modeOption.currentValue]?.risky}
                 value={modeOption.currentValue}
                 disabled={!ready}
                 options={configChoices(modeOption).map((c) => ({
                   value: c.value,
                   label: MODE_LABEL[c.value]?.label ?? c.name,
+                  hint: MODE_LABEL[c.value]?.hint,
+                  risky: MODE_LABEL[c.value]?.risky,
                   title: c.description ?? c.name,
                 }))}
                 onChange={(v) => void pickConfig(modeOption, v)}
@@ -1105,12 +1168,15 @@ export function AgentPanel({
                 <Picker
                   label="权限"
                   icon="shield"
+                  align="left"
                   risky={!!MODE_LABEL[active?.modeId ?? ""]?.risky}
                   value={active?.modeId ?? ""}
                   disabled={!ready}
                   options={modes.map((m) => ({
                     value: m.id,
                     label: MODE_LABEL[m.id]?.label ?? m.name,
+                    hint: MODE_LABEL[m.id]?.hint,
+                    risky: MODE_LABEL[m.id]?.risky,
                     title: m.description ?? m.name,
                   }))}
                   onChange={pickMode}
@@ -1249,15 +1315,20 @@ export function AgentPanel({
 interface PickerOption {
   value: string;
   label: string;
+  /** 选项下面一行小字（中文的说明） */
+  hint?: string;
   group?: string | null;
   title?: string;
+  risky?: boolean;
 }
 
 /**
- * 输入框底部那几个「文字 + 小箭头」的选择器。
+ * 输入框底部那几个「文字 + 小箭头」的选择器，点开是一张往上弹的小菜单。
  *
- * 看起来是自己画的，点开却是系统原生的下拉：一个透明的 `<select>` 盖在上面。
- * 键盘、读屏、长列表滚动都白拿，不用再写一个弹出菜单。分了组的画成 optgroup
+ * 以前是盖了一层透明的原生 `<select>`：省事，但点开的是系统那种白底灰条的
+ * 下拉，和整个面板格格不入（作者原话：「选择框有点丑」）。现在自己画：当前项
+ * 打勾、权限这类带一行中文说明、危险的那几项换提醒色；键盘上下选、回车确定、
+ * Esc 收起，点别处也收起
  */
 function Picker({
   label,
@@ -1267,6 +1338,7 @@ function Picker({
   options,
   disabled,
   title,
+  align = "right",
   onChange,
 }: {
   label: string;
@@ -1277,33 +1349,100 @@ function Picker({
   options: PickerOption[];
   disabled?: boolean;
   title?: string;
+  /** 菜单和按钮哪一边对齐。靠左的那个往右展开，免得伸出面板 */
+  align?: "left" | "right";
   onChange: (value: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const current = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    // 打开时把焦点放在当前项上，键盘能直接接着选
+    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"], [role="option"]')?.focus();
+    const close = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const choose = (v: string) => {
+    setOpen(false);
+    if (v !== value) onChange(v);
+  };
+
+  const onListKey = (e: React.KeyboardEvent) => {
+    const items = [...(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = items[(at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length];
+      next?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      wrapRef.current?.querySelector<HTMLElement>(".agent-pick")?.focus();
+    }
+  };
+
   const groups = [...new Set(options.map((o) => o.group ?? null))];
   const item = (o: PickerOption) => (
-    <option key={`${o.group ?? ""}/${o.value}`} value={o.value} title={o.title}>
-      {o.label}
-    </option>
-  );
-  return (
-    <label
-      className={`agent-pick${risky ? " is-risky" : ""}${disabled ? " is-disabled" : ""}`}
-      title={title ?? (current ? `${label}：${current.label}` : label)}
+    <button
+      key={`${o.group ?? ""}/${o.value}`}
+      role="option"
+      aria-selected={o.value === value}
+      data-value={o.value}
+      className={`agent-pop-item${o.value === value ? " is-on" : ""}${o.risky ? " is-risky" : ""}`}
+      title={o.title}
+      onClick={() => choose(o.value)}
     >
-      {icon && <Icon name={icon} size={12} />}
-      <span className="agent-pick-text">{current?.label ?? value ?? label}</span>
-      <Icon name="chevron" size={9} />
-      <select value={value} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value)}>
-        {groups.length === 1 && groups[0] === null
-          ? options.map(item)
-          : groups.map((g) => (
-              <optgroup key={g ?? ""} label={g ?? ""}>
-                {options.filter((o) => (o.group ?? null) === g).map(item)}
-              </optgroup>
-            ))}
-      </select>
-    </label>
+      <span className="agent-pop-check">{o.value === value && <Icon name="check" size={12} />}</span>
+      <span className="agent-pop-text">
+        <span className="agent-pop-label">{o.label}</span>
+        {o.hint && <span className="agent-pop-hint">{o.hint}</span>}
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="agent-pick-wrap" ref={wrapRef}>
+      <button
+        className={`agent-pick${risky ? " is-risky" : ""}${open ? " is-open" : ""}`}
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        data-value={value}
+        disabled={disabled}
+        title={title ?? (current ? `${label}：${current.label}` : label)}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        {icon && <Icon name={icon} size={12} />}
+        <span className="agent-pick-text">{current?.label ?? (value || label)}</span>
+        <Icon name="chevron" size={9} />
+      </button>
+      {open && (
+        <div className={`agent-pop is-${align}`} role="listbox" aria-label={label} ref={listRef} onKeyDown={onListKey}>
+          {groups.length === 1 && groups[0] === null
+            ? options.map(item)
+            : groups.map((g) => (
+                <div key={g ?? ""} role="group" aria-label={g ?? undefined}>
+                  {g && <div className="agent-pop-group">{g}</div>}
+                  {options.filter((o) => (o.group ?? null) === g).map(item)}
+                </div>
+              ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1312,17 +1451,18 @@ function resetText(unixSeconds: number): string {
   const d = new Date(unixSeconds * 1000);
   const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   const today = new Date();
-  return d.toDateString() === today.toDateString() ? `${hm} 重置` : `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
+  return d.toDateString() === today.toDateString() ? hm : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
 /**
  * 上下文用了多少：一个小圆环，悬停看数字。快满时变色 —— 到那时 agent 会开始
  * 压缩前面的对话，人该知道它正在忘事。
  *
- * 旁边是账号额度（agent 报了才有，眼下只有 Claude）：几个窗口里用得最多的那个，
- * 快到头了变色、用完了变红。还没发过话时圆环是空的，悬停说明数字什么时候来
+ * 旁边是账号额度：几个窗口（5 小时、每周…）里用得最多的那个，快到头了变色、
+ * 用完了变红，悬停看每一个和重置时间。还没发过话时圆环是空的，悬停说明数字
+ * 什么时候来
  */
-function ContextRing({ usage, quota }: { usage: NonNullable<Conversation["usage"]> | null; quota: RateLimit[] }) {
+function ContextRing({ usage, quota }: { usage: NonNullable<Conversation["usage"]> | null; quota: QuotaWindow[] }) {
   const ratio = usage ? Math.min(1, Math.max(0, usage.used / usage.size)) : 0;
   const r = 6.5;
   const len = 2 * Math.PI * r;
@@ -1334,26 +1474,18 @@ function ContextRing({ usage, quota }: { usage: NonNullable<Conversation["usage"
     ? `上下文：${shortCount(usage.used)} / ${shortCount(usage.size)}（${pct}%）${cost}`
     : "上下文：发出第一句之后才有数字";
 
-  const windows = quota
-    .map((q) => ({ q, pct: quotaPercent(q) }))
-    .sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1));
+  const windows = [...quota].sort((a, b) => (b.used ?? -1) - (a.used ?? -1));
   const top = windows[0];
-  const rejected = quota.some((q) => q.status === "rejected");
-  const warning = quota.some((q) => q.status === "allowed_warning");
-  const quotaLines = windows.map(({ q, pct }) => {
-    const name = QUOTA_WINDOW_LABEL[q.rateLimitType ?? ""] ?? q.rateLimitType ?? "额度";
-    const used = q.status === "rejected" ? "已用完" : pct === null ? "可用" : `已用 ${pct}%`;
-    return `${name}额度：${used}${q.resetsAt ? `，${resetText(q.resetsAt)}` : ""}`;
+  const out = quota.some((q) => q.status === "out" || q.used === 100);
+  const warning = quota.some((q) => q.status === "warning" || (q.used ?? 0) >= 80);
+  const quotaLines = windows.map((q) => {
+    const used = q.status === "out" ? "已用完" : q.used === null ? "可用" : `已用 ${q.used}%`;
+    return `${q.name}额度：${used}${q.resets ? `，${q.resets} 重置` : ""}`;
   });
 
   return (
-    <span
-      className={`agent-usage${rejected ? " is-out" : warning ? " is-warn" : ""}`}
-      title={[ctxLine, ...quotaLines].join("\n")}
-    >
-      {top && (
-        <span className="agent-quota">{rejected ? "额度用完" : top.pct === null ? "额度正常" : `额度 ${top.pct}%`}</span>
-      )}
+    <span className={`agent-usage${out ? " is-out" : warning ? " is-warn" : ""}`} title={[ctxLine, ...quotaLines].join("\n")}>
+      {top && <span className="agent-quota">{out ? "额度用完" : top.used === null ? "额度正常" : `额度 ${top.used}%`}</span>}
       <span
         className={`agent-ctx${ratio > 0.8 ? " is-full" : ""}${usage ? "" : " is-empty"}`}
         aria-label={usage ? `上下文已用 ${pct}%` : "上下文还没有用量"}
