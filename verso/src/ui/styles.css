@@ -6097,14 +6097,72 @@ body.is-table-resizing * {
   min-width: 0;
   margin-left: -4px;
 }
-.agent-bar-right {
+.agent-bar-gap {
   flex: 1;
-  min-width: 0;
+  min-width: 4px;
+}
+
+/* 「6.1 Sol · 超高」那张菜单：模型一列，强度和开关各一行分段按钮 */
+.agent-run-card {
+  width: 260px;
+  max-width: 260px;
+  padding: 6px 4px 8px;
+}
+.agent-run-sec + .agent-run-sec {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+}
+.agent-run-head {
+  padding: 2px 8px 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.agent-run-note {
+  padding: 0 8px 4px;
+}
+.agent-run-list {
+  display: flex;
+  flex-direction: column;
+}
+.agent-seg {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
   gap: 2px;
+  margin: 0 6px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--hover-bg);
+}
+.agent-seg:empty {
+  display: none;
+}
+.agent-seg-item {
+  flex: 1 1 0;
+  min-width: 34px;
+  padding: 3px 6px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.agent-seg-item:hover:not(:disabled),
+.agent-seg-item:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+.agent-seg-item.is-on {
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.agent-seg-item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.agent-run {
+  max-width: 220px;
 }
 /* 文字加小箭头，点开是往上弹的小菜单（不是系统原生下拉，那个和面板格格不入） */
 .agent-pick-wrap {

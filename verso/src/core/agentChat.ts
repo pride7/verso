@@ -240,7 +240,7 @@ export function configToRestore(
 export const EFFORT_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
 export const EFFORT_LABEL: Record<string, string> = {
-  default: "默认强度",
+  default: "默认",
   none: "不思考",
   minimal: "极低",
   low: "低",

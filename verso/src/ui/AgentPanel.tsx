@@ -886,6 +886,96 @@ export function AgentPanel({
   const otherConfig = config.filter((o) => o !== modeOption && o !== modelOption && !(effort?.kind === "config" && effort.option === o));
   const now = new Date();
 
+  /**
+   * 「模型 · 强度」那一张菜单的各段。模型最常换，放第一段；强度第二；快速、
+   * 协作这类 agent 另外报的排在后面
+   */
+  const runSections: RunSection[] = [];
+  if (modelOption && modelOption.type === "select") {
+    runSections.push({
+      label: "模型",
+      value: effort?.kind === "variant" ? effort.base : modelOption.currentValue,
+      options: configChoices(modelOption).map((c) => ({
+        value: c.value,
+        label: c.name,
+        group: c.group,
+        title: c.description ?? undefined,
+      })),
+      onChange: (v) =>
+        void pickConfig(
+          modelOption,
+          // Codex 旧适配器：换模型时把强度带过去（`gpt-5.4` + 高 → `gpt-5.4/high`）
+          active?.variants.length
+            ? joinModel(splitModel(v).base, effort?.kind === "variant" ? effort.current : null, active.variants)
+            : v,
+        ),
+    });
+  }
+  if (effort?.kind === "config" && effort.option.type === "select") {
+    const option = effort.option;
+    runSections.push({
+      label: "思考强度",
+      value: option.currentValue,
+      inline: true,
+      options: configChoices(option).map((c) => ({ value: c.value, label: EFFORT_LABEL[c.value] ?? c.name })),
+      onChange: (v) => void pickConfig(option, v),
+    });
+  } else if (effort?.kind === "variant") {
+    const e = effort;
+    runSections.push({
+      label: "思考强度",
+      value: e.current ?? "",
+      inline: true,
+      options: [
+        ...(e.current === null ? [{ value: "", label: "默认" }] : []),
+        ...e.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
+      ],
+      onChange: (v) => void pickConfig(e.model, v ? `${e.base}/${v}` : e.base),
+    });
+  } else if (effort?.kind === "meta") {
+    const e = effort;
+    runSections.push({
+      label: "思考强度",
+      value: e.current ?? "",
+      inline: true,
+      disabled: busy,
+      note: active && active.entries.length > 0 ? "换强度会把这个对话关掉再接回来，历史不会丢" : undefined,
+      options: [{ value: "", label: "默认" }, ...e.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l }))],
+      onChange: (v) => void changeMetaEffort(v || null),
+    });
+  } else if (modelOption) {
+    // 这个模型没有可选的档位（比如旧 Codex 适配器下的 gpt-6.1-sol）：留一段说明，
+    // 不让人以为是面板漏了这个功能
+    runSections.push({
+      label: "思考强度",
+      value: "",
+      inline: true,
+      disabled: true,
+      note: "这个模型没有可选的思考强度",
+      options: [],
+      onChange: () => {},
+    });
+  }
+  for (const o of otherConfig) {
+    if (o.type !== "select") continue;
+    const name = CONFIG_NAME[o.id] ?? o.name;
+    const on = !["off", "default", ""].includes(o.currentValue);
+    const current = configChoices(o).find((c) => c.value === o.currentValue);
+    runSections.push({
+      label: name,
+      value: o.currentValue,
+      inline: true,
+      options: configChoices(o).map((c) => ({
+        value: c.value,
+        label: CHOICE_LABEL[c.value] ?? c.name,
+        title: c.description ?? undefined,
+      })),
+      // 不是默认值时在按钮上露个头：「快速」「先计划」—— 开着却看不见最糟
+      badge: on ? (CHOICE_LABEL[o.currentValue] === "开" ? name : (CHOICE_LABEL[o.currentValue] ?? current?.name ?? null)) : null,
+      onChange: (v) => void pickConfig(o, v),
+    });
+  }
+
   return (
     <aside
       className={`agent${cover ? " is-cover" : ""}${hidden ? " is-hidden" : ""}${dragOver ? " is-drop" : ""}`}
@@ -1200,110 +1290,10 @@ export function AgentPanel({
                 />
               )
             )}
-            {/* 右边那一组自己换行：面板窄的时候折成两行，发送键始终钉在最右 */}
-            <div className="agent-bar-right">
-            {otherConfig.map((o) =>
-              o.type === "select" ? (
-                <Picker
-                  key={o.id}
-                  label={CONFIG_NAME[o.id] ?? o.name}
-                  value={o.currentValue}
-                  disabled={!ready}
-                  options={configChoices(o).map((c) => ({
-                    value: c.value,
-                    // 「快速：开」—— 只写一个「开」看不出开的是什么
-                    label: `${CONFIG_NAME[o.id] ?? o.name}：${CHOICE_LABEL[c.value] ?? c.name}`,
-                    group: c.group,
-                    title: c.description ?? undefined,
-                  }))}
-                  onChange={(v) => void pickConfig(o, v)}
-                />
-              ) : (
-                <label key={o.id} className="agent-pick" title={o.description ?? o.name}>
-                  <input
-                    type="checkbox"
-                    checked={o.currentValue}
-                    disabled={!ready}
-                    onChange={(e) => void pickConfig(o, e.target.checked)}
-                  />
-                  <span className="agent-pick-text">{o.name}</span>
-                </label>
-              ),
-            )}
-            {modelOption && modelOption.type === "select" && (
-              <Picker
-                label="模型"
-                value={effort?.kind === "variant" ? effort.base : modelOption.currentValue}
-                disabled={!ready}
-                options={configChoices(modelOption).map((c) => ({
-                  value: c.value,
-                  label: c.name,
-                  group: c.group,
-                  title: c.description ?? undefined,
-                }))}
-                onChange={(v) =>
-                  void pickConfig(
-                    modelOption,
-                    // Codex：换模型时把强度带过去（`gpt-5.4` + 高 → `gpt-5.4/high`）
-                    active?.variants.length ? joinModel(splitModel(v).base, effort?.kind === "variant" ? effort.current : null, active.variants) : v,
-                  )
-                }
-              />
-            )}
-            {effort?.kind === "config" && effort.option.type === "select" && (
-              <Picker
-                label="思考强度"
-                value={effort.option.currentValue}
-                disabled={!ready}
-                options={configChoices(effort.option).map((c) => ({
-                  value: c.value,
-                  label: EFFORT_LABEL[c.value] ?? c.name,
-                }))}
-                onChange={(v) => void pickConfig(effort.option, v)}
-              />
-            )}
-            {effort?.kind === "variant" && (
-              <Picker
-                label="思考强度"
-                value={effort.current ?? ""}
-                disabled={!ready}
-                options={[
-                  ...(effort.current === null ? [{ value: "", label: "默认强度" }] : []),
-                  ...effort.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
-                ]}
-                onChange={(v) => void pickConfig(effort.model, v ? `${effort.base}/${v}` : effort.base)}
-              />
-            )}
-            {effort?.kind === "meta" && (
-              <Picker
-                label="思考强度"
-                value={effort.current ?? ""}
-                disabled={!ready || busy}
-                title={
-                  active && active.entries.length > 0
-                    ? "换思考强度会把这个对话关掉再接回来，历史不会丢"
-                    : undefined
-                }
-                options={[
-                  { value: "", label: "默认强度" },
-                  ...effort.levels.map((l) => ({ value: l, label: EFFORT_LABEL[l] ?? l })),
-                ]}
-                onChange={(v) => void changeMetaEffort(v || null)}
-              />
-            )}
-            {effort === null && modelOption && (
-              // 这个模型没有可选的档位（比如 Codex 的 gpt-6.1-sol）：留一格灰的，
-              // 不让人以为是面板漏了这个功能
-              <Picker
-                label="思考强度"
-                value=""
-                disabled
-                title="这个模型没有可选的思考强度"
-                options={[{ value: "", label: "默认强度" }]}
-                onChange={() => {}}
-              />
-            )}
-            </div>
+            <span className="agent-bar-gap" />
+            {/* 右边只有一个：模型 · 思考强度。快速模式、协作模式这些不常动的也收在
+                同一张菜单里，不再各占一格 —— 五个一样分量的下拉排成一排，分不出主次 */}
+            {runSections.length > 0 && <RunMenu disabled={!ready} sections={runSections} />}
             {busy ? (
               <button className="agent-send is-stop" onClick={stop} title="停下这一轮" aria-label="停下这一轮">
                 <Icon name="stop" size={14} />
@@ -1377,7 +1367,9 @@ function Picker({
   useEffect(() => {
     if (!open) return;
     // 打开时把焦点放在当前项上，键盘能直接接着选
-    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"], [role="option"]')?.focus();
+    // 先找当前项：写成一个「A, B」选择器的话按文档顺序取，会落在第一项上
+    const list = listRef.current;
+    (list?.querySelector<HTMLElement>('[aria-selected="true"]') ?? list?.querySelector<HTMLElement>('[role="option"]'))?.focus();
     const close = (e: MouseEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -1456,6 +1448,148 @@ function Picker({
                   {options.filter((o) => (o.group ?? null) === g).map(item)}
                 </div>
               ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface RunSection {
+  /** 段名，也是这一段 listbox 的名字 */
+  label: string;
+  value: string;
+  options: PickerOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  /** 段名下面一行小字 */
+  note?: string;
+  /** 选项短（开/关、几档强度）：横排成一行分段按钮，不占一列 */
+  inline?: boolean;
+  /** 不是默认值时，按钮上跟在模型后面的一个小标记 */
+  badge?: string | null;
+}
+
+/**
+ * 「6.1 Sol · 超高」：模型和思考强度合成一个按钮，点开一张分段的菜单 ——
+ * 模型一列，强度、快速、协作各一行分段按钮。
+ *
+ * 选了不收起：人常常是换了模型接着调强度，选一下关一下要点两次。点别处、
+ * Esc 收起。各段都是一个 listbox，键盘上下在全部选项之间走
+ */
+function RunMenu({ sections, disabled }: { sections: RunSection[]; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const card = cardRef.current;
+    (card?.querySelector<HTMLElement>('[aria-selected="true"]') ?? card?.querySelector<HTMLElement>('[role="option"]'))?.focus();
+    const close = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    const items = [...(cardRef.current?.querySelectorAll<HTMLElement>('[role="option"]:not(:disabled)') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1;
+      items[(at + step + items.length) % items.length]?.focus();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      wrapRef.current?.querySelector<HTMLElement>(".agent-pick")?.focus();
+    }
+  };
+
+  const labelOf = (sec: RunSection | undefined) => sec?.options.find((o) => o.value === sec.value)?.label ?? null;
+  const model = sections.find((x) => x.label === "模型");
+  const rest = sections.filter((x) => x !== model);
+  const effortSec = rest.find((x) => x.label === "思考强度");
+  const shown = [
+    model ? (labelOf(model) ?? model.value) : null,
+    // 按钮上单写一个「默认」看不出是什么的默认
+    effortSec && !effortSec.disabled ? (["", "default"].includes(effortSec.value) ? "默认强度" : labelOf(effortSec)) : null,
+    ...rest.map((x) => x.badge ?? null),
+  ].filter(Boolean);
+  // 这个 AI 不报模型、也没有别的标记时，按钮上至少写出第一项是什么
+  const parts = shown.length > 0 ? shown : [`${sections[0].label}：${labelOf(sections[0]) ?? "默认"}`];
+
+  return (
+    <div className="agent-pick-wrap" ref={wrapRef}>
+      <button
+        className={`agent-pick agent-run${open ? " is-open" : ""}`}
+        aria-label="模型与思考强度"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        disabled={disabled}
+        title={parts.join(" · ")}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <span className="agent-pick-text">{parts.join(" · ")}</span>
+        <Icon name="chevron" size={9} />
+      </button>
+      {open && (
+        <div className="agent-pop agent-run-card is-right" role="dialog" aria-label="模型与思考强度" ref={cardRef} onKeyDown={onKey}>
+          {sections.map((sec) => (
+            <section key={sec.label} className="agent-run-sec">
+              <div className="agent-run-head">{sec.label}</div>
+              {sec.note && <div className="agent-pop-hint agent-run-note">{sec.note}</div>}
+              <div
+                role="listbox"
+                aria-label={sec.label}
+                aria-disabled={sec.disabled || undefined}
+                data-value={sec.value}
+                className={sec.inline ? "agent-seg" : "agent-run-list"}
+              >
+                {sec.options.map((o) => {
+                  const on = o.value === sec.value;
+                  return sec.inline ? (
+                    <button
+                      key={o.value}
+                      role="option"
+                      aria-selected={on}
+                      data-value={o.value}
+                      className={`agent-seg-item${on ? " is-on" : ""}`}
+                      title={o.title}
+                      disabled={sec.disabled}
+                      onClick={() => !on && sec.onChange(o.value)}
+                    >
+                      {o.label}
+                    </button>
+                  ) : (
+                    <button
+                      key={`${o.group ?? ""}/${o.value}`}
+                      role="option"
+                      aria-selected={on}
+                      data-value={o.value}
+                      className={`agent-pop-item${on ? " is-on" : ""}`}
+                      title={o.title}
+                      disabled={sec.disabled}
+                      onClick={() => !on && sec.onChange(o.value)}
+                    >
+                      <span className="agent-pop-check">{on && <Icon name="check" size={12} />}</span>
+                      <span className="agent-pop-text">
+                        <span className="agent-pop-label">{o.label}</span>
+                        {o.hint && <span className="agent-pop-hint">{o.hint}</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       )}
     </div>

@@ -247,6 +247,25 @@ function agentReply(line: string) {
               { value: "plan", name: "Plan Mode" },
             ],
           },
+          {
+            id: "effort",
+            name: "Effort",
+            category: "thought_level",
+            type: "select",
+            currentValue: "xhigh",
+            options: ["default", "low", "medium", "high", "xhigh", "max"].map((value) => ({ value, name: value })),
+          },
+          {
+            id: "fast",
+            name: "Fast mode",
+            category: "model_config",
+            type: "select",
+            currentValue: "off",
+            options: [
+              { value: "on", name: "On" },
+              { value: "off", name: "Off" },
+            ],
+          },
         ],
       },
     });
@@ -900,6 +919,14 @@ describe("视觉工作台", () => {
     document.querySelector<HTMLElement>(".status-agent")!.click();
     await shot("46-dark-agent-usage");
     expect(document.querySelector(".usage-card")).not.toBeNull();
+  });
+
+  it("浅色 · AI 会话的模型菜单", async () => {
+    await chat();
+    await settle(600);
+    document.querySelector<HTMLElement>(".agent-bar .agent-run")!.click();
+    await shot("47-light-agent-run");
+    expect(document.querySelector('[role="dialog"][aria-label="模型与思考强度"]')).not.toBeNull();
   });
 
   it("深色 · AI 会话", async () => {
