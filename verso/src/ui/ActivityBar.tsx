@@ -72,6 +72,28 @@ interface Props {
    * 这个名单只记 id、不记「启用」的原因 —— 它是界面偏好，不是功能开关。
    */
   hidden: readonly string[];
+  /**
+   * 横排时状态栏整行不在（省下 34px 给正文），它上面那几个按钮搬到这里。
+   *
+   * - `sync`：配了远端才有，单占 `⋯` 左边一格 —— 手机上最常点的就是它，
+   *   藏进面板等于每次多点一下
+   * - `statusItems`：低频的那几个（记一个版本、提交建议、新版本），排在
+   *   `⋯` 面板最上面。带 `hot` 的会在 `⋯` 上亮一个点，否则没人知道里面有事
+   *
+   * 竖排时两者都不用：桌面上状态栏还在，再放一份就重复了。
+   */
+  sync?: { busy: boolean; title: string; run: () => void } | null;
+  statusItems?: readonly StatusItem[];
+}
+
+/** `⋯` 面板顶上的一行状态动作。见 `Props.statusItems` */
+export interface StatusItem {
+  id: string;
+  icon: IconName;
+  label: string;
+  run: () => void;
+  disabled?: boolean;
+  hot?: boolean;
 }
 
 /** `cmd` 是这个图标对应的命令 id —— 快捷键提示从命令表里现取 */
@@ -207,6 +229,8 @@ export function ActivityBar({
   onPalette,
   onSettings,
   hidden,
+  sync = null,
+  statusItems = [],
 }: Props) {
   const bottom = layout === "bottom";
   const off = new Set(hidden);
@@ -310,6 +334,22 @@ export function ActivityBar({
         </button>
       ))}
 
+      {bottom && sync && (
+        // 带 `rail-action`：它是动作不是视图，不该长出选中的那根横条
+        <button
+          className={`rail-btn rail-action rail-sync${sync.busy ? " is-busy" : ""}`}
+          onClick={() => {
+            sync.run();
+            setSheet(false);
+          }}
+          disabled={sync.busy}
+          title={sync.title}
+          aria-label={sync.busy ? "正在同步" : "同步"}
+        >
+          <Icon name="sync" />
+        </button>
+      )}
+
       {bottom ? (
         <div className="rail-more" ref={sheetRef}>
           <button
@@ -319,8 +359,28 @@ export function ActivityBar({
             aria-expanded={sheet}
           >
             <Icon name="more" />
+            {statusItems.some((item) => item.hot) && <span className="rail-dot" aria-hidden />}
           </button>
-          {sheet && <div className="rail-sheet">{actions}</div>}
+          {sheet && (
+            <div className="rail-sheet">
+              {statusItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`rail-sheet-item is-status${item.hot ? " is-hot" : ""}`}
+                  onClick={() => {
+                    item.run();
+                    setSheet(false);
+                  }}
+                  disabled={item.disabled}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </button>
+              ))}
+              {statusItems.length > 0 && <div className="rail-sheet-sep" role="separator" />}
+              {actions}
+            </div>
+          )}
         </div>
       ) : (
         <>

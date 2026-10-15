@@ -54,6 +54,12 @@ let viewResult: {
   properties: { key: string; type: string }[];
 } = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
 
+/** 状态栏搬家那组测试用：配没配远端、有几个没记的改动、同步成不成 */
+let remoteUrl: string | null = null;
+let gitDirty = 0;
+let syncFails = false;
+const gitCommitSpy = vi.fn(async () => null);
+
 /** 论文清单那批行，表格 / 看板 / 日历三种视图共用 */
 const VIEW_ROWS = [
   { path: "论文/甲.md", title: "奇异值分解的数值方法", props: { status: "在读", 读于: "2026-03-04" } },
@@ -140,11 +146,11 @@ vi.mock("../../../src/host/api", () => ({
       added: 0,
       modified: 0,
       deleted: 0,
-      dirty: 0,
+      dirty: gitDirty,
       lastMessage: null,
       lastAt: null,
     }),
-    gitCommit: async () => null,
+    gitCommit: () => gitCommitSpy(),
     gitHistory: async () => [
       {
         id: "c1",
@@ -158,7 +164,11 @@ vi.mock("../../../src/host/api", () => ({
     ],
     gitWorkingChanges: async () => [{ path: "乙.md", kind: "modified" }],
     reviewSuggestionList: async () => [],
-    syncRemoteGet: async () => ({ url: null, branch: "main", needsToken: false }),
+    syncRemoteGet: async () => ({ url: remoteUrl, branch: "main", needsToken: false }),
+    vaultSync: async () => {
+      if (syncFails) throw new Error("连不上 github.com，检查一下网络");
+      return { committed: null, pulled: 2, pushed: 0, conflicts: [] };
+    },
     syncTokenHas: async () => false,
     workspaceGet: async () => ({ tabs: ["甲.md"], active: 0, pinnedCount: 0 }),
     workspaceSet: async () => {},
@@ -212,6 +222,10 @@ beforeEach(async () => {
   noteFrontmatter = {};
   noteFrontmatterText = null;
   viewResult = { columns: [], rows: [], view: "table", groupBy: null, properties: [] };
+  remoteUrl = null;
+  gitDirty = 0;
+  syncFails = false;
+  gitCommitSpy.mockClear();
   // headless Chromium 报的是 `hover: hover`，尺寸令牌那一套在这里不会自己
   // 生效。真机上由 main.tsx 按指针能力**同步**打上（编辑器第一帧就要读它
   // 决定抢不抢焦点），这里补一份，否则量到的是「桌面尺寸的手机」
@@ -377,7 +391,8 @@ describe("手机竖屏下的布局", () => {
       document.querySelector<HTMLElement>('.rail-btn[aria-label="更多"]')!.click();
       await settle(200);
     });
-    const items = [...document.querySelectorAll(".rail-sheet-item")].map((b) =>
+    // 顶上那几行状态（记版本、新版本…）另有一组测试盯着，这里只数动作
+    const items = [...document.querySelectorAll(".rail-sheet-item:not(.is-status)")].map((b) =>
       b.getAttribute("aria-label"),
     );
     // 桌面窄窗口上终端和 AI 会话还在；手机上它们整个不渲染（另有一条测试盯着）
@@ -575,7 +590,8 @@ describe("公式工具条", () => {
 
     // 而且要贴在最底下 —— 真机上那条边紧挨着软键盘的上沿（§5.5）
     const rect = box(".mathbar")!;
-    expect(rect.bottom).toBeGreaterThanOrEqual(box(".status")!.bottom - 0.5);
+    expect(rect.top).toBeGreaterThanOrEqual(box(".rail")!.bottom - 0.5);
+    expect(rect.bottom).toBeGreaterThanOrEqual(PHONE.h - 0.5);
   });
 
   it("窄屏、且打开了笔记时才出现", async () => {
@@ -841,20 +857,19 @@ describe("软键盘弹起来时的底部空间", () => {
     await page.screenshot({ path: "__shots__/25-phone-keyboard.png" });
   });
 
-  it("键盘一上来，导航和状态栏让位，公式条留下", async () => {
+  it("键盘一上来，导航让位，公式条留下", async () => {
     await typing();
     const before = box(".editor")!.height;
     expect(box(".rail")!.height, "键盘还没上来时导航在").toBeGreaterThan(40);
 
     await raise(true);
     expect(box(".rail")!.height, "导航该让位").toBe(0);
-    expect(box(".status")!.height, "状态栏该让位").toBe(0);
     expect(box(".mathbar"), "公式条是打字时唯一有用的那条，不能一起让").toBeTruthy();
 
-    // 让出来的那 86px 要真的落到正文上，而不是被谁悄悄吃掉。
-    // 视口自己矮了 336，所以正文净减不该超过 336 - 86
+    // 让出来的那 52px 要真的落到正文上，而不是被谁悄悄吃掉。
+    // 视口自己矮了 336，所以正文净减不该超过 336 - 52
     const after = box(".editor")!.height;
-    expect(before - after).toBeLessThan(KEYBOARD - 80);
+    expect(before - after).toBeLessThan(KEYBOARD - 48);
   });
 
   /**
@@ -863,7 +878,7 @@ describe("软键盘弹起来时的底部空间", () => {
    * 收起软键盘并不一定让正文失焦 —— 认焦点的话，用户会落到「既没有键盘
    * 也没有导航」那一格里，只能靠点别处碰运气
    */
-  it("焦点没动、键盘自己收了，两条也要回来", async () => {
+  it("焦点没动、键盘自己收了，导航也要回来", async () => {
     await typing();
     await raise(true);
     expect(box(".rail")!.height).toBe(0);
@@ -872,7 +887,6 @@ describe("软键盘弹起来时的底部空间", () => {
     expect(document.activeElement?.closest(".cm-editor"), "这一条要在焦点没动的前提下测").toBeTruthy();
     await raise(false);
     expect(box(".rail")!.height, "键盘一收，导航同帧回来").toBeGreaterThan(40);
-    expect(box(".status")!.height).toBeGreaterThan(0);
   });
 
   /** 桌面上把窗口拖矮不是键盘。判据是「缩掉一个键盘那么多」，不是「变矮了」 */
@@ -890,6 +904,149 @@ describe("软键盘弹起来时的底部空间", () => {
  * §7.3：移动端没有可用的 PTY，终端的一切入口都不该出现 ——
  * 摆一个点了没反应（或弹一个空面板）的按钮比没有更糟。
  */
+/**
+ * **状态栏那一行在手机上不要。** 它和导航叠成 86px 的底，里面却只有
+ * 「已保存 · 3 个改动 · 同步」三样。拆开之后各有去处 —— 这组测的是
+ * 每一样都还找得到，而不只是那一行没了。
+ */
+describe("手机上状态栏收进导航", () => {
+  const closeDrawer = async () => {
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(300);
+    });
+  };
+  const until = async (what: string, ok: () => boolean) => {
+    for (let i = 0; i < 40 && !ok(); i++) {
+      await act(async () => {
+        await settle(50);
+      });
+    }
+    expect(ok(), what).toBe(true);
+  };
+
+  it("那一行不占地方，导航就是最底下一条", async () => {
+    await mount();
+    await closeDrawer();
+    expect(box(".status")!.height, "状态栏还占着一行").toBe(0);
+    expect(box(".rail")!.bottom).toBeGreaterThanOrEqual(PHONE.h - 0.5);
+    // 没配远端就没有同步那一格 —— 一个永远点不动的按钮不该出现
+    expect(document.querySelector('.rail-btn[aria-label="同步"]')).toBeNull();
+  });
+
+  it("配了远端：同步单占导航一格，点一下就同步，结果浮在导航上方", async () => {
+    remoteUrl = "https://github.com/me/notes.git";
+    await mount();
+    await closeDrawer();
+
+    const sync = document.querySelector<HTMLElement>('.rail-btn[aria-label="同步"]')!;
+    expect(sync, "导航上没有同步").toBeTruthy();
+    const r = sync.getBoundingClientRect();
+    // 多了一格之后，每格仍然得够一根手指
+    for (const btn of document.querySelectorAll<HTMLElement>(".rail-btn")) {
+      expect(btn.getBoundingClientRect().width, `${btn.getAttribute("aria-label")} 太窄`).toBeGreaterThanOrEqual(44);
+    }
+    // 排在 `⋯` 左边：动作挨着动作，视图那一组不被打断
+    expect(r.right).toBeLessThanOrEqual(box('.rail-btn[aria-label="更多"]')!.left + 0.5);
+
+    await act(async () => {
+      sync.click();
+      await settle(300);
+    });
+    await until("同步完没报一句", () =>
+      (document.querySelector(".status-toast")?.textContent ?? "").includes("拿到 2 个版本"),
+    );
+    const toast = box(".status-toast")!;
+    expect(toast.bottom, "提示压在导航上").toBeLessThanOrEqual(box(".rail")!.top + 0.5);
+    expect(toast.left).toBeGreaterThanOrEqual(0);
+    expect(toast.right).toBeLessThanOrEqual(PHONE.w);
+    // 浮着的一小块，不是又一行：正文仍然铺到导航上沿
+    expect(box(".main")!.bottom).toBeGreaterThanOrEqual(box(".rail")!.top - 0.5);
+  });
+
+  it("同步失败的报错不会自己散，点一下才收", async () => {
+    remoteUrl = "https://github.com/me/notes.git";
+    syncFails = true;
+    await mount();
+    await closeDrawer();
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="同步"]')!.click();
+      await settle(300);
+    });
+    await until("报错没出来", () =>
+      (document.querySelector(".status-toast")?.textContent ?? "").includes("连不上"),
+    );
+    const err = document.querySelector<HTMLElement>(".status-toast-error")!;
+    const r = err.getBoundingClientRect();
+    expect(r.height, "点掉它的地方太小").toBeGreaterThanOrEqual(32);
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit && err.contains(hit), "报错被别的东西盖住了").toBe(true);
+    await act(async () => {
+      err.click();
+      await settle(100);
+    });
+    expect(document.querySelector(".status-toast")).toBeNull();
+  });
+
+  it("「记一个版本」在「更多」面板最上面，点了就记", async () => {
+    gitDirty = 3;
+    await mount();
+    await closeDrawer();
+    await openAction("更多");
+    const first = document.querySelector<HTMLButtonElement>(".rail-sheet-item")!;
+    expect(first.textContent).toContain("3 个改动");
+    expect(first.disabled).toBe(false);
+    await act(async () => {
+      first.click();
+      await settle(300);
+    });
+    expect(gitCommitSpy).toHaveBeenCalled();
+    expect(document.querySelector(".rail-sheet"), "点完面板该收起").toBeNull();
+  });
+
+  it("看一眼：同步那一格、浮着的提示、「更多」里的状态行", async () => {
+    remoteUrl = "https://github.com/me/notes.git";
+    gitDirty = 3;
+    await mount();
+    await closeDrawer();
+    await act(async () => {
+      document.querySelector<HTMLElement>('.rail-btn[aria-label="同步"]')!.click();
+      await settle(400);
+    });
+    await page.screenshot({ path: "__shots__/27-phone-status-toast.png" });
+    await openAction("更多");
+    await page.screenshot({ path: "__shots__/28-phone-more-status.png" });
+
+    // 提示还在的时候打开面板：面板最底下那一项正好落在提示的位置上，
+    // 而面板长在导航的层叠上下文里 —— 提示的 z-index 一高就把它压住
+    expect(document.querySelector(".status-toast"), "这一条要在提示还没散的时候测").toBeTruthy();
+    const items = document.querySelectorAll<HTMLElement>(".rail-sheet-item");
+    const last = items[items.length - 1];
+    const r = last.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    expect(hit && last.contains(hit), "「更多」面板被提示盖住了").toBe(true);
+  });
+
+  /** 状态栏不在之后，「还没存上」只剩标签上那个点 —— 触屏上它以前是被 × 顶掉的 */
+  it("有没存的改动时，标签上圆点和 × 都在", async () => {
+    await mount();
+    await closeDrawer();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".cm-content")!.focus();
+      document.execCommand("insertText", false, "再写一句");
+      await settle(50);
+    });
+    const tab = document.querySelector<HTMLElement>(".tab.is-active")!;
+    expect(tab.className, "打完字标签没进入未保存").toContain("is-dirty");
+    const dot = tab.querySelector<HTMLElement>(".tab-dot")!.getBoundingClientRect();
+    const close = tab.querySelector<HTMLElement>(".tab-close")!.getBoundingClientRect();
+    expect(dot.width, "圆点没了").toBeGreaterThan(0);
+    expect(close.width, "× 没了，标签关不掉").toBeGreaterThanOrEqual(32);
+    // 点夹在名字和 × 中间，不和 × 抢位置
+    expect(dot.right).toBeLessThanOrEqual(close.left + 0.5);
+  });
+});
+
 describe("移动端没有终端", () => {
   it("终端按钮不渲染，桌面存下的「面板开着」状态也不生效", async () => {
     mobileFlag = true;

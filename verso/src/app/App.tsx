@@ -27,7 +27,7 @@ import { confirm } from "../host/dialog";
 import { fitFloatingMenu } from "../ui/floatingMenu";
 import { initialKeyboard, stepKeyboard } from "../core/keyboard";
 import { NARROW, useMedia } from "../host/media";
-import { ActivityBar, type SidebarView } from "../ui/ActivityBar";
+import { ActivityBar, type SidebarView, type StatusItem } from "../ui/ActivityBar";
 import { useAsk } from "../ui/AskDialog";
 import { ContextMenu, type MenuGroup } from "../ui/ContextMenu";
 import { CommandPalette, type Command } from "../ui/CommandPalette";
@@ -4408,6 +4408,52 @@ export default function App() {
     !projectOpen &&
     !projectCenterOpen;
 
+  /**
+   * 窄屏上状态栏整行不在，它的按钮搬进底部导航（同步单占一格，其余进 `⋯`）。
+   * 和下面 `<footer>` 里那几个是同一份逻辑的两种摆法，改一边要看另一边。
+   */
+  const update = updater.state;
+  const narrowStatusItems: StatusItem[] = [];
+  if (narrow && git?.enabled) {
+    narrowStatusItems.push({
+      id: "commit",
+      icon: "history",
+      label: git.dirty > 0 ? `记一个版本（${git.dirty} 个改动）` : "改动都已记录",
+      disabled: git.dirty === 0,
+      run: () => void commitNow(),
+    });
+  }
+  if (narrow && remote?.url && recentVaults.some((item) => item.root === vault.root && item.shared)) {
+    narrowStatusItems.push({
+      id: "review",
+      icon: "people",
+      label: reviewBusy ? "处理中…" : "提交建议",
+      disabled: reviewBusy || syncing,
+      run: () => void submitSuggestion(),
+    });
+  }
+  if (
+    narrow &&
+    (update.phase === "found" ||
+      update.phase === "manual" ||
+      update.phase === "downloading" ||
+      update.phase === "ready")
+  ) {
+    narrowStatusItems.push({
+      id: "update",
+      icon: "arrow-down",
+      label:
+        update.phase === "downloading"
+          ? "新版本下载中…"
+          : update.phase === "ready"
+            ? "重启即可更新"
+            : `新版本 ${update.version}`,
+      // 桌面上它在状态栏里一直看得见；收进面板以后不点亮 `⋯` 的话，就没人知道有新版了
+      hot: true,
+      run: () => openSettings("update"),
+    });
+  }
+
   return (
     <div
       className={`app${sidebarOpen ? "" : " sidebar-collapsed"}${narrow ? " is-narrow" : ""}${
@@ -4461,6 +4507,16 @@ export default function App() {
         onPalette={() => setPaletteOpen(true)}
         onSettings={() => openSettings()}
         hidden={settings.railHidden}
+        sync={
+          narrow && remote?.url
+            ? {
+                busy: syncing,
+                title: syncing ? "正在同步…" : `和 ${remote.url} 对齐一次`,
+                run: () => void syncNow(),
+              }
+            : null
+        }
+        statusItems={narrow ? narrowStatusItems : undefined}
       />
 
       {/* 抽屉打开时正文上盖一层，点它就关。窄屏上没有「点旁边空白处」
@@ -5002,6 +5058,22 @@ export default function App() {
           onNext={() => editorRef.current?.nextStop()}
           onPrev={() => editorRef.current?.prevStop()}
         />
+      )}
+
+      {/* 窄屏没有状态栏这一行（省下 34px 给正文，下面那个 footer 由样式藏掉）。按钮去了底部导航，
+          剩下「要人知道」的几句话浮在导航上方：提示照旧四秒就散，报错和
+          保存失败留着 —— 那是要人处理的事。保存的其余状态标签上有圆点 */}
+      {narrow && (notice || error || saveState === "error") && (
+        <div className="status-toast" role="status">
+          {saveState === "error" && <span className="error">保存失败</span>}
+          {error && (
+            <button className="status-toast-error error" onClick={() => setError(null)} title="知道了">
+              <span>{error}</span>
+              <Icon name="close" size={12} />
+            </button>
+          )}
+          {notice && <span className="status-notice">{notice}</span>}
+        </div>
       )}
 
       <footer className="status">

@@ -922,6 +922,8 @@ button {
   color: var(--text);
   font-size: 13.5px;
   text-align: left;
+  /* 「记一个版本（3 个改动）」折成两行很难看；面板贴右边，让它往左长 */
+  white-space: nowrap;
 }
 .rail-sheet-item svg {
   flex: none;
@@ -941,6 +943,48 @@ button {
 .rail-sheet-item.is-on {
   background: var(--accent-wash);
 }
+/* 状态那几行（记版本、新版本…）和下面的动作隔一条线：一组说「这份东西
+   现在怎么样」，一组是换个看法 */
+.rail-sheet-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+.rail-sheet-item.is-hot,
+.rail-sheet-item.is-hot svg {
+  color: var(--accent-ink);
+}
+/* `⋯` 面板里有要人看的东西（目前只有新版本）。只是一个点，不写数字 ——
+   里面最多一两件事，数字说不出比「有事」更多的信息 */
+.rail-dot {
+  position: absolute;
+  top: 10px;
+  right: calc(50% - 13px);
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--rail);
+  border-radius: 50%;
+  background: var(--accent);
+}
+/* 同步中转起来。按钮本身禁用着，转的图标就是唯一的「在忙」信号 */
+.rail-sync.is-busy svg {
+  animation: rail-spin 1s linear infinite;
+}
+.rail-sync:disabled {
+  cursor: default;
+}
+@keyframes rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail-sync.is-busy svg {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* 「开」这个字取代了竖排里那种选中底色：面板里一行只有一个动作，
    靠底色分不出「这一行被选中」和「这个功能正开着」 */
 .rail-sheet-on {
@@ -7978,16 +8022,15 @@ textarea:focus-visible {
      在 CSS 里怎么写都修不好「顶部被状态栏压住」。那件事由 MainActivity 的
      `fitSystemBars()` 在原生层给 WebView 加内边距解决，两边一起加会重复让位。 */
 
-  /* 单栏。图标栏和状态栏各占底部一行，侧栏那一列整个取消 ——
+  /* 单栏。底部只剩图标栏一行，侧栏那一列整个取消 ——
      它仍然渲染，只是不再参与网格（改成盖在上面的抽屉，见下） */
   .app.is-narrow {
-    /* 底部两条的高度写成变量：抽屉要停在它们上沿，写死在几处迟早会漂 */
+    /* 底部那条的高度写成变量：抽屉要停在它上沿，写死在几处迟早会漂 */
     --nav-h: 52px;
-    --status-h: 34px;
-    --bottom-h: calc(var(--nav-h) + var(--status-h));
+    --bottom-h: var(--nav-h);
 
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
     /* 公式工具条排在**最后**，不是「状态栏上面」。它要贴着软键盘的上沿
        （§5.5），而键盘顶掉的是视口底部 —— middle 的任何一行都会把它推离
        键盘一截。之前它没有指定区域，靠自动放置落在这个位置上；写出来是
@@ -7997,15 +8040,14 @@ textarea:focus-visible {
       "main"
       "term"
       "rail"
-      "status"
       "math";
   }
   .app.is-narrow .mathbar {
     grid-area: math;
   }
 
-  /* **键盘弹起来时，导航和状态栏一起让位。**
-     公式条 52 + 状态栏 34 + 导航 52 = 138px，再加上键盘，390×844 的屏上
+  /* **键盘弹起来时，导航让位。**
+     公式条 52 + 导航 52（当时还有 34 的状态栏），再加上键盘，390×844 的屏上
      留给正文的只剩两百出头 —— 比底部这堆还少（作者的真机截图）。
 
      这条以前是反过来的：「打字时导航不让位」。当时的理由是**藏它的条件
@@ -8013,15 +8055,13 @@ textarea:focus-visible {
      用户就会落到「既没有键盘也没有导航」那一格里。
 
      判据换成「视口真的缩了」之后那个陷阱就没了（`lib/keyboard.ts`）：
-     键盘一收视口同帧涨回来，两条跟着回来。量不出键盘的设备上 `is-keyboard`
+     键盘一收视口同帧涨回来，导航跟着回来。量不出键盘的设备上 `is-keyboard`
      永远不加，界面退回原来的样子 —— 判据失灵时宁可挤一点。 */
   .app.is-narrow.is-keyboard {
     /* 高度归零，抽屉和遮罩才会跟着铺到底 —— 它们停的是 `--bottom-h` */
     --nav-h: 0px;
-    --status-h: 0px;
   }
-  .app.is-narrow.is-keyboard .rail,
-  .app.is-narrow.is-keyboard .status {
+  .app.is-narrow.is-keyboard .rail {
     display: none;
   }
 
@@ -8046,6 +8086,10 @@ textarea:focus-visible {
     min-width: 0;
     height: auto;
     width: auto;
+    /* 浏览器默认的 `1px 6px` 会算在 `flex: 1` 分到的那份之外 —— 而 `⋯` 包在
+       一个没有内边距的 `.rail-more` 里，于是它总比别的格子窄 12px。
+       多了同步那一格之后它被压到 37px，测试才把这件事翻出来 */
+    padding: 0;
     border-radius: var(--r-sm);
   }
   /* 选中标记从「左边一根竖条」翻成「上边一根横条」。竖着那根在横排里
@@ -8071,7 +8115,7 @@ textarea:focus-visible {
        只有量高度才看得出来。真机上就是这么坏的（v0.6.9）。 */
     grid-area: auto;
     top: 0;
-    /* 停在底部两条的上沿。铺到 `bottom: 0` 的话抽屉会压着导航和状态栏 ——
+    /* 停在导航的上沿。铺到 `bottom: 0` 的话抽屉会压着导航 ——
        导航靠 z-index 还能点，但看着是「抽屉从图标底下钻过去」 */
     bottom: var(--bottom-h);
     left: 0;
@@ -8084,7 +8128,7 @@ textarea:focus-visible {
     box-shadow: var(--shadow-lg);
   }
 
-  /* 抽屉底下那层。盖住正文那一条（点它就关），同样不越过底部两条 */
+  /* 抽屉底下那层。盖住正文那一条（点它就关），同样不越过导航 */
   .sidebar-scrim {
     position: absolute;
     inset: 0 0 var(--bottom-h) 0;
@@ -8106,18 +8150,60 @@ textarea:focus-visible {
     padding: 0 20px;
   }
 
-  /* 状态栏在 390px 上放不下五六段文字。留「保存状态」和「有几个改动」——
-     一个是「我写的东西在不在」，一个是「同步这边怎么样」，其余都能等到
-     回到大屏再看 */
-  .app.is-narrow .status-count,
-  .app.is-narrow .status-id {
+  /* **状态栏整行不要。** 它在 390px 上只放得下「已保存 · 3 个改动 · 同步」，
+     却和导航叠成 86px 的底，加上顶部标签栏，一屏六分之一是固定外壳。
+     拆开之后各有去处：
+     - 同步是手机上最常点的，单占导航一格（ActivityBar 的 `sync`）
+     - 记一个版本、提交建议、新版本收进 `⋯` 面板顶上（`statusItems`）
+     - 保存状态看标签上的圆点；只有保存失败和提示/报错要人知道，浮在
+       导航上方（`.status-toast`）
+     footer 仍然渲染、只是藏起来：桌面那份是唯一的写法，不为窄屏分叉 */
+  .app.is-narrow .status {
     display: none;
   }
-  /* 状态栏在手机上不只是一行字：「记一个版本」和「同步」是两个真按钮，
-     而 24px 的行高把它们压成了 16px 的命中区 */
-  .app.is-narrow .status {
-    height: var(--status-h);
-    gap: 10px;
+
+  /* 和正文同占 `main` 那一格、贴着它的下沿居中 —— 于是下面是导航还是
+     公式条（键盘弹起时）它都自然停在上方，不用另算高度。
+     不占布局：只有这一小块挡手，正文其余地方照常能点 */
+  .status-toast {
+    grid-area: main;
+    align-self: end;
+    justify-self: center;
+    /* 和抽屉同一档（30），DOM 里排在它后面所以盖得过它 —— 在抽屉里挪文档
+       时那句话也得看得见。**不能比导航（31）高**：`⋯` 面板长在导航的层叠
+       上下文里，提示一高过 31 就会压住面板最底下那一项 */
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: calc(100% - 32px);
+    margin-bottom: 12px;
+    padding: 7px 14px;
+    border-radius: var(--r-lg);
+    background: var(--raised);
+    box-shadow: var(--shadow-lg);
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--text);
+    text-align: center;
+  }
+  .status-toast .status-notice {
+    color: var(--text);
+  }
+  /* 报错不会自己散，所以它得是个能点掉的东西，而且要一指宽 */
+  .status-toast-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: max(32px, var(--tap-sm));
+    padding: 0;
+    color: var(--danger);
+    text-align: left;
+  }
+  .status-toast-error svg {
+    flex: none;
+    opacity: 0.7;
   }
 
   /* **文件树在窄屏要收窄左边那一截。**
@@ -8393,8 +8479,15 @@ textarea:focus-visible {
 :root[data-touch="on"] .tab.is-dirty:not(:hover) .tab-close {
   display: revert;
 }
+/* 圆点也不能因此没了：窄屏上状态栏整行不在，标签上这个点就是「还没存上」
+   唯一的信号。两个都留，点收窄到 8px 夹在名字和 × 之间 —— 它不用点，不需要命中区 */
 :root[data-touch="on"] .tab.is-dirty .tab-dot {
-  display: none;
+  display: flex;
+  order: 1;
+  width: 8px;
+}
+:root[data-touch="on"] .tab.is-dirty .tab-close {
+  order: 2;
 }
 
 /* ---------- 状态栏里的源码模式标记 ---------- */
