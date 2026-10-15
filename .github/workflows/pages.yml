@@ -25,16 +25,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 获取源码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 配置 GitHub Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: 上传官网文件
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs
 
       - name: 部署官网
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
