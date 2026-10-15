@@ -87,6 +87,15 @@ export class ImageWidget extends WidgetType {
     // 关掉原生拖拽：那会和下面的改尺寸抢鼠标
     img.draggable = false;
     if (this.width) img.style.width = `${this.width}px`;
+    img.addEventListener("load", () => {
+      // 网页上导出的 SVG 常常只有 viewBox、宽度写 `100%`，没有固有宽度。
+      // `.cm-img` 是收缩适应的，里面的图又是 `max-width: 100%`，两边互相等，
+      // 宽度就算成了 0 —— 正文里只剩一个点。这时浏览器给的 naturalWidth 是
+      // 它的默认尺寸（300），拿来当宽度；对普通图片这和 auto 一样
+      if (!this.width && img.getBoundingClientRect().width < 1 && img.naturalWidth) {
+        img.style.width = `${img.naturalWidth}px`;
+      }
+    });
     img.addEventListener("error", () => {
       // 找不到就退化成一行可读的提示，而不是一个碎图标 ——
       // 用户得知道是**哪个**文件没找到

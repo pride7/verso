@@ -18,6 +18,15 @@ import "../../../src/ui/styles.css";
 const PIXEL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+/**
+ * 网页上导出的 SVG 常是这种根元素：只有 viewBox，宽度写 `100%`，没有固有宽度
+ */
+const FLUID_SVG =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 119" width="100%"><rect width="340" height="119"/></svg>',
+  );
+
 const views: EditorView[] = [];
 
 afterEach(() => {
@@ -27,7 +36,9 @@ afterEach(() => {
 });
 
 function mount(doc: string) {
-  setImageResolver((target) => (target.endsWith(".png") ? PIXEL : null));
+  setImageResolver((target) =>
+    target.endsWith(".png") ? PIXEL : target.endsWith(".svg") ? FLUID_SVG : null,
+  );
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const view = new EditorView({
@@ -78,6 +89,14 @@ describe("图片", () => {
     const view = mount("正文\n\n![[图.png|300]]\n");
     await settle();
     expect(img(view)!.style.width).toBe("300px");
+  });
+
+  it("没有固有宽度的 SVG 不会缩成一个点", async () => {
+    // `.cm-img` 是收缩适应的 inline-block，里面的图又是 `max-width: 100%`
+    // —— 图片自己没有宽度时两边互相等，结果宽度是 0
+    const view = mount("正文\n\n![[attachments/download.svg]]\n");
+    await settle();
+    expect(img(view)!.getBoundingClientRect().width).toBeGreaterThan(100);
   });
 
   it("不是图片的嵌入仍然当链接，不去渲染", async () => {
