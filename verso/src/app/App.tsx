@@ -5089,9 +5089,9 @@ export default function App() {
             {countChars(body)} 字
           </span>
         )}
-        {/* AI 的额度和上下文（§7.8）。是状态不是设置，所以在状态栏；点一下打开 AI 面板 */}
+        {/* AI 的额度和上下文（§7.8）。是状态不是设置，所以在状态栏；点开看每个额度窗口 */}
         {agentUsage && !mobile && (agentUsage.usage || agentUsage.quota.length > 0) && (
-          <AgentUsage {...agentUsage} onClick={() => setAgentOpen(true)} />
+          <AgentUsage {...agentUsage} onOpenPanel={agentOpen ? undefined : () => setAgentOpen(true)} />
         )}
         {notice && <span className="status-notice">{notice}</span>}
         {error && <span className="error">{error}</span>}

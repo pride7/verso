@@ -361,6 +361,8 @@ export interface QuotaWindow {
   used: number | null;
   /** 什么时候重置，原样（各家的写法不一样） */
   resets: string | null;
+  /** 认得出来的话，重置的时刻（毫秒）。认不出就只能原样显示 `resets` */
+  resetsAt?: number | null;
   /** 快到头 / 用完了 */
   status?: "warning" | "out";
 }
@@ -391,17 +393,92 @@ export function quotaName(raw: string): string {
  *
  * 认不出的行跳过 —— 哪天格式变了，最坏是不显示额度，不会显示错的
  */
-export function parseQuotaText(md: string): QuotaWindow[] {
+export function parseQuotaText(md: string, now: Date = new Date()): QuotaWindow[] {
   const out: QuotaWindow[] = [];
+  const at = (raw: string | undefined) => (raw ? parseResetTime(raw.trim(), now) : null);
   const claude = /\*\*([^*\n]+?)\*\*\s*[—–-]\s*\*\*(\d+(?:\.\d+)?)%\*\*(?:\s*·\s*Resets?\s+([^\n`]+?))?\s*$/gim;
   for (const m of md.matchAll(claude)) {
-    out.push({ name: quotaName(m[1]), used: Math.round(Number(m[2])), resets: m[3]?.trim() || null });
+    out.push({ name: quotaName(m[1]), used: Math.round(Number(m[2])), resets: m[3]?.trim() || null, resetsAt: at(m[3]) });
   }
   const codex = /\*\*([^*\n]*limit[^*\n]*?):?\*\*:?\s*(\d+(?:\.\d+)?)%\s*left(?:\s*\(resets\s+([^)\n]+)\))?/gim;
   for (const m of md.matchAll(codex)) {
-    out.push({ name: quotaName(m[1]), used: Math.round(100 - Number(m[2])), resets: m[3]?.trim() || null });
+    out.push({ name: quotaName(m[1]), used: Math.round(100 - Number(m[2])), resets: m[3]?.trim() || null, resetsAt: at(m[3]) });
   }
   return out;
+}
+
+/** 美国那几个时区的缩写 → 相对 UTC 的小时数。Claude 的 `/usage` 按系统时区写缩写 */
+const TZ_OFFSET: Record<string, number> = {
+  UTC: 0,
+  GMT: 0,
+  EST: -5,
+  EDT: -4,
+  CST: -6,
+  CDT: -5,
+  MST: -7,
+  MDT: -6,
+  PST: -8,
+  PDT: -7,
+};
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * 重置时间的原文 → 时刻（毫秒）。认得两种写法：
+ *
+ * - Claude：`Oct 15, 12:59 AM EDT`（带时区缩写；没写年份）
+ * - Codex：`04:46 on 10月20日`、`13:05`（本地时间）
+ *
+ * 没写年份、没写日期的，取「离现在最近的将来」—— 重置时间总在将来。
+ * 认不出就是 null，界面退回原文
+ */
+export function parseResetTime(raw: string, now: Date): number | null {
+  const en = /^([A-Za-z]{3})[a-z]*\.? (\d{1,2}),? (\d{1,2}):(\d{2}) ?(AM|PM)(?: ([A-Z]{2,4}))?$/i.exec(raw);
+  if (en) {
+    const month = MONTHS.indexOf(en[1].toLowerCase());
+    if (month < 0) return null;
+    let hour = Number(en[3]) % 12;
+    if (en[5].toUpperCase() === "PM") hour += 12;
+    const tz = en[6]?.toUpperCase();
+    if (tz && !(tz in TZ_OFFSET)) return null;
+    const make = (year: number) =>
+      tz
+        ? Date.UTC(year, month, Number(en[2]), hour - TZ_OFFSET[tz], Number(en[4]))
+        : new Date(year, month, Number(en[2]), hour, Number(en[4])).getTime();
+    let t = make(now.getFullYear());
+    // 跨年：十二月底看到的「Jan 2」是明年的
+    if (t < now.getTime() - 86_400_000) t = make(now.getFullYear() + 1);
+    return t;
+  }
+  const zh = /^(\d{1,2}):(\d{2})(?: on (\d{1,2})月(\d{1,2})日)?$/.exec(raw);
+  if (zh) {
+    const d = new Date(now);
+    d.setSeconds(0, 0);
+    d.setHours(Number(zh[1]), Number(zh[2]));
+    if (zh[3]) {
+      d.setMonth(Number(zh[3]) - 1, Number(zh[4]));
+      if (d.getTime() < now.getTime() - 86_400_000) d.setFullYear(d.getFullYear() + 1);
+    } else if (d.getTime() < now.getTime()) {
+      d.setDate(d.getDate() + 1);
+    }
+    return d.getTime();
+  }
+  return null;
+}
+
+/** 「3 小时 12 分后重置」：一天以内说还有多久，再远说日期 */
+export function resetPhrase(at: number, now: Date): string {
+  const mins = Math.max(0, Math.floor((at - now.getTime()) / 60_000));
+  if (mins < 1) return "马上重置";
+  if (mins < 60) return `${mins} 分钟后重置`;
+  if (mins < 24 * 60) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h} 小时 ${m} 分后重置` : `${h} 小时后重置`;
+  }
+  const d = new Date(at);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
 }
 
 /** 结构化的额度事件（`_claude/rateLimit`）换成同一种窗口 */
@@ -410,6 +487,7 @@ export function windowOf(r: RateLimit, resetText: (unixSeconds: number) => strin
     name: QUOTA_WINDOW_LABEL[r.rateLimitType ?? ""] ?? r.rateLimitType ?? "额度",
     used: quotaPercent(r),
     resets: r.resetsAt ? resetText(r.resetsAt) : null,
+    resetsAt: r.resetsAt ? r.resetsAt * 1000 : null,
     status: r.status === "rejected" ? "out" : r.status === "allowed_warning" ? "warning" : undefined,
   };
 }

@@ -119,6 +119,21 @@ function WithStatus(props: Parameters<typeof AgentPanel>[0]) {
 const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
 const last = <T,>(xs: T[]): T | undefined => xs[xs.length - 1];
 
+/** 点开状态栏的额度，读出卡片里每一行：[名字, 百分比, 重置那一句] */
+async function usageRows(): Promise<string[][]> {
+  if (!host.querySelector(".usage-card")) {
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".status-agent")!.click();
+      await settle(20);
+    });
+  }
+  return [...host.querySelectorAll(".usage-card .usage-row")].map((li) => [
+    li.querySelector(".usage-name")?.textContent ?? "",
+    li.querySelector(".usage-pct")?.textContent ?? "",
+    li.querySelector(".usage-reset")?.textContent ?? "",
+  ]);
+}
+
 /** 底部那一格选择器的按钮。当前值在 `data-value` 上 */
 function pickerOf(label: string): HTMLButtonElement | null {
   return host.querySelector<HTMLButtonElement>(`.agent-bar button.agent-pick[aria-label="${label}"]`);
@@ -988,9 +1003,13 @@ describe("思考强度和上下文", () => {
     // 输入框里不再有这一块 —— 它挪到了状态栏
     expect(host.querySelector(".agent-bar .agent-ctx")).toBeNull();
     await type("你好");
-    const ring = host.querySelector(".status .agent-ctx")!;
-    expect(ring.getAttribute("aria-label")).toBe("上下文已用 25%");
-    expect(ring.closest(".status-agent")!.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
+    expect(host.querySelector(".status .agent-ctx")).not.toBeNull();
+    // 点开：这个对话的上下文和折算的花费
+    await usageRows();
+    const ctx = host.querySelector(".usage-card .usage-ctx")!;
+    expect(ctx.querySelector(".usage-pct")?.textContent).toBe("250k / 1M");
+    expect(ctx.querySelector(".usage-reset")?.textContent).toBe("已用 25%");
+    expect(ctx.querySelector(".usage-cost")?.textContent).toContain("$0.20");
   });
 
   it("完全访问：权限那一格换成提醒色", async () => {
@@ -1207,9 +1226,15 @@ describe("额度和别的配置", () => {
     expect(usage.querySelector(".agent-quota")?.textContent).toBe("额度 81%");
     expect(usage.classList.contains("is-warn"), "快到头了要变色").toBe(true);
     expect(usage.closest(".status"), "画在状态栏里").not.toBeNull();
-    const title = usage.getAttribute("title")!;
-    expect(title).toContain("每周额度：已用 81%");
-    expect(title).toContain("5 小时额度：已用 34%，1月2日 18:00 重置");
+    // 点开是一张卡，不是一段悬停文字：最要紧的在最上面，快到头的那一行变色
+    const rows = await usageRows();
+    expect(rows.map((r) => r.slice(0, 2))).toEqual([
+      ["每周", "81%"],
+      ["5 小时", "34%"],
+    ]);
+    expect(rows[1][2]).toBe("1月2日 18:00 重置");
+    expect(host.querySelector(".usage-row")!.classList.contains("is-warn")).toBe(true);
+    expect(host.querySelector<HTMLElement>(".usage-row .usage-bar > span")!.style.width).toBe("81%");
   });
 
   it("没人报额度（Codex）：不画「额度」那几个字", async () => {
@@ -1317,9 +1342,21 @@ describe("额度：开一个藏起来的对话问一句", () => {
     expect(probe.sessionId, "问额度用的是另一个对话").toBe("s2");
     expect(state.sent.find((m) => m.method === "session/delete")?.params).toEqual({ sessionId: "s2" });
     expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 70%");
-    const title = host.querySelector(".status-agent")!.getAttribute("title")!;
-    expect(title).toContain("5 小时额度：已用 12%，Oct 15, 1:20 AM EDT 重置");
-    expect(title).toContain("每周（全部模型）额度：已用 70%");
+    const rows = await usageRows();
+    expect(rows.map((r) => r.slice(0, 2))).toEqual([
+      ["每周（全部模型）", "70%"],
+      ["5 小时", "12%"],
+      ["每周（Fable）", "0%"],
+    ]);
+    // 「Oct 15, 1:20 AM EDT」认出来了，说成还有多久或者哪天几点
+    expect(rows[1][2]).toMatch(/重置$/);
+    expect(rows[1][2]).not.toContain("EDT");
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      await settle(20);
+    });
+    expect(host.querySelector(".usage-card"), "Esc 收起").toBeNull();
     // 那段 Markdown 不能出现在对话里
     expect(host.querySelector(".agent-msg")).toBeNull();
     expect(host.querySelector(".agent-title")?.textContent).toContain("新对话");
@@ -1361,7 +1398,9 @@ describe("额度：开一个藏起来的对话问一句", () => {
       "/status",
     );
     expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 1%");
-    expect(host.querySelector(".status-agent")!.getAttribute("title")).toContain("每周额度：已用 1%，04:46 on 10月20日 重置");
+    const rows = await usageRows();
+    expect(rows.map((r) => r.slice(0, 2))).toEqual([["每周", "1%"]]);
+    expect(rows[0][2]).toMatch(/重置$/);
   });
 
   it("删不掉对话的 AI 不去问 —— 每问一次就在它的历史里多一条", async () => {

@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ConfigOption, SessionUpdate } from "../../../src/core/acp";
 import {
+  parseResetTime,
+  resetPhrase,
   parseQuotaText,
   quotaName,
   quotaPercent,
@@ -358,7 +360,7 @@ describe("从命令输出里认额度", () => {
       "**Weekly · Fable** — **0%** · Resets Oct 15, 1:00 AM EDT",
       "| Cost | API time |",
     ].join("\n");
-    expect(parseQuotaText(md)).toEqual([
+    expect(parseQuotaText(md)).toMatchObject([
       { name: "5 小时", used: 0, resets: "Oct 15, 1:20 AM EDT" },
       { name: "每周（全部模型）", used: 70, resets: "Oct 15, 1:00 AM EDT" },
       { name: "每周（Fable）", used: 0, resets: "Oct 15, 1:00 AM EDT" },
@@ -373,7 +375,7 @@ describe("从命令输出里认额度", () => {
       "**codex Weekly limit:** 99% left (resets 04:46 on 10月20日)  ",
       "**codex Credits:** 0",
     ].join("\n");
-    expect(parseQuotaText(md)).toEqual([
+    expect(parseQuotaText(md)).toMatchObject([
       { name: "5 小时", used: 20, resets: "13:05" },
       { name: "每周", used: 1, resets: "04:46 on 10月20日" },
     ]);
@@ -388,5 +390,44 @@ describe("从命令输出里认额度", () => {
     expect(quotaName("codex 5h limit")).toBe("5 小时");
     expect(quotaName("Weekly · all models")).toBe("每周（全部模型）");
     expect(quotaName("Monthly limit")).toBe("Monthly");
+  });
+});
+
+describe("重置时间", () => {
+  // 2026-10-14 20:00，美东夏令时（UTC-4）= 2026-10-15 00:00 UTC
+  const now = new Date(Date.UTC(2026, 9, 15, 0, 0));
+
+  it("Claude 的写法：带时区缩写，照那个时区算", () => {
+    expect(parseResetTime("Oct 15, 1:20 AM EDT", now)).toBe(Date.UTC(2026, 9, 15, 5, 20));
+    expect(parseResetTime("Oct 15, 12:59 AM EDT", now)).toBe(Date.UTC(2026, 9, 15, 4, 59));
+    expect(parseResetTime("Oct 15, 1:00 PM PST", now)).toBe(Date.UTC(2026, 9, 15, 21, 0));
+  });
+
+  it("年底看到的一月是明年的", () => {
+    const dec = new Date(Date.UTC(2026, 11, 30, 12, 0));
+    expect(parseResetTime("Jan 2, 9:00 AM UTC", dec)).toBe(Date.UTC(2027, 0, 2, 9, 0));
+  });
+
+  it("Codex 的写法：本地时间", () => {
+    const local = new Date(2026, 9, 14, 20, 0);
+    expect(parseResetTime("04:46 on 10月20日", local)).toBe(new Date(2026, 9, 20, 4, 46).getTime());
+    // 只写了钟点：今天已经过了就是明天
+    expect(parseResetTime("13:05", local)).toBe(new Date(2026, 9, 15, 13, 5).getTime());
+    expect(parseResetTime("23:30", local)).toBe(new Date(2026, 9, 14, 23, 30).getTime());
+  });
+
+  it("认不出的给 null，界面退回原文", () => {
+    expect(parseResetTime("next Tuesday", now)).toBeNull();
+    expect(parseResetTime("Oct 15, 1:20 AM XYZ", now)).toBeNull();
+  });
+
+  it("说成人话：一天以内说还有多久，再远说日期", () => {
+    const t = now.getTime();
+    expect(resetPhrase(t + 30_000, now)).toBe("马上重置");
+    expect(resetPhrase(t + 25 * 60_000, now)).toBe("25 分钟后重置");
+    expect(resetPhrase(t + (3 * 60 + 12) * 60_000, now)).toBe("3 小时 12 分后重置");
+    expect(resetPhrase(t + 5 * 3600_000, now)).toBe("5 小时后重置");
+    const far = new Date(2026, 9, 20, 4, 46).getTime();
+    expect(resetPhrase(far, new Date(2026, 9, 14, 20, 0))).toBe("10月20日 04:46 重置");
   });
 });

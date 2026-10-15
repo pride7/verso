@@ -6236,25 +6236,150 @@ body.is-table-resizing * {
 }
 
 /* 状态栏右下角：AI 的额度和上下文（AgentUsage.tsx）。和字数之间一条细竖线隔开 */
-.status-agent {
+.status-agent-wrap {
+  position: relative;
   flex: none;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.status-count ~ .status-agent-wrap {
+  margin-left: 0;
+  padding-left: 7px;
+  border-left: 1px solid var(--hairline);
+}
+.status-agent {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
-  padding: 0 2px;
+  padding: 1px 5px;
   border-radius: var(--r-xs);
   color: var(--muted);
   font: inherit;
 }
-.status-agent:hover {
+.status-agent:hover,
+.status-agent.is-open {
+  background: var(--hover-bg);
   color: var(--text);
 }
-.status-count ~ .status-agent {
-  margin-left: 0;
-  padding-left: 9px;
-  border-left: 1px solid var(--hairline);
-  border-radius: 0;
+
+/* 点开的那张卡：每个额度窗口一行进度条 */
+.usage-card {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: 280px;
+  padding: 12px 14px 10px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+  cursor: default;
+}
+.usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.usage-head.usage-sub {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.usage-agent {
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.usage-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.usage-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.usage-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.usage-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-pct {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.usage-bar {
+  height: 6px;
+  margin: 5px 0 3px;
+  border-radius: 99px;
+  background: var(--hover-bg);
+  overflow: hidden;
+}
+.usage-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--t-base);
+}
+.usage-row.is-warn .usage-bar > span,
+.usage-bar.is-warn > span {
+  background: var(--warn);
+}
+.usage-row.is-warn .usage-pct {
+  color: var(--warn);
+}
+.usage-row.is-out .usage-bar > span {
+  background: var(--danger);
+}
+.usage-row.is-out .usage-pct {
+  color: var(--danger);
+}
+.usage-reset {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.usage-cost {
+  margin-top: 8px;
+  font-size: 11.5px;
+}
+.usage-cost .usage-name {
+  color: var(--muted);
+}
+.usage-open {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 5px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.usage-open:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .status-agent.is-warn .agent-quota {
   color: var(--warn);

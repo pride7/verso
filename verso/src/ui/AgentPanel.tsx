@@ -479,9 +479,11 @@ export function AgentPanel({
     const quotaList = Object.values(quota);
     const live = phase.kind === "ready";
     onUsageRef.current?.(
-      live ? { usage: activeUsage && activeUsage.size > 0 ? activeUsage : null, quota: quotaList } : null,
+      live
+        ? { agent: agentName, usage: activeUsage && activeUsage.size > 0 ? activeUsage : null, quota: quotaList }
+        : null,
     );
-  }, [activeUsage, quota, phase.kind]);
+  }, [activeUsage, quota, phase.kind, agentName]);
   useEffect(() => () => onUsageRef.current?.(null), []);
 
   const refreshContext = useCallback(() => setCtx(cb.current.getContext()), []);

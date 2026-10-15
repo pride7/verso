@@ -256,7 +256,33 @@ function agentReply(line: string) {
       used: 182000,
       size: 1000000,
       cost: { amount: 0.41, currency: "USD" },
-      _meta: { "_claude/rateLimit": { status: "allowed", rateLimitType: "five_hour", utilization: 0.34 } },
+      _meta: {
+        "_claude/rateLimit": {
+          status: "allowed",
+          rateLimitType: "five_hour",
+          utilization: 0.34,
+          resetsAt: Math.floor(Date.now() / 1000) + 3 * 3600 + 12 * 60,
+        },
+      },
+    });
+    agentUpdate({
+      sessionUpdate: "usage_update",
+      used: 182000,
+      size: 1000000,
+      _meta: {
+        "_claude/rateLimit": {
+          status: "allowed_warning",
+          rateLimitType: "seven_day",
+          utilization: 0.86,
+          resetsAt: Math.floor(Date.now() / 1000) + 2 * 86400,
+        },
+      },
+    });
+    agentUpdate({
+      sessionUpdate: "usage_update",
+      used: 182000,
+      size: 1000000,
+      _meta: { "_claude/rateLimit": { status: "allowed", rateLimitType: "seven_day_opus", utilization: 0.05 } },
     });
     agentUpdate({ sessionUpdate: "tool_call", toolCallId: "r1", title: "Read 论文.md", kind: "read", status: "completed" });
     agentUpdate({
@@ -857,6 +883,23 @@ describe("视觉工作台", () => {
     document.querySelector<HTMLElement>('.agent-bar button.agent-pick[aria-label="权限"]')!.click();
     await shot("44-light-agent-picker");
     expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+  });
+
+  it("浅色 · AI 用量卡片", async () => {
+    await chat();
+    await settle(600);
+    document.querySelector<HTMLElement>(".status-agent")!.click();
+    await shot("45-light-agent-usage");
+    expect(document.querySelector(".usage-card")).not.toBeNull();
+  });
+
+  it("深色 · AI 用量卡片", async () => {
+    theme = "dark";
+    await chat();
+    await settle(600);
+    document.querySelector<HTMLElement>(".status-agent")!.click();
+    await shot("46-dark-agent-usage");
+    expect(document.querySelector(".usage-card")).not.toBeNull();
   });
 
   it("深色 · AI 会话", async () => {
