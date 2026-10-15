@@ -8,7 +8,7 @@
  * 要在真浏览器里跑：回答是 `dangerouslySetInnerHTML` 进去的，链接点下去
  * 会不会把整个 webview 带走、外链图片会不会被加载，happy-dom 答不了。
  */
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -98,6 +98,21 @@ const openExternalPage = vi.fn();
 vi.mock("../../../src/host/external", () => ({ openExternalPage: (u: string) => openExternalPage(u) }));
 
 const { AgentPanel } = await import("../../../src/ui/AgentPanel");
+const { AgentUsage } = await import("../../../src/ui/AgentUsage");
+
+/**
+ * 照 App 的样子：面板报上来的额度和上下文，画在旁边的「状态栏」里。
+ * 测额度、圆环的那几条都要靠它
+ */
+function WithStatus(props: Parameters<typeof AgentPanel>[0]) {
+  const [u, setU] = useState<import("../../../src/ui/AgentUsage").AgentUsageData | null>(null);
+  return (
+    <>
+      <AgentPanel {...props} onUsage={setU} />
+      <footer className="status">{u && (u.usage || u.quota.length > 0) && <AgentUsage {...u} />}</footer>
+    </>
+  );
+}
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -179,7 +194,7 @@ async function mount(
   root = createRoot(host);
   await act(async () => {
     root!.render(
-      <AgentPanel
+      <WithStatus
         command={command}
         onPickCommand={onPickCommand}
         width={420}
@@ -968,12 +983,14 @@ describe("思考强度和上下文", () => {
       reply(m.id, { stopReason: "end_turn" });
     };
     await mount();
-    // 还没报过：圆环是空的，悬停说明数字什么时候来
-    expect(host.querySelector(".agent-ctx")?.classList.contains("is-empty")).toBe(true);
+    // 还没报过、也没有额度：状态栏里什么都不多
+    expect(host.querySelector(".status-agent")).toBeNull();
+    // 输入框里不再有这一块 —— 它挪到了状态栏
+    expect(host.querySelector(".agent-bar .agent-ctx")).toBeNull();
     await type("你好");
-    const ring = host.querySelector(".agent-ctx")!;
+    const ring = host.querySelector(".status .agent-ctx")!;
     expect(ring.getAttribute("aria-label")).toBe("上下文已用 25%");
-    expect(ring.closest(".agent-usage")!.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
+    expect(ring.closest(".status-agent")!.getAttribute("title")).toBe("上下文：250k / 1M（25%） · 这个对话花了 $0.20");
   });
 
   it("完全访问：权限那一格换成提醒色", async () => {
@@ -1186,9 +1203,10 @@ describe("额度和别的配置", () => {
     };
     await mount();
     await type("你好");
-    const usage = host.querySelector(".agent-usage")!;
+    const usage = host.querySelector(".status-agent")!;
     expect(usage.querySelector(".agent-quota")?.textContent).toBe("额度 81%");
     expect(usage.classList.contains("is-warn"), "快到头了要变色").toBe(true);
+    expect(usage.closest(".status"), "画在状态栏里").not.toBeNull();
     const title = usage.getAttribute("title")!;
     expect(title).toContain("每周额度：已用 81%");
     expect(title).toContain("5 小时额度：已用 34%，1月2日 18:00 重置");
@@ -1299,7 +1317,7 @@ describe("额度：开一个藏起来的对话问一句", () => {
     expect(probe.sessionId, "问额度用的是另一个对话").toBe("s2");
     expect(state.sent.find((m) => m.method === "session/delete")?.params).toEqual({ sessionId: "s2" });
     expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 70%");
-    const title = host.querySelector(".agent-usage")!.getAttribute("title")!;
+    const title = host.querySelector(".status-agent")!.getAttribute("title")!;
     expect(title).toContain("5 小时额度：已用 12%，Oct 15, 1:20 AM EDT 重置");
     expect(title).toContain("每周（全部模型）额度：已用 70%");
     // 那段 Markdown 不能出现在对话里
@@ -1343,7 +1361,7 @@ describe("额度：开一个藏起来的对话问一句", () => {
       "/status",
     );
     expect(host.querySelector(".agent-quota")?.textContent).toBe("额度 1%");
-    expect(host.querySelector(".agent-usage")!.getAttribute("title")).toContain("每周额度：已用 1%，04:46 on 10月20日 重置");
+    expect(host.querySelector(".status-agent")!.getAttribute("title")).toContain("每周额度：已用 1%，04:46 on 10月20日 重置");
   });
 
   it("删不掉对话的 AI 不去问 —— 每问一次就在它的历史里多一条", async () => {

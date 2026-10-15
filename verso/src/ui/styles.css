@@ -6235,22 +6235,34 @@ body.is-table-resizing * {
   color: var(--warn);
 }
 
-.agent-usage {
+/* 状态栏右下角：AI 的额度和上下文（AgentUsage.tsx）。和字数之间一条细竖线隔开 */
+.status-agent {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  font-size: 11.5px;
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 2px;
+  border-radius: var(--r-xs);
   color: var(--muted);
+  font: inherit;
 }
-.agent-usage.is-warn .agent-quota {
+.status-agent:hover {
+  color: var(--text);
+}
+.status-count ~ .status-agent {
+  margin-left: 0;
+  padding-left: 9px;
+  border-left: 1px solid var(--hairline);
+  border-radius: 0;
+}
+.status-agent.is-warn .agent-quota {
   color: var(--warn);
 }
-.agent-usage.is-out .agent-quota {
+.status-agent.is-out .agent-quota {
   color: var(--danger);
 }
 .agent-quota {
-  padding-left: 4px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -6261,8 +6273,6 @@ body.is-table-resizing * {
   flex: none;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
 }
 .agent-ctx circle {
   fill: none;

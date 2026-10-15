@@ -49,7 +49,6 @@ import {
   joinModel,
   MODE_LABEL,
   REMEMBERED_CATEGORIES,
-  shortCount,
   splitModel,
   fileUri,
   newConversation,
@@ -65,6 +64,7 @@ import { renderMarkdown } from "../editor/exportHtml";
 import { api, onAgentExit, onAgentLine, onAgentStderr, pickFiles } from "../host/api";
 import { confirm } from "../host/dialog";
 import { openExternalPage } from "../host/external";
+import { resetText, type AgentUsageData } from "./AgentUsage";
 import { UnifiedDiff } from "./DiffView";
 import { Icon } from "./Icon";
 
@@ -95,6 +95,8 @@ interface Props {
   hidden?: boolean;
   /** 藏着的时候有事要人处理（来要许可了）。App 把面板弹出来 */
   onAttention?: () => void;
+  /** 额度和上下文用量变了。App 把它画在状态栏右下角（见 AgentUsage.tsx） */
+  onUsage?: (u: AgentUsageData | null) => void;
 }
 
 /** 进程这一层的状态。每个对话自己忙不忙记在 `Conversation.busy` 上 */
@@ -162,6 +164,7 @@ export function AgentPanel({
   onOpenSettings,
   hidden = false,
   onAttention,
+  onUsage,
 }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "starting" });
   const [agentName, setAgentName] = useState("");
@@ -467,6 +470,19 @@ export function AgentPanel({
     const el = logRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [entries, permission, phase, activeId]);
+
+  // ---- 额度和上下文用量交给 App，画在状态栏（面板里不再挤这一块）
+  const onUsageRef = useRef(onUsage);
+  onUsageRef.current = onUsage;
+  const activeUsage = active?.usage ?? null;
+  useEffect(() => {
+    const quotaList = Object.values(quota);
+    const live = phase.kind === "ready";
+    onUsageRef.current?.(
+      live ? { usage: activeUsage && activeUsage.size > 0 ? activeUsage : null, quota: quotaList } : null,
+    );
+  }, [activeUsage, quota, phase.kind]);
+  useEffect(() => () => onUsageRef.current?.(null), []);
 
   const refreshContext = useCallback(() => setCtx(cb.current.getContext()), []);
   useEffect(refreshContext, [refreshContext]);
@@ -866,7 +882,6 @@ export function AgentPanel({
   const effort = active ? effortControl(active, metaEffort) : null;
   // 底部那一行专门画了权限、模型、强度；agent 另外报的（少见）照原样排在后面
   const otherConfig = config.filter((o) => o !== modeOption && o !== modelOption && !(effort?.kind === "config" && effort.option === o));
-  const usage = active?.usage ?? null;
   const now = new Date();
 
   return (
@@ -1286,7 +1301,6 @@ export function AgentPanel({
                 onChange={() => {}}
               />
             )}
-            {ready && <ContextRing usage={usage && usage.size > 0 ? usage : null} quota={Object.values(quota)} />}
             </div>
             {busy ? (
               <button className="agent-send is-stop" onClick={stop} title="停下这一轮" aria-label="停下这一轮">
@@ -1443,69 +1457,6 @@ function Picker({
         </div>
       )}
     </div>
-  );
-}
-
-/** 重置时间说成人话：今天的说钟点，别的天说日期 */
-function resetText(unixSeconds: number): string {
-  const d = new Date(unixSeconds * 1000);
-  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  const today = new Date();
-  return d.toDateString() === today.toDateString() ? hm : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
-}
-
-/**
- * 上下文用了多少：一个小圆环，悬停看数字。快满时变色 —— 到那时 agent 会开始
- * 压缩前面的对话，人该知道它正在忘事。
- *
- * 旁边是账号额度：几个窗口（5 小时、每周…）里用得最多的那个，快到头了变色、
- * 用完了变红，悬停看每一个和重置时间。还没发过话时圆环是空的，悬停说明数字
- * 什么时候来
- */
-function ContextRing({ usage, quota }: { usage: NonNullable<Conversation["usage"]> | null; quota: QuotaWindow[] }) {
-  const ratio = usage ? Math.min(1, Math.max(0, usage.used / usage.size)) : 0;
-  const r = 6.5;
-  const len = 2 * Math.PI * r;
-  const pct = Math.round(ratio * 100);
-  const cost = usage?.cost
-    ? ` · 这个对话花了 ${usage.cost.currency === "USD" ? "$" : `${usage.cost.currency} `}${usage.cost.amount.toFixed(2)}`
-    : "";
-  const ctxLine = usage
-    ? `上下文：${shortCount(usage.used)} / ${shortCount(usage.size)}（${pct}%）${cost}`
-    : "上下文：发出第一句之后才有数字";
-
-  const windows = [...quota].sort((a, b) => (b.used ?? -1) - (a.used ?? -1));
-  const top = windows[0];
-  const out = quota.some((q) => q.status === "out" || q.used === 100);
-  const warning = quota.some((q) => q.status === "warning" || (q.used ?? 0) >= 80);
-  const quotaLines = windows.map((q) => {
-    const used = q.status === "out" ? "已用完" : q.used === null ? "可用" : `已用 ${q.used}%`;
-    return `${q.name}额度：${used}${q.resets ? `，${q.resets} 重置` : ""}`;
-  });
-
-  return (
-    <span className={`agent-usage${out ? " is-out" : warning ? " is-warn" : ""}`} title={[ctxLine, ...quotaLines].join("\n")}>
-      {top && <span className="agent-quota">{out ? "额度用完" : top.used === null ? "额度正常" : `额度 ${top.used}%`}</span>}
-      <span
-        className={`agent-ctx${ratio > 0.8 ? " is-full" : ""}${usage ? "" : " is-empty"}`}
-        aria-label={usage ? `上下文已用 ${pct}%` : "上下文还没有用量"}
-        role="img"
-      >
-        <svg width="18" height="18" viewBox="0 0 18 18">
-          <circle cx="9" cy="9" r={r} className="agent-ctx-track" />
-          {usage && (
-            <circle
-              cx="9"
-              cy="9"
-              r={r}
-              className="agent-ctx-fill"
-              strokeDasharray={`${len * ratio} ${len}`}
-              transform="rotate(-90 9 9)"
-            />
-          )}
-        </svg>
-      </span>
-    </span>
   );
 }
 

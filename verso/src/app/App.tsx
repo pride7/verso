@@ -70,6 +70,7 @@ import { VaultManager, VaultSwitcher, VaultWelcome } from "../ui/VaultSwitcher";
 import { SharedSpaceDialog } from "../ui/SharedSpaceDialog";
 import { SpaceZones, ZONE_PRIVATE, ZONE_SHARED } from "../ui/SpaceZones";
 import { JoinVaultDialog, type JoinVaultInput } from "../ui/JoinVaultDialog";
+import { AgentUsage, type AgentUsageData } from "../ui/AgentUsage";
 import { ShareNoteDialog, type ShareNoteInput } from "../ui/ShareNoteDialog";
 import { setSlashAction } from "../editor/completion";
 import { mermaidSources, viewSources } from "../editor/exportHtml";
@@ -648,6 +649,8 @@ export default function App() {
   const toggleAgent = useCallback(() => setAgentOpen(!agentOpenRef.current), [setAgentOpen]);
   const agentOpenRef = useRef(agentOpen);
   agentOpenRef.current = agentOpen;
+  /** AI 的额度和上下文用量，画在状态栏右下角（§7.8）。面板没在跑就是 null */
+  const [agentUsage, setAgentUsage] = useState<AgentUsageData | null>(null);
   const [agentWidth, setAgentWidth] = useState(() => {
     const saved = Number(localStorage.getItem("verso.agentWidth"));
     return Number.isFinite(saved) && saved >= 300 ? saved : 420;
@@ -4969,6 +4972,7 @@ export default function App() {
             hidden={!agentOpen}
             // 藏着的时候它来要许可：弹出来。不弹的话它就一直卡在那里等，人却看不见
             onAttention={() => setAgentOpen(true)}
+            onUsage={setAgentUsage}
             command={settings.agentCommand}
             onPickCommand={(agentCommand) => updateSettings({ agentCommand })}
             width={agentWidth}
@@ -5084,6 +5088,10 @@ export default function App() {
           <span className="status-count" title={note.id ? `id ${note.id}` : undefined}>
             {countChars(body)} 字
           </span>
+        )}
+        {/* AI 的额度和上下文（§7.8）。是状态不是设置，所以在状态栏；点一下打开 AI 面板 */}
+        {agentUsage && !mobile && (agentUsage.usage || agentUsage.quota.length > 0) && (
+          <AgentUsage {...agentUsage} onClick={() => setAgentOpen(true)} />
         )}
         {notice && <span className="status-notice">{notice}</span>}
         {error && <span className="error">{error}</span>}
