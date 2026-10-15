@@ -1047,6 +1047,90 @@ describe("手机上状态栏收进导航", () => {
   });
 });
 
+/**
+ * database 的五种视图摆到手机上是什么样（看图用，几何断言在点击目标那组）。
+ * 列和行都比审计那份多：表格要真的宽过屏幕，看板要真的不止一列。
+ */
+describe("手机上的 database 视图", () => {
+  const ROWS = [
+    { path: "论文/甲.md", title: "奇异值分解的数值方法", props: { status: "在读", 作者: "Golub", 读于: "2026-10-04", 难度: "5" } },
+    { path: "论文/乙.md", title: "Attention Is All You Need", props: { status: "已读", 作者: "Vaswani 等", 读于: "2026-10-11", 难度: "4" } },
+    { path: "论文/丙.md", title: "一篇还没开始读的", props: { status: "未读", 作者: "张三", 读于: "2026-10-20", 难度: "2" } },
+    { path: "论文/丁.md", title: "Deep Residual Learning for Image Recognition", props: { status: "在读", 作者: "He 等", 读于: "2026-10-14", 难度: "3" } },
+  ];
+  const PROPS = [
+    { key: "status", type: "string" },
+    { key: "作者", type: "string" },
+    { key: "读于", type: "date" },
+    { key: "难度", type: "number" },
+  ];
+  for (const [name, spec, result] of [
+    ["table", "view: table", { view: "table", groupBy: null }],
+    ["list", "view: list", { view: "list", groupBy: null }],
+    ["board", "view: board\ngroup-by: status", { view: "board", groupBy: "status" }],
+    ["gallery", "view: gallery", { view: "gallery", groupBy: null }],
+    ["calendar", "view: calendar\ndate-field: 读于", { view: "calendar", groupBy: null }],
+  ] as const) {
+    it(`看一眼：${name}`, async () => {
+      viewResult = { columns: ["title", "status", "作者", "读于", "难度"], rows: ROWS, properties: PROPS, ...result };
+      noteBody = ["读的东西：", "", "```verso-view", 'from: "论文/*"', spec, "```", "", "后面还有正文。", ""].join("\n");
+      await mount();
+      await act(async () => {
+        document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+        await settle(700);
+      });
+      expect(document.querySelector(".dbview"), "视图没渲染出来").toBeTruthy();
+      await page.screenshot({ path: `__shots__/d-phone-${name}.png` });
+    });
+  }
+
+  async function show(spec: string, result: { view: string; groupBy: string | null }) {
+    viewResult = { columns: ["title", "status", "作者", "读于", "难度"], rows: ROWS, properties: PROPS, ...result };
+    noteBody = ["读的东西：", "", "```verso-view", 'from: "论文/*"', spec, "```", ""].join("\n");
+    await mount();
+    await act(async () => {
+      document.querySelector<HTMLElement>(".sidebar-scrim")!.click();
+      await settle(700);
+    });
+    expect(document.querySelector(".dbview"), "视图没渲染出来").toBeTruthy();
+  }
+
+  /**
+   * 自适应布局会先满足 `width: 100%`，把列压到最小内容宽度：标题一个字一行，
+   * 日期断成「2026-」和「10-04」。手机上格子不折行，装不下归表格自己横着滑。
+   */
+  it("表格不被压进屏宽：格子一行，装不下自己横着滑", async () => {
+    await show("view: table", { view: "table", groupBy: null });
+    for (const cell of document.querySelectorAll<HTMLElement>(".dbview-table td .dbview-cell")) {
+      expect(cell.getBoundingClientRect().height, `「${cell.textContent}」折行了`).toBeLessThan(40);
+    }
+    for (const link of document.querySelectorAll<HTMLElement>(".dbview-table .dbview-link")) {
+      expect(link.getBoundingClientRect().width, `「${link.textContent}」那一列太窄`).toBeGreaterThanOrEqual(150);
+    }
+    const scroll = document.querySelector<HTMLElement>(".dbview-scroll")!;
+    expect(scroll.scrollWidth, "这张表本来就比屏宽，该能横着滑").toBeGreaterThan(scroll.clientWidth);
+    // 而且滑的是表格自己，不是整篇正文（AGENTS.md「宽 widget 会把整个正文撑宽」）
+    const scroller = document.querySelector<HTMLElement>(".cm-scroller")!;
+    expect(scroller.scrollWidth, "表格把正文撑宽了").toBeLessThanOrEqual(scroller.clientWidth + 1);
+  });
+
+  /** 桌面那版属性贴在标题右边、放不下就从**左边**截，手机上只剩半个词 */
+  it("列表：属性另起一行，一个都不截", async () => {
+    await show("view: list", { view: "list", groupBy: null });
+    const list = document.querySelector<HTMLElement>(".dbv-list")!.getBoundingClientRect();
+    for (const li of document.querySelectorAll<HTMLElement>(".dbv-list > li")) {
+      const title = li.querySelector<HTMLElement>(".dbv-list-title > span")!;
+      expect(title.scrollWidth, `「${title.textContent}」被省略号截了`).toBeLessThanOrEqual(title.clientWidth + 1);
+      const chips = li.querySelector<HTMLElement>(".dbv-chips")!.getBoundingClientRect();
+      expect(chips.top, "属性没换到标题下面").toBeGreaterThanOrEqual(title.getBoundingClientRect().bottom - 2);
+      for (const chip of li.querySelectorAll<HTMLElement>(".dbv-chips > div")) {
+        const r = chip.getBoundingClientRect();
+        expect(r.left >= list.left - 0.5 && r.right <= list.right + 0.5, `「${chip.textContent}」伸出去了`).toBe(true);
+      }
+    }
+  });
+});
+
 describe("移动端没有终端", () => {
   it("终端按钮不渲染，桌面存下的「面板开着」状态也不生效", async () => {
     mobileFlag = true;
@@ -1271,10 +1355,15 @@ describe("手机上的点击目标", () => {
     return "";
   }
 
-  /** 屏幕上现在点得着的东西，够不着的挑出来 */
-  function tooSmall() {
+  /**
+   * 屏幕上现在点得着的东西，够不着的挑出来。
+   *
+   * `scope` 给浮层用：弹出来的菜单会盖住底下按钮的一角，那是「被盖住」不是
+   * 「太小」，而中心点那一关挡不住它（中心还露着）。底下那一屏另有一条在量
+   */
+  function tooSmall(scope: ParentNode = document) {
     const bad: string[] = [];
-    for (const el of document.querySelectorAll<HTMLElement>("button, [role=button], a")) {
+    for (const el of scope.querySelectorAll<HTMLElement>("button, [role=button], a")) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const shape = SHAPES.find(([sel]) => el.closest(sel));
@@ -1429,6 +1518,33 @@ describe("手机上的点击目标", () => {
         `视图没渲染出来，这条就白测了：${document.querySelector(".cm-content")?.textContent?.slice(0, 80)}`,
       ).toBeTruthy();
       expect(tooSmall()).toEqual([]);
+    });
+  }
+
+  /**
+   * 视图里点开之后才出现的三个浮层。上面那组只量了视图本身 —— 列头菜单里
+   * 「类型」那一排图标是一张截图看出来偏小的，审计从来没打开过它们。
+   */
+  for (const [label, spec, result, open, popup] of [
+    ["表格的列头菜单", "view: table", { view: "table", groupBy: null }, ".dbview-th", ".dbview-menu"],
+    ["表格的视图设置", "view: table", { view: "table", groupBy: null }, ".dbview-tool", ".vset"],
+    ["看板卡片的菜单", "view: board\ngroup-by: status", { view: "board", groupBy: "status" }, ".dbview-card-more", ".dbview-menu"],
+  ] as const) {
+    it(`database「${label}」里每个入口都够得着`, async () => {
+      viewResult = { columns: ["title", "status", "读于"], rows: VIEW_ROWS, properties: VIEW_PROPS, ...result };
+      await openNoteWith(["读的东西：", "", "```verso-view", 'from: "论文/*"', spec, "```", ""].join("\n"));
+      await act(async () => {
+        await settle(400);
+      });
+      const trigger = document.querySelector<HTMLElement>(open);
+      expect(trigger, `没找到 ${open}，这条就白测了`).toBeTruthy();
+      await act(async () => {
+        trigger!.click();
+        await settle(300);
+      });
+      const layer = document.querySelector<HTMLElement>(popup);
+      expect(layer, `点了 ${open} 没弹出 ${popup}`).toBeTruthy();
+      expect(tooSmall(layer!)).toEqual([]);
     });
   }
 

@@ -233,9 +233,13 @@ function ProjectItemRow({ item, options, now, showKind = true, slot, renaming, o
         <span className="project-item-icon"><Icon name="doc" size={14} /></span>
         <span className="project-item-copy"><strong>{item.title}</strong>{item.summary && <small>{item.summary}</small>}</span>
       </button>}
-    <ItemTime item={item} now={now} />
-    {item.pinned && <span className="project-item-pin" title="已置顶" aria-label="已置顶"><Icon name="pin" size={12} /></span>}
-    {showKind && <span className="project-kind">{item.section}</span>}
+    {/* 桌面上这一层是 `display: contents`，三样照旧是行里的格子；手机上它们
+        一起收到状态下面那一格（见 styles.css「项目：手机」） */}
+    <span className="project-item-meta">
+      <ItemTime item={item} now={now} />
+      {item.pinned && <span className="project-item-pin" title="已置顶" aria-label="已置顶"><Icon name="pin" size={12} /></span>}
+      {showKind && <span className="project-kind">{item.section}</span>}
+    </span>
     <StatusSelect value={item.status || fallback} options={options} label={`${item.title}的状态`} onChange={(value, custom) => onStatus(item, value, custom)} onDelete={onDropStatus} />
   </div>;
 }
@@ -517,7 +521,11 @@ export function ProjectDashboard({ project, notes, revision, onOpen, onEdit, onR
       {overview ? (
         <div className="project-scroll">
           <section className="project-snapshot">
-            <div className="project-status"><span className="tone tone-dot" data-tone={statusTone(overview.status)} /><StatusSelect value={overview.status} options={optionsFor("project")} label="项目状态" onChange={(value, custom) => void setStatus(project.path, value, custom)} onDelete={(option) => void dropStatus(option)} /></div>
+            <div className="project-status"><span className="tone tone-dot" data-tone={statusTone(overview.status)} /><StatusSelect value={overview.status} options={optionsFor("project")} label="项目状态" onChange={(value, custom) => void setStatus(project.path, value, custom)} onDelete={(option) => void dropStatus(option)} />
+              {/* 窄屏上头部那个「更新状态」放不下，入口挪到这张卡片上 —— 要改的
+                  正是这张卡片里的三样。桌面上它藏着，头部那个还在 */}
+              <button className="project-snapshot-edit" onClick={() => setSnapshotOpen(true)}><Icon name="pencil" size={12} />更新状态</button>
+            </div>
             <p className={overview.summary ? "" : "is-empty"}>{overview.summary || "还没有项目摘要"}</p>
             <div className="project-now-grid">
               <div><strong>接下来</strong><p className={overview.next ? "" : "is-empty"}>{overview.next || "还没有明确下一步"}</p></div>
