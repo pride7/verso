@@ -55,9 +55,7 @@ function headingAt(
 ): { level: number; to: number } | null {
   let node = syntaxTree(state).resolveInner(lineFrom, 1);
   for (;;) {
-    const m = /^(?:ATX|Setext)Heading(\d)$/.exec(node.name);
-    // 返回节点的 `to` 而不是行末：setext 标题（`标题` + 下一行 `===`）
-    // 占两行，按行末算会把下划线那行折进去，标题就散了
+    const m = /^ATXHeading(\d)$/.exec(node.name);
     if (m) return { level: Number(m[1]), to: node.to };
     // 进了代码块就不可能是标题 —— 代码里的 `# xxx` 不是标题
     if (node.name === "FencedCode" || node.name === "CodeBlock") return null;
@@ -84,7 +82,6 @@ export function headingFoldRange(
   const head = headingAt(state, line.from);
   if (!head) return null;
   const { level } = head;
-  // 标题节点自己占了几行（setext 是两行），从它之后开始数
   const headEndLine = state.doc.lineAt(head.to).number;
 
   const last = state.doc.lines;

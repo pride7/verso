@@ -250,7 +250,7 @@ function blocks(ctx: Ctx, parent: SyntaxNode): string {
   return out;
 }
 
-const HEADING = /^(?:ATX|Setext)Heading([1-6])$/;
+const HEADING = /^ATXHeading([1-6])$/;
 
 function block(ctx: Ctx, node: SyntaxNode): string {
   if (SKIP.has(node.name)) return "";
@@ -314,8 +314,6 @@ function renderHeading(ctx: Ctx, node: SyntaxNode, level: number): string {
 function headingId(ctx: Ctx, raw: string): string {
   const base =
     raw
-      // Setext 标题的源码带着下一行的 `===`，只要第一行
-      .split("\n")[0]
       .replace(/^\s*#{1,6}\s*/, "")
       .replace(/\s*#+\s*$/, "")
       .trim()

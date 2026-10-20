@@ -144,11 +144,12 @@ const inlineMath: InlineParser = {
 /** 独占若干行的 `$$ … $$`。行内那种由 inlineMath 处理。 */
 const blockMath: BlockParser = {
   name: "VersoBlockMath",
-  // `$$` 是明确的块起点，必须能直接打断上一段正文。否则公式里的独立 `=`
-  // 会抢先命中 Setext 标题，把正文和整块公式一起吞成一级标题。
+  // `$$` 是明确的块起点，必须能直接打断上一段正文，否则紧跟正文的公式
+  // 会被当成那一段的延续。
   endLeaf(_cx, line) {
     return line.text.slice(line.pos).startsWith("$$");
   },
+  // SetextHeading 的解析器在下面被摘掉了，但名字还留在表里，照样能当位置锚点
   before: "SetextHeading",
   parse(cx: BlockContext, line: Line) {
     const text = line.text.slice(line.pos);
@@ -330,6 +331,17 @@ export const markdownExtended: MarkdownConfig = {
     { name: "HighlightMarker", style: versoTags.mathMarker },
     { name: "CalloutMarker", style: versoTags.callout },
   ],
+  /**
+   * 不认 setext 标题（`文字` 下一行 `===` / `---`）。DESIGN.md §2.4
+   *
+   * 正文下面紧挨着画一条 `---`，CommonMark 规定那是二级标题的下划线而不是
+   * 分割线 —— 于是上一行突然变成大号粗体，线也不出来，看着就像坏了。
+   * 这样画线的人很多，这样写标题的人几乎没有（标题一律 `#`）。
+   *
+   * 摘掉这个解析器就够了：lezer 判断「`---` 能不能打断段落」时专门查
+   * leafBlockParsers 里还有没有 SetextHeading，没有就按分割线处理。
+   */
+  remove: ["SetextHeading"],
   parseBlock: [blockMath],
   parseInline: [inlineMath, wikiLink, hashtag, highlight, calloutMarker],
   props: [

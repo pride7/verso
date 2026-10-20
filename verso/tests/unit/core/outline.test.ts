@@ -64,12 +64,9 @@ describe("parseHeadings", () => {
     expect(parseHeadings("    # 否")).toEqual([]);
   });
 
-  it("认出 setext 标题，行号指向文字那一行", () => {
-    const md = ["标题一", "=====", "", "标题二", "-----"].join("\n");
-    expect(parseHeadings(md)).toEqual([
-      { level: 1, text: "标题一", line: 1 },
-      { level: 2, text: "标题二", line: 4 },
-    ]);
+  it("文字下一行画 `===` / `---` 不是标题 —— Verso 不认 setext（§2.4）", () => {
+    const md = ["标题一", "=====", "", "一段正文", "---", "", "另一段"].join("\n");
+    expect(parseHeadings(md)).toEqual([]);
   });
 
   it("空行之后的 `---` 是分隔线，不是标题", () => {

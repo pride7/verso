@@ -96,9 +96,12 @@ describe("分割线渲染", () => {
     expect(v.contentDOM.textContent).toContain("---");
   });
 
-  it("紧跟在段落下面的 `---` 是 setext 标题，不是分割线", async () => {
-    const v = mount("标题\n---\n\n正文");
+  // CommonMark 里这是 setext 二级标题的下划线。Verso 不认 setext（§2.4）：
+  // 这样写的人想要的是一条线，而不是上一行突然变成大标题
+  it("紧跟在段落下面的 `---` 也是分割线，不是 setext 标题", async () => {
+    const v = mount("上一行\n---\n\n正文");
     await settle();
-    expect(v.contentDOM.querySelector(".cm-hr")).toBeNull();
+    expect(v.contentDOM.querySelector(".cm-hr")).not.toBeNull();
+    expect(v.contentDOM.textContent).not.toContain("---");
   });
 });

@@ -105,9 +105,8 @@ describe("标题折叠范围", () => {
     expect(foldedText(doc, 1)).toContain("# 这是示例");
   });
 
-  it("setext 形式的标题也认", () => {
+  it("文字下一行画 `===` 不是标题（Verso 不认 setext），没有折叠范围", () => {
     const doc = ["标题\n===", "", "正文", "", "# 下一节"].join("\n");
-    const text = foldedText(doc, 1);
-    expect(text).toContain("正文");
+    expect(foldedText(doc, 1)).toBeNull();
   });
 });
