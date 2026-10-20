@@ -115,6 +115,10 @@ pub fn spawn_shell(cwd: &std::path::Path, cols: u16, rows: u16) -> Result<Spawne
     cmd.cwd(crate::winpath::for_external(cwd));
     // 让 AI CLI 知道自己在什么终端里，色彩才正常
     cmd.env("TERM", "xterm-256color");
+    // pwsh 有新版可用时，启动就画一个升级提示框。终端列数不够宽，它算框宽
+    // 会算出负数，`PadRight` 抛异常，**整个 shell 直接崩掉**（7.6.6 实测）。
+    // 嵌在侧栏里的终端经常就是这么窄，干脆关掉更新检查
+    cmd.env("POWERSHELL_UPDATECHECK", "Off");
 
     let child = pty
         .slave
