@@ -266,6 +266,8 @@ export const api = {
    * `paths` 要是**完整的一组**，不是只有被拖的那一个
    */
   reorder: (parent: string, paths: string[]) => call<void>("notes_reorder", { parent, paths }),
+  /** 读一组手排的次序。文档树用不着（顺序已经填在节点上），给项目中心那种不挂在目录下的组 */
+  order: (parent: string) => call<string[]>("notes_order", { parent }),
 
   // —— §2.8 本地版本历史 ——
   /** 仓库有多少改动。不是 git 仓库时返回 `enabled: false`，不报错 */

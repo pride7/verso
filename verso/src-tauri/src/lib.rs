@@ -1162,6 +1162,13 @@ fn fill_order(nodes: &mut [TreeNode], map: &order::OrderMap) {
 /// 只写 vault 根目录的一个文件，**不碰任何笔记** —— 早先的版本往每篇
 /// frontmatter 写 `order`，除了污染笔记，还会顺手把 `updated` 刷成现在，
 /// 把「最近修改」排序毁掉。
+/// 读一组手排的次序。文档树不用它（顺序随 `tree_get` 填进每个节点）；
+/// 给的是不挂在某个目录下的那些组，比如项目中心（§2.10）
+#[tauri::command]
+fn notes_order(state: State<'_, AppState>, parent: String) -> Result<Vec<String>> {
+    state.with_vault(|v| Ok(order::load(v.fs.as_ref(), &v.root).remove(&parent).unwrap_or_default()))
+}
+
 #[tauri::command]
 fn notes_reorder(state: State<'_, AppState>, parent: String, paths: Vec<String>) -> Result<()> {
     state.with_vault(|v| {
@@ -2043,6 +2050,7 @@ pub fn run() {
             prop_count,
             prop_rename_all,
             prop_rename,
+            notes_order,
             notes_reorder,
             git_status,
             git_commit,

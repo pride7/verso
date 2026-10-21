@@ -412,6 +412,8 @@ const PATHS = {
   shield: <path d="M8 2.2 3.2 4v3.6c0 3 2 5.2 4.8 6.2 2.8-1 4.8-3.2 4.8-6.2V4Z" />,
   /** 停下正在跑的那一轮。实心方块是媒体控件里「停止」的通用写法 */
   stop: <rect x="4.5" y="4.5" width="7" height="7" rx="1.2" fill="currentColor" stroke="none" />,
+  /** 实心小圆点。状态菜单里每一档前面那颗，颜色由 `.tone` 给 */
+  dot: <circle cx="8" cy="8" r="3" fill="currentColor" stroke="none" />,
   /** 展开箭头。折叠态用 CSS 旋转，不另画一个 —— 旋转还能做动画 */
   chevron: <path d="M6 3.5 10.5 8 6 12.5" />,
   /**

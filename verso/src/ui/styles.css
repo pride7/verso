@@ -3969,6 +3969,11 @@ body.is-table-resizing * {
 .ctx-danger {
   color: var(--danger);
 }
+/* 改状态那几条的圆点：颜色就是那一档的语义色，悬停也不变（`ItemIcon`） */
+.ctx-tone {
+  display: inline-flex;
+  flex: none;
+}
 /* 分组。组里那一层 ul 只是结构，不带任何自己的样式 */
 .ctx-group > ul {
   list-style: none;
@@ -5159,6 +5164,20 @@ body.is-table-resizing * {
   border-color: color-mix(in oklch, var(--accent) 35%, var(--border));
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
+}
+/* 拖动排序（`ui/sortable.ts`）。位移由脚本写在内联样式里，这里只管「拿起来」的样子 */
+.project-center-card.is-dragging {
+  position: relative;
+  z-index: 3;
+  border-color: color-mix(in oklch, var(--accent) 45%, var(--border));
+  box-shadow: var(--shadow-lg);
+  cursor: grabbing;
+}
+body.is-sorting,
+body.is-sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .project-center-card-meta {
   display: flex;

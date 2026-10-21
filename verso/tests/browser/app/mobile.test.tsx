@@ -134,6 +134,7 @@ vi.mock("../../../src/host/api", () => ({
     propSchema: async () => ({}),
     propDefSet: async () => {},
     reorder: async () => {},
+    order: async () => [],
     writeAttachment: async () => "",
     attachmentAudit: async () => ({
       missing: [{ path: "attachments/缺失.pdf", references: [{ note: "甲.md", line: 2 }] }],

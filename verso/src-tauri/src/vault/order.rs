@@ -27,6 +27,10 @@
 //!
 //! 键是父目录的 vault 相对路径（根目录是空串），值是**完整相对路径**。
 //! 存完整路径而不是文件名：重命名时能直接做字符串替换，不必先拼回去。
+//!
+//! 以 `/` 开头的键不是目录，是不挂在某个父目录下的分组 —— 项目中心的卡片顺序
+//! 记在 `"/项目中心"` 里（§2.10）。vault 相对路径不可能以 `/` 开头，所以文档树
+//! 永远查不到它；重命名、删除照样修好它里面的路径。
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -169,6 +173,16 @@ mod tests {
         assert_eq!(m[""], vec!["Math.md"]);
         assert_eq!(m["Math"], vec!["Math/线代.md", "Math/泛函.md"]);
         assert_eq!(m["Math/线代"], vec!["Math/线代/SVD.md"]);
+    }
+
+    #[test]
+    fn rooted_group_follows_renames_but_is_never_a_parent() {
+        let mut m = map(&[("/项目中心", &["数学.md", "论文.md"])]);
+        rename_path(&mut m, "数学.md", "代数.md");
+        assert_eq!(m["/项目中心"], vec!["代数.md", "论文.md"]);
+        assert_eq!(index_of(&m, "代数.md"), None);
+        remove_path(&mut m, "论文.md");
+        assert_eq!(m["/项目中心"], vec!["代数.md"]);
     }
 
     #[test]

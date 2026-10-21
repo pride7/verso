@@ -90,6 +90,7 @@ const apiMock = {
   writeNote: vi.fn(async () => 1),
   propSet: vi.fn(async () => {}),
   propSchema: vi.fn(async () => ({})),
+  order: vi.fn(async () => [] as string[]),
   propDefSet: vi.fn(async () => {}),
   viewQuery: vi.fn(async () => ({ rows: projects, columns: [], view: "table", groupBy: null, properties: [] })),
 };

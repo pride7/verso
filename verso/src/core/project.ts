@@ -780,7 +780,7 @@ export function projectCard(row: ViewRow): ProjectCard {
   };
 }
 
-export type ProjectCardSort = "updated" | "created" | "name" | "status";
+export type ProjectCardSort = "updated" | "created" | "name" | "status" | "manual";
 
 /** 键的顺序就是菜单里的顺序 */
 export const PROJECT_CARD_SORT_LABELS: Record<ProjectCardSort, string> = {
@@ -788,11 +788,40 @@ export const PROJECT_CARD_SORT_LABELS: Record<ProjectCardSort, string> = {
   created: "最近创建",
   name: "名称 A→Z",
   status: "按状态",
+  manual: "自定义",
 };
+
+/**
+ * 项目中心的自定义顺序记在 `.verso-order.json` 里的哪一组（同文档树的手排，§2.10）。
+ *
+ * 那个文件的键本来是父目录，项目却散在各处、没有一个共同的父 —— 所以借一个
+ * **不可能是 vault 相对路径**的键：以 `/` 开头。文档树按 `parent_of(path)`
+ * 查组，永远查不到它；Verso 自己的重命名、删除照样会修好这一组里的路径。
+ */
+export const PROJECT_ORDER_GROUP = "/项目中心";
 
 /** 存起来的排序方式读回来；认不出的（换过版本、手改过）退回默认 */
 export function readProjectCardSort(raw: unknown): ProjectCardSort {
   return typeof raw === "string" && raw in PROJECT_CARD_SORT_LABELS ? (raw as ProjectCardSort) : "updated";
+}
+
+/**
+ * 拖完之后的完整顺序。`all` 是**屏幕上**全部项目的当前顺序（筛选之前），
+ * `visible` 是筛过的那一截，`from` / `to` 是被拖的卡片在 `visible` 里的起止位置。
+ *
+ * 起点是屏幕上的顺序而不是顺序文件（同文档树）：按「最近修改」排着的时候拖一下，
+ * 除了被拖的那张，别的都不该动。筛选中拖动时只认看得见的邻居 —— 往后拖就落在
+ * 目标那张的后面，往前拖落在它前面，看不见的卡片之间的相对次序原样保留。
+ */
+export function moveProjectCard(all: readonly string[], visible: readonly string[], from: number, to: number): string[] {
+  const moved = visible[from];
+  const anchor = visible[to];
+  if (moved === undefined || anchor === undefined || from === to) return [...all];
+  const rest = all.filter((path) => path !== moved);
+  const at = rest.indexOf(anchor);
+  if (at < 0) return [...all];
+  rest.splice(to > from ? at + 1 : at, 0, moved);
+  return rest;
 }
 
 /** 「按状态」的先后：还在发生的在前，收场了的在后 —— 和四档语义色同一套（§6.2） */
@@ -812,9 +841,15 @@ function newestFirst(a: string, b: string): number {
  *
  * 返回新数组，不改原数组（和 `sortTree` 一个理由：那是 state）。
  */
-export function sortProjectCards(cards: ProjectCard[], sort: ProjectCardSort): ProjectCard[] {
+export function sortProjectCards(cards: ProjectCard[], sort: ProjectCardSort, order: readonly string[] = []): ProjectCard[] {
+  const rank = new Map(order.map((path, index) => [path, index]));
+  // 没排过的（新建的、顺序文件陈旧了的）沉到底，同文档树
+  const ranked = (card: ProjectCard) => rank.get(card.path) ?? Number.MAX_SAFE_INTEGER;
+  const manual = sort === "manual";
   const by = (a: ProjectCard, b: ProjectCard): number => {
     switch (sort) {
+      case "manual":
+        return ranked(a) - ranked(b);
       case "name":
         return naturalCmp(a.title, b.title);
       case "created":
@@ -828,6 +863,9 @@ export function sortProjectCards(cards: ProjectCard[], sort: ProjectCardSort): P
   return [...cards].sort(
     (a, b) =>
       Number(b.pinned) - Number(a.pinned) ||
+      // 自定义时置顶组内部也听拖出来的顺序，否则钉住的那几张永远拖不动；
+      // 两张都没排过才退回「先钉的在前」
+      (manual ? by(a, b) : 0) ||
       (a.pinned && b.pinned ? byPinTime(a.pinnedAt, b.pinnedAt) : 0) ||
       by(a, b) ||
       newestFirst(a.updated, b.updated) ||

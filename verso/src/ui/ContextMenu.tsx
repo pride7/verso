@@ -16,6 +16,8 @@ export interface MenuItem {
   icon: IconName;
   /** 右侧的小字，一般是当前生效的快捷键 */
   hint?: string;
+  /** 图标按状态的语义色上色（`statusTone` 的结果），改状态的那几条用 */
+  tone?: string;
   danger?: boolean;
   disabled?: boolean;
   run: () => void;
@@ -75,6 +77,15 @@ export function ContextMenu({
   );
 }
 
+/**
+ * 带语义色的图标包一层 `.tone`：外面那条把 `button > svg` 压成 muted 的规则
+ * 就够不着它了，颜色从这一层继承下来
+ */
+function ItemIcon({ item }: { item: MenuItem }) {
+  const icon = <Icon name={item.icon} size={14} />;
+  return item.tone ? <span className="ctx-tone tone" data-tone={item.tone}>{icon}</span> : icon;
+}
+
 function Row({ item, onClose }: { item: MenuItem; onClose: () => void }) {
   return (
     <button
@@ -85,7 +96,7 @@ function Row({ item, onClose }: { item: MenuItem; onClose: () => void }) {
         item.run();
       }}
     >
-      <Icon name={item.icon} size={14} />
+      <ItemIcon item={item} />
       {item.label}
       {item.hint && <span className="ctx-key">{item.hint}</span>}
     </button>
@@ -108,13 +119,14 @@ function Submenu({ item, onClose }: { item: MenuItem; onClose: () => void }) {
     <li
       ref={host}
       className={`ctx-parent${open ? " is-open" : ""}`}
-      // 悬停就开，离开就关。点一下也能开 —— 触摸板上「悬停」这件事不可靠，
-      // 而这个菜单本来就是给指针设备的
+      // 悬停就开，离开就关。点一下也能开 —— 触摸板上「悬停」这件事不可靠。
+      // 点只开不关：手指一点，浏览器先补一个 mouseover 再发 click，切换的话
+      // 刚被悬停打开就又被点关了，手机上永远展不开
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
-      <button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <Icon name={item.icon} size={14} />
+      <button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(true)}>
+        <ItemIcon item={item} />
         {item.label}
         <Icon name="chevron" size={12} className="ctx-arrow" />
       </button>

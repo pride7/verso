@@ -104,6 +104,7 @@ vi.mock("../../../src/host/api", () => ({
     propSchema: async () => ({}),
     propDefSet: async () => {},
     reorder: async () => {},
+    order: async () => [],
     writeAttachment: async () => "",
     writeFrontmatter: async () => 0,
     workspaceGet: async () => ({ tabs: ["论文.md"], active: 0, pinnedCount: 0 }),

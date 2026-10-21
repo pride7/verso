@@ -15,6 +15,7 @@ import {
   projectCard,
   projectItemTime,
   projectStatusOptions,
+  moveProjectCard,
   readProjectCardSort,
   removeProjectStatus,
   sectionNameError,
@@ -597,7 +598,35 @@ describe("项目中心的卡片", () => {
     expect(sortProjectCards(cards, "created").map((c) => c.title)).toEqual(["有时间", "没时间"]);
   });
 
+  it("自定义：按拖出来的顺序，没排过的沉到底，置顶照样在最前", () => {
+    const cards = [
+      card("甲", { updated: "2026-08-01" }),
+      card("乙", { updated: "2026-08-02" }),
+      card("新建的", { updated: "2026-08-09" }),
+      card("钉二", { pinned: true, pinnedAt: "2026-08-27 10:00:00" }),
+      card("钉一", { pinned: true, pinnedAt: "2026-08-27 10:05:00" }),
+    ];
+    const order = ["钉一.md", "乙.md", "钉二.md", "甲.md", "已删掉的.md"];
+    expect(sortProjectCards(cards, "manual", order).map((c) => c.title))
+      .toEqual(["钉一", "钉二", "乙", "甲", "新建的"]);
+    // 一张都没排过时，置顶组退回队列、其余退回最近修改 —— 不是一团乱
+    expect(sortProjectCards(cards, "manual").map((c) => c.title))
+      .toEqual(["钉二", "钉一", "新建的", "乙", "甲"]);
+  });
+
+  it("拖完的顺序：只挪被拖的那张，筛选中按看得见的邻居落位", () => {
+    const all = ["a", "b", "c", "d", "e"];
+    expect(moveProjectCard(all, all, 0, 2)).toEqual(["b", "c", "a", "d", "e"]);
+    expect(moveProjectCard(all, all, 4, 1)).toEqual(["a", "e", "b", "c", "d"]);
+    expect(moveProjectCard(all, all, 2, 2)).toEqual(all);
+    // 只看得见 b、d、e：把 e 拖到 b 前面 → 落在 b 前，a、c 原地不动
+    expect(moveProjectCard(all, ["b", "d", "e"], 2, 0)).toEqual(["a", "e", "b", "c", "d"]);
+    // 把 b 拖到 d 的位置 → 落在 d 后面
+    expect(moveProjectCard(all, ["b", "d", "e"], 0, 1)).toEqual(["a", "c", "d", "b", "e"]);
+  });
+
   it("存起来的排序方式认不出就退回默认", () => {
+    expect(readProjectCardSort("manual")).toBe("manual");
     expect(readProjectCardSort("name")).toBe("name");
     expect(readProjectCardSort("bogus")).toBe("updated");
     expect(readProjectCardSort(null)).toBe("updated");
