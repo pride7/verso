@@ -157,6 +157,12 @@ export const versoTheme = EditorView.theme({
     // 同样避开纵向 margin（见上面那条注释），块级 widget 也进高度图
     padding: "0.5em 0",
     overflowX: "auto",
+    // 宽度不由内容决定 —— 没有这一行，上面的 overflow-x 从来不会滚：表头
+    // `nowrap`、列一多，表格的最小内容宽度就把 `.cm-content` 撑得比正文栏
+    // 还宽，整篇正文跟着按撑宽后的宽度折行，右半截落到窗口外面。和
+    // `.cm-dbview` 是同一个坑（styles.css 那段注释，v0.8.47）。只含内联轴，
+    // 高度照旧由内容决定，CM 量块级 widget 高度那条路不受影响
+    contain: "inline-size",
     borderRadius: "var(--r-lg)",
     border: "1px solid var(--hairline)",
   },

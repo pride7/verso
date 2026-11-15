@@ -435,3 +435,61 @@ describe("单元格就地编辑", () => {
     expect(v.dom.textContent).toContain("|---|---|");
   });
 });
+
+/**
+ * 作者报的：一张列多、表头长的表（论文 rebuttal 里那种性能对照表）让上面那段
+ * 正文也显示不全，每行右半截被窗口切掉。
+ *
+ * 和 v0.8.47 的看板是同一个病：`.cm-table` 写着 `overflow-x: auto`，可它从来
+ * 没滚过 —— 表头 `nowrap`，表格的最小内容宽度把 `.cm-content` 撑到比正文栏
+ * 还宽，于是**整篇正文**都按撑宽后的宽度折行，右边落到可视区外面。
+ *
+ * 钉两条：表格自己滚得动；正文没被撑宽。只钉前一条测不出东西 —— 坏的那种
+ * 状态里表格的盒子跟着变宽，它自己看来一切正常。
+ */
+describe("宽表格不撑宽正文", () => {
+  const WIDE =
+    "We re-measured all models under a unified inference stack using bf16 weights and CUDA graphs for per-step networks, and batch sizes from 1 to 512.\n\n" +
+    "| Model | Params | Latency, batch 1 (s) | Docs/s at batch 1 / 8 / 32 | Best docs/s (batch) | TFLOPs/doc | Gen-PPL / Entropy / MAUVE |\n" +
+    "|---|---|---|---|---|---|---|\n" +
+    "| BLD G=8, 50 steps | 595M | 0.467 | 2.07 / 16.0 / 45.3 | 100.7 (512) | 1.10 | 26.6 / 5.17 / 0.82 |\n\n" +
+    "结尾";
+
+  function mountNarrow() {
+    const view = mount(WIDE);
+    // 正文栏收窄到装不下这张表，和应用里开着侧栏时差不多
+    (view.dom.parentElement as HTMLElement).style.width = "640px";
+    view.requestMeasure();
+    return view;
+  }
+
+  it("装不下的列归表格自己滚，正文栏不跟着变宽", async () => {
+    const view = mountNarrow();
+    await settle();
+
+    const wrap = view.dom.querySelector<HTMLElement>(".cm-table")!;
+    expect(wrap.scrollWidth, "表格没有溢出 = 这条测试没测到东西").toBeGreaterThan(
+      wrap.clientWidth + 50,
+    );
+
+    const scroller = view.scrollDOM;
+    expect(scroller.scrollWidth, "正文被表格撑宽了").toBeLessThanOrEqual(scroller.clientWidth + 1);
+    expect(wrap.getBoundingClientRect().right).toBeLessThanOrEqual(
+      scroller.getBoundingClientRect().right + 1,
+    );
+  });
+
+  it("表格上面那段正文按正文栏折行，右边不出界", async () => {
+    const view = mountNarrow();
+    await settle();
+
+    const scroller = view.scrollDOM.getBoundingClientRect();
+    const para = [...view.dom.querySelectorAll<HTMLElement>(".cm-line")].find((l) =>
+      l.textContent?.startsWith("We re-measured"),
+    )!;
+    expect(para, "找不到那段正文").toBeTruthy();
+    expect(para.getBoundingClientRect().right).toBeLessThanOrEqual(scroller.right + 1);
+    // 真折了行：一行装不下这段话
+    expect(para.getBoundingClientRect().height).toBeGreaterThan(40);
+  });
+});
