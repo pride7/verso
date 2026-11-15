@@ -114,6 +114,13 @@ describe("把手", () => {
   it("平时不显示，鼠标进了表格才浮现", async () => {
     const v = mount(DOC);
     await settle();
+    // 真实指针停在哪儿取决于上一个跑完的测试文件 —— 恰好停在表上的话
+    // `:hover` 命中，把手就是浮现态。先把它挪到角落里一块空地上。
+    // （`userEvent.unhover` 挪到的是 body 正中，正中可能就是这张表）
+    const park = document.createElement("div");
+    park.style.cssText = "position:fixed;right:0;bottom:0;width:8px;height:8px";
+    document.body.appendChild(park);
+    await userEvent.hover(park);
     const grip = cols(v)[0];
     expect(Number(getComputedStyle(grip).opacity)).toBe(0);
     // 藏着的时候不能挡住单元格 —— 点单元格是就地改字的入口
